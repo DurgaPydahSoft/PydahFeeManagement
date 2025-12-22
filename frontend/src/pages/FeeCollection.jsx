@@ -365,6 +365,10 @@ const FeeCollection = () => {
                                         <span className="font-bold text-gray-700">{student.current_year}</span>
                                     </div>
                                     <div>
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Sem</span>
+                                        <span className="font-bold text-gray-700 font-mono">{student.current_semester}</span>
+                                    </div>
+                                    <div>
                                         <span className="text-[10px] text-gray-400 uppercase font-bold block">Mobile</span>
                                         <span className="font-bold text-gray-700">{student.student_mobile}</span>
                                     </div>
@@ -453,6 +457,7 @@ const FeeCollection = () => {
                                                         transaction={t}
                                                         allTransactions={transactions} // Pass full history to find batch siblings
                                                         student={student}
+                                                        totalDue={totalDueAmount}
                                                     />
                                                 ))
                                             )}
@@ -719,6 +724,7 @@ const FeeCollection = () => {
                                         transaction={lastTransaction} // We might need to pass array if template supports it. For now, template prints single. 
                                         transactions={relatedTransactions} // Pass array
                                         student={student}
+                                        totalDue={totalDueAmount}
                                     />
                                 </div>
                             </div>
@@ -730,7 +736,7 @@ const FeeCollection = () => {
     );
 };
 
-const TransactionRow = ({ transaction, allTransactions = [], student }) => {
+const TransactionRow = ({ transaction, allTransactions = [], student, totalDue }) => {
     const componentRef = useRef();
 
     // Filter all transactions that match this receipt number (for batch printing)
@@ -791,6 +797,7 @@ const TransactionRow = ({ transaction, allTransactions = [], student }) => {
                             transaction={transaction}
                             transactions={relatedBatch.length > 0 ? relatedBatch : [transaction]}
                             student={student}
+                            totalDue={totalDue}
                         />
                     </div>
                 </td>

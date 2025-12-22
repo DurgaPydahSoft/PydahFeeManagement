@@ -1,6 +1,6 @@
 # Fee Collection & Management – Pending Implementation Tasks
 
-1. Fee Head Creation
+1. Fee Head Creation --done
 
    * Add a unique fee head code during fee head creation for better identification and reporting.
 
@@ -19,12 +19,12 @@
    * Display **fee dues across all academic years**.
    * Add **filters** to view dues year-wise and fee-head-wise.
 
-5. **Transaction Terminology Update**
+5. **Transaction Terminology Update** --done
 
    * Rename **Credit** to **Concession**, with fee head mapping.
    * Rename **Debit** to **Collect Fee** for clarity in transactions.
 
-6. **Payment Mode Enhancements**
+6. **Payment Mode Enhancements** --done
 
    * Restrict payment modes to **Cash** and **Bank** only.
    * For **Bank** payments, include sub-options:
@@ -33,26 +33,26 @@
      * **Cheque** – cheque number, cheque date, and bank name.
      * **DD** – DD number, DD date, and bank name.
 
-7. **Payment History Enhancements**
+7. **Payment History Enhancements** --done
 
    * Add **advanced filters** in the payment history section (date, mode, fee head, academic year).
 
-8. **Fee Collection Dashboard Enhancement**
+8. **Fee Collection Dashboard Enhancement** --done
 
    * Redesign the dashboard to a **minimal view** with the ability to **expand and view more data** when required.
 
-9. **Post-Payment Print Flow**
+9. **Post-Payment Print Flow** --done
 
    * After saving a collected payment, display a **popup for receipt printing**.
 
-10. **Receipt Printing Format**
+10. **Receipt Printing Format** --done
 
     * Print **two duplicate copies** on the same page:
 
       * One for the **Cashier**
       * One for the **Student**
 
-11. **Multiple Fee Head Collection**
+11. **Multiple Fee Head Collection** --done
 
     * Enable **multi-fee-head selection** in fee collection.
     * Allow **multiple fee payments under a single receipt**, reflected correctly in both records and printed receipts.
@@ -62,9 +62,9 @@
     * Add a dedicated **Reports** page under Fee Management.
     * Include the following reports:
 
-      * Day-end report
-      * Cashier-wise report
-      * Fee-head-wise report
-      * Cash vs Bank report
+      * Day-end report --done
+      * Cashier-wise report --done
+      * Fee-head-wise report --done
+      * Cash vs Bank report --done
       * Fee due report
 

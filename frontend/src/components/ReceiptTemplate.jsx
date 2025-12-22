@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 
-const ReceiptTemplate = forwardRef(({ transaction, transactions, student }, ref) => {
+const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalDue }, ref) => {
     // Determine the list of items to show
     let items = [];
     if (transactions && transactions.length > 0) {
@@ -91,6 +91,14 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student }, ref)
                             <td colSpan="2" style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
                             <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px' }}>₹{totalAmount}</td>
                         </tr>
+                        {/* Display Pending Due if available */}
+                        {(totalDue !== undefined && totalDue !== null) && (
+                            <tr>
+                                <td colSpan="3" style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', color: '#dc2626', fontSize: '11px', fontStyle: 'italic' }}>
+                                    Total Pending Due: <span style={{ fontWeight: 'bold' }}>₹{Number(totalDue).toLocaleString()}</span>
+                                </td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
                 <div style={{ fontSize: '11px', marginTop: '5px' }}>
