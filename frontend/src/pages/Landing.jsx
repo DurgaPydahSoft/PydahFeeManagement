@@ -19,7 +19,7 @@ const Landing = () => {
             </div>
 
             {/* Navbar */}
-            <nav className="relative z-10 flex justify-between items-center py-4 px-6 md:px-12 backdrop-blur-sm bg-white/70 sticky top-0 border-b border-gray-100">
+            <nav className="relative z-10 flex justify-between items-center py-5 px-8 md:px-16 backdrop-blur-sm bg-white/70 sticky top-0 border-b border-gray-100">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-700 to-blue-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
@@ -32,8 +32,8 @@ const Landing = () => {
             </nav>
 
             {/* Hero Section */}
-            <section className="relative z-10 pt-12 pb-20 px-6 md:px-12">
-                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <section className="relative z-10 pt-16 pb-24 px-8 md:px-16">
+                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
 
                     {/* Hero Text */}
                     <div className="space-y-8">
@@ -42,7 +42,7 @@ const Landing = () => {
                             <span className="text-xs font-bold text-blue-700  tracking-wide">Institutional Finance v2.0</span>
                         </div>
 
-                        <h1 className="text-4xl lg:text-6xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+                        <h1 className="text-4xl md:text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
                             Powering the <br />
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 animate-gradient-x">
                                 Future of Education
@@ -177,7 +177,7 @@ const Landing = () => {
             </section>
 
             {/* Innovative Features Grid */}
-            <section className="py-16 px-6 md:px-12 bg-white relative">
+            <section className="py-20 px-8 md:px-16 bg-white relative">
                 <div className="max-w-7xl mx-auto">
                     <div className="mb-20">
                         <h2 className="text-4xl font-bold text-slate-900 mb-6">Engineered for <br /> <span className="text-blue-600">Excellence</span></h2>
@@ -186,7 +186,7 @@ const Landing = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                         {/* Card 1 */}
-                        <div className="group p-6 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-blue-600 hover:to-blue-700 hover:text-white transition-all duration-300 relative overflow-hidden">
+                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-blue-600 hover:to-blue-700 hover:text-white transition-all duration-300 relative overflow-hidden">
                             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
                                 <Shield size={28} />
                             </div>
@@ -198,7 +198,7 @@ const Landing = () => {
                         </div>
 
                         {/* Card 2 */}
-                        <div className="group p-6 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-purple-600 hover:to-purple-700 hover:text-white transition-all duration-300 relative overflow-hidden">
+                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-purple-600 hover:to-purple-700 hover:text-white transition-all duration-300 relative overflow-hidden">
                             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-purple-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
                                 <Database size={28} />
                             </div>
@@ -210,7 +210,7 @@ const Landing = () => {
                         </div>
 
                         {/* Card 3 */}
-                        <div className="group p-6 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-cyan-600 hover:to-cyan-700 hover:text-white transition-all duration-300 relative overflow-hidden">
+                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-cyan-600 hover:to-cyan-700 hover:text-white transition-all duration-300 relative overflow-hidden">
                             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-cyan-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
                                 <Activity size={28} />
                             </div>
@@ -225,7 +225,7 @@ const Landing = () => {
             </section>
 
             {/* Footer */}
-            <footer className="bg-slate-50 border-t border-slate-200 py-8 px-6">
+            <footer className="bg-slate-50 border-t border-slate-200 py-10 px-8">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center opacity-60 hover:opacity-100 transition-opacity">
                     <p className="font-bold text-slate-900 tracking-tight">Pydah<span className="text-blue-600">Fees</span> System</p>
                     <p className="text-sm text-slate-500">© 2025 Pydah Group. Internal Use Only.</p>
