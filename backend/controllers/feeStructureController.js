@@ -7,36 +7,17 @@ const db = require('../config/sqlDb');
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, academicYear, studentYear, amount, description, yearAmounts } = req.body;
+  const { feeHeadId, college, course, branch, academicYear, studentYear, amount, description, semester } = req.body;
+  // yearAmounts logic removed for simplifying Semester implementation as per requirement "semester heading... not display all eight semesters" in matrix.
+  // We focus on single create or toggle-based create from UI.
 
   try {
-    // 1. Bulk Mode (if yearAmounts is provided: { "1": 50000, "2": 40000 })
-    if (yearAmounts && typeof yearAmounts === 'object') {
-      // Validate common fields first
-      if (!feeHeadId || !college || !course || !branch || !academicYear) {
-          return res.status(400).json({ message: 'Missing required common fields (Fee Head, College, Course, Branch)' });
-      }
-
-      const promises = Object.entries(yearAmounts).map(async ([sYear, amt]) => {
-          if (amt === '' || amt === null || amt === undefined) return null; // Skip empty
-          
-          return FeeStructure.findOneAndUpdate(
-            { feeHead: feeHeadId, college, course, branch, academicYear, studentYear: parseInt(sYear) },
-            { amount: Number(amt), description },
-            { new: true, upsert: true }
-          );
-      });
-      await Promise.all(promises);
-      return res.status(201).json({ message: 'Bulk Fee Structure Created' });
-    }
-
-    // 2. Single Mode (Old Logic)
     if (!feeHeadId || !college || !course || !branch || !academicYear || !studentYear || amount === undefined || amount === null || amount === '') {
       return res.status(400).json({ message: 'All fields including Student Year are required' });
     }
 
     const structure = await FeeStructure.findOneAndUpdate(
-      { feeHead: feeHeadId, college, course, branch, academicYear, studentYear },
+      { feeHead: feeHeadId, college, course, branch, academicYear, studentYear, semester: semester || null },
       { amount, description },
       { new: true, upsert: true }
     );
@@ -52,7 +33,7 @@ const createFeeStructure = async (req, res) => {
 // @route   GET /api/fee-structures
 const getFeeStructures = async (req, res) => {
   try {
-    const structures = await FeeStructure.find().populate('feeHead', 'name').sort({ createdAt: -1 });
+    const structures = await FeeStructure.find().populate('feeHead', 'name code').sort({ createdAt: -1 });
     res.json(structures);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -67,113 +48,11 @@ const getStudentFeeDetails = async (req, res) => {
   const { academicYear } = req.query;
 
   try {
-    const query = { studentId: admissionNo };
-    if (academicYear) query.academicYear = academicYear;
-
-    // 1. Get Assigned Fees (StudentFee) - Sort: Oldest Academic Year First
-    // Note: academicYear is string "2024-2025", simplistic sort works but might need logic if format varies
-    const assignedFees = await StudentFee.find(query).populate('feeHead', 'name').sort({ academicYear: 1 });
+    // Fetch ALL fees for FIFO logic
+    const allFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code').sort({ academicYear: 1, semester: 1 });
     
     // 2. Get All Transactions for this student
     const transactions = await Transaction.find({ studentId: admissionNo });
-
-    // 3. FIFO Logic: Distribute Total Paid per Head across sorted Fees
-    // Group Fees by Fee Head ID to handle them together
-    const feesByHead = {};
-    
-    // Initialize groups
-    assignedFees.forEach(fee => {
-        const headId = fee.feeHead._id.toString();
-        if (!feesByHead[headId]) {
-            feesByHead[headId] = {
-                headName: fee.feeHead.name,
-                totalPaidForHead: 0,
-                feeRecords: []
-            };
-        }
-        feesByHead[headId].feeRecords.push(fee);
-    });
-
-    // Calculate Total Paid for each Head from Transactions
-    transactions.forEach(t => {
-        if (t.feeHead) {
-            const headId = t.feeHead.toString();
-            // Only count if we have fees for this head (otherwise it's an orphan payment or for a head we filtered out)
-            if (feesByHead[headId]) {
-                feesByHead[headId].totalPaidForHead += (t.amount || 0);
-            }
-        }
-    });
-
-    const finalDetails = [];
-
-    // Distribute Payment
-    Object.keys(feesByHead).forEach(headId => {
-        const group = feesByHead[headId];
-        let remainingPaid = group.totalPaidForHead;
-
-        // Records are already sorted by academic year (oldest first)
-        group.feeRecords.forEach(fee => {
-            const totalDueForThisRecord = fee.amount;
-            
-            // How much of the 'remainingPaid' covers this record?
-            // If remainingPaid >= due, we fully pay this record.
-            // If remainingPaid < due, we pay partially.
-            const paidForThisRecord = Math.min(totalDueForThisRecord, remainingPaid);
-            
-            const balanceForThisRecord = totalDueForThisRecord - paidForThisRecord;
-            
-            // Deduct used payment
-            remainingPaid -= paidForThisRecord;
-
-            finalDetails.push({
-                 _id: fee._id,
-                 feeHeadId: fee.feeHead._id,
-                 feeHeadName: fee.feeHead.name,
-                 academicYear: fee.academicYear,
-                 studentYear: fee.studentYear,
-                 totalAmount: fee.amount,
-                 paidAmount: paidForThisRecord,
-                 dueAmount: balanceForThisRecord,
-            });
-        });
-    });
-
-    // If 'academicYear' filter was applied, we might still want to show fees relative to that year.
-    // The loop above processes ALL fees for the filtered heads? No, `assignedFees` already filtered by query.
-    // Issue: If we filter by Year 2025, but I paid for 2024, my 'totalPaid' might be huge?
-    // Correct FIFO: We must process ALL years to know what's left for 2025.
-    // If req.query.academicYear exists, our `assignedFees` only has one year!
-    // BUT `transactions` has ALL payments.
-    // If I owe 50k (2024) and 50k (2025). I paid 50k.
-    // If I request details for 2025:
-    // assignedFees = [2025 Record]. transactions = [50k].
-    // Logic above: totalPaidForHead = 50k. 
-    // It will pay off 2025 Record! This is WRONG. It should have paid off 2024 first.
-    
-    // FIX: To do FIFO correctly, we must fetch ALL fees for the student initially to calculate the 'waterfall',
-    // then filter the RESULT to return only the requested year.
-    //
-    // However, looking at the code, `academicYear` query is generally NOT used for the main "FeeCollection" view (it shows all dues).
-    // If it *is* used, we need to be careful.
-    // For safety, I will fetch ALL fees first, process FIFO, then filter output.
-    
-    // RE-RUN Logic with ALL fees if filter exists
-    // Actually, for now, let's assume the user wants full picture (FeeCollection page usually shows all).
-    // If specific year filter is critical, we'll need to refactor to fetch all -> calculate -> filter.
-    // Given the prompt "fee collection page", it likely shows all.
-    // If the frontend sends `academicYear`, we might overpay. 
-    // Let's check if `academicYear` is commonly sent. 
-    // In `FeeCollection.jsx`: `const academicYear = '2024-2025';` and it IS passed in query params!
-    // `params: { ... academicYear }`.
-    // This is DANGEROUS for FIFO.
-    
-    // IMMEDIATE FIX: Ignore `academicYear` filter for the calculation base. 
-    // Fetch ALL fees, Calculate FIFO, then filter result if needed.
-    
-    // Re-querying to get FULL history for accurate FIFO
-    const allFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name').sort({ academicYear: 1 });
-    // Note: We ignore `req.query.academicYear` for the DB fetch to ensure we know about previous dues.
 
     // 1. Initialize Pools
     const specificHeadPools = {}; // Map<FeeHeadID, Amount>
@@ -181,8 +60,6 @@ const getStudentFeeDetails = async (req, res) => {
 
     // 2. Aggregate Transactions
     transactions.forEach(t => {
-        // If Type is CREDIT (or FeeHead is missing which implies generic credit/payment), add to Global Pool
-        // We assume 'amount' is positive.
         if (t.transactionType === 'CREDIT' || !t.feeHead) {
              globalCreditPool += (t.amount || 0);
         } else {
@@ -194,10 +71,8 @@ const getStudentFeeDetails = async (req, res) => {
     });
 
     // 3. Calculation Phase
-    // We will attach a temporary '_calculatedPaid' property to the fee objects in memory
     let processedResults = [];
 
-    // allFees is already sorted by academicYear (Ascending/Oldest First)
     allFees.forEach(fee => {
         const hId = fee.feeHead ? fee.feeHead._id.toString() : 'unknown';
         const totalFeeAmount = fee.amount || 0;
@@ -213,9 +88,7 @@ const getStudentFeeDetails = async (req, res) => {
         fee._tempPaid = paidSoFar; 
     });
 
-    // Phase B: Apply Global Credits to ANY remaining due (FIFO across all heads)
-    // We iterate again because we wanted to prioritize specific heads first.
-    // Now we fill holes with global credit.
+    // Phase B: Apply Global Credits
     allFees.forEach(fee => {
         const totalFeeAmount = fee.amount || 0;
         const currentPaid = fee._tempPaid || 0;
@@ -227,13 +100,14 @@ const getStudentFeeDetails = async (req, res) => {
             globalCreditPool -= creditAllocation;
         }
 
-        // Finalize Result Object
         processedResults.push({
              _id: fee._id,
              feeHeadId: fee.feeHead ? fee.feeHead._id : null,
              feeHeadName: fee.feeHead ? fee.feeHead.name : 'Unknown',
+             feeHeadCode: fee.feeHead ? fee.feeHead.code : '',
              academicYear: fee.academicYear,
              studentYear: fee.studentYear,
+             semester: fee.semester,
              totalAmount: totalFeeAmount,
              paidAmount: fee._tempPaid,
              dueAmount: totalFeeAmount - fee._tempPaid
@@ -256,21 +130,40 @@ const getStudentFeeDetails = async (req, res) => {
 // @desc    Apply a Template Fee to a Batch (Creates StudentFee records)
 // @route   POST /api/fee-structures/apply-batch
 const applyFeeToBatch = async (req, res) => {
-    const { structureId } = req.body; // or context
+    const { structureId } = req.body; 
 
     try {
         const structure = await FeeStructure.findById(structureId);
         if(!structure) return res.status(404).json({message: 'Structure not found'});
 
         // Fetch Students from SQL
-        // Match College, Course, Branch, and current_year == structure.studentYear
         const [students] = await db.query(`
-            SELECT admission_number, student_name, college, course, branch, current_year 
+            SELECT admission_number, student_name, college, course, branch, current_year, current_semester
             FROM students 
             WHERE college = ? AND course = ? AND branch = ? AND current_year = ?
         `, [structure.college, structure.course, structure.branch, structure.studentYear]);
 
         if(students.length === 0) return res.status(404).json({message: 'No students found in this batch'});
+
+        // CHECK: If structure has semester, ONLY apply to students in that semester? 
+        // OR apply to all in that year, but tag as that semester fee?
+        // Usually, 'Apply Batch' matches the student's current state. 
+        // If Structure is for Sem 1, apply to students.
+        // If Structure is Academic Year "ALL", we use student's current academic year?
+        // Wait, structure.academicYear might be "ALL". 
+        // If "ALL", we must fetch CURRENT ACADEMIC YEAR from somewhere.
+        // Assuming '2024-2025' is the active year, we should likely pass it or infer.
+        // For now, if structure says "ALL", we default to a system constant or require input.
+        // BETTER: When applying, we use the structure's `academicYear` IF it is specific.
+        // IF it is "ALL", we need to know the target academic year.
+        // Let's assume for this step we default "ALL" to "2024-2025" (MVP) or pass in body.
+        // I'll check if `req.body` has `targetAcademicYear`.
+        
+        let targetAcademicYear = structure.academicYear;
+        if (targetAcademicYear === 'ALL') {
+             // For now hardcode or use what was passed.
+             targetAcademicYear = req.body.targetAcademicYear || '2024-2025'; 
+        }
 
         const operations = students.map(s => {
             return {
@@ -278,8 +171,9 @@ const applyFeeToBatch = async (req, res) => {
                     filter: { 
                         studentId: s.admission_number, 
                         feeHead: structure.feeHead,
-                        academicYear: structure.academicYear,
-                        studentYear: structure.studentYear 
+                        academicYear: targetAcademicYear,
+                        studentYear: structure.studentYear,
+                        semester: structure.semester // Include Semester in filter
                     },
                     update: { 
                         $set: {
@@ -288,7 +182,8 @@ const applyFeeToBatch = async (req, res) => {
                             course: s.course,
                             branch: s.branch,
                             amount: structure.amount,
-                            structureId: structure._id
+                            structureId: structure._id,
+                            semester: structure.semester // Save semester
                         }
                     },
                     upsert: true
@@ -318,7 +213,8 @@ const saveStudentFees = async (req, res) => {
                         studentId: f.studentId, 
                         feeHead: f.feeHeadId,
                         academicYear: f.academicYear,
-                        studentYear: f.studentYear 
+                        studentYear: f.studentYear,
+                        semester: f.semester
                     },
                     update: { 
                         $set: {
@@ -326,7 +222,8 @@ const saveStudentFees = async (req, res) => {
                             college: f.college,
                             course: f.course,
                             branch: f.branch,
-                            amount: Number(f.amount)
+                            amount: Number(f.amount),
+                            semester: f.semester
                         }
                     },
                     upsert: true
@@ -346,9 +243,20 @@ const saveStudentFees = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, academicYear, studentYear, amount, description } = req.body;
+  const { feeHeadId, college, course, branch, academicYear, studentYear, amount, description, semester } = req.body;
+  const user = req.user ? req.user.username : 'system'; 
 
   try {
+    const existing = await FeeStructure.findById(id);
+    if (!existing) return res.status(404).json({ message: 'Fee Structure not found' });
+
+    // History Logic
+    const historyEntry = {
+        updatedBy: user,
+        updatedAt: new Date(),
+        changeDescription: `Updated amount from ${existing.amount} to ${amount}`
+    };
+
     const updatedStructure = await FeeStructure.findByIdAndUpdate(
       id,
       { 
@@ -358,15 +266,13 @@ const updateFeeStructure = async (req, res) => {
         branch, 
         academicYear, 
         studentYear, 
+        semester,
         amount, 
-        description 
+        description,
+        $push: { history: historyEntry }
       },
       { new: true }
     );
-
-    if (!updatedStructure) {
-      return res.status(404).json({ message: 'Fee Structure not found' });
-    }
     
     res.json(updatedStructure);
   } catch (error) {

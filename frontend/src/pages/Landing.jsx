@@ -33,7 +33,7 @@ const Landing = () => {
 
             {/* Hero Section */}
             <section className="relative z-10 pt-16 pb-24 px-8 md:px-16">
-                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                <div className=" mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
 
                     {/* Hero Text */}
                     <div className="space-y-8">

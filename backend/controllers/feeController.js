@@ -16,7 +16,7 @@ const getFeeHeads = async (req, res) => {
 // @route   POST /api/fee-heads
 // @access  Public (for now)
 const createFeeHead = async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, code } = req.body;
 
   if (!name) {
     return res.status(400).json({ message: 'Please add a fee head name' });
@@ -27,15 +27,24 @@ const createFeeHead = async (req, res) => {
     if (feeHeadExists) {
       return res.status(400).json({ message: 'Fee Head already exists' });
     }
+    
+    // Check code uniqueness if provided
+    if (code) {
+        const codeExists = await FeeHead.findOne({ code });
+        if (codeExists) {
+            return res.status(400).json({ message: 'Fee Head Code already exists' });
+        }
+    }
 
     const feeHead = await FeeHead.create({
       name,
       description,
+      code
     });
 
     res.status(201).json(feeHead);
   } catch (error) {
-    res.status(500).json({ message: 'Server Error' });
+    res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
 
@@ -62,7 +71,7 @@ const deleteFeeHead = async (req, res) => {
 // @route   PUT /api/fee-heads/:id
 // @access  Public (for now)
 const updateFeeHead = async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, code } = req.body;
 
   try {
     const feeHead = await FeeHead.findById(req.params.id);
@@ -71,8 +80,9 @@ const updateFeeHead = async (req, res) => {
       return res.status(404).json({ message: 'Fee Head not found' });
     }
 
-    feeHead.name = name || feeHead.name;
-    feeHead.description = description || feeHead.description;
+    if (name) feeHead.name = name;
+    if (description) feeHead.description = description;
+    if (code) feeHead.code = code;
 
     const updatedFeeHead = await feeHead.save();
     res.json(updatedFeeHead);

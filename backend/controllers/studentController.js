@@ -81,7 +81,27 @@ const getStudentMetadata = async (req, res) => {
   }
 };
 
+// @desc    Get Single Student by Admission Number (with Photo)
+// @route   GET /api/students/:id
+const getStudentByAdmissionNumber = async (req, res) => {
+    try {
+        const { id } = req.params; // admission_number
+
+        const [rows] = await db.query(`SELECT * FROM students WHERE admission_number = ?`, [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        res.json(rows[0]);
+    } catch (error) {
+        console.error('Error fetching student details:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
 module.exports = {
   getStudents,
-  getStudentMetadata
+  getStudentMetadata,
+  getStudentByAdmissionNumber
 };

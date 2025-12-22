@@ -15,27 +15,83 @@ const FeeCollection = () => {
     // Fee Details
     const [feeDetails, setFeeDetails] = useState([]);
 
-    // Payment Form
+    // Multi-Select State (Dynamic Inputs)
+    // List of { id: unique_id, feeHeadId: '', amount: '' }
+    const [feeRows, setFeeRows] = useState([{ id: Date.now(), feeHeadId: '', amount: '' }]);
+
+    // Payment Form (Global settings for the batch)
     const [paymentForm, setPaymentForm] = useState({
-        selectedFeeHeadId: '',
-        amount: '',
         paymentMode: 'Cash',
         remarks: '',
-        transactionType: 'DEBIT'
+        transactionType: 'DEBIT',
+        bankName: '',
+        instrumentDate: '',
+        referenceNo: ''
     });
+
+    const [paymentCategory, setPaymentCategory] = useState('Cash'); // 'Cash' | 'Bank'
 
     // History
     const [transactions, setTransactions] = useState([]);
 
+    // Modals
+    const [showReceiptModal, setShowReceiptModal] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState(false); // Confirmation Modal
+
+    const [lastTransaction, setLastTransaction] = useState(null); // Primary transaction object
+    const [relatedTransactions, setRelatedTransactions] = useState([]); // All transactions in the batch
+    const receiptRef = useRef();
+
+    // Print Handler
+    const handlePrintReceipt = useReactToPrint({
+        contentRef: receiptRef,
+        documentTitle: lastTransaction ? `Receipt-${lastTransaction.receiptNumber}` : 'Receipt',
+        onAfterPrint: () => setShowReceiptModal(false)
+    });
+
+
+    // Helper: Fetch Student Data (Avoids UI flicker/reset)
+    const fetchStudentData = async (selectedStudent) => {
+        try {
+            // 1. Fetch Full Student Details (including Photo)
+            const fullStudentRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/${selectedStudent.admission_number}`);
+            const found = fullStudentRes.data;
+
+            const college = found.college;
+            const course = found.course;
+            const branch = found.branch;
+            const studentYear = found.current_year;
+            const academicYear = '2024-2025'; // Default for MVP
+
+            // 2. Fetch Fee Details
+            const feesRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures/student/${found.admission_number}`, {
+                params: { college, course, branch, studentYear, academicYear }
+            });
+            setFeeDetails(feesRes.data);
+
+            // 3. Fetch History
+            const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`);
+            setTransactions(histRes.data);
+
+            // Update student object in case it changed (though unlikely for same ID)
+            setStudent(found);
+
+        } catch (error) {
+            console.error(error);
+            setError('Error refreshing student details.');
+        }
+    };
 
 
     const handleSearch = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         setLoading(true);
         setError('');
         setStudent(null);
         setFeeDetails([]);
         setFoundStudents([]);
+        setTransactions([]);
+        setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset Rows
 
         try {
             // 1. Fetch Student from SQL (Scoped)
@@ -75,98 +131,166 @@ const FeeCollection = () => {
     };
 
     const selectStudent = async (selectedStudent) => {
-        setStudent(selectedStudent);
         setFoundStudents([]);
         setLoading(true);
-
-        try {
-            // 2. Fetch Fee Details (Structure vs Paid)
-            const found = selectedStudent;
-            const college = found.college;
-            const course = found.course;
-            const branch = found.branch;
-            const studentYear = found.current_year; // Use current year from DB
-            const academicYear = '2024-2025'; // Default for MVP
-
-            if (!college || !course || !branch || !studentYear) {
-                console.warn("Student record missing metadata:", found);
-            }
-
-            const feesRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures/student/${found.admission_number}`, {
-                params: { college, course, branch, studentYear, academicYear }
-            });
-            setFeeDetails(feesRes.data);
-
-            // 3. Fetch History
-            const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`);
-            setTransactions(histRes.data);
-        } catch (error) {
-            console.error(error);
-            setError('Error fetching student details.');
-        }
+        setStudent(selectedStudent);
+        await fetchStudentData(selectedStudent);
         setLoading(false);
     };
 
-    const handlePayment = async (e) => {
+    // --- Dynamic Row Handlers ---
+    const addFeeRow = () => {
+        setFeeRows([...feeRows, { id: Date.now(), feeHeadId: '', amount: '' }]);
+    };
+
+    const removeFeeRow = (id) => {
+        if (feeRows.length === 1) return; // Don't remove the last row
+        setFeeRows(feeRows.filter(row => row.id !== id));
+    };
+
+    const updateFeeRow = (id, field, value) => {
+        const newRows = feeRows.map(row => {
+            if (row.id === id) {
+                const updatedRow = { ...row, [field]: value };
+                // Auto-fill amount if feeHeadId changes
+                if (field === 'feeHeadId') {
+                    const selectedFee = feeDetails.find(f => f.feeHeadId === value);
+                    if (selectedFee) {
+                        updatedRow.amount = selectedFee.dueAmount > 0 ? selectedFee.dueAmount : '';
+                    } else {
+                        updatedRow.amount = '';
+                    }
+                }
+                return updatedRow;
+            }
+            return row;
+        });
+        setFeeRows(newRows);
+    };
+    // ----------------------------
+
+    // Step 1: Trigger Confirmation
+    const handlePrePayment = (e) => {
         e.preventDefault();
 
-        // Validation: Fee Head is required only for DEBIT
-        if (paymentForm.transactionType === 'DEBIT' && !paymentForm.selectedFeeHeadId) {
-            alert('Please select a Fee Head to pay for.');
+        // Validation
+        const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+        if (validRows.length === 0) {
+            alert('Please select at least one Fee Head and enter a valid amount.');
             return;
         }
 
+        setShowConfirmModal(true);
+    };
+
+    // Step 2: Actual Submission
+    const confirmAndPay = async () => {
         try {
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/transactions`, {
+            const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+
+            // Build Common Data
+            const commonData = {
                 studentId: student.admission_number,
                 studentName: student.student_name,
-                feeHeadId: paymentForm.selectedFeeHeadId || null,
-                amount: Number(paymentForm.amount),
-                paymentMode: paymentForm.paymentMode,
+                semester: student.current_semester,
+                studentYear: student.current_year,
                 transactionType: paymentForm.transactionType || 'DEBIT',
                 remarks: paymentForm.remarks,
-                semester: student.current_semester,
-                academicYear: student.current_year,
                 collectedBy: JSON.parse(localStorage.getItem('user'))?.username || 'Unknown',
                 collectedByName: JSON.parse(localStorage.getItem('user'))?.name || 'Unknown'
+            };
+
+            // Payment Mode Details
+            if (paymentForm.transactionType === 'DEBIT') {
+                commonData.paymentMode = paymentForm.paymentMode;
+                if (paymentCategory === 'Bank') {
+                    commonData.bankName = paymentForm.bankName;
+                    commonData.instrumentDate = paymentForm.instrumentDate;
+                    commonData.referenceNo = paymentForm.referenceNo;
+                }
+            } else {
+                commonData.paymentMode = 'Credit';
+            }
+
+            // Create Batch Array
+            const batchTransactions = validRows.map(row => ({
+                ...commonData,
+                feeHeadId: row.feeHeadId,
+                amount: Number(row.amount)
+            }));
+
+            // Send as { transactions: [...] } to match Backend Batch Interface
+            const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/transactions`, {
+                transactions: batchTransactions
             });
 
-            alert(paymentForm.transactionType === 'CREDIT' ? 'Credit/Waiver Recorded Successfully!' : 'Payment Recorded Successfully!');
-            handleSearch(e);
-            setPaymentForm({ ...paymentForm, amount: '', remarks: '', selectedFeeHeadId: '' });
+            // Success!!
+            const responseData = res.data;
+            setLastTransaction(responseData);
+            setRelatedTransactions(responseData.relatedTransactions || [responseData]);
+
+            setShowConfirmModal(false); // Close Confirm
+            setShowReceiptModal(true); // Show Receipt
+
+            // Refresh Data
+            await fetchStudentData(student);
+            setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset to 1 empty row
+
+            setPaymentForm(prev => ({
+                ...prev,
+                remarks: '',
+                amount: '',
+                bankName: '', instrumentDate: '', referenceNo: ''
+            }));
+
         } catch (error) {
             console.error(error);
             alert('Payment Failed');
+            setShowConfirmModal(false);
         }
     };
+
+    // Filter Logic
+    const [historyFilter, setHistoryFilter] = useState({ mode: '', feeHead: '' });
+    const uniqueFeeHeads = [...new Set(transactions.map(t => t.feeHead?.name).filter(Boolean))];
+    const filteredTransactions = transactions.filter(t => {
+        if (historyFilter.mode && t.paymentMode !== historyFilter.mode) return false;
+        if (historyFilter.feeHead && t.feeHead?.name !== historyFilter.feeHead) return false;
+        return true;
+    });
+
+    const totalSelectedAmount = feeRows.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+    const totalDueAmount = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
 
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
-            <div className="flex-1 p-4 md:p-6">
-                <header className="mb-4">
-                    <h1 className="text-2xl font-bold text-gray-800">Fee Collection</h1>
-                    <p className="text-sm text-gray-500 mt-1">Search student and collect fees.</p>
-                </header>
+            <div className="flex-1 p-4 md:p-6 relative">
 
-                {/* Search Bar */}
-                <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-4">
-                    <form onSubmit={handleSearch} className="flex gap-4">
+                {/* Header with Search */}
+                <header className="mb-4 flex flex-col md:flex-row justify-between items-center gap-4 px-2">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-800">Fee Collection</h1>
+                        <p className="text-sm text-gray-500">Collect fees and manage transactions.</p>
+                    </div>
+
+                    <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-auto">
                         <input
                             type="text"
-                            placeholder="Enter Name, Admission No, Mobile, or Pin No..."
-                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
+                            placeholder="Admn No / Mobile / Name"
+                            className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm shadow-sm"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
-                        <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition">
+                        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition text-sm shadow-sm">
                             Search
                         </button>
                     </form>
-                    {error && <p className="text-red-500 mt-2">{error}</p>}
-                </div>
+                </header>
 
-                {loading && <div className="text-center py-8"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div></div>}
+                {error && <p className="text-red-500 mb-4 bg-red-50 p-2 rounded border border-red-100">{error}</p>}
+
+                {loading && !student && <div className="text-center py-8"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div></div>}
 
                 {foundStudents.length > 0 && (
                     <div className="mb-8">
@@ -193,7 +317,7 @@ const FeeCollection = () => {
                         </div>
                         <h3 className="text-xl font-bold text-gray-800 mb-2">Ready to Collect Fees</h3>
                         <p className="text-gray-500 max-w-sm text-center">
-                            Search for a student by Name, Admission Number, or Mobile Number to view their fee details and record payments.
+                            Search for a student using the bar above to get started.
                         </p>
                     </div>
                 )}
@@ -202,38 +326,47 @@ const FeeCollection = () => {
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Left Column: Student Info, Fee Dues & Payment History */}
                         <div className="lg:col-span-2 space-y-4">
-                            {/* Student Card */}
-                            <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100 flex flex-col md:flex-row items-center md:items-start gap-4">
-                                <div className="h-12 w-12 bg-blue-100 rounded-full flex flex-shrink-0 items-center justify-center text-2xl">🎓</div>
-                                <div className="flex-1 w-full">
-                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-2">
-                                        <div>
-                                            <h2 className="text-lg font-bold text-gray-800">{student.student_name}</h2>
-                                            <p className="text-sm text-gray-500">{student.college} • {student.course} - {student.branch}</p>
-                                        </div>
-                                    </div>
 
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-gray-50 p-3 rounded-md border border-gray-100">
-                                        <div>
-                                            <span className="block text-[10px] text-gray-400 uppercase font-semibold">Admission No</span>
-                                            <span className="font-bold text-gray-700">{student.admission_number}</span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-[10px] text-gray-400 uppercase font-semibold">Pin No</span>
-                                            <span className="font-bold text-gray-700">{student.pin_no || '-'}</span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-[10px] text-gray-400 uppercase font-semibold">Current Year</span>
-                                            <span className="font-bold text-blue-600">{student.current_year || 'N/A'}</span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-[10px] text-gray-400 uppercase font-semibold">Semester</span>
-                                            <span className="font-bold text-blue-600">{student.current_semester || '-'}</span>
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <span className="block text-[10px] text-gray-400 uppercase font-semibold">Mobile</span>
-                                            <span className="font-bold text-gray-700">{student.student_mobile}</span>
-                                        </div>
+                            {/* Student Card (Compact - Single Row) */}
+                            <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100 flex flex-wrap items-center gap-6 text-sm">
+                                {/* Image & Name */}
+                                <div className="flex items-center gap-3">
+                                    <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+                                        {student.student_photo ? (
+                                            <img
+                                                src={student.student_photo.startsWith('data:') ? student.student_photo : `data:image/jpeg;base64,${student.student_photo}`}
+                                                alt=""
+                                                className="h-full w-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="h-full w-full flex items-center justify-center text-xl">🎓</div>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <h2 className="font-bold text-gray-800 text-lg">{student.student_name}</h2>
+                                        <p className="text-xs text-blue-600 font-semibold">{student.course} - {student.branch}</p>
+                                    </div>
+                                </div>
+
+                                <div className="hidden md:block h-10 w-px bg-gray-200"></div>
+
+                                {/* Details Grid */}
+                                <div className="grid grid-cols-2 md:flex md:items-center gap-x-6 gap-y-2">
+                                    <div>
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Admission No</span>
+                                        <span className="font-bold text-gray-700 font-mono">{student.admission_number}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Pin No</span>
+                                        <span className="font-bold text-gray-700 font-mono">{student.pin_no || '-'}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Year</span>
+                                        <span className="font-bold text-gray-700">{student.current_year}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Mobile</span>
+                                        <span className="font-bold text-gray-700">{student.student_mobile}</span>
                                     </div>
                                 </div>
                             </div>
@@ -242,6 +375,7 @@ const FeeCollection = () => {
                             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                                     <h3 className="font-bold text-gray-700">Fee Dues Summary (Year {student.current_year})</h3>
+                                    {loading && <span className="text-xs text-blue-500 animate-pulse">Refreshing...</span>}
                                 </div>
                                 <table className="w-full text-left">
                                     <thead className="bg-gray-50 border-b">
@@ -250,43 +384,54 @@ const FeeCollection = () => {
                                             <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Total Fee</th>
                                             <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Paid</th>
                                             <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Balance</th>
-                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-center">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {feeDetails.length === 0 ? (
-                                            <tr><td colSpan="5" className="py-6 text-center text-gray-500">No applicable fees found for {student.college}/{student.course} Year {student.current_year}.</td></tr>
+                                            <tr><td colSpan="4" className="py-6 text-center text-gray-500">No applicable fees found for {student.college}/{student.course} Year {student.current_year}.</td></tr>
                                         ) : (
-                                            feeDetails.map((fee, idx) => (
-                                                <tr key={idx} className={fee.dueAmount > 0 ? "bg-red-50" : ""}>
-                                                    <td className="py-2 px-4 text-sm font-medium">{fee.feeHeadName}</td>
-                                                    <td className="py-2 px-4 text-sm text-right">₹{fee.totalAmount.toLocaleString()}</td>
-                                                    <td className="py-2 px-4 text-sm text-right text-green-600">₹{fee.paidAmount.toLocaleString()}</td>
-                                                    <td className="py-2 px-4 text-sm text-right font-bold text-red-600">₹{fee.dueAmount.toLocaleString()}</td>
-                                                    <td className="py-2 px-4 text-center">
-                                                        {fee.dueAmount > 0 && (
-                                                            <button
-                                                                onClick={() => setPaymentForm({ ...paymentForm, selectedFeeHeadId: fee.feeHeadId, amount: fee.dueAmount })}
-                                                                className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-                                                            >
-                                                                Select
-                                                            </button>
-                                                        )}
-                                                        {fee.dueAmount <= 0 && <span className="text-xs text-green-600 font-bold">PAID</span>}
-                                                    </td>
+                                            <>
+                                                {feeDetails.map((fee, idx) => (
+                                                    <tr key={idx} className={fee.dueAmount > 0 ? "bg-red-50" : ""}>
+                                                        <td className="py-2 px-4 text-sm font-medium">{fee.feeHeadName}</td>
+                                                        <td className="py-2 px-4 text-sm text-right">₹{fee.totalAmount.toLocaleString()}</td>
+                                                        <td className="py-2 px-4 text-sm text-right text-green-600">₹{fee.paidAmount.toLocaleString()}</td>
+                                                        <td className="py-2 px-4 text-sm text-right font-bold text-red-600">₹{fee.dueAmount.toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                                {/* Total Row */}
+                                                <tr className="bg-gray-100 font-bold border-t-2 border-gray-200">
+                                                    <td className="py-2 px-4 text-sm text-gray-800 text-right" colSpan="3">Total Due:</td>
+                                                    <td className="py-2 px-4 text-sm text-right text-red-700">₹{totalDueAmount.toLocaleString()}</td>
                                                 </tr>
-                                            ))
+                                            </>
                                         )}
                                     </tbody>
                                 </table>
                             </div>
 
-                            {/* Payment History - Moved under Fee Dues Summary */}
+                            {/* Payment History */}
                             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                                <h3 className="font-bold text-gray-800 px-4 py-3 border-b">Payment History</h3>
-                                <div className="overflow-x-auto">
+                                <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
+                                    <h3 className="font-bold text-gray-800">Payment History</h3>
+                                    <div className="flex gap-2 text-xs">
+                                        <select className="border rounded p-1" value={historyFilter.mode} onChange={e => setHistoryFilter({ ...historyFilter, mode: e.target.value })}>
+                                            <option value="">All Modes</option>
+                                            <option>Cash</option>
+                                            <option>UPI</option>
+                                            <option>Cheque</option>
+                                            <option>DD</option>
+                                            <option>Waiver</option>
+                                        </select>
+                                        <select className="border rounded p-1 max-w-[150px]" value={historyFilter.feeHead} onChange={e => setHistoryFilter({ ...historyFilter, feeHead: e.target.value })}>
+                                            <option value="">All Fee Heads</option>
+                                            {uniqueFeeHeads.map(fh => <option key={fh} value={fh}>{fh}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto max-h-[400px]">
                                     <table className="w-full text-left">
-                                        <thead className="bg-gray-50 border-b">
+                                        <thead className="bg-gray-50 border-b sticky top-0">
                                             <tr>
                                                 <th className="py-2 px-4 text-xs font-semibold text-gray-600 whitespace-nowrap">Date</th>
                                                 <th className="py-2 px-4 text-xs font-semibold text-gray-600">Description</th>
@@ -299,13 +444,14 @@ const FeeCollection = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
-                                            {transactions.length === 0 ? (
-                                                <tr><td colSpan="7" className="py-6 text-center text-gray-500">No transactions found.</td></tr>
+                                            {filteredTransactions.length === 0 ? (
+                                                <tr><td colSpan="8" className="py-6 text-center text-gray-500">No matching transactions found.</td></tr>
                                             ) : (
-                                                transactions.map((t, i) => (
+                                                filteredTransactions.map((t, i) => (
                                                     <TransactionRow
                                                         key={t._id || i}
                                                         transaction={t}
+                                                        allTransactions={transactions} // Pass full history to find batch siblings
                                                         student={student}
                                                     />
                                                 ))
@@ -325,59 +471,138 @@ const FeeCollection = () => {
                                         className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
                                         onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
                                     >
-                                        Debit (Receive)
+                                        Collect Fee
                                     </button>
                                     <button
                                         className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-500 hover:bg-gray-50'}`}
                                         onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
                                     >
-                                        Credit (Give/Waive)
+                                        Concession
                                     </button>
                                 </div>
 
                                 <div className="p-4">
-                                    <h3 className={`font-bold mb-3 border-b pb-2 ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-700' : 'text-purple-700'}`}>
-                                        {paymentForm.transactionType === 'DEBIT' ? 'Record Payment Info' : 'Record Credit / Waiver'}
-                                    </h3>
-                                    <form onSubmit={handlePayment} className="space-y-3">
+                                    <div className="flex justify-between items-center mb-3 border-b pb-2">
+                                        <h3 className={`font-bold ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-700' : 'text-purple-700'}`}>
+                                            {paymentForm.transactionType === 'DEBIT' ? 'Record Payment Info' : 'Record Concession / Waiver'}
+                                        </h3>
+                                        <button
+                                            type="button"
+                                            onClick={addFeeRow}
+                                            className="bg-green-100 text-green-700 p-1 rounded hover:bg-green-200 transition"
+                                            title="Add Another Fee Head"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                        </button>
+                                    </div>
+
+                                    <form onSubmit={handlePrePayment} className="space-y-3">
+
+                                        {/* Dynamic Rows */}
+                                        <div className="space-y-3">
+                                            {feeRows.map((row, index) => (
+                                                <div key={row.id} className="flex gap-2 items-start bg-gray-50 p-2 rounded border border-gray-200">
+                                                    <div className="flex-1">
+                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Fee Head {index + 1}</label>
+                                                        <select
+                                                            className="w-full border p-1 rounded text-sm"
+                                                            value={row.feeHeadId}
+                                                            onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
+                                                            required
+                                                        >
+                                                            <option value="">-- Select --</option>
+                                                            {feeDetails.map(f => (
+                                                                <option key={f.feeHeadId} value={f.feeHeadId}>{f.feeHeadName} (Due: ₹{f.dueAmount})</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="w-24">
+                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Amount</label>
+                                                        <input
+                                                            type="number"
+                                                            className="w-full border p-1 rounded text-sm"
+                                                            value={row.amount}
+                                                            onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                            required
+                                                            placeholder="0"
+                                                        />
+                                                    </div>
+                                                    {feeRows.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeFeeRow(row.id)}
+                                                            className="mt-6 text-gray-400 hover:text-red-500"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Total Summary */}
+                                        <div className="flex justify-between items-center py-2 border-t border-b mt-2">
+                                            <span className="font-bold text-gray-600">Total Amount:</span>
+                                            <span className="text-xl font-bold text-blue-700">₹{totalSelectedAmount}</span>
+                                        </div>
+
+                                        {/* PAYMENT MODE SELECTION (Only for DEBIT) */}
                                         {paymentForm.transactionType === 'DEBIT' && (
                                             <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase">Fee Head</label>
-                                                <select
-                                                    className="w-full border p-2 rounded mt-1 bg-white"
-                                                    value={paymentForm.selectedFeeHeadId}
-                                                    onChange={e => setPaymentForm({ ...paymentForm, selectedFeeHeadId: e.target.value })}
-                                                    required
-                                                >
-                                                    <option value="">-- Select Fee --</option>
-                                                    {feeDetails.map(f => (
-                                                        <option key={f.feeHeadId} value={f.feeHeadId}>{f.feeHeadName} (Due: ₹{f.dueAmount})</option>
-                                                    ))}
-                                                </select>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Payment Mode</label>
+                                                <div className="flex gap-4 mb-2">
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="radio" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
+                                                        <span className="text-sm font-medium">Cash</span>
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="radio" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { setPaymentCategory('Bank'); setPaymentForm({ ...paymentForm, paymentMode: 'UPI' }); }} />
+                                                        <span className="text-sm font-medium">Bank</span>
+                                                    </label>
+                                                </div>
+
+                                                {/* Sub-options for Bank */}
+                                                {paymentCategory === 'Bank' && (
+                                                    <div className="bg-gray-50 p-3 rounded border border-gray-200 space-y-3">
+                                                        <div>
+                                                            <label className="text-xs font-bold text-gray-400">Bank Option</label>
+                                                            <select className="w-full border p-2 rounded mt-1 bg-white" value={paymentForm.paymentMode} onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}>
+                                                                <option value="UPI">UPI</option>
+                                                                <option value="Cheque">Cheque</option>
+                                                                <option value="DD">Demand Draft (DD)</option>
+                                                                <option value="Card">Card</option>
+                                                                <option value="Net Banking">Net Banking</option>
+                                                            </select>
+                                                        </div>
+                                                        {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (
+                                                            <div>
+                                                                <label className="text-xs font-bold text-gray-400">Transaction / Ref No *</label>
+                                                                <input type="text" className="w-full border p-2 rounded mt-1" placeholder="e.g. UPI Ref No" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                            </div>
+                                                        )}
+                                                        {['Cheque', 'DD'].includes(paymentForm.paymentMode) && (
+                                                            <>
+                                                                <div className="grid grid-cols-2 gap-2">
+                                                                    <div>
+                                                                        <label className="text-xs font-bold text-gray-400">{paymentForm.paymentMode} No *</label>
+                                                                        <input type="text" className="w-full border p-2 rounded mt-1" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs font-bold text-gray-400">Date *</label>
+                                                                        <input type="date" className="w-full border p-2 rounded mt-1" value={paymentForm.instrumentDate || ''} onChange={e => setPaymentForm({ ...paymentForm, instrumentDate: e.target.value })} required />
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-xs font-bold text-gray-400">Bank Name *</label>
+                                                                    <input type="text" className="w-full border p-2 rounded mt-1" placeholder="e.g. SBI, HDFC" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase">Amount</label>
-                                            <input
-                                                type="number"
-                                                className="w-full border p-2 rounded mt-1"
-                                                value={paymentForm.amount}
-                                                onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase">Mode</label>
-                                            <select
-                                                className="w-full border p-2 rounded mt-1 bg-white"
-                                                value={paymentForm.paymentMode}
-                                                onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
-                                            >
-                                                <option>Cash</option>
-                                                <option>UPI</option>
-                                                <option>Cheque</option>
-                                            </select>
-                                        </div>
+
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase">Remarks</label>
                                             <textarea
@@ -387,10 +612,114 @@ const FeeCollection = () => {
                                                 onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
                                             ></textarea>
                                         </div>
-                                        <button className={`w-full text-white font-bold py-2 rounded shadow-md transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
-                                            {paymentForm.transactionType === 'DEBIT' ? 'Collect Payment' : 'Process Credit'}
+                                        <button disabled={totalSelectedAmount <= 0} className={`w-full text-white font-bold py-2 rounded shadow-md transition-colors ${totalSelectedAmount <= 0 ? 'bg-gray-400 cursor-not-allowed' : (paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700')}`}>
+                                            {paymentForm.transactionType === 'DEBIT' ? `Collect ₹${totalSelectedAmount}` : `Process Concession ₹${totalSelectedAmount}`}
                                         </button>
                                     </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* CONFIRMATION MODAL */}
+                {showConfirmModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px] p-4 transition-all duration-300">
+                        <div className="bg-white rounded-lg shadow-2xl max-w-sm w-full overflow-hidden border border-gray-100 transform scale-100 transition-transform">
+                            <div className="p-6">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Confirm Payment?</h3>
+
+                                <div className="space-y-2 mb-6">
+                                    {feeRows.filter(r => r.feeHeadId && r.amount > 0).map((row, idx) => {
+                                        const fh = feeDetails.find(f => f.feeHeadId === row.feeHeadId);
+                                        return (
+                                            <div key={idx} className="flex justify-between text-sm">
+                                                <span className="text-gray-600">{fh ? fh.feeHeadName : 'Fee Head'}</span>
+                                                <span className="font-bold">₹{row.amount}</span>
+                                            </div>
+                                        );
+                                    })}
+                                    <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-base mt-2">
+                                        <span>Total</span>
+                                        <span className="text-blue-600">₹{totalSelectedAmount}</span>
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-2">
+                                        Mode: <span className="font-semibold">{paymentForm.paymentMode}</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={confirmAndPay}
+                                        className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700"
+                                    >
+                                        Yes, Confirm
+                                    </button>
+                                    <button
+                                        onClick={() => setShowConfirmModal(false)}
+                                        className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg font-bold hover:bg-gray-200"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* RECEIPT MODAL */}
+                {showReceiptModal && (lastTransaction || relatedTransactions.length > 0) && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px] p-4 transition-all duration-300">
+                        <div className="bg-white rounded-lg shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 transform scale-100 transition-transform">
+                            <div className="bg-green-600 text-white p-4 flex justify-between items-center">
+                                <h3 className="text-lg font-bold">✓ Transaction Successful</h3>
+                                <button onClick={() => setShowReceiptModal(false)} className="text-white hover:bg-green-700 rounded-full p-1">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <div className="p-6 text-center">
+                                <div className="mb-4">
+                                    <p className="text-gray-600">Successfully recorded transaction(s).</p>
+                                    <p className="text-3xl font-bold text-gray-800 mt-1">₹{relatedTransactions.reduce((acc, t) => acc + t.amount, 0)}</p>
+                                    <p className="text-sm text-gray-500 mt-2">Receipt No: {lastTransaction?.receiptNumber}</p>
+
+                                    {/* Small breakdown if multiple */}
+                                    {relatedTransactions.length > 1 && (
+                                        <div className="mt-4 bg-gray-50 p-2 rounded text-xs text-left max-h-32 overflow-y-auto">
+                                            {relatedTransactions.map((t, i) => (
+                                                <div key={i} className="flex justify-between border-b last:border-0 py-1">
+                                                    <span>{t.feeHead?.name || 'Fee'}</span>
+                                                    <span className="font-bold">₹{t.amount}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-3 justify-center">
+                                    <button
+                                        onClick={handlePrintReceipt}
+                                        className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                        Print Receipt
+                                    </button>
+                                    <button
+                                        onClick={() => setShowReceiptModal(false)}
+                                        className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg font-bold hover:bg-gray-200"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+
+                                {/* Hidden Receipt Component for Printing */}
+                                <div style={{ display: 'none' }}>
+                                    <ReceiptTemplate
+                                        ref={receiptRef}
+                                        transaction={lastTransaction} // We might need to pass array if template supports it. For now, template prints single. 
+                                        transactions={relatedTransactions} // Pass array
+                                        student={student}
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -401,8 +730,11 @@ const FeeCollection = () => {
     );
 };
 
-const TransactionRow = ({ transaction, student }) => {
+const TransactionRow = ({ transaction, allTransactions = [], student }) => {
     const componentRef = useRef();
+
+    // Filter all transactions that match this receipt number (for batch printing)
+    const relatedBatch = allTransactions.filter(t => t.receiptNumber === transaction.receiptNumber);
 
     const handlePrint = useReactToPrint({
         contentRef: componentRef,
@@ -420,24 +752,26 @@ const TransactionRow = ({ transaction, student }) => {
                     <div className="flex flex-col">
                         <span>{transaction.feeHead?.name}</span>
                         <span className={`text-[10px] uppercase font-bold ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-blue-600'}`}>
-                            {transaction.transactionType || 'DEBIT'}
+                            {transaction.transactionType}
                         </span>
                     </div>
                     <span className="block text-[10px] text-gray-400">By: {transaction.collectedByName || transaction.collectedBy || 'System'}</span>
                 </td>
                 <td className="py-2 px-4 text-sm font-mono text-gray-700">{transaction.receiptNumber}</td>
                 <td className="py-2 px-4 text-sm text-gray-600 text-center">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${(transaction.paymentMode || 'cash').toLowerCase() === 'online' || (transaction.paymentMode || 'cash').toLowerCase() === 'upi'
-                        ? 'bg-blue-100 text-blue-700'
-                        : (transaction.paymentMode || 'cash').toLowerCase() === 'cheque'
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-gray-100 text-gray-700'
-                        }`}>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${(transaction.paymentMode || 'cash').toLowerCase() === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                         {(transaction.paymentMode || 'Cash').toUpperCase()}
                     </span>
+                    {(transaction.paymentMode !== 'Cash') && (
+                        <div className="text-[10px] text-gray-500 mt-1 text-left pl-2 border-l-2 border-gray-200">
+                            {transaction.bankName && <div className="font-semibold">{transaction.bankName}</div>}
+                            {transaction.referenceNo && <div>Ref: {transaction.referenceNo}</div>}
+                            {transaction.instrumentDate && <div>Dt: {new Date(transaction.instrumentDate).toLocaleDateString()}</div>}
+                        </div>
+                    )}
                 </td>
                 <td className="py-2 px-4 text-sm text-gray-600 text-center font-medium">
-                    {transaction.academicYear ? `${transaction.academicYear} / ${transaction.semester || '-'}` : (transaction.semester || '-')}
+                    {transaction.studentYear ? `${transaction.studentYear} / ${transaction.semester || '-'}` : (transaction.semester || '-')}
                 </td>
                 <td className={`py-2 px-4 text-sm font-bold text-right ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
                     {transaction.transactionType === 'CREDIT' ? '-' : '+'}₹{transaction.amount}
@@ -455,6 +789,7 @@ const TransactionRow = ({ transaction, student }) => {
                         <ReceiptTemplate
                             ref={componentRef}
                             transaction={transaction}
+                            transactions={relatedBatch.length > 0 ? relatedBatch : [transaction]}
                             student={student}
                         />
                     </div>

@@ -7,6 +7,12 @@ const feeHeadSchema = mongoose.Schema({
     unique: true,
     trim: true,
   },
+  code: {
+    type: String,
+    unique: true,
+    trim: true,
+    sparse: true, // Allows null/undefined to not conflict (useful for existing data migration)
+  },
   description: {
     type: String,
   },

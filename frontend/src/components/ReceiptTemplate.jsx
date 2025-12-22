@@ -1,112 +1,148 @@
 import React, { forwardRef } from 'react';
 
-const ReceiptTemplate = forwardRef(({ transaction, student }, ref) => {
-    // Safety check just in case, but parent should control rendering
-    if (!transaction || !student) return null;
+const ReceiptTemplate = forwardRef(({ transaction, transactions, student }, ref) => {
+    // Determine the list of items to show
+    let items = [];
+    if (transactions && transactions.length > 0) {
+        items = transactions;
+    } else if (transaction) {
+        items = [transaction];
+    } else {
+        return null;
+    }
 
-    return (
-        <div ref={ref} style={{
-            padding: '40px',
-            backgroundColor: 'white',
-            fontFamily: 'Arial, sans-serif',
-            color: 'black',
-            width: '100%',
-            maxWidth: '800px',
-            margin: '0 auto'
+    const primary = items[0]; // Shared details
+    const totalAmount = items.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    // Helper component for a single receipt copy
+    const ReceiptOneCopy = ({ copyTitle }) => (
+        <div style={{
+            padding: '20px 40px',
+            height: '48%', // Roughly half page
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxSizing: 'border-box'
         }}>
-            <style type="text/css" media="print">
-                {`
-                    @page { size: auto; margin: 20mm; }
-                    body { -webkit-print-color-adjust: exact; }
-                `}
-            </style>
-
-            <div style={{
-                textAlign: 'center',
-                borderBottom: '2px solid #000',
-                paddingBottom: '20px',
-                marginBottom: '30px'
-            }}>
-                <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0 }}>
+            {/* Header */}
+            <div style={{ textAlign: 'center', borderBottom: '1px solid #ccc', paddingBottom: '10px', marginBottom: '15px' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, color: '#000' }}>
                     {student.college || 'PYDAH GROUP OF COLLEGES'}
                 </h1>
-                <p style={{ fontSize: '14px', color: '#555', marginTop: '5px' }}>Kakinada, Andhra Pradesh</p>
-                <div style={{
-                    marginTop: '15px',
-                    border: '2px solid #000',
-                    display: 'inline-block',
-                    padding: '5px 20px',
-                    borderRadius: '4px'
-                }}>
-                    <h2 style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0 }}>Fee Receipt</h2>
+                <p style={{ fontSize: '12px', color: '#555', margin: '2px 0' }}>Kakinada, Andhra Pradesh</p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
+                    <div style={{ fontSize: '11px', fontStyle: 'italic' }}>{copyTitle}</div>
+                    <div style={{ border: '1px solid #000', padding: '2px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        Fee Receipt
+                    </div>
+                    <div style={{ fontSize: '11px', width: '60px' }}></div> {/* Spacer for center alignment */}
                 </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', fontSize: '14px' }}>
+            {/* Meta Info */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '10px' }}>
                 <div>
-                    <p style={{ margin: '5px 0' }}><strong>Receipt No:</strong> {transaction.receiptNumber}</p>
-                    <p style={{ margin: '5px 0' }}><strong>Date:</strong> {new Date(transaction.createdAt).toLocaleDateString()}</p>
+                    <p style={{ margin: '2px 0' }}><strong>Receipt No:</strong> {primary.receiptNumber}</p>
+                    <p style={{ margin: '2px 0' }}><strong>Date:</strong> {new Date(primary.createdAt).toLocaleDateString()}</p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                    <p style={{ margin: '5px 0' }}><strong>Academic Year:</strong> {student.current_year}</p>
-                    {transaction.semester && <p style={{ margin: '5px 0' }}><strong>Semester:</strong> {transaction.semester}</p>}
+                    <p style={{ margin: '2px 0' }}><strong>Current Year:</strong> {student.current_year}</p>
+                    <p style={{ margin: '2px 0' }}><strong>Sem:</strong> {primary.semester || student.current_year}</p>
                 </div>
             </div>
 
+            {/* Student Details - Compact grid */}
             <div style={{
-                marginBottom: '30px',
-                padding: '15px',
-                backgroundColor: '#f9f9f9',
-                border: '1px solid #ddd',
-                borderRadius: '4px'
+                marginBottom: '10px', padding: '8px', backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '4px'
             }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px' }}>
-                    <p style={{ margin: 0 }}><strong>Name:</strong> {student.student_name}</p>
-                    <p style={{ margin: 0 }}><strong>Admission No:</strong> {student.admission_number}</p>
-                    <p style={{ margin: 0 }}><strong>Course:</strong> {student.course}</p>
-                    <p style={{ margin: 0 }}><strong>Branch:</strong> {student.branch}</p>
-                    <p style={{ margin: 0, gridColumn: '1 / -1' }}><strong>Father Name:</strong> {student.father_name || '-'}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', fontSize: '12px' }}>
+                    <div><strong>Name:</strong> {student.student_name}</div>
+                    <div><strong>Adm No:</strong> {student.admission_number}</div>
+                    <div><strong>Pin No:</strong> {student.pin_no || '-'}</div>
+                    <div><strong>Course:</strong> {student.course}</div>
+                    <div><strong>Branch:</strong> {student.branch}</div>
                 </div>
             </div>
 
-            <div style={{ marginBottom: '30px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000' }}>
+            {/* Table */}
+            <div style={{ flexGrow: 1 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '12px' }}>
                     <thead>
                         <tr style={{ backgroundColor: '#f0f0f0' }}>
-                            <th style={{ border: '1px solid #000', padding: '10px', textAlign: 'left', width: '50px' }}>S.No</th>
-                            <th style={{ border: '1px solid #000', padding: '10px', textAlign: 'left' }}>Particulars</th>
-                            <th style={{ border: '1px solid #000', padding: '10px', textAlign: 'right', width: '120px' }}>Amount (₹)</th>
+                            <th style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', width: '40px' }}>S.No</th>
+                            <th style={{ border: '1px solid #000', padding: '5px', textAlign: 'left' }}>Particulars</th>
+                            <th style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', width: '100px' }}>Amount (₹)</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>1</td>
-                            <td style={{ border: '1px solid #000', padding: '10px' }}>
-                                <div style={{ fontWeight: 'bold' }}>{transaction.feeHead?.name}</div>
-                                <div style={{ fontSize: '12px', fontStyle: 'italic', color: '#666' }}>{transaction.remarks}</div>
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px', textAlign: 'right', fontWeight: 'bold' }}>{transaction.amount}</td>
-                        </tr>
-                        <tr>
-                            <td colSpan="2" style={{ border: '1px solid #000', padding: '10px', textAlign: 'right', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Received</td>
-                            <td style={{ border: '1px solid #000', padding: '10px', textAlign: 'right', fontWeight: 'bold', fontSize: '16px' }}>₹{transaction.amount}</td>
+                        {items.map((item, index) => (
+                            <tr key={index}>
+                                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{index + 1}</td>
+                                <td style={{ border: '1px solid #000', padding: '5px' }}>
+                                    <div>{item.feeHead?.name || 'Fee'}</div>
+                                    {item.remarks && <div style={{ fontSize: '10px', fontStyle: 'italic', color: '#666' }}>{item.remarks}</div>}
+                                </td>
+                                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right' }}>{item.amount}</td>
+                            </tr>
+                        ))}
+                        {/* Fill empty rows to maintain height if needed, OR just let it flex */}
+
+                        <tr style={{ backgroundColor: '#f9f9f9' }}>
+                            <td colSpan="2" style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
+                            <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px' }}>₹{totalAmount}</td>
                         </tr>
                     </tbody>
                 </table>
-            </div>
-
-            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: '20px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', padding: '5px 30px 0', fontSize: '12px', margin: 0 }}>Accountant</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: 'bold', marginBottom: '30px', margin: '0 0 30px' }}>{transaction.collectedByName || 'Authorized Signature'}</p>
-                    <p style={{ borderTop: '1px solid #000', padding: '5px 30px 0', fontSize: '12px', margin: 0 }}>Receiver Signature</p>
+                <div style={{ fontSize: '11px', marginTop: '5px' }}>
+                    <strong>Mode:</strong> {items[0].paymentMode}
+                    {items[0].paymentMode !== 'Cash' && ` (${items[0].bankName || ''} - ${items[0].referenceNo || ''})`}
                 </div>
             </div>
 
-            <div style={{ marginTop: '30px', textAlign: 'center', fontSize: '10px', color: '#888' }}>
-                <p>This is a computer generated receipt.</p>
+            {/* Footer / Sign */}
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 5px 0' }}>{primary.collectedByName || 'Admin'}</p>
+                    <p style={{ borderTop: '1px solid #000', paddingTop: '2px', fontSize: '11px', margin: 0, width: '120px' }}>Cashier Sign</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    return (
+        <div ref={ref} style={{
+            width: '100%',
+            height: '100%', // Print full page
+            backgroundColor: 'white',
+            fontFamily: 'Arial, sans-serif',
+            color: 'black',
+            margin: '0 auto',
+            boxSizing: 'border-box'
+        }}>
+            <style type="text/css" media="print">
+                {`
+                    @page { size: A4; margin: 0; }
+                    body { -webkit-print-color-adjust: exact; margin: 0; height: 100vh; }
+                `}
+            </style>
+
+            {/* Copy 1: Student Copy */}
+            <div style={{ height: '50vh', position: 'relative' }}>
+                <ReceiptOneCopy copyTitle="STUDENT COPY" />
+
+                {/* Dotted Separator Line */}
+                <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: '20px',
+                    right: '20px',
+                    borderBottom: '2px dashed #ccc'
+                }}></div>
+            </div>
+
+            {/* Copy 2: Office Copy */}
+            <div style={{ height: '50vh', paddingTop: '10px' }}>
+                <ReceiptOneCopy copyTitle="OFFICE COPY" />
             </div>
         </div>
     );

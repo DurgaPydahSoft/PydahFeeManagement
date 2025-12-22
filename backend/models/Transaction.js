@@ -27,8 +27,14 @@ const transactionSchema = mongoose.Schema({
   },
   paymentMode: {
     type: String,
-    enum: ['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Adjustment', 'Waiver', 'Refund'],
+    enum: ['Cash', 'UPI', 'Cheque', 'DD', 'Card', 'Net Banking', 'Adjustment', 'Waiver', 'Refund', 'Credit'],
     default: 'Cash',
+  },
+  bankName: {
+    type: String, // For Cheque or DD
+  },
+  instrumentDate: {
+    type: Date, // For Cheque/DD Date
   },
   referenceNo: {
     type: String,
@@ -39,12 +45,12 @@ const transactionSchema = mongoose.Schema({
   semester: {
     type: String, // e.g., "1", "2"
   },
-  academicYear: {
+  studentYear: {
     type: String, // e.g., "1", "2", "3", "4"
   },
   receiptNumber: {
     type: String,
-    unique: true,
+    // unique: true, // Removed to allow multiple transactions to share the same receipt number
   },
   collectedBy: {
     type: String, // Username (e.g., 'admin')

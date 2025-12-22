@@ -1,5 +1,3 @@
-
-
 # Fee Collection Web Application
 
 ## Requirement & Functional Overview Document
@@ -10,7 +8,7 @@
 
 This document describes the functional requirements and overall concept of a web-based **Fee Collection System** designed for educational institutions.
 The application aims to simplify fee configuration, fee applicability, student-wise fee collection, and receipt generation while maintaining structured access through role-based dashboards.
-
+ 
 ---
 
 ## 2. Purpose of the Application
