@@ -1,0 +1,9 @@
+Starting Index Fix...
+MongoDB Connected
+Fetching existing indexes...
+Current Indexes: _id_, feeHead_1_college_1_course_1_branch_1_academicYear_1, feeHead_1_college_1_course_1_branch_1_academicYear_1_studentYear_1
+Index feeHead_1_course_1_academicYear_1 not found, skipping.
+Index feeHead_1_college_1_course_1_academicYear_1 not found, skipping.
+Dropping index: feeHead_1_college_1_course_1_branch_1_academicYear_1...
+Dropped feeHead_1_college_1_course_1_branch_1_academicYear_1
+Index fix complete.
