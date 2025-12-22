@@ -94,7 +94,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
             {/* Detailed Transactions Row for Daily */}
             {activeTab === 'daily' && row.transactions && expandedRows.includes(idx) && (
                 <tr className="bg-gray-50">
-                    <td colSpan="8" className="p-4 pl-10 border-t border-blue-100 shadow-inner">
+                    <td colSpan="10" className="p-4 pl-10 border-t border-blue-100 shadow-inner">
                         <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Transactions Details</div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs bg-white rounded border">
@@ -102,7 +102,12 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                                     <tr>
                                         <th className="p-2 border-r">Receipt No</th>
                                         <th className="p-2 border-r">Student Name</th>
-                                        <th className="p-2 border-r">Admission No</th>
+                                        <th className="p-2 border-r">Pin Number</th>
+                                        <th className="p-2 border-r">Admiss No</th>
+                                        <th className="p-2 border-r">Course</th>
+                                        <th className="p-2 border-r">Branch</th>
+                                        <th className="p-2 border-r">Year</th>
+                                        <th className="p-2 border-r">Sem</th>
                                         <th className="p-2 border-r">Mode</th>
                                         <th className="p-2 text-right">Amount</th>
                                     </tr>
@@ -112,7 +117,12 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                                         <tr key={i} className="border-b hover:bg-gray-50">
                                             <td className="p-2 border-r font-mono">{tx.receiptNo || '-'}</td>
                                             <td className="p-2 border-r">{tx.studentName || '-'}</td>
+                                            <td className="p-2 border-r">{tx.pinNo || '-'}</td>
                                             <td className="p-2 border-r">{tx.studentId || '-'}</td>
+                                            <td className="p-2 border-r">{tx.course || '-'}</td>
+                                            <td className="p-2 border-r">{tx.branch || '-'}</td>
+                                            <td className="p-2 border-r">{tx.studentYear || '-'}</td>
+                                            <td className="p-2 border-r">{tx.semester || '-'}</td>
                                             <td className="p-2 border-r">{tx.paymentMode}</td>
                                             <td className="p-2 text-right font-bold text-gray-700">₹{tx.amount.toLocaleString()}</td>
                                         </tr>
@@ -161,7 +171,10 @@ const Reports = () => {
             // Calc summary
             const tot = res.data.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
             const cnt = res.data.reduce((acc, curr) => acc + (curr.count || 0), 0);
-            setSummary({ totalConfirm: tot, count: cnt });
+            const cash = res.data.reduce((acc, curr) => acc + (curr.cashAmount || 0), 0);
+            const bank = res.data.reduce((acc, curr) => acc + (curr.bankAmount || 0), 0);
+
+            setSummary({ totalConfirm: tot, count: cnt, totalCash: cash, totalBank: bank });
 
         } catch (error) {
             console.error(error);
@@ -179,7 +192,7 @@ const Reports = () => {
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
-            <div className="flex-1 p-8">
+            <div className="flex-1 p-4 md:p-8">
                 <header className="mb-6">
                     <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
                         <div>
@@ -205,7 +218,7 @@ const Reports = () => {
                     </div>
                 </header>
 
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden w-full">
                     {/* Filters */}
                     <div className="p-4 border-b bg-white flex flex-wrap gap-4 items-end">
                         {/* Tabs removed from here */}
@@ -236,15 +249,23 @@ const Reports = () => {
                         </button>
                     </div>
 
-                    {/* Stats Summary */}
+                    {/* Stats Summary - Expanded */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b">
                         <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                             <p className="text-xs text-blue-600 font-bold uppercase">Total Collection</p>
-                            <p className="text-2xl font-bold text-blue-900">₹{summary.totalConfirm.toLocaleString()}</p>
+                            <p className="text-xl md:text-2xl font-bold text-blue-900">₹{summary.totalConfirm.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-green-50 p-4 rounded-lg border border-green-100">
+                            <p className="text-xs text-green-600 font-bold uppercase">Total Cash</p>
+                            <p className="text-xl md:text-2xl font-bold text-green-900">₹{(summary.totalCash || 0).toLocaleString()}</p>
+                        </div>
+                        <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                            <p className="text-xs text-indigo-600 font-bold uppercase">Total Bank</p>
+                            <p className="text-xl md:text-2xl font-bold text-indigo-900">₹{(summary.totalBank || 0).toLocaleString()}</p>
                         </div>
                         <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
                             <p className="text-xs text-purple-600 font-bold uppercase">Transactions</p>
-                            <p className="text-2xl font-bold text-purple-900">{summary.count}</p>
+                            <p className="text-xl md:text-2xl font-bold text-purple-900">{summary.count}</p>
                         </div>
                     </div>
 

@@ -1,6 +1,7 @@
 const Transaction = require('../models/Transaction');
 const StudentFee = require('../models/StudentFee');
 const mongoose = require('mongoose');
+const db = require('../config/sqlDb');
 
 // @desc    Get Transaction Reports (Daily, Cashier, FeeHead, Mode)
 // @route   GET /api/reports/transactions
@@ -149,6 +150,8 @@ const getTransactionReports = async (req, res) => {
                         count: { $sum: 1 },
                         debitAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "DEBIT"] }, "$amount", 0] } },
                         creditAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "CREDIT"] }, "$amount", 0] } },
+                        cashAmount: { $sum: { $cond: [{ $eq: ["$paymentMode", "Cash"] }, "$amount", 0] } },
+                        bankAmount: { $sum: { $cond: [{ $ne: ["$paymentMode", "Cash"] }, "$amount", 0] } },
                         transactions: {
                             $push: {
                                 receiptNo: "$receiptNumber",
@@ -157,13 +160,70 @@ const getTransactionReports = async (req, res) => {
                                 amount: "$amount",
                                 paymentMode: "$paymentMode",
                                 transactionType: "$transactionType",
-                                feeHead: "$feeHead" 
+                                feeHead: "$feeHead",
+                                semester: "$semester",      // Include semester
+                                studentYear: "$studentYear" // Include year
                             }
                         }
                     }
                 },
                 { $sort: { "_id.year": -1, "_id.month": -1, "_id.day": -1 } }
              ];
+
+             const dailyStats = await Transaction.aggregate(pipeline);
+
+             // --- SQL Enrichment Start ---
+             // Extract all studentIds (Admission Numbers)
+             const admissionNumbers = new Set();
+             dailyStats.forEach(day => {
+                 if(day.transactions) {
+                     day.transactions.forEach(tx => {
+                         if(tx.studentId) admissionNumbers.add(tx.studentId);
+                     });
+                 }
+             });
+
+             if (admissionNumbers.size > 0) {
+                 const ids = Array.from(admissionNumbers).map(id => `'${id}'`).join(',');
+                 // Query SQL for Course, Branch, Pin No
+                 const sqlQuery = `SELECT admission_number, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`;
+                 
+                 // Fix: Use await directly for Promise-based pool
+                 try {
+                    const [studentDetails] = await db.query(sqlQuery);
+                    
+                    // Create Map: AdmissionNo -> Details
+                    const studentMap = {};
+                    if(studentDetails) {
+                        studentDetails.forEach(s => {
+                            studentMap[s.admission_number] = s;
+                        });
+                    }
+
+                    // Attach to transactions
+                    dailyStats.forEach(day => {
+                        if(day.transactions) {
+                            day.transactions.forEach(tx => {
+                                const details = studentMap[tx.studentId];
+                                if(details) {
+                                    tx.pinNo = details.pin_no;
+                                    tx.course = details.course;
+                                    tx.branch = details.branch;
+                                    tx.studentYear = details.current_year;
+                                }
+                            });
+                        }
+                    });
+
+                 } catch (sqlErr) {
+                     console.error("SQL Enrichment Error:", sqlErr);
+                     // Proceed without enrichment if SQL fails, or handle appropriately
+                 }
+             }
+             // --- SQL Enrichment End ---
+
+             res.json(dailyStats);
+             return; // Return here as we handled response
         }
 
         const stats = await Transaction.aggregate(pipeline);

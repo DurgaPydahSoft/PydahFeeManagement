@@ -455,19 +455,28 @@ const FeeConfiguration = () => {
                                         {/* Amount Inputs Logic (Always All Years) */}
                                         <div className="space-y-2">
                                             <p className="text-xs font-bold text-gray-500">Enter Amounts per Year:</p>
-                                            {Array.from({ length: (metadata[structForm.college]?.[structForm.course]?.total_years) || 4 }, (_, i) => i + 1).map(y => (
-                                                <div key={y} className="flex items-center gap-2">
-                                                    <span className="w-12 text-xs font-bold text-gray-600">Yr {y}:</span>
-                                                    {feeType === 'Yearly' ? (
-                                                        <input className="flex-1 border p-1 rounded text-sm" placeholder="Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-Y`]: e.target.value })} />
-                                                    ) : (
-                                                        <div className="grid grid-cols-2 gap-2 flex-1">
-                                                            <input className="border p-1 rounded text-sm" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-S1`]: e.target.value })} />
-                                                            <input className="border p-1 rounded text-sm" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-S2`]: e.target.value })} />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
+                                            {(() => {
+                                                const selectedMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
+                                                const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 0;
+
+                                                if (yearsCount === 0) {
+                                                    return <p className="text-xs text-gray-400 italic">Select College and Course above to configure years.</p>;
+                                                }
+
+                                                return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
+                                                    <div key={y} className="flex items-center gap-2">
+                                                        <span className="w-12 text-xs font-bold text-gray-600">Yr {y}:</span>
+                                                        {feeType === 'Yearly' ? (
+                                                            <input className="flex-1 border p-1 rounded text-sm" placeholder="Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-Y`]: e.target.value })} />
+                                                        ) : (
+                                                            <div className="grid grid-cols-2 gap-2 flex-1">
+                                                                <input className="border p-1 rounded text-sm" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-S1`]: e.target.value })} />
+                                                                <input className="border p-1 rounded text-sm" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-S2`]: e.target.value })} />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ));
+                                            })()}
                                         </div>
                                     </div>
                                 )}
