@@ -19,7 +19,7 @@ const Landing = () => {
             </div>
 
             {/* Navbar */}
-            <nav className="relative z-10 flex justify-between items-center py-6 px-8 md:px-16 backdrop-blur-sm bg-white/70 sticky top-0 border-b border-gray-100">
+            <nav className="relative z-10 flex justify-between items-center py-4 px-6 md:px-12 backdrop-blur-sm bg-white/70 sticky top-0 border-b border-gray-100">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-700 to-blue-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
@@ -32,8 +32,8 @@ const Landing = () => {
             </nav>
 
             {/* Hero Section */}
-            <section className="relative z-10 pt-20 pb-32 px-8 md:px-16">
-                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+            <section className="relative z-10 pt-12 pb-20 px-6 md:px-12">
+                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
 
                     {/* Hero Text */}
                     <div className="space-y-8">
@@ -42,9 +42,9 @@ const Landing = () => {
                             <span className="text-xs font-bold text-blue-700  tracking-wide">Institutional Finance v2.0</span>
                         </div>
 
-                        <h1 className="text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+                        <h1 className="text-4xl lg:text-6xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
                             Powering the <br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500">
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 animate-gradient-x">
                                 Future of Education
                             </span>
                         </h1>
@@ -58,9 +58,9 @@ const Landing = () => {
                                 Access Dashboard
                                 <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
                             </Link>
-                            <button className="px-8 py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
+                            <Link to="/docs" className="px-8 py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center">
                                 View Documentation
-                            </button>
+                            </Link>
                         </div>
 
                         {/* Stats Row */}
@@ -96,29 +96,69 @@ const Landing = () => {
                                 </div>
                             </div>
 
-                            {/* Main Placeholder Area */}
-                            <div className="h-[450px] bg-slate-50 rounded-b-2xl flex flex-col items-center justify-center relative overflow-hidden">
+                            {/* Main Placeholder Area - Realistic Dashboard Mockup */}
+                            <div className="h-[400px] bg-slate-50 rounded-b-2xl relative overflow-hidden flex flex-row">
 
-                                {/* Abstract UI Representation */}
-                                <div className="w-full max-w-sm space-y-4 p-8 opacity-80 transition-all duration-500 hover:scale-105">
-                                    <div className="flex gap-4 mb-8">
-                                        <div className="w-16 h-16 rounded-xl bg-blue-500 shadow-lg shadow-blue-200"></div>
-                                        <div className="space-y-2 flex-1">
-                                            <div className="h-4 w-3/4 bg-slate-300 rounded"></div>
-                                            <div className="h-4 w-1/2 bg-slate-200 rounded"></div>
+                                {/* Mock Sidebar */}
+                                <div className="w-16 md:w-12 bg-white border-r border-gray-100 flex flex-col items-center py-6 gap-6 z-10 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+                                    <div className="w-8 h-8 rounded-lg bg-blue-600"></div>
+                                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center"><PieChart size={16} /></div>
+                                    <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Users size={16} /></div>
+                                    <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Database size={16} /></div>
+                                </div>
+
+                                {/* Mock Main Content */}
+                                <div className="flex-1 p-6 overflow-hidden">
+
+                                    {/* Mock Header */}
+                                    <div className="flex justify-between items-center mb-6 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+                                        <div className="h-4 w-32 bg-gray-200 rounded-full"></div>
+                                        <div className="flex gap-2">
+                                            <div className="w-8 h-8 rounded-full bg-gray-200"></div>
+                                            <div className="w-8 h-8 rounded-full bg-gray-200"></div>
                                         </div>
                                     </div>
-                                    <div className="h-32 w-full bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
-                                        <div className="h-3 w-full bg-slate-100 rounded"></div>
-                                        <div className="h-3 w-5/6 bg-slate-100 rounded"></div>
-                                        <div className="h-3 w-4/6 bg-slate-100 rounded"></div>
+
+                                    {/* Mock Stats Grid */}
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
+                                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-scale-in" style={{ animationDelay: '0.3s' }}>
+                                            <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center mb-3">
+                                                <Activity size={14} />
+                                            </div>
+                                            <div className="h-3 w-12 bg-gray-100 rounded-full mb-2"></div>
+                                            <div className="h-5 w-20 bg-slate-800 rounded-md"></div>
+                                        </div>
+                                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-scale-in" style={{ animationDelay: '0.4s' }}>
+                                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
+                                                <PieChart size={14} />
+                                            </div>
+                                            <div className="h-3 w-12 bg-gray-100 rounded-full mb-2"></div>
+                                            <div className="h-5 w-20 bg-slate-800 rounded-md"></div>
+                                        </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="h-24 bg-blue-50 rounded-xl border border-blue-100"></div>
-                                        <div className="h-24 bg-cyan-50 rounded-xl border border-cyan-100"></div>
+
+                                    {/* Mock Chart Area */}
+                                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 h-32 w-full flex items-end gap-3 justify-between px-2 pb-2 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
+                                        <div className="w-full bg-blue-100 rounded-t-sm h-[40%]"></div>
+                                        <div className="w-full bg-blue-200 rounded-t-sm h-[60%]"></div>
+                                        <div className="w-full bg-blue-300 rounded-t-sm h-[30%]"></div>
+                                        <div className="w-full bg-blue-400 rounded-t-sm h-[80%]"></div>
+                                        <div className="w-full bg-blue-500 rounded-t-sm h-[50%]"></div>
+                                        <div className="w-full bg-blue-600 rounded-t-sm h-[90%]"></div>
+                                    </div>
+
+                                    {/* Mock List Items - Floating over slightly */}
+                                    <div className="mt-4 bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-3 shadow-lg transform translate-x-4 animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
+                                        <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center">
+                                            <CheckCircle size={14} />
+                                        </div>
+                                        <div>
+                                            <div className="h-3 w-24 bg-gray-800 rounded-full mb-1"></div>
+                                            <div className="h-2 w-16 bg-gray-300 rounded-full"></div>
+                                        </div>
+                                        <div className="ml-auto h-4 w-12 bg-green-100 rounded-full text-green-700 text-[10px] flex items-center justify-center font-bold">PAID</div>
                                     </div>
                                 </div>
-                                <p className="absolute bottom-6 text-sm font-medium text-gray-400">System Dashboard Preview</p>
                             </div>
                         </div>
 
@@ -137,7 +177,7 @@ const Landing = () => {
             </section>
 
             {/* Innovative Features Grid */}
-            <section className="py-24 px-8 md:px-16 bg-white relative">
+            <section className="py-16 px-6 md:px-12 bg-white relative">
                 <div className="max-w-7xl mx-auto">
                     <div className="mb-20">
                         <h2 className="text-4xl font-bold text-slate-900 mb-6">Engineered for <br /> <span className="text-blue-600">Excellence</span></h2>
@@ -146,8 +186,8 @@ const Landing = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                         {/* Card 1 */}
-                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-blue-600 hover:to-blue-700 hover:text-white transition-all duration-300 relative overflow-hidden">
-                            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-blue-600 mb-6 shadow-sm group-hover:scale-110 transition-transform">
+                        <div className="group p-6 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-blue-600 hover:to-blue-700 hover:text-white transition-all duration-300 relative overflow-hidden">
+                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
                                 <Shield size={28} />
                             </div>
                             <h3 className="text-2xl font-bold mb-4">Fortified Security</h3>
@@ -158,8 +198,8 @@ const Landing = () => {
                         </div>
 
                         {/* Card 2 */}
-                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-purple-600 hover:to-purple-700 hover:text-white transition-all duration-300 relative overflow-hidden">
-                            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-purple-600 mb-6 shadow-sm group-hover:scale-110 transition-transform">
+                        <div className="group p-6 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-purple-600 hover:to-purple-700 hover:text-white transition-all duration-300 relative overflow-hidden">
+                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-purple-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
                                 <Database size={28} />
                             </div>
                             <h3 className="text-2xl font-bold mb-4">Centralized Core</h3>
@@ -170,8 +210,8 @@ const Landing = () => {
                         </div>
 
                         {/* Card 3 */}
-                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-cyan-600 hover:to-cyan-700 hover:text-white transition-all duration-300 relative overflow-hidden">
-                            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-cyan-600 mb-6 shadow-sm group-hover:scale-110 transition-transform">
+                        <div className="group p-6 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-cyan-600 hover:to-cyan-700 hover:text-white transition-all duration-300 relative overflow-hidden">
+                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-cyan-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
                                 <Activity size={28} />
                             </div>
                             <h3 className="text-2xl font-bold mb-4">Live Analytics</h3>
@@ -185,7 +225,7 @@ const Landing = () => {
             </section>
 
             {/* Footer */}
-            <footer className="bg-slate-50 border-t border-slate-200 py-12 px-8">
+            <footer className="bg-slate-50 border-t border-slate-200 py-8 px-6">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center opacity-60 hover:opacity-100 transition-opacity">
                     <p className="font-bold text-slate-900 tracking-tight">Pydah<span className="text-blue-600">Fees</span> System</p>
                     <p className="text-sm text-slate-500">© 2025 Pydah Group. Internal Use Only.</p>

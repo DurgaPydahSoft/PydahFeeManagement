@@ -9,12 +9,14 @@ import FeeCollection from './pages/FeeCollection';
 import UserManagement from './pages/UserManagement';
 
 import Reports from './pages/Reports';
+import Documentation from './pages/Documentation';
 
 function App() {
   return (
     <Router>
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/docs" element={<Documentation />} />
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/fee-config" element={<FeeConfiguration />} />
