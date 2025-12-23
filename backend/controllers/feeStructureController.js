@@ -130,7 +130,7 @@ const getStudentFeeDetails = async (req, res) => {
 // @desc    Apply a Template Fee to a Batch (Creates StudentFee records)
 // @route   POST /api/fee-structures/apply-batch
 const applyFeeToBatch = async (req, res) => {
-    const { structureId } = req.body; 
+    const { structureId, targetAcademicYear } = req.body; 
 
     try {
         const structure = await FeeStructure.findById(structureId);
@@ -145,24 +145,11 @@ const applyFeeToBatch = async (req, res) => {
 
         if(students.length === 0) return res.status(404).json({message: 'No students found in this batch'});
 
-        // CHECK: If structure has semester, ONLY apply to students in that semester? 
-        // OR apply to all in that year, but tag as that semester fee?
-        // Usually, 'Apply Batch' matches the student's current state. 
-        // If Structure is for Sem 1, apply to students.
-        // If Structure is Academic Year "ALL", we use student's current academic year?
-        // Wait, structure.academicYear might be "ALL". 
-        // If "ALL", we must fetch CURRENT ACADEMIC YEAR from somewhere.
-        // Assuming '2024-2025' is the active year, we should likely pass it or infer.
-        // For now, if structure says "ALL", we default to a system constant or require input.
-        // BETTER: When applying, we use the structure's `academicYear` IF it is specific.
-        // IF it is "ALL", we need to know the target academic year.
-        // Let's assume for this step we default "ALL" to "2024-2025" (MVP) or pass in body.
-        // I'll check if `req.body` has `targetAcademicYear`.
-        
-        let targetAcademicYear = structure.academicYear;
-        if (targetAcademicYear === 'ALL') {
-             // For now hardcode or use what was passed.
-             targetAcademicYear = req.body.targetAcademicYear || '2024-2025'; 
+        // Determine Academic Year
+        // If structure has specific year, use it. If 'ALL', use targetAcademicYear passed from frontend.
+        let acYear = structure.academicYear;
+        if (acYear === 'ALL') {
+             acYear = targetAcademicYear || '2024-2025'; 
         }
 
         const operations = students.map(s => {
@@ -171,9 +158,9 @@ const applyFeeToBatch = async (req, res) => {
                     filter: { 
                         studentId: s.admission_number, 
                         feeHead: structure.feeHead,
-                        academicYear: targetAcademicYear,
+                        academicYear: acYear,
                         studentYear: structure.studentYear,
-                        semester: structure.semester // Include Semester in filter
+                        semester: structure.semester 
                     },
                     update: { 
                         $set: {
@@ -183,7 +170,7 @@ const applyFeeToBatch = async (req, res) => {
                             branch: s.branch,
                             amount: structure.amount,
                             structureId: structure._id,
-                            semester: structure.semester // Save semester
+                            semester: structure.semester 
                         }
                     },
                     upsert: true

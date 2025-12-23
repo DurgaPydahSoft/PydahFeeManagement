@@ -203,63 +203,53 @@ const FeeConfiguration = () => {
 
         setLoadingStudents(true);
         try {
-            // 1. Find if there is a Template (Structure) for this context
-            let template = structures.find(s =>
+            // Re-using logic: Fetch all students for batch
+            const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`);
+
+            // Filter locally
+            const batchStudents = studentsRes.data.filter(s =>
                 s.college === college && s.course === course && s.branch === branch &&
-                s.academicYear === academicYear && s.studentYear === Number(studentYear) &&
-                s.feeHead._id === feeHeadId &&
-                (appContext.semester ? s.semester === Number(appContext.semester) : !s.semester) // Match semester if selected, or ensure structure has none
+                (studentYear === 'ALL' ? true : s.current_year === Number(studentYear))
             );
 
-            // Fallback for "ALL" academic year
-            if (!template) {
-                template = structures.find(s =>
+            // Fetch Template Logic - Per Student if ALL, or Single if Specific Year
+            // We need to find the template for EACH student's current year to show correct preview
+
+            const list = batchStudents.map(s => {
+                const sYear = s.current_year; // Student's actual year
+
+                // Find template for this relative year
+                let template = structures.find(st =>
+                    st.college === college && st.course === course && st.branch === branch &&
+                    (st.academicYear === academicYear || st.academicYear === 'ALL') &&
+                    st.studentYear === sYear &&
+                    st.feeHead._id === feeHeadId &&
+                    (appContext.semester ? st.semester === Number(appContext.semester) : !st.semester)
+                );
+
+                return {
+                    studentId: s.admission_number,
+                    studentName: s.student_name,
+                    pinNo: s.pin_no || '-',
+                    currentAmount: template ? template.amount : 0,
+                    isApplied: false,
+                    current_year: sYear // Add student's current year for saving
+                };
+            });
+
+            // Set a general template amount for display context (only if single year selected)
+            if (studentYear !== 'ALL') {
+                let mainTempl = structures.find(s =>
                     s.college === college && s.course === course && s.branch === branch &&
-                    s.academicYear === 'ALL' && s.studentYear === Number(studentYear) &&
+                    (s.academicYear === academicYear || s.academicYear === 'ALL') &&
+                    s.studentYear === Number(studentYear) && // Match standard year first
                     s.feeHead._id === feeHeadId &&
                     (appContext.semester ? s.semester === Number(appContext.semester) : !s.semester)
                 );
+                setTemplateAmount(mainTempl ? mainTempl.amount : 0);
+            } else {
+                setTemplateAmount('Varies');
             }
-
-            setTemplateAmount(template ? template.amount : 0);
-
-            // 2. Fetch Students + Their current fees
-            // We have a new endpoint/logic for this, or we reuse getStudents?
-            // Actually, we need to show the LIST of students and their assigned StudentFee if any.
-            // Let's assume we fetch generic students first, then fetch assigned fees separately and merge.
-
-            // Re-using logic: Fetch all students for batch
-            const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`); // This gets ALL. Filtering on frontend for now or optimize backend later.
-            // Filter locally for now (MVP):
-            const batchStudents = studentsRes.data.filter(s =>
-                s.college === college && s.course === course && s.branch === branch &&
-                s.current_year === Number(studentYear) // Assuming current_year matches studentYear
-            );
-
-            // Fetch existing assignments (StudentFees)
-            // We don't have a bulk fetch endpoint yet, but we can assume '0' or check manually.
-            // Better: Create an endpoint? For now, we'll try to apply '0' or 'template' as default.
-            // WAIT - 'getStudentFeeDetails' is one by one. 
-            // Optimization: Let's assume we start blank or 'Not Applied'. 
-            // BUT, if we have ALREADY applied, we need to show that. 
-            // Let's add a "bulk-fetch-fees" or simply iterate in frontend (slow).
-            // REALISTIC MVP: Just show students. User clicks "Apply Batch" to overwrite. 
-            // OR User edits manually. If we can't show current status, it's risky.
-            // Let's Rely on "View Student List" -> We will render inputs. 
-            // If we want to support "Edit Existing", we really need to fetch existing StudentFees.
-            // Given constraints, I will skip fetching existing individual fees for the list view UNLESS I added that endpoint.
-            // I added 'applyFeeToBatch' and 'saveStudentFees'. I did NOT add 'getBatchFees'.
-            // I will add a Quick Fetch logic or just show 'Template Amount' as suggestion.
-            // User requested "load all... students in the list format with the prefilled amounts". 
-            // I will prefill with TEMPLATE Amount.
-
-            const list = batchStudents.map(s => ({
-                studentId: s.admission_number,
-                studentName: s.student_name,
-                pinNo: s.pin_no || '-',
-                currentAmount: template ? template.amount : 0, // Pre-fill with Template
-                isApplied: false // We don't know yet without fetching
-            }));
 
             setStudentList(list);
 
@@ -268,57 +258,79 @@ const FeeConfiguration = () => {
     };
 
     const handleApplyBatch = async () => {
-        if (!window.confirm(`Apply Standard Fee (₹${templateAmount}) to ALL students in this batch? This will overwrite individual exceptions.`)) return;
+        if (!window.confirm(`Apply Fee to ALL students in this list?`)) return;
 
         try {
-            // Find structure ID if exists
-            let template = structures.find(s =>
-                s.college === appContext.college && s.course === appContext.course && s.branch === appContext.branch &&
-                s.academicYear === appContext.academicYear && s.studentYear === Number(appContext.studentYear) &&
-                s.feeHead._id === appContext.feeHeadId &&
-                (appContext.semester ? s.semester === Number(appContext.semester) : !s.semester)
-            );
+            const yearsToProcess = appContext.studentYear === 'ALL'
+                ? Array.from({ length: appTotalYears }, (_, i) => i + 1)
+                : [Number(appContext.studentYear)];
 
-            if (!template) {
-                template = structures.find(s =>
+            let processedCount = 0;
+
+            for (const year of yearsToProcess) {
+                // Find structure for this specific year
+                let template = structures.find(s =>
                     s.college === appContext.college && s.course === appContext.course && s.branch === appContext.branch &&
-                    s.academicYear === 'ALL' && s.studentYear === Number(appContext.studentYear) &&
+                    (s.academicYear === appContext.academicYear || s.academicYear === 'ALL') &&
+                    s.studentYear === year &&
                     s.feeHead._id === appContext.feeHeadId &&
                     (appContext.semester ? s.semester === Number(appContext.semester) : !s.semester)
                 );
+
+                if (template) {
+                    await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/apply-batch`, {
+                        structureId: template._id,
+                        targetAcademicYear: appContext.academicYear
+                    });
+                    processedCount++;
+                }
             }
 
-            if (!template) {
-                alert("No Standard Fee Structure found for this batch. Create one in 'Fee Structures' first.");
-                return;
+            if (processedCount === 0) {
+                alert("No matching Fee Structures found for the selected criteria.");
+            } else {
+                setMessage(`Fees applied successfully for ${processedCount} year groups!`);
+                setTimeout(() => setMessage(''), 3000);
             }
 
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/apply-batch`, {
-                structureId: template._id
-            });
-            setMessage("Fees applied to batch successfully!");
-            setTimeout(() => setMessage(''), 3000);
         } catch (error) { alert("Failed to apply batch"); }
     };
 
     const handleSaveStudentFees = async () => {
         try {
-            // Prepare payload
-            const fees = studentList.map(s => ({
-                studentId: s.studentId,
-                studentName: s.studentName,
-                feeHeadId: appContext.feeHeadId,
-                college: appContext.college,
-                course: appContext.course,
-                branch: appContext.branch,
-                block: appContext.block, // Not used but mapped
-                academicYear: appContext.academicYear,
-                studentYear: appContext.studentYear,
-                semester: appContext.semester, // NEW
-                amount: s.currentAmount
-            }));
+            if (appContext.studentYear === 'ALL') {
+                const fees = studentList.map(s => ({
+                    studentId: s.studentId,
+                    studentName: s.studentName,
+                    feeHeadId: appContext.feeHeadId,
+                    college: appContext.college,
+                    course: appContext.course,
+                    branch: appContext.branch,
+                    block: appContext.block,
+                    academicYear: appContext.academicYear,
+                    studentYear: s.current_year || 1, // Dynamic Year
+                    semester: appContext.semester,
+                    amount: s.currentAmount
+                }));
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
 
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
+            } else {
+                // Standard specific year logic
+                const fees = studentList.map(s => ({
+                    studentId: s.studentId,
+                    studentName: s.studentName,
+                    feeHeadId: appContext.feeHeadId,
+                    college: appContext.college,
+                    course: appContext.course,
+                    branch: appContext.branch,
+                    block: appContext.block,
+                    academicYear: appContext.academicYear,
+                    studentYear: appContext.studentYear,
+                    semester: appContext.semester,
+                    amount: s.currentAmount
+                }));
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
+            }
             setMessage("Student List fees saved successfully!");
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { alert("Failed to save student fees"); }
@@ -330,7 +342,7 @@ const FeeConfiguration = () => {
     const appCourses = appContext.college ? Object.keys(metadata[appContext.college] || {}) : [];
     const appBranches = (appContext.college && appContext.course) ? metadata[appContext.college][appContext.course]?.branches || [] : [];
     const appTotalYears = (appContext.college && appContext.course) ? metadata[appContext.college][appContext.course]?.total_years || 4 : 0;
-    const appYearOptions = Array.from({ length: appTotalYears }, (_, i) => i + 1);
+    const appYearOptions = ['ALL', ...Array.from({ length: appTotalYears }, (_, i) => i + 1)]; // Added ALL
 
     // Definitions Grouping
     const grouped = {};
@@ -557,21 +569,31 @@ const FeeConfiguration = () => {
                             <div className="bg-white p-5 rounded-lg shadow-sm border border-blue-200">
                                 <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Batch & Fee</h2>
                                 <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                                    {/* 1. College */}
                                     <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '', semester: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
-                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '', semester: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
-                                    <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
-                                    <div><label className="text-xs font-bold text-gray-500">Year</label><select className="w-full border p-2 rounded mt-1" value={appContext.studentYear} onChange={e => setAppContext({ ...appContext, studentYear: e.target.value })} disabled={!appContext.branch}><option value="">Select...</option>{appYearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
-                                    <div><label className="text-xs font-bold text-gray-500">Semester</label><select className="w-full border p-2 rounded mt-1" value={appContext.semester} onChange={e => setAppContext({ ...appContext, semester: e.target.value })} disabled={!appContext.studentYear}><option value="">Yearly (None)</option><option value="1">1</option><option value="2">2</option></select></div>
+
+                                    {/* 2. Fee Head (Moved) */}
                                     <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
-                                </div>
-                                <div className="mt-4 flex justify-between items-center">
-                                    <div className="w-48">
-                                        <label className="text-xs font-bold text-gray-500">Academic Year</label>
+
+                                    {/* 3. Academic Year (Moved) - Acts as Base */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">Base Acad. Year</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.academicYear} onChange={e => setAppContext({ ...appContext, academicYear: e.target.value })}>
                                             {academicYears.filter(y => y !== 'ALL').map(y => <option key={y} value={y}>{y}</option>)}
                                         </select>
                                     </div>
-                                    <button onClick={fetchStudentsForApplicability} className="bg-gray-800 text-white px-6 py-2 rounded font-semibold hover:bg-gray-900 shadow-md">Load Student List</button>
+
+                                    {/* 4. Course */}
+                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '', semester: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
+
+                                    {/* 5. Branch */}
+                                    <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
+
+                                    {/* 6. Filter Year (Optional) */}
+                                    <div><label className="text-xs font-bold text-gray-500">Filter Student Year</label><select className="w-full border p-2 rounded mt-1" value={appContext.studentYear} onChange={e => setAppContext({ ...appContext, studentYear: e.target.value })} disabled={!appContext.branch}><option value="">All Years</option>{appYearOptions.filter(x => x !== 'ALL').map(y => <option key={y} value={y}>{y}</option>)}</select></div>
+                                </div>
+                                <div className="mt-4 flex justify-end items-center">
+                                    <button onClick={fetchStudentsForApplicability} className="bg-gray-800 text-white px-6 py-2 rounded font-semibold hover:bg-gray-900 shadow-md">Load Student Matrix</button>
                                 </div>
                             </div>
 
@@ -598,7 +620,7 @@ const FeeConfiguration = () => {
                                         <div className="bg-blue-50 p-6 rounded-lg border border-blue-100 max-w-2xl">
                                             <h3 className="font-bold text-blue-900 mb-2">Apply Standard Fee to All</h3>
                                             <p className="text-sm text-blue-700 mb-6">
-                                                This will apply the standard amount <strong>(₹{templateAmount})</strong> to all <strong>{studentList.length}</strong> students in this batch.
+                                                This will apply the standard fees to all <strong>{studentList.length}</strong> students.
                                                 <br />
                                                 <span className="text-xs opacity-75">Note: Any previous individual overrides will be reset to this standard amount.</span>
                                             </p>
@@ -611,37 +633,43 @@ const FeeConfiguration = () => {
                                     {applicabilityMode === 'individual' && (
                                         <div>
                                             <div className="flex justify-between items-center mb-4">
-                                                <p className="text-sm text-gray-500">Edit amounts for specific students (e.g. Scholarship recipients).</p>
+                                                <p className="text-sm text-gray-500">Matrix View: Edit fees for each year of the course. Amounts are saved with auto-calculated Academic Years.</p>
                                                 <button onClick={handleSaveStudentFees} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 shadow">Save Changes</button>
                                             </div>
                                             <div className="overflow-x-auto max-h-[500px] border rounded">
                                                 <table className="w-full text-left text-sm">
                                                     <thead className="bg-gray-100 sticky top-0 z-10">
                                                         <tr>
-                                                            <th className="p-3 border-b">Admission No</th>
-                                                            <th className="p-3 border-b">Pin No</th>
-                                                            <th className="p-3 border-b">Student Name</th>
-                                                            <th className="p-3 border-b border-l bg-blue-50 w-48">Fee Amount (₹)</th>
+                                                            <th className="p-3 border-b border-r bg-white sticky left-0 z-20 w-32 shadow-sm">Admission No</th>
+                                                            <th className="p-3 border-b min-w-[200px]">Student Name (Current Yr)</th>
+                                                            {appYearOptions.filter(y => y !== 'ALL').map(y => (
+                                                                <th key={y} className="p-3 border-b text-center border-l bg-blue-50/50">Year {y}</th>
+                                                            ))}
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y">
                                                         {studentList.map((s, idx) => (
                                                             <tr key={s.studentId} className="hover:bg-gray-50">
-                                                                <td className="p-3 font-mono text-gray-600">{s.studentId}</td>
-                                                                <td className="p-3 font-mono text-gray-600 font-bold">{s.pinNo}</td>
-                                                                <td className="p-3 font-medium text-gray-800">{s.studentName}</td>
-                                                                <td className="p-2 border-l bg-blue-50/30">
-                                                                    <input
-                                                                        type="number"
-                                                                        className="w-full p-2 border border-blue-200 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-800"
-                                                                        value={s.currentAmount}
-                                                                        onChange={(e) => {
-                                                                            const newList = [...studentList];
-                                                                            newList[idx].currentAmount = e.target.value;
-                                                                            setStudentList(newList);
-                                                                        }}
-                                                                    />
+                                                                <td className="p-3 border-r font-mono text-gray-600 sticky left-0 bg-white z-10">{s.studentId}</td>
+                                                                <td className="p-3 font-medium text-gray-800">
+                                                                    {s.studentName}
+                                                                    <span className="ml-2 text-xs bg-gray-200 px-1 rounded">Yr {s.current_year}</span>
                                                                 </td>
+                                                                {appYearOptions.filter(y => y !== 'ALL').map(y => (
+                                                                    <td key={y} className="p-2 border-l text-center">
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-24 p-1 border border-blue-200 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right text-gray-800"
+                                                                            value={s.years[y] ?? ''}
+                                                                            placeholder="-"
+                                                                            onChange={(e) => {
+                                                                                const newList = [...studentList];
+                                                                                newList[idx].years[y] = e.target.value;
+                                                                                setStudentList(newList);
+                                                                            }}
+                                                                        />
+                                                                    </td>
+                                                                ))}
                                                             </tr>
                                                         ))}
                                                     </tbody>

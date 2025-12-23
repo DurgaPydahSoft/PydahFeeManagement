@@ -14,6 +14,8 @@ const FeeCollection = () => {
 
     // Fee Details
     const [feeDetails, setFeeDetails] = useState([]);
+    // View Filter (Year)
+    const [viewFilterYear, setViewFilterYear] = useState('ALL');
 
     // Multi-Select State (Dynamic Inputs)
     // List of { id: unique_id, feeHeadId: '', amount: '' }
@@ -61,11 +63,9 @@ const FeeCollection = () => {
             const course = found.course;
             const branch = found.branch;
             const studentYear = found.current_year;
-            const academicYear = '2024-2025'; // Default for MVP
-
-            // 2. Fetch Fee Details
+            // 2. Fetch Fee Details (Fetch ALL Years)
             const feesRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures/student/${found.admission_number}`, {
-                params: { college, course, branch, studentYear, academicYear }
+                params: { college, course, branch, studentYear } // Removed academicYear to fetch all history
             });
             setFeeDetails(feesRes.data);
 
@@ -89,6 +89,7 @@ const FeeCollection = () => {
         setError('');
         setStudent(null);
         setFeeDetails([]);
+        setViewFilterYear('ALL');
         setFoundStudents([]);
         setTransactions([]);
         setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset Rows
@@ -260,7 +261,22 @@ const FeeCollection = () => {
     });
 
     const totalSelectedAmount = feeRows.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
-    const totalDueAmount = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
+
+    // Filter Fee Details for Display
+    const uniqueAcademicYears = [...new Set(feeDetails.map(f => f.academicYear))].sort().reverse();
+
+    const displayedFees = feeDetails.filter(f => {
+        if (viewFilterYear === 'ALL') return true;
+        return f.academicYear === viewFilterYear;
+    });
+
+    // Total Due calculation should be based on displayed, or total?
+    // Usually "Total Due" implies everything the student owes. User wants to see "All years", so Total Due should match view or match all.
+    // Let's make "Total Due" represent EVERYTHING (Global Debt), but table shows breakdown.
+    // Or simpler: Total Due matches the table bottom line. 
+    // Let's stick to: Total Due at bottom of table = Sum of displayed rows.
+    const totalDueAmount = displayedFees.reduce((acc, curr) => acc + curr.dueAmount, 0);
+    const globalTotalDue = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
 
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
@@ -378,12 +394,26 @@ const FeeCollection = () => {
                             {/* Fee Summary Table */}
                             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                                    <h3 className="font-bold text-gray-700">Fee Dues Summary (Year {student.current_year})</h3>
-                                    {loading && <span className="text-xs text-blue-500 animate-pulse">Refreshing...</span>}
+                                    <div className="flex items-center gap-4">
+                                        <h3 className="font-bold text-gray-700">Fee Dues ({viewFilterYear === 'ALL' ? 'All Years' : viewFilterYear})</h3>
+                                        <select
+                                            className="text-xs border border-gray-300 rounded p-1 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                            value={viewFilterYear}
+                                            onChange={(e) => setViewFilterYear(e.target.value)}
+                                        >
+                                            <option value="ALL">All Years</option>
+                                            {uniqueAcademicYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <span className="text-xs font-bold text-gray-500">Global Due: <span className="text-red-600">₹{globalTotalDue.toLocaleString()}</span></span>
+                                        {loading && <span className="text-xs text-blue-500 animate-pulse">Refreshing...</span>}
+                                    </div>
                                 </div>
                                 <table className="w-full text-left">
                                     <thead className="bg-gray-50 border-b">
                                         <tr>
+                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600">Year / Sem</th>
                                             <th className="py-2 px-4 text-xs font-semibold text-gray-600">Fee Head</th>
                                             <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Total Fee</th>
                                             <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Paid</th>
@@ -391,12 +421,16 @@ const FeeCollection = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                        {feeDetails.length === 0 ? (
-                                            <tr><td colSpan="4" className="py-6 text-center text-gray-500">No applicable fees found for {student.college}/{student.course} Year {student.current_year}.</td></tr>
+                                        {displayedFees.length === 0 ? (
+                                            <tr><td colSpan="5" className="py-6 text-center text-gray-500">No fees found for this selection.</td></tr>
                                         ) : (
                                             <>
-                                                {feeDetails.map((fee, idx) => (
+                                                {displayedFees.map((fee, idx) => (
                                                     <tr key={idx} className={fee.dueAmount > 0 ? "bg-red-50" : ""}>
+                                                        <td className="py-2 px-4 text-xs text-gray-500">
+                                                            <div className="font-bold">{fee.academicYear}</div>
+                                                            <div>Yr {fee.studentYear} {fee.semester ? `- S${fee.semester}` : ''}</div>
+                                                        </td>
                                                         <td className="py-2 px-4 text-sm font-medium">{fee.feeHeadName}</td>
                                                         <td className="py-2 px-4 text-sm text-right">₹{fee.totalAmount.toLocaleString()}</td>
                                                         <td className="py-2 px-4 text-sm text-right text-green-600">₹{fee.paidAmount.toLocaleString()}</td>
@@ -405,7 +439,7 @@ const FeeCollection = () => {
                                                 ))}
                                                 {/* Total Row */}
                                                 <tr className="bg-gray-100 font-bold border-t-2 border-gray-200">
-                                                    <td className="py-2 px-4 text-sm text-gray-800 text-right" colSpan="3">Total Due:</td>
+                                                    <td className="py-2 px-4 text-sm text-gray-800 text-right" colSpan="4">Total Due ({viewFilterYear === 'ALL' ? 'All' : viewFilterYear}):</td>
                                                     <td className="py-2 px-4 text-sm text-right text-red-700">₹{totalDueAmount.toLocaleString()}</td>
                                                 </tr>
                                             </>
@@ -516,8 +550,10 @@ const FeeCollection = () => {
                                                             required
                                                         >
                                                             <option value="">-- Select --</option>
-                                                            {feeDetails.map(f => (
-                                                                <option key={f.feeHeadId} value={f.feeHeadId}>{f.feeHeadName} (Due: ₹{f.dueAmount})</option>
+                                                            {displayedFees.map(f => ( // Updated to show filtered
+                                                                <option key={f.feeHeadId} value={f.feeHeadId}>
+                                                                    [{f.academicYear}] {f.feeHeadName} (Due: ₹{f.dueAmount})
+                                                                </option>
                                                             ))}
                                                         </select>
                                                     </div>
