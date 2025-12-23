@@ -7,6 +7,7 @@ import FeeConfiguration from './pages/FeeConfiguration';
 import Students from './pages/Students';
 import FeeCollection from './pages/FeeCollection';
 import UserManagement from './pages/UserManagement';
+import TransportConfiguration from './pages/TransportConfiguration';
 
 import Reports from './pages/Reports';
 import Documentation from './pages/Documentation';
@@ -24,6 +25,7 @@ function App() {
         <Route path="/fee-collection" element={<FeeCollection />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/user-management" element={<UserManagement />} />
+        <Route path="/transport-config" element={<TransportConfiguration />} />
       </Routes>
     </Router>
   );
