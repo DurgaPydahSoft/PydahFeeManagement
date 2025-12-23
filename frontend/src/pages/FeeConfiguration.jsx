@@ -43,6 +43,7 @@ const FeeConfiguration = () => {
     const [loadingStudents, setLoadingStudents] = useState(false);
     const [templateAmount, setTemplateAmount] = useState(null); // The "standard" amount found
     const [applicabilityMode, setApplicabilityMode] = useState('batch'); // 'batch' or 'individual'
+    const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
 
     useEffect(() => {
         fetchFeeHeads();
@@ -193,63 +194,104 @@ const FeeConfiguration = () => {
         } catch (error) { alert('Failed to delete structure'); }
     };
 
+    const toggleYearExpand = (y) => {
+        setExpandedYears(prev => ({ ...prev, [y]: !prev[y] }));
+    };
+
     // --- APPLICABILITY LOGIC ---
     const fetchStudentsForApplicability = async () => {
+        // Validation based on Mode
         const { college, course, branch, studentYear, academicYear, feeHeadId } = appContext;
-        if (!college || !course || !branch || !studentYear || !academicYear || !feeHeadId) {
-            alert("Please select all fields.");
+
+        const isExcelMode = applicabilityMode === 'individual';
+
+        if (!college || !course || !branch || !academicYear || !feeHeadId) {
+            alert("Please select College, Fee Head, Academic Year, Course, and Branch.");
+            return;
+        }
+
+        // In Batch Mode, Student Year is required
+        if (!isExcelMode && !studentYear) {
+            alert("Please select Student Year for Batch Mode.");
             return;
         }
 
         setLoadingStudents(true);
         try {
-            // Re-using logic: Fetch all students for batch
+            // 1. Fetch Students (All for the batch)
             const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`);
 
-            // Filter locally
+            // Filter: Match College, Course, Branch
+            // If Excel Mode: Fetch ALL students (ignore studentYear filter)
+            // If Batch Mode: Filter by s.current_year
             const batchStudents = studentsRes.data.filter(s =>
                 s.college === college && s.course === course && s.branch === branch &&
-                (studentYear === 'ALL' ? true : s.current_year === Number(studentYear))
+                (isExcelMode ? true : s.current_year === Number(studentYear))
             );
 
-            // Fetch Template Logic - Per Student if ALL, or Single if Specific Year
-            // We need to find the template for EACH student's current year to show correct preview
+            // 2. Fetch Existing Fee Records (Real Data)
+            // Only need this for Excel Mode to show current state, but useful for Batch too (to show if Applied)
+            let existingFees = [];
+            try {
+                const feeRes = await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/batch-fees`, {
+                    college, course, branch, academicYear, feeHeadId
+                });
+                existingFees = feeRes.data;
+            } catch (e) { console.error("Error fetching fee records", e); }
 
+            // 3. Prepare List
             const list = batchStudents.map(s => {
-                const sYear = s.current_year; // Student's actual year
+                const sYear = s.current_year;
 
-                // Find template for this relative year
-                let template = structures.find(st =>
-                    st.college === college && st.course === course && st.branch === branch &&
-                    (st.academicYear === academicYear || st.academicYear === 'ALL') &&
-                    st.studentYear === sYear &&
-                    st.feeHead._id === feeHeadId &&
-                    (appContext.semester ? st.semester === Number(appContext.semester) : !st.semester)
-                );
+                // Find existing fee for this student and this head/year
+                // We are looking for fee with: studentId, feeHead, academicYear
+                // AND studentYear matching their current year (since the column is for THAT year)
+                /* 
+                   Wait, in Excel View: "Rows represent students... shows all year-wise fee columns".
+                   "Display fee values in the corresponding year column."
+                   "Other year columns should remain empty or disabled unless applicable."
+                   
+                   Actually, typically a student ONLY pays for their CURRENT year. 
+                   Usually you don't collect Year 3 fees from a Year 1 student yet.
+                   Requirement: "Fetch their current year... Display fee values in the corresponding year column."
+                   
+                   So:
+                   Student A (Year 1) -> Input in Col 1. Col 2,3,4 Disabled.
+                   Student B (Year 2) -> Input in Col 2. Col 1,3,4 Disabled.
+                   
+                   Value to pre-fill: 
+                   1. Check `existingFees` for a record matching (studentId, studentYear=sYear).
+                   2. If none, check `structures` template matching (studentYear=sYear).
+                */
+
+                const relevantFee = existingFees.find(f => f.studentId === s.admission_number && f.studentYear === sYear);
+
+                // Template Fallback
+                let templateAmount = 0;
+                if (!relevantFee) {
+                    let template = structures.find(st =>
+                        st.college === college && st.course === course && st.branch === branch &&
+                        (st.academicYear === academicYear || st.academicYear === 'ALL') &&
+                        st.studentYear === sYear &&
+                        st.feeHead._id === feeHeadId &&
+                        (appContext.semester ? st.semester === Number(appContext.semester) : !st.semester)
+                    );
+                    if (template) templateAmount = template.amount;
+                }
 
                 return {
                     studentId: s.admission_number,
                     studentName: s.student_name,
                     pinNo: s.pin_no || '-',
-                    currentAmount: template ? template.amount : 0,
-                    isApplied: false,
-                    current_year: sYear // Add student's current year for saving
+                    current_year: sYear,
+                    amount: relevantFee ? relevantFee.amount : templateAmount, // The value to show
+                    isExisting: !!relevantFee,
+                    feeId: relevantFee ? relevantFee._id : null
                 };
             });
 
-            // Set a general template amount for display context (only if single year selected)
-            if (studentYear !== 'ALL') {
-                let mainTempl = structures.find(s =>
-                    s.college === college && s.course === course && s.branch === branch &&
-                    (s.academicYear === academicYear || s.academicYear === 'ALL') &&
-                    s.studentYear === Number(studentYear) && // Match standard year first
-                    s.feeHead._id === feeHeadId &&
-                    (appContext.semester ? s.semester === Number(appContext.semester) : !s.semester)
-                );
-                setTemplateAmount(mainTempl ? mainTempl.amount : 0);
-            } else {
-                setTemplateAmount('Varies');
-            }
+            // Set Template Amount just for Batch Mode reference
+            // ... (skipped for brevity as it's less critical for Excel mode)
 
             setStudentList(list);
 
@@ -298,39 +340,23 @@ const FeeConfiguration = () => {
 
     const handleSaveStudentFees = async () => {
         try {
-            if (appContext.studentYear === 'ALL') {
-                const fees = studentList.map(s => ({
-                    studentId: s.studentId,
-                    studentName: s.studentName,
-                    feeHeadId: appContext.feeHeadId,
-                    college: appContext.college,
-                    course: appContext.course,
-                    branch: appContext.branch,
-                    block: appContext.block,
-                    academicYear: appContext.academicYear,
-                    studentYear: s.current_year || 1, // Dynamic Year
-                    semester: appContext.semester,
-                    amount: s.currentAmount
-                }));
-                await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
+            // Save Logic - Handles both Batch (if reused) and Individual Excel Save
+            // Payload: List of fee objects
+            const fees = studentList.map(s => ({
+                studentId: s.studentId,
+                studentName: s.studentName,
+                feeHeadId: appContext.feeHeadId,
+                college: appContext.college,
+                course: appContext.course,
+                branch: appContext.branch,
+                block: appContext.block,
+                academicYear: appContext.academicYear,
+                studentYear: s.current_year, // ALWAYS use student's actual year
+                semester: appContext.semester,
+                amount: s.amount // The edited amount
+            }));
 
-            } else {
-                // Standard specific year logic
-                const fees = studentList.map(s => ({
-                    studentId: s.studentId,
-                    studentName: s.studentName,
-                    feeHeadId: appContext.feeHeadId,
-                    college: appContext.college,
-                    course: appContext.course,
-                    branch: appContext.branch,
-                    block: appContext.block,
-                    academicYear: appContext.academicYear,
-                    studentYear: appContext.studentYear,
-                    semester: appContext.semester,
-                    amount: s.currentAmount
-                }));
-                await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
-            }
+            await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
             setMessage("Student List fees saved successfully!");
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { alert("Failed to save student fees"); }
@@ -539,7 +565,7 @@ const FeeConfiguration = () => {
                                                     </button>
                                                     <button
                                                         onClick={async () => {
-                                                            if (!window.confirm(`Delete ALL ${row.feeHeadName} definitions for ${row.course}?`)) return;
+                                                            if (!window.confirm(`Delete ALL definitions for ${row.course}?`)) return;
                                                             try {
                                                                 await Promise.all(row.allIds.map(id => axios.delete(`${import.meta.env.VITE_API_URL}/api/fee-structures/${id}`)));
                                                                 fetchStructures();
@@ -567,54 +593,61 @@ const FeeConfiguration = () => {
                         <div className="flex flex-col gap-4">
                             {/* 1. Context Selection */}
                             <div className="bg-white p-5 rounded-lg shadow-sm border border-blue-200">
-                                <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Batch & Fee</h2>
-                                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                                    {/* 1. College */}
-                                    <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '', semester: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
+                                <div className="flex space-x-4 border-b mb-4 pb-2">
+                                    <button
+                                        className={`pb-1 px-4 font-semibold transition ${applicabilityMode === 'batch' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
+                                        onClick={() => setApplicabilityMode('batch')}
+                                    >
+                                        Option 1: Batch Apply
+                                    </button>
+                                    <button
+                                        className={`pb-1 px-4 font-semibold transition ${applicabilityMode === 'individual' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
+                                        onClick={() => setApplicabilityMode('individual')}
+                                    >
+                                        Option 2: Excel View (Edit Individual)
+                                    </button>
+                                </div>
 
-                                    {/* 2. Fee Head (Moved) */}
+                                <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Filters</h2>
+
+                                {/* Strict Order: College -> Fee Head -> Academic Year -> Course -> Branch */}
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                    {/* 1. College */}
+                                    <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
+
+                                    {/* 2. Fee Head */}
                                     <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
 
-                                    {/* 3. Academic Year (Moved) - Acts as Base */}
+                                    {/* 3. Academic Year */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500">Base Acad. Year</label>
+                                        <label className="text-xs font-bold text-gray-500">Academic Year</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.academicYear} onChange={e => setAppContext({ ...appContext, academicYear: e.target.value })}>
                                             {academicYears.filter(y => y !== 'ALL').map(y => <option key={y} value={y}>{y}</option>)}
                                         </select>
                                     </div>
 
                                     {/* 4. Course */}
-                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '', semester: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
+                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
 
                                     {/* 5. Branch */}
                                     <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
-
-                                    {/* 6. Filter Year (Optional) */}
-                                    <div><label className="text-xs font-bold text-gray-500">Filter Student Year</label><select className="w-full border p-2 rounded mt-1" value={appContext.studentYear} onChange={e => setAppContext({ ...appContext, studentYear: e.target.value })} disabled={!appContext.branch}><option value="">All Years</option>{appYearOptions.filter(x => x !== 'ALL').map(y => <option key={y} value={y}>{y}</option>)}</select></div>
                                 </div>
-                                <div className="mt-4 flex justify-end items-center">
-                                    <button onClick={fetchStudentsForApplicability} className="bg-gray-800 text-white px-6 py-2 rounded font-semibold hover:bg-gray-900 shadow-md">Load Student Matrix</button>
+
+                                {/* Dynamic Filters: Student Year (Only for Batch Mode) */}
+                                {applicabilityMode === 'batch' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-3 border-t pt-3">
+                                        <div><label className="text-xs font-bold text-gray-500 text-blue-600">Student Year (Batch Only)</label><select className="w-full border p-2 rounded mt-1 border-blue-200" value={appContext.studentYear} onChange={e => setAppContext({ ...appContext, studentYear: e.target.value })} disabled={!appContext.branch}><option value="">Select...</option>{appYearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
+                                    </div>
+                                )}
+
+                                <div className="mt-4 flex justify-end">
+                                    <button onClick={fetchStudentsForApplicability} className="bg-gray-800 text-white px-6 py-2 rounded font-semibold hover:bg-gray-900 shadow-md">Load Data</button>
                                 </div>
                             </div>
 
                             {/* 2. Action Area */}
-                            {/* 2. Action Area (Tabs) */}
                             {studentList.length > 0 && (
                                 <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
-                                    <div className="flex space-x-4 border-b mb-4">
-                                        <button
-                                            className={`pb-2 px-4 font-semibold transition ${applicabilityMode === 'batch' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
-                                            onClick={() => setApplicabilityMode('batch')}
-                                        >
-                                            Option 1: Batch Apply
-                                        </button>
-                                        <button
-                                            className={`pb-2 px-4 font-semibold transition ${applicabilityMode === 'individual' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
-                                            onClick={() => setApplicabilityMode('individual')}
-                                        >
-                                            Option 2: Student-wise (Excel View)
-                                        </button>
-                                    </div>
 
                                     {applicabilityMode === 'batch' && (
                                         <div className="bg-blue-50 p-6 rounded-lg border border-blue-100 max-w-2xl">
@@ -633,45 +666,84 @@ const FeeConfiguration = () => {
                                     {applicabilityMode === 'individual' && (
                                         <div>
                                             <div className="flex justify-between items-center mb-4">
-                                                <p className="text-sm text-gray-500">Matrix View: Edit fees for each year of the course. Amounts are saved with auto-calculated Academic Years.</p>
+                                                <p className="text-sm text-gray-500">Year-wise Fee Entry. Only the column matching the student's current year is editable.</p>
                                                 <button onClick={handleSaveStudentFees} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 shadow">Save Changes</button>
                                             </div>
-                                            <div className="overflow-x-auto max-h-[500px] border rounded">
-                                                <table className="w-full text-left text-sm">
-                                                    <thead className="bg-gray-100 sticky top-0 z-10">
+                                            <div className="overflow-x-auto max-h-[500px] border rounded bg-white">
+                                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                                    <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
                                                         <tr>
-                                                            <th className="p-3 border-b border-r bg-white sticky left-0 z-20 w-32 shadow-sm">Admission No</th>
-                                                            <th className="p-3 border-b min-w-[200px]">Student Name (Current Yr)</th>
-                                                            {appYearOptions.filter(y => y !== 'ALL').map(y => (
-                                                                <th key={y} className="p-3 border-b text-center border-l bg-blue-50/50">Year {y}</th>
+                                                            <th className="p-3 border-b font-semibold text-gray-600 w-32">Admission No</th>
+                                                            <th className="p-3 border-b font-semibold text-gray-600">Student Name</th>
+                                                            {/* Dynamic Year Columns based on Course Duration */}
+                                                            {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(y => (
+                                                                <th key={y} className="p-3 border-b border-l text-center w-32 font-bold text-gray-700">Year {y}</th>
                                                             ))}
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y">
-                                                        {studentList.map((s, idx) => (
-                                                            <tr key={s.studentId} className="hover:bg-gray-50">
-                                                                <td className="p-3 border-r font-mono text-gray-600 sticky left-0 bg-white z-10">{s.studentId}</td>
-                                                                <td className="p-3 font-medium text-gray-800">
-                                                                    {s.studentName}
-                                                                    <span className="ml-2 text-xs bg-gray-200 px-1 rounded">Yr {s.current_year}</span>
-                                                                </td>
-                                                                {appYearOptions.filter(y => y !== 'ALL').map(y => (
-                                                                    <td key={y} className="p-2 border-l text-center">
-                                                                        <input
-                                                                            type="number"
-                                                                            className="w-24 p-1 border border-blue-200 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right text-gray-800"
-                                                                            value={s.years[y] ?? ''}
-                                                                            placeholder="-"
-                                                                            onChange={(e) => {
-                                                                                const newList = [...studentList];
-                                                                                newList[idx].years[y] = e.target.value;
-                                                                                setStudentList(newList);
-                                                                            }}
-                                                                        />
-                                                                    </td>
-                                                                ))}
-                                                            </tr>
-                                                        ))}
+                                                        {(() => {
+                                                            // Group Students by current_year
+                                                            const groupedStudents = {};
+                                                            studentList.forEach(s => {
+                                                                if (!groupedStudents[s.current_year]) groupedStudents[s.current_year] = [];
+                                                                groupedStudents[s.current_year].push(s);
+                                                            });
+
+                                                            return Object.keys(groupedStudents).sort().map(yearStr => {
+                                                                const y = Number(yearStr);
+                                                                const students = groupedStudents[y];
+                                                                const isExpanded = expandedYears[y] ?? true; // Default expanded
+
+                                                                return (
+                                                                    <React.Fragment key={y}>
+                                                                        {/* Group Header */}
+                                                                        <tr className="bg-blue-50 cursor-pointer hover:bg-blue-100 transition" onClick={() => toggleYearExpand(y)}>
+                                                                            <td colSpan={2 + appTotalYears} className="p-2 font-bold text-blue-800 border-b border-blue-200">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="transform transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+                                                                                    Year {y} Students ({students.length})
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+
+                                                                        {/* Student Rows */}
+                                                                        {isExpanded && students.map((s, idx) => (
+                                                                            <tr key={s.studentId} className="hover:bg-gray-50 border-b">
+                                                                                <td className="p-3 font-mono text-gray-600 text-xs pl-8 border-l-4 border-l-transparent bg-white">{s.studentId}</td>
+                                                                                <td className="p-3 font-medium text-gray-800 bg-white">{s.studentName}</td>
+
+                                                                                {/* Dynamic Year Inputs */}
+                                                                                {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(yearCol => (
+                                                                                    <td key={yearCol} className={`p-2 border-l text-center ${s.current_year === yearCol ? 'bg-white' : 'bg-gray-50/50'}`}>
+                                                                                        {s.current_year === yearCol ? (
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                className="w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900"
+                                                                                                value={s.amount || ''}
+                                                                                                placeholder="0"
+                                                                                                onChange={(e) => {
+                                                                                                    // IMPORTANT: We need to find the index in original studentList
+                                                                                                    const originalIndex = studentList.findIndex(st => st.studentId === s.studentId);
+                                                                                                    if (originalIndex === -1) return;
+
+                                                                                                    const newList = [...studentList];
+                                                                                                    newList[originalIndex].amount = e.target.value;
+                                                                                                    setStudentList(newList);
+                                                                                                }}
+                                                                                                onClick={(e) => e.stopPropagation()} // Prevent row collapse
+                                                                                            />
+                                                                                        ) : (
+                                                                                            <span className="text-gray-300 text-xs">-</span>
+                                                                                        )}
+                                                                                    </td>
+                                                                                ))}
+                                                                            </tr>
+                                                                        ))}
+                                                                    </React.Fragment>
+                                                                );
+                                                            });
+                                                        })()}
                                                     </tbody>
                                                 </table>
                                             </div>

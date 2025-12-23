@@ -284,6 +284,23 @@ const deleteFeeStructure = async (req, res) => {
   }
 };
 
+// @desc    Get Batch Student Fees (for Excel View)
+// @route   POST /api/fee-structures/batch-fees
+const getBatchStudentFees = async (req, res) => {
+    const { college, course, branch, academicYear, feeHeadId } = req.body;
+
+    try {
+        const query = { college, course, branch, academicYear };
+        if (feeHeadId) query.feeHead = feeHeadId;
+
+        const fees = await StudentFee.find(query);
+        res.json(fees);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error fetching batch fees' });
+    }
+};
+
 module.exports = {
   createFeeStructure,
   getFeeStructures,
@@ -291,5 +308,6 @@ module.exports = {
   updateFeeStructure,
   deleteFeeStructure,
   applyFeeToBatch,
-  saveStudentFees
+  saveStudentFees,
+  getBatchStudentFees
 };
