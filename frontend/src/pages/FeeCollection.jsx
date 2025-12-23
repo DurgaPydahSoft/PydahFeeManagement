@@ -155,7 +155,8 @@ const FeeCollection = () => {
                 const updatedRow = { ...row, [field]: value };
                 // Auto-fill amount if feeHeadId changes
                 if (field === 'feeHeadId') {
-                    const selectedFee = feeDetails.find(f => f.feeHeadId === value);
+                    // Use _id (which is stored in value) to find the correct row
+                    const selectedFee = feeDetails.find(f => f._id === value);
                     if (selectedFee) {
                         updatedRow.amount = selectedFee.dueAmount > 0 ? selectedFee.dueAmount : '';
                     } else {
@@ -214,11 +215,14 @@ const FeeCollection = () => {
             }
 
             // Create Batch Array
-            const batchTransactions = validRows.map(row => ({
-                ...commonData,
-                feeHeadId: row.feeHeadId,
-                amount: Number(row.amount)
-            }));
+            const batchTransactions = validRows.map(row => {
+                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                return {
+                    ...commonData,
+                    feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
+                    amount: Number(row.amount)
+                };
+            });
 
             // Send as { transactions: [...] } to match Backend Batch Interface
             const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/transactions`, {
@@ -551,7 +555,7 @@ const FeeCollection = () => {
                                                         >
                                                             <option value="">-- Select --</option>
                                                             {displayedFees.map(f => ( // Updated to show filtered
-                                                                <option key={f.feeHeadId} value={f.feeHeadId}>
+                                                                <option key={f._id} value={f._id}>
                                                                     [{f.academicYear}] {f.feeHeadName} (Due: ₹{f.dueAmount})
                                                                 </option>
                                                             ))}
@@ -672,7 +676,7 @@ const FeeCollection = () => {
 
                                 <div className="space-y-2 mb-6">
                                     {feeRows.filter(r => r.feeHeadId && r.amount > 0).map((row, idx) => {
-                                        const fh = feeDetails.find(f => f.feeHeadId === row.feeHeadId);
+                                        const fh = feeDetails.find(f => f._id === row.feeHeadId);
                                         return (
                                             <div key={idx} className="flex justify-between text-sm">
                                                 <span className="text-gray-600">{fh ? fh.feeHeadName : 'Fee Head'}</span>
