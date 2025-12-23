@@ -674,6 +674,7 @@ const FeeConfiguration = () => {
                                                     <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
                                                         <tr>
                                                             <th className="p-3 border-b font-semibold text-gray-600 w-32">Admission No</th>
+                                                            <th className="p-3 border-b font-semibold text-gray-600 w-32">Pin Number</th>
                                                             <th className="p-3 border-b font-semibold text-gray-600">Student Name</th>
                                                             {/* Dynamic Year Columns based on Course Duration */}
                                                             {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(y => (
@@ -699,7 +700,7 @@ const FeeConfiguration = () => {
                                                                     <React.Fragment key={y}>
                                                                         {/* Group Header */}
                                                                         <tr className="bg-blue-50 cursor-pointer hover:bg-blue-100 transition" onClick={() => toggleYearExpand(y)}>
-                                                                            <td colSpan={2 + appTotalYears} className="p-2 font-bold text-blue-800 border-b border-blue-200">
+                                                                            <td colSpan={3 + appTotalYears} className="p-2 font-bold text-blue-800 border-b border-blue-200">
                                                                                 <div className="flex items-center gap-2">
                                                                                     <span className="transform transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
                                                                                     Year {y} Students ({students.length})
@@ -711,6 +712,7 @@ const FeeConfiguration = () => {
                                                                         {isExpanded && students.map((s, idx) => (
                                                                             <tr key={s.studentId} className="hover:bg-gray-50 border-b">
                                                                                 <td className="p-3 font-mono text-gray-600 text-xs pl-8 border-l-4 border-l-transparent bg-white">{s.studentId}</td>
+                                                                                <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.pinNo}</td>
                                                                                 <td className="p-3 font-medium text-gray-800 bg-white">{s.studentName}</td>
 
                                                                                 {/* Dynamic Year Inputs */}
