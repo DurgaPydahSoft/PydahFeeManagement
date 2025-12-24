@@ -168,7 +168,8 @@ exports.assignTransportToStudent = async (req, res) => {
             academicYear: academicYear,
             studentYear: student.current_year,
             semester: student.current_semester || 1, // Default if null
-            amount: stage.amount,
+            semester: student.current_semester || 1, // Default if null
+            amount: req.body.amount || stage.amount, // Allow override
             remarks: `Transport: ${route.name} - ${stage.stageName}`
         };
 
@@ -209,6 +210,21 @@ exports.getStudentTransportAllocation = async (req, res) => {
         // For now, let's return all transport fees for this student
         const allocations = await StudentFee.find({ studentId, feeHead: feeHead._id }).sort({ createdAt: -1 });
         
+        res.json(allocations);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+// Get ALL Transport Allocations (for reporting)
+exports.getAllTransportAllocations = async (req, res) => {
+    try {
+        const feeHead = await FeeHead.findOne({ name: 'Transport Fee' });
+        if (!feeHead) return res.json([]);
+
+        // Fetch all student fees linked to this head
+        const allocations = await StudentFee.find({ feeHead: feeHead._id })
+            .sort({ createdAt: -1 });
+
         res.json(allocations);
     } catch (error) {
         res.status(500).json({ message: error.message });

@@ -28,7 +28,6 @@ const FeeCollection = () => {
         remarks: '',
         transactionType: 'DEBIT',
         bankName: '',
-        bankName: '',
         instrumentDate: '',
         referenceNo: '',
         paymentConfigId: ''
@@ -496,8 +495,7 @@ const FeeCollection = () => {
                                     <table className="w-full text-left">
                                         <thead>
                                             <tr className="border-b border-gray-100 bg-gray-50/50">
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Batch</th>
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Fee Head</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Fee Head / Year</th>
                                                 <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Total Fee</th>
                                                 <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Paid</th>
                                                 <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Balance</th>
@@ -506,7 +504,7 @@ const FeeCollection = () => {
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
                                             {displayedFees.length === 0 ? (
-                                                <tr><td colSpan="6" className="py-6 text-center text-gray-500 italic text-sm">No fees found for this selection.</td></tr>
+                                                <tr><td colSpan="5" className="py-6 text-center text-gray-500 italic text-sm">No fees found for this selection.</td></tr>
                                             ) : (
                                                 <>
                                                     {displayedFees.map((fee, idx) => {
@@ -514,11 +512,10 @@ const FeeCollection = () => {
                                                         const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
                                                         return (
                                                             <tr key={idx} className="hover:bg-gray-50/80 transition-colors">
-                                                                <td className="py-2 px-4 text-sm text-gray-600">
-                                                                    <div className="font-bold text-gray-800">{fee.academicYear}</div>
+                                                                <td className="py-2 px-4 text-sm font-medium text-gray-700">
+                                                                    <div>{fee.feeHeadName}</div>
                                                                     <div className="text-[10px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
                                                                 </td>
-                                                                <td className="py-2 px-4 text-sm font-medium text-gray-700">{fee.feeHeadName}</td>
                                                                 <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">₹{fee.totalAmount.toLocaleString()}</td>
                                                                 <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">₹{fee.paidAmount.toLocaleString()}</td>
                                                                 <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">₹{fee.dueAmount.toLocaleString()}</td>
@@ -542,7 +539,7 @@ const FeeCollection = () => {
                                                     })}
                                                     {/* Total Row */}
                                                     <tr className="bg-gray-50/50 border-t border-gray-200">
-                                                        <td className="py-2.5 px-4 text-sm font-bold text-gray-800 text-right uppercase tracking-wide" colSpan="4">Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : viewFilterYear}):</td>
+                                                        <td className="py-2.5 px-4 text-sm font-bold text-gray-800 text-right uppercase tracking-wide" colSpan="3">Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):</td>
                                                         <td className="py-2.5 px-4 text-base font-extrabold text-right text-red-600 font-mono">₹{totalDueAmount.toLocaleString()}</td>
                                                         <td></td>
                                                     </tr>

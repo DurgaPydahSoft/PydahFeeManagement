@@ -20,6 +20,7 @@ router.delete('/stages/:id', deleteStage);
 
 // Allocation
 router.post('/allocation', assignTransportToStudent);
+router.get('/allocations', require('../controllers/transportController').getAllTransportAllocations); // Changed to plural
 router.get('/allocation/:studentId', getStudentTransportAllocation);
 
 module.exports = router;

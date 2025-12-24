@@ -43,6 +43,7 @@ const FeeConfiguration = () => {
     const [batches, setBatches] = useState([]); // Store batch list
     const [studentList, setStudentList] = useState([]);
     const [loadingStudents, setLoadingStudents] = useState(false);
+    const [isBatchApplied, setIsBatchApplied] = useState(false);
     const [templateAmount, setTemplateAmount] = useState(null); // The "standard" amount found
     const [applicabilityMode, setApplicabilityMode] = useState('batch'); // 'batch' or 'individual'
     const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
@@ -216,11 +217,7 @@ const FeeConfiguration = () => {
             return;
         }
 
-        // In Batch Mode, Student Year is required
-        if (!isExcelMode && !studentYear) {
-            alert("Please select Student Year for Batch Mode.");
-            return;
-        }
+        // In Batch Mode, we fetch ALL students
 
         setLoadingStudents(true);
         try {
@@ -232,8 +229,7 @@ const FeeConfiguration = () => {
                 s.college === college &&
                 s.course === course &&
                 s.branch === branch &&
-                (String(s.batch) === String(batch)) && // Batch is now strict
-                (isExcelMode ? true : s.current_year === Number(studentYear))
+                (String(s.batch) === String(batch))
             );
 
             // 2. Fetch Existing Fee Records (Real Data)
@@ -245,6 +241,9 @@ const FeeConfiguration = () => {
                 });
                 existingFees = feeRes.data;
             } catch (e) { console.error("Error fetching fee records", e); }
+
+            // Update Applied Status
+            setIsBatchApplied(existingFees.length > 0);
 
             // 3. Prepare List with ALL Years data
             const list = batchStudents.map(s => {
@@ -299,9 +298,8 @@ const FeeConfiguration = () => {
         if (!window.confirm(`Apply Fee to ALL students in this list?`)) return;
 
         try {
-            const yearsToProcess = appContext.studentYear === 'ALL'
-                ? Array.from({ length: appTotalYears }, (_, i) => i + 1)
-                : [Number(appContext.studentYear)];
+            // Processing ALL years for this Batch
+            const yearsToProcess = Array.from({ length: appTotalYears }, (_, i) => i + 1);
 
             let processedCount = 0;
 
@@ -325,13 +323,16 @@ const FeeConfiguration = () => {
             }
 
             if (processedCount === 0) {
-                alert("No matching Fee Structures found for the selected criteria.");
+                alert("No matching Fee Structures found or Fees already applied.");
             } else {
                 setMessage(`Fees applied successfully for ${processedCount} year groups!`);
                 setTimeout(() => setMessage(''), 3000);
             }
 
-        } catch (error) { alert("Failed to apply batch"); }
+        } catch (error) {
+            const msg = error.response?.data?.message || "Failed to apply batch";
+            alert(msg);
+        }
     };
 
     const handleSaveStudentFees = async () => {
@@ -637,11 +638,8 @@ const FeeConfiguration = () => {
                                     <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
                                 </div>
 
-                                {/* Dynamic Filters: Student Year (Only for Batch Mode) */}
                                 {applicabilityMode === 'batch' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-3 border-t pt-3">
-                                        <div><label className="text-xs font-bold text-gray-500 text-blue-600">Student Year (Batch Only)</label><select className="w-full border p-2 rounded mt-1 border-blue-200" value={appContext.studentYear} onChange={e => setAppContext({ ...appContext, studentYear: e.target.value })} disabled={!appContext.branch}><option value="">Select...</option>{appYearOptions.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
-                                    </div>
+                                    <div className="mt-3"></div>
                                 )}
 
                                 <div className="mt-4 flex justify-end">
@@ -670,7 +668,14 @@ const FeeConfiguration = () => {
                                     {applicabilityMode === 'individual' && (
                                         <div>
                                             <div className="flex justify-between items-center mb-4">
-                                                <p className="text-sm text-gray-500">Year-wise Fee Entry. Only the column matching the student's current year is editable.</p>
+                                                <div className="flex flex-col">
+                                                    <p className="text-sm text-gray-500">Edit fee amounts for all years. {appContext.semester ? `(Semester ${appContext.semester} Only)` : ''}</p>
+                                                    {isBatchApplied ? (
+                                                        <span className="text-xs font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded w-fit mt-1">✓ Fees Applied (Showing Actuals)</span>
+                                                    ) : (
+                                                        <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded w-fit mt-1">⚠ Fees Not Applied (Showing Templates)</span>
+                                                    )}
+                                                </div>
                                                 <button onClick={handleSaveStudentFees} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 shadow">Save Changes</button>
                                             </div>
                                             <div className="overflow-x-auto max-h-[500px] border rounded bg-white">

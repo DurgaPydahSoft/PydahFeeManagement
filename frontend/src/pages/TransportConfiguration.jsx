@@ -148,8 +148,14 @@ const TransportConfiguration = () => {
     // Assignment Form
     const [assignRouteId, setAssignRouteId] = useState('');
     const [assignStageId, setAssignStageId] = useState('');
+    const [assignAmount, setAssignAmount] = useState(''); // New state for editable amount
     const [assignStagesList, setAssignStagesList] = useState([]);
     const [existingAllocations, setExistingAllocations] = useState([]);
+    const [assignAcademicYear, setAssignAcademicYear] = useState('');
+
+    // Generate Academic Years
+    const currentYear = new Date().getFullYear();
+    const academicYears = Array.from({ length: 5 }, (_, i) => `${currentYear - 2 + i}-${currentYear - 1 + i}`);
 
     const handleAllocationSearch = async (e) => {
         e.preventDefault();
@@ -165,6 +171,7 @@ const TransportConfiguration = () => {
             const matches = res.data.filter(s =>
                 s.admission_number === allocationSearch ||
                 s.student_mobile === allocationSearch ||
+                s.pin_no === allocationSearch ||
                 (s.student_name && s.student_name.toLowerCase().includes(allocationSearch.toLowerCase()))
             );
 
@@ -216,8 +223,8 @@ const TransportConfiguration = () => {
     }, [assignRouteId]);
 
     const handleAssignTransport = async () => {
-        if (!allocationStudent || !assignRouteId || !assignStageId) {
-            alert('Please select Student, Route and Stage');
+        if (!allocationStudent || !assignRouteId || !assignStageId || !assignAcademicYear) {
+            alert('Please select Student, Academic Year, Route and Stage');
             return;
         }
 
@@ -226,7 +233,8 @@ const TransportConfiguration = () => {
                 studentId: allocationStudent.admission_number,
                 routeId: assignRouteId,
                 stageId: assignStageId,
-                academicYear: '2024-2025' // Default for now, or match student's year context if needed. ideally generic.
+                academicYear: assignAcademicYear,
+                amount: assignAmount // Send custom amount
             });
             alert('Transport Fee Assigned Successfully!');
             // Refresh allocations
@@ -234,6 +242,7 @@ const TransportConfiguration = () => {
             // Reset form
             setAssignRouteId('');
             setAssignStageId('');
+            setAssignAmount(''); // Reset amount
         } catch (error) {
             console.error(error);
             alert('Failed to assign transport fee');
@@ -244,7 +253,7 @@ const TransportConfiguration = () => {
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-8">
-                <header className="mb-8 flex justify-between items-end">
+                <header className="mb-8 flex flex-col md:flex-row justify-between md:items-end gap-4">
                     <div>
                         <h1 className="text-3xl font-extrabold text-gray-800 flex items-center gap-3">
                             <Bus className="w-8 h-8 text-blue-600" />
@@ -252,34 +261,44 @@ const TransportConfiguration = () => {
                         </h1>
                         <p className="text-gray-500 mt-2">Manage transport routes, stops, and fee structures.</p>
                     </div>
-                    {activeTab === 'routes' && (
-                        <button onClick={() => openRouteModal()} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition">
-                            <Plus size={18} /> Add New Route
-                        </button>
-                    )}
-                </header>
 
-                {/* Tabs */}
-                <div className="flex space-x-4 border-b border-gray-200 mb-6">
-                    <button
-                        onClick={() => setActiveTab('routes')}
-                        className={`pb-2 px-4 font-semibold transition ${activeTab === 'routes' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
-                    >
-                        Routes Management
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('stages')}
-                        className={`pb-2 px-4 font-semibold transition ${activeTab === 'stages' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
-                    >
-                        Route Stages & Fees
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('allocation')}
-                        className={`pb-2 px-4 font-semibold transition ${activeTab === 'allocation' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
-                    >
-                        Student Allocation
-                    </button>
-                </div>
+                    <div className="flex flex-col items-end gap-3">
+                        {/* Tabs in Header */}
+                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                            <button
+                                onClick={() => setActiveTab('routes')}
+                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'routes' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Routes
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('stages')}
+                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'stages' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Stages
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('allocation')}
+                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'allocation' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Allocation
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('list')}
+                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Assigned List
+                            </button>
+                        </div>
+
+                        {/* Context Action Button */}
+                        {activeTab === 'routes' && (
+                            <button onClick={() => openRouteModal()} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition text-sm">
+                                <Plus size={18} /> Add New Route
+                            </button>
+                        )}
+                    </div>
+                </header>
 
                 {/* --- ROUTES TAB --- */}
                 {activeTab === 'routes' && (
@@ -415,13 +434,13 @@ const TransportConfiguration = () => {
                                     placeholder="Enter Admission No, Mobile, or Name"
                                     value={allocationSearch}
                                     onChange={e => setAllocationSearch(e.target.value)}
+                                // ...
                                 />
                                 <button type="submit" disabled={allocationLoading} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 disabled:opacity-50">
                                     {allocationLoading ? 'Searching...' : 'Search'}
                                 </button>
                             </form>
-
-                            {/* Multiple Matches */}
+                            {/* ... (Existing search results) ... */}
                             {foundStudents.length > 0 && (
                                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {foundStudents.map(s => (
@@ -458,6 +477,20 @@ const TransportConfiguration = () => {
 
                                         <div className="space-y-4">
                                             <div>
+                                                <label className="block text-sm font-bold text-gray-600 mb-1">Academic Year</label>
+                                                <select
+                                                    className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    value={assignAcademicYear}
+                                                    onChange={e => setAssignAcademicYear(e.target.value)}
+                                                >
+                                                    <option value="">-- Select Year --</option>
+                                                    {academicYears.map(y => (
+                                                        <option key={y} value={y}>{y}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div>
                                                 <label className="block text-sm font-bold text-gray-600 mb-1">Select Route</label>
                                                 <select
                                                     className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none"
@@ -476,7 +509,14 @@ const TransportConfiguration = () => {
                                                 <select
                                                     className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none"
                                                     value={assignStageId}
-                                                    onChange={e => setAssignStageId(e.target.value)}
+                                                    onChange={e => {
+                                                        const sId = e.target.value;
+                                                        setAssignStageId(sId);
+                                                        // Auto-fill amount
+                                                        const s = assignStagesList.find(st => st._id === sId);
+                                                        if (s) setAssignAmount(s.amount);
+                                                        else setAssignAmount('');
+                                                    }}
                                                     disabled={!assignRouteId}
                                                 >
                                                     <option value="">-- Choose Stage --</option>
@@ -484,6 +524,17 @@ const TransportConfiguration = () => {
                                                         <option key={s._id} value={s._id}>{s.stageName} - ₹{s.amount}</option>
                                                     ))}
                                                 </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-bold text-gray-600 mb-1">Fee Amount (₹)</label>
+                                                <input
+                                                    type="number"
+                                                    className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700"
+                                                    value={assignAmount}
+                                                    onChange={e => setAssignAmount(e.target.value)}
+                                                    placeholder="Enter Amount"
+                                                />
                                             </div>
 
                                             <div className="pt-2">
@@ -531,6 +582,11 @@ const TransportConfiguration = () => {
                             </div>
                         )}
                     </div>
+                )}
+
+                {/* --- ASSIGNED LIST TAB --- */}
+                {activeTab === 'list' && (
+                    <TransportListTab API_URL={API_URL} />
                 )}
 
                 {/* --- MODALS --- */}
@@ -596,6 +652,81 @@ const TransportConfiguration = () => {
                         </div>
                     </div>
                 )}
+            </div>
+        </div>
+    );
+};
+
+// Sub-component for List
+const TransportListTab = ({ API_URL }) => {
+    const [list, setList] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [filterYear, setFilterYear] = useState('');
+
+    useEffect(() => {
+        fetchList();
+    }, []);
+
+    const fetchList = async () => {
+        setLoading(true);
+        try {
+            const res = await axios.get(`${API_URL}/api/transport/allocations`);
+            setList(res.data);
+        } catch (error) {
+            console.error(error);
+            alert("Failed to fetch data");
+        } finally { setLoading(false); }
+    };
+
+    const textMatch = (txt, term) => (txt || '').toLowerCase().includes(term.toLowerCase());
+
+    // Simple filter
+    const displayedList = list.filter(item => {
+        if (filterYear && item.academicYear !== filterYear) return false;
+        return true;
+    });
+
+    const uniqueYears = [...new Set(list.map(i => i.academicYear))];
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                <div className="font-bold text-gray-700">Total Assignments: {displayedList.length}</div>
+                <div className="flex gap-2">
+                    <select className="border p-1 rounded text-sm" value={filterYear} onChange={e => setFilterYear(e.target.value)}>
+                        <option value="">All Years</option>
+                        {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                    <button onClick={fetchList} className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">Refresh</button>
+                </div>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-100 text-gray-600 uppercase text-xs">
+                        <tr>
+                            <th className="p-3">Student Name</th>
+                            <th className="p-3">Admission No</th>
+                            <th className="p-3">Course / Branch</th>
+                            <th className="p-3">Academic Year</th>
+                            <th className="p-3">Assigned Route & Stage</th>
+                            <th className="p-3 text-right">Fee Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                        {loading ? <tr><td colSpan="6" className="p-6 text-center">Loading...</td></tr> :
+                            displayedList.length === 0 ? <tr><td colSpan="6" className="p-6 text-center text-gray-400">No records found.</td></tr> :
+                                displayedList.map(item => (
+                                    <tr key={item._id} className="hover:bg-blue-50/50">
+                                        <td className="p-3 font-medium text-gray-800">{item.studentName}</td>
+                                        <td className="p-3 text-gray-500 font-mono text-xs">{item.studentId}</td>
+                                        <td className="p-3 text-gray-600 text-xs">{item.course} - {item.branch}</td>
+                                        <td className="p-3 text-gray-600">{item.academicYear}</td>
+                                        <td className="p-3 text-gray-700">{item.remarks}</td>
+                                        <td className="p-3 text-right font-bold text-green-700">₹{item.amount.toLocaleString()}</td>
+                                    </tr>
+                                ))}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

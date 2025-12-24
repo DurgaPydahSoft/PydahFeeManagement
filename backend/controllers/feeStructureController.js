@@ -146,6 +146,22 @@ const applyFeeToBatch = async (req, res) => {
 
         if(students.length === 0) return res.status(404).json({message: 'No students found in this batch'});
 
+        // Check if fees are ALREADY applied for this Batch & Structure
+        // usage: academicYear stores the batch string
+        const existingFees = await StudentFee.findOne({
+            feeHead: structure.feeHead,
+            academicYear: structure.batch,
+            studentYear: structure.studentYear,
+            semester: structure.semester,
+            college: structure.college,
+            course: structure.course,
+            branch: structure.branch
+        });
+
+        if (existingFees) {
+            return res.status(400).json({ message: 'Fee already applied! Use the Excel view to modify individual students.' });
+        }
+
         const operations = students.map(s => {
             return {
                 updateOne: {
