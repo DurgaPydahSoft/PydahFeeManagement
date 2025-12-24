@@ -82,10 +82,11 @@ const FeeCollection = () => {
             });
             setFeeDetails(feesRes.data);
 
-            // Set Default Filter to Current (Latest) Year
-            const years = [...new Set(feesRes.data.map(f => f.academicYear))].sort().reverse();
-            if (years.length > 0) {
-                setViewFilterYear(years[0]);
+            // Set Default Filter to Student's Current Year
+            if (found.current_year) {
+                setViewFilterYear(found.current_year);
+            } else {
+                setViewFilterYear('ALL');
             }
 
             // 3. Fetch History
@@ -291,11 +292,11 @@ const FeeCollection = () => {
     const totalSelectedAmount = feeRows.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
     // Filter Fee Details for Display
-    const uniqueAcademicYears = [...new Set(feeDetails.map(f => f.academicYear))].sort().reverse();
+    const uniqueStudentYears = [...new Set(feeDetails.map(f => f.studentYear))].sort((a, b) => b - a);
 
     const displayedFees = feeDetails.filter(f => {
         if (viewFilterYear === 'ALL') return true;
-        return f.academicYear === viewFilterYear;
+        return Number(f.studentYear) === Number(viewFilterYear);
     });
 
     // Total Due calculation should be based on displayed, or total?
@@ -486,8 +487,8 @@ const FeeCollection = () => {
                                             value={viewFilterYear}
                                             onChange={(e) => setViewFilterYear(e.target.value)}
                                         >
-                                            <option value="ALL">All Academic Years</option>
-                                            {uniqueAcademicYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                            <option value="ALL">All Years</option>
+                                            {uniqueStudentYears.map(y => <option key={y} value={y}>Year {y}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -495,7 +496,7 @@ const FeeCollection = () => {
                                     <table className="w-full text-left">
                                         <thead>
                                             <tr className="border-b border-gray-100 bg-gray-50/50">
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Academic Year</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Batch</th>
                                                 <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Fee Head</th>
                                                 <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Total Fee</th>
                                                 <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Paid</th>
@@ -664,7 +665,7 @@ const FeeCollection = () => {
                                                             <option value="">-- Select Fee Head --</option>
                                                             {displayedFees.map(f => (
                                                                 <option key={f._id} value={f._id}>
-                                                                    [{f.academicYear}] {f.feeHeadName} (Due: ₹{f.dueAmount})
+                                                                    [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: ₹{f.dueAmount})
                                                                 </option>
                                                             ))}
                                                         </select>

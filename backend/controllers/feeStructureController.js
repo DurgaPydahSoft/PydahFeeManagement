@@ -7,17 +7,17 @@ const db = require('../config/sqlDb');
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, academicYear, studentYear, amount, description, semester } = req.body;
+  const { feeHeadId, college, course, branch, batch, studentYear, amount, description, semester } = req.body;
   // yearAmounts logic removed for simplifying Semester implementation as per requirement "semester heading... not display all eight semesters" in matrix.
   // We focus on single create or toggle-based create from UI.
 
   try {
-    if (!feeHeadId || !college || !course || !branch || !academicYear || !studentYear || amount === undefined || amount === null || amount === '') {
-      return res.status(400).json({ message: 'All fields including Student Year are required' });
+    if (!feeHeadId || !college || !course || !branch || !batch || !studentYear || amount === undefined || amount === null || amount === '') {
+      return res.status(400).json({ message: 'All fields including Batch and Student Year are required' });
     }
 
     const structure = await FeeStructure.findOneAndUpdate(
-      { feeHead: feeHeadId, college, course, branch, academicYear, studentYear, semester: semester || null },
+      { feeHead: feeHeadId, college, course, branch, batch, studentYear, semester: semester || null },
       { amount, description },
       { new: true, upsert: true }
     );
@@ -130,27 +130,21 @@ const getStudentFeeDetails = async (req, res) => {
 // @desc    Apply a Template Fee to a Batch (Creates StudentFee records)
 // @route   POST /api/fee-structures/apply-batch
 const applyFeeToBatch = async (req, res) => {
-    const { structureId, targetAcademicYear } = req.body; 
+    const { structureId } = req.body; // targetAcademicYear removed, we assume Batch is enough
 
     try {
         const structure = await FeeStructure.findById(structureId);
         if(!structure) return res.status(404).json({message: 'Structure not found'});
 
-        // Fetch Students from SQL
+        // Fetch Students matching the structure's Batch
+        // Note: Students table has 'batch' column now
         const [students] = await db.query(`
-            SELECT admission_number, student_name, college, course, branch, current_year, current_semester
+            SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
             FROM students 
-            WHERE college = ? AND course = ? AND branch = ? AND current_year = ?
-        `, [structure.college, structure.course, structure.branch, structure.studentYear]);
+            WHERE college = ? AND course = ? AND branch = ? AND batch = ?
+        `, [structure.college, structure.course, structure.branch, structure.batch]);
 
         if(students.length === 0) return res.status(404).json({message: 'No students found in this batch'});
-
-        // Determine Academic Year
-        // If structure has specific year, use it. If 'ALL', use targetAcademicYear passed from frontend.
-        let acYear = structure.academicYear;
-        if (acYear === 'ALL') {
-             acYear = targetAcademicYear || '2024-2025'; 
-        }
 
         const operations = students.map(s => {
             return {
@@ -158,7 +152,16 @@ const applyFeeToBatch = async (req, res) => {
                     filter: { 
                         studentId: s.admission_number, 
                         feeHead: structure.feeHead,
-                        academicYear: acYear,
+                        // We still store academicYear for historical reference if needed, 
+                        // BUT for now let's just use "Batch Mode" storage or keep it simple.
+                        // Actually, StudentFee likely needs an 'academicYear' to know WHICH year this fee belongs to?
+                        // If we are moving to Batch Based, maybe we don't 'academicYear' on StudentFee 
+                        // OR we calculate it: Batch 2024 + Year 1 = 2024-2025.
+                        // For SAFETY, let's store the Batch in StudentFee too if possible, OR just use 'batch' as the key.
+                        // To allow the system to work without breaking 'getStudentFeeDetails' (which uses academicYear),
+                        // We might need to infer academicYear. 
+                        // Let's store 'batch' in academicYear field for now to represent "This fee is for this Batch".
+                        academicYear: structure.batch, 
                         studentYear: structure.studentYear,
                         semester: structure.semester 
                     },
@@ -170,7 +173,8 @@ const applyFeeToBatch = async (req, res) => {
                             branch: s.branch,
                             amount: structure.amount,
                             structureId: structure._id,
-                            semester: structure.semester 
+                            semester: structure.semester,
+                            batch: s.batch // Store the batch from the student
                         }
                     },
                     upsert: true
@@ -199,7 +203,7 @@ const saveStudentFees = async (req, res) => {
                     filter: { 
                         studentId: f.studentId, 
                         feeHead: f.feeHeadId,
-                        academicYear: f.academicYear,
+                        academicYear: f.batch, // Use Batch here
                         studentYear: f.studentYear,
                         semester: f.semester
                     },
@@ -210,7 +214,9 @@ const saveStudentFees = async (req, res) => {
                             course: f.course,
                             branch: f.branch,
                             amount: Number(f.amount),
-                            semester: f.semester
+                            semester: f.semester,
+                            academicYear: f.batch, // Ensure it is saved
+                            batch: f.batch // Also save batch explicitly
                         }
                     },
                     upsert: true
@@ -230,7 +236,7 @@ const saveStudentFees = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, academicYear, studentYear, amount, description, semester } = req.body;
+  const { feeHeadId, college, course, branch, batch, studentYear, amount, description, semester } = req.body;
   const user = req.user ? req.user.username : 'system'; 
 
   try {
@@ -251,7 +257,7 @@ const updateFeeStructure = async (req, res) => {
         college, 
         course, 
         branch, 
-        academicYear, 
+        batch, 
         studentYear, 
         semester,
         amount, 
@@ -287,10 +293,11 @@ const deleteFeeStructure = async (req, res) => {
 // @desc    Get Batch Student Fees (for Excel View)
 // @route   POST /api/fee-structures/batch-fees
 const getBatchStudentFees = async (req, res) => {
-    const { college, course, branch, academicYear, feeHeadId } = req.body;
+    const { college, course, branch, batch, feeHeadId } = req.body;
 
     try {
-        const query = { college, course, branch, academicYear };
+        // Query by Batch (stored in academicYear field of StudentFee for compatibility)
+        const query = { college, course, branch, academicYear: batch };
         if (feeHeadId) query.feeHead = feeHeadId;
 
         const fees = await StudentFee.find(query);

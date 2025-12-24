@@ -15,7 +15,7 @@ const getStudents = async (req, res) => {
       SELECT 
         id, admission_number, student_name, father_name, 
         college, course, branch, student_mobile, student_status,
-        current_year, current_semester, pin_no, stud_type
+        current_year, current_semester, pin_no, stud_type, batch
       FROM students
       WHERE LOWER(student_status) = 'regular'
     `;
@@ -59,6 +59,10 @@ const getStudentMetadata = async (req, res) => {
     // { "College A": { "Course X": { branches: ["Branch 1"], total_years: 4 } } }
     const hierarchy = {};
 
+    // Also fetch distinct batches
+    const [batches] = await db.query(`SELECT DISTINCT batch FROM students WHERE batch IS NOT NULL AND batch != '' ORDER BY batch DESC`);
+    const batchList = batches.map(b => b.batch);
+
     rows.forEach(row => {
       if (!hierarchy[row.college]) {
         hierarchy[row.college] = {};
@@ -74,7 +78,10 @@ const getStudentMetadata = async (req, res) => {
       }
     });
 
-    res.json(hierarchy);
+    res.json({
+        hierarchy,
+        batches: batchList
+    });
   } catch (error) {
     console.error('Error fetching metadata:', error);
     res.status(500).json({ message: 'Failed to fetch metadata' });

@@ -19,7 +19,7 @@ const FeeConfiguration = () => {
     const [structures, setStructures] = useState([]);
     const [structForm, setStructForm] = useState({
         feeHeadId: '', college: '', course: '', branch: '',
-        academicYear: 'ALL', studentYear: '', amount: '',
+        batch: '', studentYear: '', amount: '', // Replaced academicYear with batch
         semester: '' // '1', '2' or empty for yearly
     });
     const [feeType, setFeeType] = useState('Yearly'); // 'Yearly' or 'Semester'
@@ -27,7 +27,7 @@ const FeeConfiguration = () => {
     const [bulkAmounts, setBulkAmounts] = useState({}); // For "All Years" creation: { 1: '', 2: '', ... }
     const [isMultiYear, setIsMultiYear] = useState(true); // Default to true (Always All Years)
 
-    // Helper to generate Academic Years
+    // Helper to generate Academic Years (Still useful for some display?)
     const currentYear = new Date().getFullYear();
     const academicYears = ['ALL', ...Array.from({ length: 9 }, (_, i) => `${currentYear - 4 + i}-${currentYear - 3 + i}`)];
 
@@ -37,8 +37,10 @@ const FeeConfiguration = () => {
 
     // --- TAB 3: APPLICABILITY (Assignment) ---
     const [appContext, setAppContext] = useState({
-        college: '', course: '', branch: '', studentYear: '', semester: '', feeHeadId: '', academicYear: '2024-2025' // Default active year
+        college: '', course: '', branch: '', studentYear: '', semester: '', feeHeadId: '', batch: ''
+        // Removed academicYear
     });
+    const [batches, setBatches] = useState([]); // Store batch list
     const [studentList, setStudentList] = useState([]);
     const [loadingStudents, setLoadingStudents] = useState(false);
     const [templateAmount, setTemplateAmount] = useState(null); // The "standard" amount found
@@ -54,7 +56,8 @@ const FeeConfiguration = () => {
     const fetchMetadata = async () => {
         try {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
-            setMetadata(response.data);
+            setMetadata(response.data.hierarchy || response.data); // Handle both old and new format
+            if (response.data.batches) setBatches(response.data.batches);
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
@@ -109,34 +112,37 @@ const FeeConfiguration = () => {
         e.preventDefault();
         setMessage('');
         try {
-            const requests = [];
-
             if (editingId) {
-                // Update existing (Single ID)
+                // Update existing
                 await axios.put(`${import.meta.env.VITE_API_URL}/api/fee-structures/${editingId}`, structForm);
             } else {
-                // Determine Years to Process
-                const total = (structForm.college && structForm.course) ? (metadata[structForm.college][structForm.course].total_years || 4) : 4;
-                const targetYears = Array.from({ length: total }, (_, i) => i + 1);
+                // Determine Years to Process from Metadata
+                const selectedMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
+                const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 4;
 
-                // Generate Requests
-                targetYears.forEach(year => {
-                    if (feeType === 'Semester') {
-                        // Semester Wise (Always from bulkAmounts)
-                        const s1 = bulkAmounts[`${year}-S1`];
-                        const s2 = bulkAmounts[`${year}-S2`];
-
-                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: year, semester: 1, amount: Number(s1) }));
-                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: year, semester: 2, amount: Number(s2) }));
-
+                const requests = [];
+                for (let y = 1; y <= yearsCount; y++) {
+                    if (feeType === 'Yearly') {
+                        const amount = bulkAmounts[`${y}-Y`];
+                        if (amount) {
+                            requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, {
+                                ...structForm,
+                                studentYear: y,
+                                semester: null,
+                                amount: Number(amount),
+                                batch: structForm.batch // Explicitly ensure batch is sent
+                            }));
+                        }
                     } else {
-                        // Yearly (Always from bulkAmounts)
-                        const amt = bulkAmounts[`${year}-Y`];
-                        if (amt) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: year, semester: null, amount: Number(amt) }));
+                        // Semester Wise
+                        const s1 = bulkAmounts[`${y}-S1`];
+                        const s2 = bulkAmounts[`${y}-S2`];
+                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 1, amount: Number(s1), batch: structForm.batch }));
+                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 2, amount: Number(s2), batch: structForm.batch }));
                     }
-                });
+                }
 
-                if (requests.length === 0) { alert('Please enter at least one amount'); return; }
+                if (requests.length === 0) { alert('Please enter at least one amount.'); return; }
                 await Promise.all(requests);
             }
 
@@ -201,12 +207,12 @@ const FeeConfiguration = () => {
     // --- APPLICABILITY LOGIC ---
     const fetchStudentsForApplicability = async () => {
         // Validation based on Mode
-        const { college, course, branch, studentYear, academicYear, feeHeadId } = appContext;
+        const { college, course, branch, studentYear, feeHeadId, batch } = appContext;
 
         const isExcelMode = applicabilityMode === 'individual';
 
-        if (!college || !course || !branch || !academicYear || !feeHeadId) {
-            alert("Please select College, Fee Head, Academic Year, Course, and Branch.");
+        if (!college || !course || !branch || !batch || !feeHeadId) {
+            alert("Please select College, Fee Head, Batch, Course, and Branch.");
             return;
         }
 
@@ -221,77 +227,67 @@ const FeeConfiguration = () => {
             // 1. Fetch Students (All for the batch)
             const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`);
 
-            // Filter: Match College, Course, Branch
-            // If Excel Mode: Fetch ALL students (ignore studentYear filter)
-            // If Batch Mode: Filter by s.current_year
+            // Filter: Match College, Course, Branch, and Batch
             const batchStudents = studentsRes.data.filter(s =>
-                s.college === college && s.course === course && s.branch === branch &&
+                s.college === college &&
+                s.course === course &&
+                s.branch === branch &&
+                (String(s.batch) === String(batch)) && // Batch is now strict
                 (isExcelMode ? true : s.current_year === Number(studentYear))
             );
 
             // 2. Fetch Existing Fee Records (Real Data)
-            // Only need this for Excel Mode to show current state, but useful for Batch too (to show if Applied)
             let existingFees = [];
             try {
+                // Fetch ALL fees for this batch/feeHead (not just for current year)
                 const feeRes = await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/batch-fees`, {
-                    college, course, branch, academicYear, feeHeadId
+                    college, course, branch, batch, feeHeadId
                 });
                 existingFees = feeRes.data;
             } catch (e) { console.error("Error fetching fee records", e); }
 
-            // 3. Prepare List
+            // 3. Prepare List with ALL Years data
             const list = batchStudents.map(s => {
                 const sYear = s.current_year;
+                const relevantFees = existingFees.filter(f => f.studentId === s.admission_number);
 
-                // Find existing fee for this student and this head/year
-                // We are looking for fee with: studentId, feeHead, academicYear
-                // AND studentYear matching their current year (since the column is for THAT year)
-                /* 
-                   Wait, in Excel View: "Rows represent students... shows all year-wise fee columns".
-                   "Display fee values in the corresponding year column."
-                   "Other year columns should remain empty or disabled unless applicable."
-                   
-                   Actually, typically a student ONLY pays for their CURRENT year. 
-                   Usually you don't collect Year 3 fees from a Year 1 student yet.
-                   Requirement: "Fetch their current year... Display fee values in the corresponding year column."
-                   
-                   So:
-                   Student A (Year 1) -> Input in Col 1. Col 2,3,4 Disabled.
-                   Student B (Year 2) -> Input in Col 2. Col 1,3,4 Disabled.
-                   
-                   Value to pre-fill: 
-                   1. Check `existingFees` for a record matching (studentId, studentYear=sYear).
-                   2. If none, check `structures` template matching (studentYear=sYear).
-                */
+                // Build an object with amounts for each student year (1..4)
+                const yearsData = {};
+                // Pre-fill with Templates
+                structures.filter(st =>
+                    st.college === college && st.course === course && st.branch === branch &&
+                    String(st.batch) === String(batch) &&
+                    st.feeHead._id === feeHeadId
+                ).forEach(st => {
+                    // Check semester logic
+                    if (appContext.semester) {
+                        if (Number(st.semester) === Number(appContext.semester)) {
+                            yearsData[st.studentYear] = st.amount;
+                        }
+                    } else if (!st.semester) {
+                        yearsData[st.studentYear] = st.amount;
+                    }
+                });
 
-                const relevantFee = existingFees.find(f => f.studentId === s.admission_number && f.studentYear === sYear);
-
-                // Template Fallback
-                let templateAmount = 0;
-                if (!relevantFee) {
-                    let template = structures.find(st =>
-                        st.college === college && st.course === course && st.branch === branch &&
-                        (st.academicYear === academicYear || st.academicYear === 'ALL') &&
-                        st.studentYear === sYear &&
-                        st.feeHead._id === feeHeadId &&
-                        (appContext.semester ? st.semester === Number(appContext.semester) : !st.semester)
-                    );
-                    if (template) templateAmount = template.amount;
-                }
+                // Override with Existing Student Fees if present
+                relevantFees.forEach(f => {
+                    if (appContext.semester) {
+                        if (Number(f.semester) === Number(appContext.semester)) {
+                            yearsData[f.studentYear] = f.amount;
+                        }
+                    } else if (!f.semester) {
+                        yearsData[f.studentYear] = f.amount;
+                    }
+                });
 
                 return {
                     studentId: s.admission_number,
                     studentName: s.student_name,
                     pinNo: s.pin_no || '-',
                     current_year: sYear,
-                    amount: relevantFee ? relevantFee.amount : templateAmount, // The value to show
-                    isExisting: !!relevantFee,
-                    feeId: relevantFee ? relevantFee._id : null
+                    fees: yearsData, // e.g., { 1: 50000, 2: 50000, ... }
                 };
             });
-
-            // Set Template Amount just for Batch Mode reference
-            // ... (skipped for brevity as it's less critical for Excel mode)
 
             setStudentList(list);
 
@@ -313,7 +309,7 @@ const FeeConfiguration = () => {
                 // Find structure for this specific year
                 let template = structures.find(s =>
                     s.college === appContext.college && s.course === appContext.course && s.branch === appContext.branch &&
-                    (s.academicYear === appContext.academicYear || s.academicYear === 'ALL') &&
+                    s.batch === appContext.batch && // Match Batch
                     s.studentYear === year &&
                     s.feeHead._id === appContext.feeHeadId &&
                     (appContext.semester ? s.semester === Number(appContext.semester) : !s.semester)
@@ -322,7 +318,7 @@ const FeeConfiguration = () => {
                 if (template) {
                     await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/apply-batch`, {
                         structureId: template._id,
-                        targetAcademicYear: appContext.academicYear
+                        batch: appContext.batch
                     });
                     processedCount++;
                 }
@@ -340,21 +336,27 @@ const FeeConfiguration = () => {
 
     const handleSaveStudentFees = async () => {
         try {
-            // Save Logic - Handles both Batch (if reused) and Individual Excel Save
-            // Payload: List of fee objects
-            const fees = studentList.map(s => ({
-                studentId: s.studentId,
-                studentName: s.studentName,
-                feeHeadId: appContext.feeHeadId,
-                college: appContext.college,
-                course: appContext.course,
-                branch: appContext.branch,
-                block: appContext.block,
-                academicYear: appContext.academicYear,
-                studentYear: s.current_year, // ALWAYS use student's actual year
-                semester: appContext.semester,
-                amount: s.amount // The edited amount
-            }));
+            // Flatten the studentList to extract all fee entries
+            const fees = [];
+            studentList.forEach(s => {
+                Object.keys(s.fees).forEach(year => {
+                    const amt = s.fees[year];
+                    if (amt !== undefined && amt !== null && amt !== '') {
+                        fees.push({
+                            studentId: s.studentId,
+                            studentName: s.studentName,
+                            feeHeadId: appContext.feeHeadId,
+                            college: appContext.college,
+                            course: appContext.course,
+                            branch: appContext.branch,
+                            batch: appContext.batch,
+                            studentYear: Number(year),
+                            semester: appContext.semester,
+                            amount: amt
+                        });
+                    }
+                });
+            });
 
             await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
             setMessage("Student List fees saved successfully!");
@@ -377,7 +379,7 @@ const FeeConfiguration = () => {
         if (filterCourse && s.course !== filterCourse) return false;
         return true;
     }).forEach(s => {
-        const key = `${s.college}|${s.course}|${s.branch}|${s.academicYear}|${s.feeHead?._id}`;
+        const key = `${s.college}|${s.course}|${s.branch}|${s.batch}|${s.feeHead?._id}`;
         if (!grouped[key]) grouped[key] = { ...s, feeHeadName: s.feeHead?.name, feeHeadId: s.feeHead?._id, feeHeadCode: s.feeHead?.code, years: {}, allIds: [] };
 
         // Initialize year array if missing
@@ -468,11 +470,12 @@ const FeeConfiguration = () => {
                                     <select className="w-full border p-2 rounded" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}><option value="">Select Branch</option>{((structForm.college && structForm.course) ? metadata[structForm.college][structForm.course].branches : []).map(b => <option key={b}>{b}</option>)}</select>
                                 </div>
 
-                                {/* Row 3: Academic Year */}
+                                {/* Row 3: Batch Selection */}
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500">Academic Year</label>
-                                    <select className="w-full border p-2 rounded mt-1" value={structForm.academicYear} onChange={e => setStructForm({ ...structForm, academicYear: e.target.value })} required>
-                                        {academicYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                    <label className="text-xs font-bold text-gray-500">Batch</label>
+                                    <select className="w-full border p-2 rounded mt-1" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
+                                        <option value="">Select Batch</option>
+                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
                                     </select>
                                 </div>
 
@@ -538,7 +541,7 @@ const FeeConfiguration = () => {
                                             <td className="p-3 text-xs text-gray-500">
                                                 <div className="font-bold">{row.course} - {row.branch}</div>
                                                 <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{row.college}</div>
-                                                <div className="mt-1 text-black font-semibold">AY: {row.academicYear}</div>
+                                                <div className="mt-1 text-black font-semibold">Batch: {row.batch}</div>
                                             </td>
                                             {[1, 2, 3, 4].map(y => (
                                                 <td key={y} className="p-2 text-center text-gray-700 align-top">
@@ -618,11 +621,12 @@ const FeeConfiguration = () => {
                                     {/* 2. Fee Head */}
                                     <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
 
-                                    {/* 3. Academic Year */}
+                                    {/* 3. Batch (Required) */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500">Academic Year</label>
-                                        <select className="w-full border p-2 rounded mt-1" value={appContext.academicYear} onChange={e => setAppContext({ ...appContext, academicYear: e.target.value })}>
-                                            {academicYears.filter(y => y !== 'ALL').map(y => <option key={y} value={y}>{y}</option>)}
+                                        <label className="text-xs font-bold text-gray-500">Batch</label>
+                                        <select className="w-full border p-2 rounded mt-1" value={appContext.batch} onChange={e => setAppContext({ ...appContext, batch: e.target.value })}>
+                                            <option value="">Select Batch</option>
+                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
                                     </div>
 
@@ -683,69 +687,31 @@ const FeeConfiguration = () => {
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y">
-                                                        {(() => {
-                                                            // Group Students by current_year
-                                                            const groupedStudents = {};
-                                                            studentList.forEach(s => {
-                                                                if (!groupedStudents[s.current_year]) groupedStudents[s.current_year] = [];
-                                                                groupedStudents[s.current_year].push(s);
-                                                            });
+                                                        {studentList.map((s, idx) => (
+                                                            <tr key={s.studentId} className="hover:bg-gray-50 border-b">
+                                                                <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.studentId}</td>
+                                                                <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.pinNo}</td>
+                                                                <td className="p-3 font-medium text-gray-800 bg-white">{s.studentName}</td>
 
-                                                            return Object.keys(groupedStudents).sort().map(yearStr => {
-                                                                const y = Number(yearStr);
-                                                                const students = groupedStudents[y];
-                                                                const isExpanded = expandedYears[y] ?? true; // Default expanded
-
-                                                                return (
-                                                                    <React.Fragment key={y}>
-                                                                        {/* Group Header */}
-                                                                        <tr className="bg-blue-50 cursor-pointer hover:bg-blue-100 transition" onClick={() => toggleYearExpand(y)}>
-                                                                            <td colSpan={3 + appTotalYears} className="p-2 font-bold text-blue-800 border-b border-blue-200">
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <span className="transform transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-                                                                                    Year {y} Students ({students.length})
-                                                                                </div>
-                                                                            </td>
-                                                                        </tr>
-
-                                                                        {/* Student Rows */}
-                                                                        {isExpanded && students.map((s, idx) => (
-                                                                            <tr key={s.studentId} className="hover:bg-gray-50 border-b">
-                                                                                <td className="p-3 font-mono text-gray-600 text-xs pl-8 border-l-4 border-l-transparent bg-white">{s.studentId}</td>
-                                                                                <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.pinNo}</td>
-                                                                                <td className="p-3 font-medium text-gray-800 bg-white">{s.studentName}</td>
-
-                                                                                {/* Dynamic Year Inputs */}
-                                                                                {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(yearCol => (
-                                                                                    <td key={yearCol} className={`p-2 border-l text-center ${s.current_year === yearCol ? 'bg-white' : 'bg-gray-50/50'}`}>
-                                                                                        {s.current_year === yearCol ? (
-                                                                                            <input
-                                                                                                type="number"
-                                                                                                className="w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900"
-                                                                                                value={s.amount || ''}
-                                                                                                placeholder="0"
-                                                                                                onChange={(e) => {
-                                                                                                    // IMPORTANT: We need to find the index in original studentList
-                                                                                                    const originalIndex = studentList.findIndex(st => st.studentId === s.studentId);
-                                                                                                    if (originalIndex === -1) return;
-
-                                                                                                    const newList = [...studentList];
-                                                                                                    newList[originalIndex].amount = e.target.value;
-                                                                                                    setStudentList(newList);
-                                                                                                }}
-                                                                                                onClick={(e) => e.stopPropagation()} // Prevent row collapse
-                                                                                            />
-                                                                                        ) : (
-                                                                                            <span className="text-gray-300 text-xs">-</span>
-                                                                                        )}
-                                                                                    </td>
-                                                                                ))}
-                                                                            </tr>
-                                                                        ))}
-                                                                    </React.Fragment>
-                                                                );
-                                                            });
-                                                        })()}
+                                                                {/* Dynamic Year Inputs (All Available) */}
+                                                                {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(yearCol => (
+                                                                    <td key={yearCol} className="p-2 border-l text-center">
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900"
+                                                                            value={s.fees[yearCol] || ''}
+                                                                            placeholder="-"
+                                                                            onChange={(e) => {
+                                                                                const newList = [...studentList];
+                                                                                const newFees = { ...newList[idx].fees, [yearCol]: e.target.value };
+                                                                                newList[idx].fees = newFees;
+                                                                                setStudentList(newList);
+                                                                            }}
+                                                                        />
+                                                                    </td>
+                                                                ))}
+                                                            </tr>
+                                                        ))}
                                                     </tbody>
                                                 </table>
                                             </div>
