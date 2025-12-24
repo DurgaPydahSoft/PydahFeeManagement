@@ -113,3 +113,104 @@ exports.deleteStage = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+// --- Allocation Logic ---
+
+const FeeHead = require('../models/FeeHead');
+const StudentFee = require('../models/StudentFee');
+const db = require('../config/sqlDb');
+
+// Assign Transport to Student
+exports.assignTransportToStudent = async (req, res) => {
+    const { studentId, routeId, stageId, academicYear } = req.body;
+
+    if (!studentId || !routeId || !stageId || !academicYear) {
+        return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    try {
+        // 1. Get Stage Details (for Amount)
+        const stage = await RouteStage.findById(stageId);
+        if (!stage) return res.status(404).json({ message: 'Stage not found' });
+
+        const route = await TransportRoute.findById(routeId);
+        if (!route) return res.status(404).json({ message: 'Route not found' });
+
+        // 2. Get Student Details from SQL
+        const [students] = await db.query('SELECT student_name, college, course, branch, current_year, current_semester FROM students WHERE admission_number = ?', [studentId]);
+        
+        if (students.length === 0) return res.status(404).json({ message: 'Student not found in database' });
+        const student = students[0];
+
+        // 3. Find or Create "Transport Fee" Head
+        let feeHead = await FeeHead.findOne({ name: 'Transport Fee' });
+        if (!feeHead) {
+            feeHead = await FeeHead.create({
+                name: 'Transport Fee',
+                description: 'Fee for Transport Facilities',
+                code: 'TRN'
+            });
+        }
+
+        // 4. Create/Update Student Fee Record
+        // We use 'Transport Fee' head. Unique index is on { studentId, feeHead, academicYear, studentYear, semester }
+        // We assume transport fee is per year usually, but here we can stick to the passed academicYear.
+        // We'll upsert based on this to avoid duplicates for the same year.
+        
+        const feePayload = {
+            studentId,
+            studentName: student.student_name,
+            feeHead: feeHead._id,
+            structureId: null, // Manual assignment, no structure template
+            college: student.college,
+            course: student.course,
+            branch: student.branch,
+            academicYear: academicYear,
+            studentYear: student.current_year,
+            semester: student.current_semester || 1, // Default if null
+            amount: stage.amount,
+            remarks: `Transport: ${route.name} - ${stage.stageName}`
+        };
+
+        await StudentFee.findOneAndUpdate(
+            { 
+                studentId, 
+                feeHead: feeHead._id, 
+                academicYear, 
+                studentYear: student.current_year
+                // We intentionally omit semester here if we want one transport fee per year, 
+                // OR include it if we want per semester. 
+                // Given the schema index includes semester, let's include it for safety, 
+                // BUT usually transport is annual. Let's try to match strict index.
+                // Re-checking index: { studentId: 1, feeHead: 1, academicYear: 1, studentYear: 1, semester: 1 }
+                , semester: student.current_semester || 1
+            },
+            { $set: feePayload },
+            { upsert: true, new: true }
+        );
+
+        res.json({ message: 'Transport fee assigned successfully', amount: stage.amount });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Get Transport Allocation for a Student
+exports.getStudentTransportAllocation = async (req, res) => {
+    const { studentId } = req.params;
+    try {
+        // We look for a StudentFee record with name "Transport Fee"
+        const feeHead = await FeeHead.findOne({ name: 'Transport Fee' });
+        if (!feeHead) return res.json(null); // No transport fee system yet
+
+        // Find most recent allocation? Or all? Let's return the latest for the current year context if possible
+        // For now, let's return all transport fees for this student
+        const allocations = await StudentFee.find({ studentId, feeHead: feeHead._id }).sort({ createdAt: -1 });
+        
+        res.json(allocations);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

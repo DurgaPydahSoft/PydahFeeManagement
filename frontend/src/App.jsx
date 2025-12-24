@@ -8,6 +8,7 @@ import Students from './pages/Students';
 import FeeCollection from './pages/FeeCollection';
 import UserManagement from './pages/UserManagement';
 import TransportConfiguration from './pages/TransportConfiguration';
+import PaymentConfiguration from './pages/PaymentConfiguration';
 
 import Reports from './pages/Reports';
 import Documentation from './pages/Documentation';
@@ -26,6 +27,7 @@ function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/user-management" element={<UserManagement />} />
         <Route path="/transport-config" element={<TransportConfiguration />} />
+        <Route path="/payment-config" element={<PaymentConfiguration />} />
       </Routes>
     </Router>
   );

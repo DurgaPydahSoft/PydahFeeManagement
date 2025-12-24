@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
     getRoutes, createRoute, updateRoute, deleteRoute,
-    getStages, createStage, updateStage, deleteStage
+    getStages, createStage, updateStage, deleteStage,
+    assignTransportToStudent, getStudentTransportAllocation
 } = require('../controllers/transportController');
 
 // Routes
@@ -16,5 +17,9 @@ router.get('/stages/:routeId', getStages);
 router.post('/stages', createStage);
 router.put('/stages/:id', updateStage);
 router.delete('/stages/:id', deleteStage);
+
+// Allocation
+router.post('/allocation', assignTransportToStudent);
+router.get('/allocation/:studentId', getStudentTransportAllocation);
 
 module.exports = router;

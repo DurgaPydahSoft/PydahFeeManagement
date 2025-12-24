@@ -14,6 +14,7 @@ const FeeCollection = () => {
 
     // Fee Details
     const [feeDetails, setFeeDetails] = useState([]);
+    const [paymentConfigs, setPaymentConfigs] = useState([]);
     // View Filter (Year)
     const [viewFilterYear, setViewFilterYear] = useState('ALL');
 
@@ -27,8 +28,10 @@ const FeeCollection = () => {
         remarks: '',
         transactionType: 'DEBIT',
         bankName: '',
+        bankName: '',
         instrumentDate: '',
-        referenceNo: ''
+        referenceNo: '',
+        paymentConfigId: ''
     });
 
     const [paymentCategory, setPaymentCategory] = useState('Cash'); // 'Cash' | 'Bank'
@@ -43,6 +46,16 @@ const FeeCollection = () => {
     const [lastTransaction, setLastTransaction] = useState(null); // Primary transaction object
     const [relatedTransactions, setRelatedTransactions] = useState([]); // All transactions in the batch
     const receiptRef = useRef();
+
+    useEffect(() => {
+        const fetchConfigs = async () => {
+            try {
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`);
+                setPaymentConfigs(res.data.filter(c => c.is_active));
+            } catch (e) { console.error("Error fetching payment configs", e); }
+        };
+        fetchConfigs();
+    }, []);
 
     // Print Handler
     const handlePrintReceipt = useReactToPrint({
@@ -68,6 +81,12 @@ const FeeCollection = () => {
                 params: { college, course, branch, studentYear } // Removed academicYear to fetch all history
             });
             setFeeDetails(feesRes.data);
+
+            // Set Default Filter to Current (Latest) Year
+            const years = [...new Set(feesRes.data.map(f => f.academicYear))].sort().reverse();
+            if (years.length > 0) {
+                setViewFilterYear(years[0]);
+            }
 
             // 3. Fetch History
             const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`);
@@ -209,6 +228,11 @@ const FeeCollection = () => {
                     commonData.bankName = paymentForm.bankName;
                     commonData.instrumentDate = paymentForm.instrumentDate;
                     commonData.referenceNo = paymentForm.referenceNo;
+                    commonData.paymentConfigId = paymentForm.paymentConfigId;
+                    const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                    if (selectedConfig) {
+                        commonData.depositedToAccount = selectedConfig.account_name;
+                    }
                 }
             } else {
                 commonData.paymentMode = 'Credit';
@@ -282,13 +306,42 @@ const FeeCollection = () => {
     const totalDueAmount = displayedFees.reduce((acc, curr) => acc + curr.dueAmount, 0);
     const globalTotalDue = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
 
+    const inputRef = useRef(null);
+
+    // Auto-focus on mount
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, []);
+
+    // Modified Header to conditionally show search (Refined condition)
+    // We want to show header if:
+    // 1. Student is selected
+    // 2. Multiple students found
+    // 3. Loading (maybe)
+    // 4. Searching is Active (User typed something and hit enter - result might be error or found)
+    // But initially, searchQuery is empty.
+    const isSearchMode = student || foundStudents.length > 0 || (loading && searchQuery);
+    // Actually, simply: if we have a selected student OR we have search results OR we are searching.
+    // Let's use a simpler check: If we are "ready to collect" (student selected), show header.
+    // If not, and no search query, show center.
+    // But if I type "Abc" and search, I want it to move up even if no result?
+    // User said: "after searching it should goes to current place".
+
+    // Let's try:
+    const showHeader = student || foundStudents.length > 0 || loading || error;
+    // If successful search -> student or foundStudents.
+    // If failed search -> error.
+    // If searching -> loading.
+
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
-            <div className="flex-1 p-4 md:p-6 relative">
+            <div className="flex-1 p-4 md:p-6 relative flex flex-col">
 
-                {/* Header with Search */}
-                <header className="mb-4 flex flex-col md:flex-row justify-between items-center gap-4 px-2">
+                {/* Header - Search moves here */}
+                <header className={`mb-4 flex flex-col md:flex-row justify-between items-center gap-4 px-2 transition-all duration-500 ${!isSearchMode ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'}`}>
                     <div>
                         <h1 className="text-2xl font-bold text-gray-800">Fee Collection</h1>
                         <p className="text-sm text-gray-500">Collect fees and manage transactions.</p>
@@ -327,18 +380,34 @@ const FeeCollection = () => {
                     </div>
                 )}
 
-                {/* Placeholder State */}
-                {!loading && !student && foundStudents.length === 0 && !error && (
-                    <div className="flex flex-col items-center justify-center py-20 bg-white rounded-lg shadow-sm border border-gray-200 border-dashed">
-                        <div className="bg-blue-50 p-6 rounded-full mb-4">
-                            <svg className="w-16 h-16 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
+                {/* Center Search State */}
+                {!isSearchMode && (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 transition-all duration-500">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 max-w-lg w-full">
+                            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                Search Student
+                            </h2>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Student Fee Collection</h2>
+                            <p className="text-gray-500 mb-8">Search for a student to view details and collect fees.</p>
+
+                            <form onSubmit={handleSearch} className="relative">
+                                <input
+                                    ref={inputRef}
+                                    type="text"
+                                    placeholder="Enter Admission No, Mobile or Name..."
+                                    className="w-full pl-5 pr-12 py-4 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none text-lg shadow-sm transition-all"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                <button
+                                    type="submit"
+                                    className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-4 rounded-lg font-bold hover:bg-blue-700 transition flex items-center justify-center"
+                                >
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                </button>
+                            </form>
                         </div>
-                        <h3 className="text-xl font-bold text-gray-800 mb-2">Ready to Collect Fees</h3>
-                        <p className="text-gray-500 max-w-sm text-center">
-                            Search for a student using the bar above to get started.
-                        </p>
                     </div>
                 )}
 
@@ -347,117 +416,153 @@ const FeeCollection = () => {
                         {/* Left Column: Student Info, Fee Dues & Payment History */}
                         <div className="lg:col-span-2 space-y-4">
 
-                            {/* Student Card (Compact - Single Row) */}
-                            <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-100 flex flex-wrap items-center gap-6 text-sm">
-                                {/* Image & Name */}
-                                <div className="flex items-center gap-3">
-                                    <div className="h-12 w-12 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+                            {/* Student Profile Card - Professional Design */}
+                            {/* Student Profile Card - Compact Professional Design */}
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-4">
+                                <div className="bg-gradient-to-r from-blue-700 to-blue-900 p-4 text-white flex flex-col md:flex-row items-center md:items-start gap-4">
+                                    {/* Photo */}
+                                    <div className="h-14 w-14 rounded-full border-2 border-white/20 shadow-md overflow-hidden shrink-0 bg-white">
                                         {student.student_photo ? (
                                             <img
                                                 src={student.student_photo.startsWith('data:') ? student.student_photo : `data:image/jpeg;base64,${student.student_photo}`}
-                                                alt=""
+                                                alt="Student"
                                                 className="h-full w-full object-cover"
                                             />
                                         ) : (
-                                            <div className="h-full w-full flex items-center justify-center text-xl">🎓</div>
+                                            <div className="h-full w-full flex items-center justify-center text-xl font-bold text-gray-400">
+                                                {student.student_name?.charAt(0)}
+                                            </div>
                                         )}
                                     </div>
-                                    <div>
-                                        <h2 className="font-bold text-gray-800 text-lg">{student.student_name}</h2>
-                                        <p className="text-xs text-blue-600 font-semibold">{student.course} - {student.branch}</p>
-                                    </div>
-                                </div>
 
-                                <div className="hidden md:block h-10 w-px bg-gray-200"></div>
+                                    {/* Info */}
+                                    <div className="flex-1 text-center md:text-left min-w-0">
+                                        <div className="flex flex-col md:flex-row md:items-baseline md:gap-3">
+                                            <h2 className="text-lg font-bold truncate">{student.student_name}</h2>
+                                            <p className="text-blue-200 text-xs font-medium truncate">{student.course} - {student.branch}</p>
+                                        </div>
 
-                                {/* Details Grid */}
-                                <div className="grid grid-cols-2 md:flex md:items-center gap-x-6 gap-y-2">
-                                    <div>
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Admission No</span>
-                                        <span className="font-bold text-gray-700 font-mono">{student.admission_number}</span>
+                                        <div className="flex flex-wrap justify-center md:justify-start gap-2 text-xs mt-1">
+                                            <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
+                                                <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Adm:</span>
+                                                <span className="font-mono font-bold">{student.admission_number}</span>
+                                            </div>
+                                            <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
+                                                <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Pin:</span>
+                                                <span className="font-mono font-bold">{student.pin_no || '-'}</span>
+                                            </div>
+                                            <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
+                                                <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Yr:</span>
+                                                <span className="font-bold">{student.current_year} (S{student.current_semester})</span>
+                                            </div>
+                                            <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
+                                                <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Mob:</span>
+                                                <span className="font-mono font-bold">{student.student_mobile}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Pin No</span>
-                                        <span className="font-bold text-gray-700 font-mono">{student.pin_no || '-'}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Year</span>
-                                        <span className="font-bold text-gray-700">{student.current_year}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Sem</span>
-                                        <span className="font-bold text-gray-700 font-mono">{student.current_semester}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Mobile</span>
-                                        <span className="font-bold text-gray-700">{student.student_mobile}</span>
+
+                                    {/* Quick Actions / Status */}
+                                    <div className="flex flex-col gap-1 text-right shrink-0">
+                                        <div className="text-[10px] text-blue-200 uppercase font-bold">Total Due</div>
+                                        <div className="text-xl font-bold text-white leading-none">₹{globalTotalDue.toLocaleString()}</div>
                                     </div>
                                 </div>
                             </div>
 
                             {/* Fee Summary Table */}
-                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <h3 className="font-bold text-gray-700">Fee Dues ({viewFilterYear === 'ALL' ? 'All Years' : viewFilterYear})</h3>
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                        <div className="bg-blue-100 p-1.5 rounded text-blue-600">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                        </div>
+                                        Fee Dues Breakdown
+                                    </h3>
+                                    <div className="flex items-center gap-3">
+                                        {loading && <span className="text-xs text-blue-500 animate-pulse font-medium">Updating...</span>}
                                         <select
-                                            className="text-xs border border-gray-300 rounded p-1 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                            className="text-sm border-gray-200 border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
                                             value={viewFilterYear}
                                             onChange={(e) => setViewFilterYear(e.target.value)}
                                         >
-                                            <option value="ALL">All Years</option>
+                                            <option value="ALL">All Academic Years</option>
                                             {uniqueAcademicYears.map(y => <option key={y} value={y}>{y}</option>)}
                                         </select>
                                     </div>
-                                    <div className="flex gap-4">
-                                        <span className="text-xs font-bold text-gray-500">Global Due: <span className="text-red-600">₹{globalTotalDue.toLocaleString()}</span></span>
-                                        {loading && <span className="text-xs text-blue-500 animate-pulse">Refreshing...</span>}
-                                    </div>
                                 </div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b">
-                                        <tr>
-                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600">Year / Sem</th>
-                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600">Fee Head</th>
-                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Total Fee</th>
-                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Paid</th>
-                                            <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Balance</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y">
-                                        {displayedFees.length === 0 ? (
-                                            <tr><td colSpan="5" className="py-6 text-center text-gray-500">No fees found for this selection.</td></tr>
-                                        ) : (
-                                            <>
-                                                {displayedFees.map((fee, idx) => (
-                                                    <tr key={idx} className={fee.dueAmount > 0 ? "bg-red-50" : ""}>
-                                                        <td className="py-2 px-4 text-xs text-gray-500">
-                                                            <div className="font-bold">{fee.academicYear}</div>
-                                                            <div>Yr {fee.studentYear} {fee.semester ? `- S${fee.semester}` : ''}</div>
-                                                        </td>
-                                                        <td className="py-2 px-4 text-sm font-medium">{fee.feeHeadName}</td>
-                                                        <td className="py-2 px-4 text-sm text-right">₹{fee.totalAmount.toLocaleString()}</td>
-                                                        <td className="py-2 px-4 text-sm text-right text-green-600">₹{fee.paidAmount.toLocaleString()}</td>
-                                                        <td className="py-2 px-4 text-sm text-right font-bold text-red-600">₹{fee.dueAmount.toLocaleString()}</td>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="border-b border-gray-100 bg-gray-50/50">
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Academic Year</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Fee Head</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Total Fee</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Paid</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Balance</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                            {displayedFees.length === 0 ? (
+                                                <tr><td colSpan="6" className="py-6 text-center text-gray-500 italic text-sm">No fees found for this selection.</td></tr>
+                                            ) : (
+                                                <>
+                                                    {displayedFees.map((fee, idx) => {
+                                                        const isFullyPaid = fee.dueAmount <= 0;
+                                                        const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
+                                                        return (
+                                                            <tr key={idx} className="hover:bg-gray-50/80 transition-colors">
+                                                                <td className="py-2 px-4 text-sm text-gray-600">
+                                                                    <div className="font-bold text-gray-800">{fee.academicYear}</div>
+                                                                    <div className="text-[10px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
+                                                                </td>
+                                                                <td className="py-2 px-4 text-sm font-medium text-gray-700">{fee.feeHeadName}</td>
+                                                                <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">₹{fee.totalAmount.toLocaleString()}</td>
+                                                                <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">₹{fee.paidAmount.toLocaleString()}</td>
+                                                                <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">₹{fee.dueAmount.toLocaleString()}</td>
+                                                                <td className="py-2 px-4 text-center">
+                                                                    {isFullyPaid ? (
+                                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                                            Paid
+                                                                        </span>
+                                                                    ) : isPartial ? (
+                                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                                            Partial
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                                                            Unpaid
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    {/* Total Row */}
+                                                    <tr className="bg-gray-50/50 border-t border-gray-200">
+                                                        <td className="py-2.5 px-4 text-sm font-bold text-gray-800 text-right uppercase tracking-wide" colSpan="4">Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : viewFilterYear}):</td>
+                                                        <td className="py-2.5 px-4 text-base font-extrabold text-right text-red-600 font-mono">₹{totalDueAmount.toLocaleString()}</td>
+                                                        <td></td>
                                                     </tr>
-                                                ))}
-                                                {/* Total Row */}
-                                                <tr className="bg-gray-100 font-bold border-t-2 border-gray-200">
-                                                    <td className="py-2 px-4 text-sm text-gray-800 text-right" colSpan="4">Total Due ({viewFilterYear === 'ALL' ? 'All' : viewFilterYear}):</td>
-                                                    <td className="py-2 px-4 text-sm text-right text-red-700">₹{totalDueAmount.toLocaleString()}</td>
-                                                </tr>
-                                            </>
-                                        )}
-                                    </tbody>
-                                </table>
+                                                </>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
 
                             {/* Payment History */}
-                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                                <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
-                                    <h3 className="font-bold text-gray-800">Payment History</h3>
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                        <div className="bg-green-100 p-1.5 rounded text-green-600">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        </div>
+                                        Transaction History
+                                    </h3>
                                     <div className="flex gap-2 text-xs">
-                                        <select className="border rounded p-1" value={historyFilter.mode} onChange={e => setHistoryFilter({ ...historyFilter, mode: e.target.value })}>
+                                        <select className="border border-gray-200 rounded-lg px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm" value={historyFilter.mode} onChange={e => setHistoryFilter({ ...historyFilter, mode: e.target.value })}>
                                             <option value="">All Modes</option>
                                             <option>Cash</option>
                                             <option>UPI</option>
@@ -465,7 +570,7 @@ const FeeCollection = () => {
                                             <option>DD</option>
                                             <option>Waiver</option>
                                         </select>
-                                        <select className="border rounded p-1 max-w-[150px]" value={historyFilter.feeHead} onChange={e => setHistoryFilter({ ...historyFilter, feeHead: e.target.value })}>
+                                        <select className="border border-gray-200 rounded-lg px-2 py-1 max-w-[150px] bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm" value={historyFilter.feeHead} onChange={e => setHistoryFilter({ ...historyFilter, feeHead: e.target.value })}>
                                             <option value="">All Fee Heads</option>
                                             {uniqueFeeHeads.map(fh => <option key={fh} value={fh}>{fh}</option>)}
                                         </select>
@@ -473,21 +578,21 @@ const FeeCollection = () => {
                                 </div>
                                 <div className="overflow-x-auto max-h-[400px]">
                                     <table className="w-full text-left">
-                                        <thead className="bg-gray-50 border-b sticky top-0">
+                                        <thead className="bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
                                             <tr>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600 whitespace-nowrap">Date</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600">Description</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600 whitespace-nowrap">Receipt No</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-center">Mode</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-center">Year / Sem</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600 text-right">Amount</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-gray-600">Remarks</th>
-                                                <th className="py-2 px-4 text-xs font-semibold text-right text-gray-600">Action</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">Date</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Description</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">Receipt No</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Mode</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Year / Sem</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Amount</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Remarks</th>
+                                                <th className="py-2 px-4 text-[11px] font-bold text-right text-gray-400 uppercase tracking-wider">Action</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y">
+                                        <tbody className="divide-y divide-gray-50">
                                             {filteredTransactions.length === 0 ? (
-                                                <tr><td colSpan="8" className="py-6 text-center text-gray-500">No matching transactions found.</td></tr>
+                                                <tr><td colSpan="8" className="py-8 text-center text-gray-500 italic">No matching transactions found.</td></tr>
                                             ) : (
                                                 filteredTransactions.map((t, i) => (
                                                     <TransactionRow
@@ -506,55 +611,58 @@ const FeeCollection = () => {
                         </div>
 
                         {/* Right Column: Payment Form Only */}
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                             {/* Payment Tabs */}
-                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                                <div className="flex border-b">
+                            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
+                                <div className="flex border-b border-gray-100">
                                     <button
-                                        className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+                                        className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50/50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
                                         onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
                                     >
-                                        Collect Fee
+                                        COLLECT FEE
                                     </button>
                                     <button
-                                        className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-500 hover:bg-gray-50'}`}
+                                        className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50/50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-400 hover:bg-gray-50'}`}
                                         onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
                                     >
-                                        Concession
+                                        CONCESSION
                                     </button>
                                 </div>
 
                                 <div className="p-4">
-                                    <div className="flex justify-between items-center mb-3 border-b pb-2">
-                                        <h3 className={`font-bold ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-700' : 'text-purple-700'}`}>
-                                            {paymentForm.transactionType === 'DEBIT' ? 'Record Payment Info' : 'Record Concession / Waiver'}
-                                        </h3>
+                                    <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                                        <div>
+                                            <h3 className={`text-base font-bold ${paymentForm.transactionType === 'DEBIT' ? 'text-gray-800' : 'text-purple-800'}`}>
+                                                {paymentForm.transactionType === 'DEBIT' ? 'Payment Details' : 'Concession Details'}
+                                            </h3>
+                                            <p className="text-[11px] text-gray-400 mt-0.5">Add fee heads and amount below</p>
+                                        </div>
                                         <button
                                             type="button"
                                             onClick={addFeeRow}
-                                            className="bg-green-100 text-green-700 p-1 rounded hover:bg-green-200 transition"
+                                            className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
                                             title="Add Another Fee Head"
                                         >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                                         </button>
                                     </div>
 
                                     <form onSubmit={handlePrePayment} className="space-y-3">
 
                                         {/* Dynamic Rows */}
-                                        <div className="space-y-3">
+                                        <div className="space-y-2">
                                             {feeRows.map((row, index) => (
-                                                <div key={row.id} className="flex gap-2 items-start bg-gray-50 p-2 rounded border border-gray-200">
+                                                <div key={row.id} className="flex gap-2 items-start p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
                                                     <div className="flex-1">
-                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Fee Head {index + 1}</label>
+                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
                                                         <select
-                                                            className="w-full border p-1 rounded text-sm"
+                                                            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                                                             value={row.feeHeadId}
                                                             onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
                                                             required
                                                         >
-                                                            <option value="">-- Select --</option>
-                                                            {displayedFees.map(f => ( // Updated to show filtered
+                                                            <option value="">-- Select Fee Head --</option>
+                                                            {displayedFees.map(f => (
                                                                 <option key={f._id} value={f._id}>
                                                                     [{f.academicYear}] {f.feeHeadName} (Due: ₹{f.dueAmount})
                                                                 </option>
@@ -562,21 +670,24 @@ const FeeCollection = () => {
                                                         </select>
                                                     </div>
                                                     <div className="w-24">
-                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Amount</label>
-                                                        <input
-                                                            type="number"
-                                                            className="w-full border p-1 rounded text-sm"
-                                                            value={row.amount}
-                                                            onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
-                                                            required
-                                                            placeholder="0"
-                                                        />
+                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-2 top-1.5 text-gray-400 text-xs">₹</span>
+                                                            <input
+                                                                type="number"
+                                                                className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
+                                                                value={row.amount}
+                                                                onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                                required
+                                                                placeholder="0"
+                                                            />
+                                                        </div>
                                                     </div>
                                                     {feeRows.length > 1 && (
                                                         <button
                                                             type="button"
                                                             onClick={() => removeFeeRow(row.id)}
-                                                            className="mt-6 text-gray-400 hover:text-red-500"
+                                                            className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
                                                         >
                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                                         </button>
@@ -586,60 +697,85 @@ const FeeCollection = () => {
                                         </div>
 
                                         {/* Total Summary */}
-                                        <div className="flex justify-between items-center py-2 border-t border-b mt-2">
-                                            <span className="font-bold text-gray-600">Total Amount:</span>
-                                            <span className="text-xl font-bold text-blue-700">₹{totalSelectedAmount}</span>
+                                        <div className="flex justify-between items-end py-2 border-t border-dashed border-gray-200 mt-1">
+                                            <span className="text-xs font-medium text-gray-500">Total Amount</span>
+                                            <span className="text-2xl font-extrabold text-gray-800 tracking-tight">₹{totalSelectedAmount.toLocaleString()}</span>
                                         </div>
 
                                         {/* PAYMENT MODE SELECTION (Only for DEBIT) */}
                                         {paymentForm.transactionType === 'DEBIT' && (
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Payment Mode</label>
-                                                <div className="flex gap-4 mb-2">
-                                                    <label className="flex items-center gap-2 cursor-pointer">
-                                                        <input type="radio" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
-                                                        <span className="text-sm font-medium">Cash</span>
+                                            <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
+                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
+                                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                                    <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
+                                                        <span className="font-bold text-xs text-gray-700">Cash</span>
                                                     </label>
-                                                    <label className="flex items-center gap-2 cursor-pointer">
-                                                        <input type="radio" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { setPaymentCategory('Bank'); setPaymentForm({ ...paymentForm, paymentMode: 'UPI' }); }} />
-                                                        <span className="text-sm font-medium">Bank</span>
+                                                    <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { setPaymentCategory('Bank'); setPaymentForm({ ...paymentForm, paymentMode: 'UPI' }); }} />
+                                                        <span className="font-bold text-xs text-gray-700">Bank / Online</span>
                                                     </label>
                                                 </div>
 
                                                 {/* Sub-options for Bank */}
                                                 {paymentCategory === 'Bank' && (
-                                                    <div className="bg-gray-50 p-3 rounded border border-gray-200 space-y-3">
+                                                    <div className="space-y-2 animate-fadeIn">
+                                                        {/* Target Account Selection */}
                                                         <div>
-                                                            <label className="text-xs font-bold text-gray-400">Bank Option</label>
-                                                            <select className="w-full border p-2 rounded mt-1 bg-white" value={paymentForm.paymentMode} onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}>
-                                                                <option value="UPI">UPI</option>
+                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Target Account *</label>
+                                                            <select
+                                                                className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
+                                                                value={paymentForm.paymentConfigId}
+                                                                onChange={e => {
+                                                                    const selected = paymentConfigs.find(c => c._id === e.target.value);
+                                                                    setPaymentForm({
+                                                                        ...paymentForm,
+                                                                        paymentConfigId: e.target.value,
+                                                                        // Auto-fill bank name if empty or just helpful
+                                                                        bankName: selected ? selected.bank_name : paymentForm.bankName
+                                                                    });
+                                                                }}
+                                                            >
+                                                                <option value="">-- Select Account --</option>
+                                                                {paymentConfigs.map(c => (
+                                                                    <option key={c._id} value={c._id}>
+                                                                        {c.account_name} ({c.bank_name})
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Instrument</label>
+                                                            <select className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none" value={paymentForm.paymentMode} onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}>
+                                                                <option value="UPI">UPI (GPay / PhonePe/ etc)</option>
+                                                                <option value="Net Banking">Net Banking</option>
+                                                                <option value="Card">Debit / Credit Card</option>
                                                                 <option value="Cheque">Cheque</option>
                                                                 <option value="DD">Demand Draft (DD)</option>
-                                                                <option value="Card">Card</option>
-                                                                <option value="Net Banking">Net Banking</option>
                                                             </select>
                                                         </div>
                                                         {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (
                                                             <div>
-                                                                <label className="text-xs font-bold text-gray-400">Transaction / Ref No *</label>
-                                                                <input type="text" className="w-full border p-2 rounded mt-1" placeholder="e.g. UPI Ref No" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
+                                                                <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
                                                             </div>
                                                         )}
                                                         {['Cheque', 'DD'].includes(paymentForm.paymentMode) && (
                                                             <>
                                                                 <div className="grid grid-cols-2 gap-2">
                                                                     <div>
-                                                                        <label className="text-xs font-bold text-gray-400">{paymentForm.paymentMode} No *</label>
-                                                                        <input type="text" className="w-full border p-2 rounded mt-1" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">No *</label>
+                                                                        <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
                                                                     </div>
                                                                     <div>
-                                                                        <label className="text-xs font-bold text-gray-400">Date *</label>
-                                                                        <input type="date" className="w-full border p-2 rounded mt-1" value={paymentForm.instrumentDate || ''} onChange={e => setPaymentForm({ ...paymentForm, instrumentDate: e.target.value })} required />
+                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Date *</label>
+                                                                        <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.instrumentDate || ''} onChange={e => setPaymentForm({ ...paymentForm, instrumentDate: e.target.value })} required />
                                                                     </div>
                                                                 </div>
                                                                 <div>
-                                                                    <label className="text-xs font-bold text-gray-400">Bank Name *</label>
-                                                                    <input type="text" className="w-full border p-2 rounded mt-1" placeholder="e.g. SBI, HDFC" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
+                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Name *</label>
+                                                                    <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. SBI, HDFC" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
                                                                 </div>
                                                             </>
                                                         )}
@@ -649,16 +785,24 @@ const FeeCollection = () => {
                                         )}
 
                                         <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase">Remarks</label>
+                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Remarks (Optional)</label>
                                             <textarea
-                                                className="w-full border p-2 rounded mt-1"
+                                                className="w-full border border-gray-300 p-2 rounded-lg text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                                                 rows="2"
+                                                placeholder="Add notes..."
                                                 value={paymentForm.remarks}
                                                 onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
                                             ></textarea>
                                         </div>
-                                        <button disabled={totalSelectedAmount <= 0} className={`w-full text-white font-bold py-2 rounded shadow-md transition-colors ${totalSelectedAmount <= 0 ? 'bg-gray-400 cursor-not-allowed' : (paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700')}`}>
-                                            {paymentForm.transactionType === 'DEBIT' ? `Collect ₹${totalSelectedAmount}` : `Process Concession ₹${totalSelectedAmount}`}
+
+                                        <button
+                                            disabled={totalSelectedAmount <= 0}
+                                            className={`w-full text-white font-bold py-3 rounded-xl shadow-lg transform transition-all active:scale-[0.98] flex items-center justify-center gap-2
+                                                ${totalSelectedAmount <= 0 ? 'bg-gray-300 cursor-not-allowed shadow-none' : (paymentForm.transactionType === 'DEBIT' ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-500/30' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 shadow-purple-500/30')}
+                                            `}
+                                        >
+                                            {totalSelectedAmount > 0 && <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
+                                            {paymentForm.transactionType === 'DEBIT' ? `COLLECT ₹${totalSelectedAmount.toLocaleString()}` : `CONCESSION ₹${totalSelectedAmount.toLocaleString()}`}
                                         </button>
                                     </form>
                                 </div>
@@ -789,27 +933,27 @@ const TransactionRow = ({ transaction, allTransactions = [], student, totalDue }
 
     return (
         <>
-            <tr className="hover:bg-gray-50">
+            <tr className="hover:bg-gray-50/80 transition-colors border-b border-gray-50 last:border-0">
                 <td className="py-2 px-4 text-sm text-gray-600 whitespace-nowrap">
-                    {new Date(transaction.createdAt).toLocaleDateString()}
-                    <span className="block text-[10px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="font-medium text-gray-800">{new Date(transaction.createdAt).toLocaleDateString()}</div>
+                    <div className="text-[10px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 </td>
                 <td className="py-2 px-4 text-sm text-gray-800 font-medium">
                     <div className="flex flex-col">
                         <span>{transaction.feeHead?.name}</span>
-                        <span className={`text-[10px] uppercase font-bold ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-blue-600'}`}>
+                        <span className={`text-[10px] uppercase font-bold tracking-wider ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-blue-600'}`}>
                             {transaction.transactionType}
                         </span>
                     </div>
-                    <span className="block text-[10px] text-gray-400">By: {transaction.collectedByName || transaction.collectedBy || 'System'}</span>
+                    <span className="block text-[10px] text-gray-400 mt-0.5">By: {transaction.collectedByName || transaction.collectedBy || 'System'}</span>
                 </td>
-                <td className="py-2 px-4 text-sm font-mono text-gray-700">{transaction.receiptNumber}</td>
+                <td className="py-2 px-4 text-sm font-mono text-gray-600">{transaction.receiptNumber}</td>
                 <td className="py-2 px-4 text-sm text-gray-600 text-center">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${(transaction.paymentMode || 'cash').toLowerCase() === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${(transaction.paymentMode || 'cash').toLowerCase() === 'cash' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
                         {(transaction.paymentMode || 'Cash').toUpperCase()}
                     </span>
                     {(transaction.paymentMode !== 'Cash') && (
-                        <div className="text-[10px] text-gray-500 mt-1 text-left pl-2 border-l-2 border-gray-200">
+                        <div className="text-[10px] text-gray-500 mt-2 text-left pl-3 border-l-2 border-gray-200">
                             {transaction.bankName && <div className="font-semibold">{transaction.bankName}</div>}
                             {transaction.referenceNo && <div>Ref: {transaction.referenceNo}</div>}
                             {transaction.instrumentDate && <div>Dt: {new Date(transaction.instrumentDate).toLocaleDateString()}</div>}
@@ -819,16 +963,17 @@ const TransactionRow = ({ transaction, allTransactions = [], student, totalDue }
                 <td className="py-2 px-4 text-sm text-gray-600 text-center font-medium">
                     {transaction.studentYear ? `${transaction.studentYear} / ${transaction.semester || '-'}` : (transaction.semester || '-')}
                 </td>
-                <td className={`py-2 px-4 text-sm font-bold text-right ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
-                    {transaction.transactionType === 'CREDIT' ? '-' : '+'}₹{transaction.amount}
+                <td className={`py-2 px-4 text-sm font-bold text-right font-mono ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
+                    {transaction.transactionType === 'CREDIT' ? '-' : '+'}₹{transaction.amount.toLocaleString()}
                 </td>
-                <td className="py-2 px-4 text-sm text-gray-500 italic">{transaction.remarks || '-'}</td>
+                <td className="py-2 px-4 text-sm text-gray-500 italic max-w-xs truncate" title={transaction.remarks}>{transaction.remarks || '-'}</td>
                 <td className="py-2 px-4 text-right">
                     <button
                         onClick={handlePrint}
-                        className="text-gray-500 hover:text-blue-600"
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
+                        title="Print Receipt"
                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                     </button>
                     {/* Hidden Receipt for this row */}
                     <div style={{ display: 'none' }}>

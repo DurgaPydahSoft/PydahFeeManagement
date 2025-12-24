@@ -57,6 +57,13 @@ const transactionSchema = mongoose.Schema({
   },
   collectedByName: {
     type: String, // Full Name (e.g., 'Administrator')
+  },
+  paymentConfigId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PaymentConfig'
+  },
+  depositedToAccount: {
+    type: String // Snapshot of account name
   }
 }, {
   timestamps: true,

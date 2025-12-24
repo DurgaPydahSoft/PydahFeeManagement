@@ -30,6 +30,7 @@ app.use('/api/transactions', require('./routes/transactionRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/transport', require('./routes/transportRoutes'));
+app.use('/api/payment-config', require('./routes/paymentConfigRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });

@@ -36,7 +36,7 @@ const addTransaction = async (req, res) => {
     }
 
     // SINGLE TRANSACTION (Backward Compatibility)
-    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType } = req.body;
+    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount } = req.body;
 
     // Validation
     if (!studentId || !amount || (transactionType !== 'CREDIT' && !feeHeadId)) {
@@ -63,9 +63,12 @@ const addTransaction = async (req, res) => {
       receiptNumber,
       collectedBy,
       collectedByName,
+      collectedByName,
       bankName: req.body.bankName,
       instrumentDate: req.body.instrumentDate,
-      referenceNo: req.body.referenceNo
+      referenceNo: req.body.referenceNo,
+      paymentConfigId: req.body.paymentConfigId,
+      depositedToAccount: req.body.depositedToAccount
     });
 
     res.status(201).json(transaction);
