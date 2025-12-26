@@ -233,7 +233,7 @@ const PaymentConfiguration = () => {
                                 <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-4">
                                     <h3 className="text-sm font-bold text-blue-800 flex items-center gap-2">
                                         <CreditCard size={16} />
-                                        Razorpay Integration (Optional)
+                                        Razorpay Integration
                                     </h3>
                                     <div>
                                         <label className="block text text-[10px] font-bold text-blue-600 uppercase mb-1">Razorpay Key ID</label>
