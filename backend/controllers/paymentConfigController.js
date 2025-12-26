@@ -17,19 +17,22 @@ const getConfigs = async (req, res) => {
 // @access  Private
 const createConfig = async (req, res) => {
     try {
-        const { college, account_name, bank_name, account_number, ifsc_code, upi_id } = req.body;
+        const { college, course, account_name, bank_name, account_number, ifsc_code, upi_id, razorpay_key_id, razorpay_key_secret } = req.body;
 
-        if (!college || !account_name || !bank_name || !account_number || !ifsc_code) {
-            return res.status(400).json({ message: 'Please add all required fields' });
+        if (!college || !course || !account_name || !bank_name || !account_number || !ifsc_code) {
+            return res.status(400).json({ message: 'Please add all required fields (including College and Course)' });
         }
 
         const config = await PaymentConfig.create({
             college,
+            course,
             account_name,
             bank_name,
             account_number,
             ifsc_code,
-            upi_id
+            upi_id,
+            razorpay_key_id,
+            razorpay_key_secret
         });
 
         res.status(201).json(config);

@@ -7,11 +7,14 @@ const PaymentConfiguration = () => {
     const [configs, setConfigs] = useState([]);
     const [form, setForm] = useState({
         college: '',
+        course: '',
         account_name: '',
         bank_name: '',
         account_number: '',
         ifsc_code: '',
-        upi_id: ''
+        upi_id: '',
+        razorpay_key_id: '',
+        razorpay_key_secret: ''
     });
     const [editingId, setEditingId] = useState(null);
     const [message, setMessage] = useState('');
@@ -40,8 +43,8 @@ const PaymentConfiguration = () => {
         e.preventDefault();
         setMessage('');
 
-        if (!form.college || !form.account_name || !form.bank_name || !form.account_number || !form.ifsc_code) {
-            alert('Please fill all required fields');
+        if (!form.college || !form.course || !form.account_name || !form.bank_name || !form.account_number || !form.ifsc_code) {
+            alert('Please fill all required fields (College and Course are mandatory)');
             return;
         }
 
@@ -57,7 +60,7 @@ const PaymentConfiguration = () => {
                 setConfigs([response.data, ...configs]);
                 setMessage('Account added successfully!');
             }
-            setForm({ college: '', account_name: '', bank_name: '', account_number: '', ifsc_code: '', upi_id: '' });
+            setForm({ college: '', course: '', account_name: '', bank_name: '', account_number: '', ifsc_code: '', upi_id: '', razorpay_key_id: '', razorpay_key_secret: '' });
             setEditingId(null);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
@@ -69,11 +72,14 @@ const PaymentConfiguration = () => {
     const handleEdit = (config) => {
         setForm({
             college: config.college,
+            course: config.course || '',
             account_name: config.account_name,
             bank_name: config.bank_name,
             account_number: config.account_number,
             ifsc_code: config.ifsc_code,
-            upi_id: config.upi_id || ''
+            upi_id: config.upi_id || '',
+            razorpay_key_id: config.razorpay_key_id || '',
+            razorpay_key_secret: config.razorpay_key_secret || ''
         });
         setEditingId(config._id);
         window.scrollTo(0, 0);
@@ -101,7 +107,7 @@ const PaymentConfiguration = () => {
         }
     };
 
-    const colleges = Object.keys(metadata);
+    const colleges = Object.keys(metadata.hierarchy || {});
 
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
@@ -144,6 +150,23 @@ const PaymentConfiguration = () => {
                                         <option value="">Select College...</option>
                                         {colleges.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Course</label>
+                                    <select
+                                        className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                        value={form.course}
+                                        onChange={e => setForm({ ...form, course: e.target.value })}
+                                        required
+                                        disabled={!form.college}
+                                    >
+                                        <option value="">Select Course...</option>
+                                        {form.college && metadata.hierarchy && metadata.hierarchy[form.college] && Object.keys(metadata.hierarchy[form.college]).map(c => (
+                                            <option key={c} value={c}>{c}</option>
+                                        ))}
+                                    </select>
+                                    {!form.college && <p className="text-[10px] text-orange-500 mt-1">Please select a college first.</p>}
                                 </div>
 
                                 <div>
@@ -207,6 +230,33 @@ const PaymentConfiguration = () => {
                                     />
                                 </div>
 
+                                <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-4">
+                                    <h3 className="text-sm font-bold text-blue-800 flex items-center gap-2">
+                                        <CreditCard size={16} />
+                                        Razorpay Integration (Optional)
+                                    </h3>
+                                    <div>
+                                        <label className="block text text-[10px] font-bold text-blue-600 uppercase mb-1">Razorpay Key ID</label>
+                                        <input
+                                            type="text"
+                                            className="w-full border border-blue-200 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                                            placeholder="rzp_live_..."
+                                            value={form.razorpay_key_id}
+                                            onChange={e => setForm({ ...form, razorpay_key_id: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text text-[10px] font-bold text-blue-600 uppercase mb-1">Razorpay Secret</label>
+                                        <input
+                                            type="password"
+                                            className="w-full border border-blue-200 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                                            placeholder="••••••••••••"
+                                            value={form.razorpay_key_secret}
+                                            onChange={e => setForm({ ...form, razorpay_key_secret: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
                                 <div className="pt-2">
                                     <button
                                         type="submit"
@@ -217,7 +267,7 @@ const PaymentConfiguration = () => {
                                     {editingId && (
                                         <button
                                             type="button"
-                                            onClick={() => { setEditingId(null); setForm({ college: '', account_name: '', bank_name: '', account_number: '', ifsc_code: '', upi_id: '' }); }}
+                                            onClick={() => { setEditingId(null); setForm({ college: '', course: '', account_name: '', bank_name: '', account_number: '', ifsc_code: '', upi_id: '', razorpay_key_id: '', razorpay_key_secret: '' }); }}
                                             className="w-full mt-2 py-2 text-gray-500 font-semibold hover:text-gray-700"
                                         >
                                             Cancel Editing
@@ -258,6 +308,13 @@ const PaymentConfiguration = () => {
                                                     <td className="p-4">
                                                         <div className="font-bold text-gray-800">{config.account_name}</div>
                                                         <div className="text-xs text-blue-600 font-medium bg-blue-50 inline-block px-1.5 py-0.5 rounded mt-1 border border-blue-100">{config.college}</div>
+                                                        <div className="text-xs text-purple-600 font-medium bg-purple-50 inline-block px-1.5 py-0.5 rounded mt-1 ml-1 border border-purple-100">{config.course}</div>
+                                                        {config.razorpay_key_id && (
+                                                            <div className="text-[10px] text-green-600 font-bold flex items-center gap-1 mt-1">
+                                                                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                                                                Razorpay Integrated
+                                                            </div>
+                                                        )}
                                                         {config.upi_id && (
                                                             <div className="text-xs text-gray-500 mt-1 font-mono">UPI: {config.upi_id}</div>
                                                         )}
