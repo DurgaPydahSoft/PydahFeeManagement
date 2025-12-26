@@ -31,15 +31,15 @@ const StatCard = ({ title, value, color, icon: Icon, note }) => {
     };
 
     return (
-        <div className={`p-6 rounded-2xl border ${colorStyles[color]} relative overflow-hidden group transition-all duration-300 hover:shadow-lg hover:-translate-y-1`}>
+        <div className={`p-4 rounded-2xl border ${colorStyles[color]} relative overflow-hidden group transition-all duration-300 hover:shadow-lg hover:-translate-y-1`}>
             <div className="relative z-10 flex justify-between items-start">
                 <div>
-                    <h3 className="text-3xl font-bold tracking-tight mb-1">{value}</h3>
+                    <h3 className="text-2xl font-bold tracking-tight mb-1">{value}</h3>
                     <p className="text-xs font-semibold uppercase tracking-wider opacity-80">{title}</p>
                     {note && <p className="text-[10px] mt-2 opacity-70 font-medium">{note}</p>}
                 </div>
-                <div className={`p-3 rounded-xl bg-white/60 backdrop-blur-md shadow-sm transition-transform group-hover:scale-110`}>
-                    <Icon size={24} strokeWidth={2} />
+                <div className={`p-2 rounded-xl bg-white/60 backdrop-blur-md shadow-sm transition-transform group-hover:scale-110`}>
+                    <Icon size={20} strokeWidth={2} />
                 </div>
             </div>
             {/* Decorative circle */}
@@ -76,16 +76,16 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                 `}
             >
                 {/* Identifier */}
-                <td className="py-4 px-6">
+                <td className="py-2.5 px-4">
                     <div className="flex items-center gap-4">
                         <div className={`
-                            p-2.5 rounded-xl transition-colors duration-200
+                            p-2 rounded-xl transition-colors duration-200
                             ${isExpanded ? 'bg-blue-500 text-white shadow-blue-200 shadow-md' : 'bg-gray-100 text-gray-500 group-hover:bg-white group-hover:shadow-sm'}
                         `}>
-                            <RowIcon size={18} strokeWidth={2} />
+                            <RowIcon size={16} strokeWidth={2} />
                         </div>
                         <div>
-                            <p className="text-sm font-bold text-gray-900">{rowLabel}</p>
+                            <p className="text-xs font-bold text-gray-900">{rowLabel}</p>
                             {(activeTab === 'cashier' || activeTab === 'daily') && (
                                 <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 mt-0.5 group-hover:text-blue-500 transition-colors">
                                     {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
@@ -96,14 +96,14 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                     </div>
                 </td>
 
-                <td className="py-4 px-6 text-right">
+                <td className="py-2 px-4 text-right">
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
                         {row.count || row.totalCount}
                     </span>
                 </td>
 
                 {/* Cash/Bank Breakdown */}
-                <td className="py-4 px-6 text-right">
+                <td className="py-2 px-4 text-right">
                     {(activeTab === 'cashier' || activeTab === 'feeHead') ? (
                         <div className="flex flex-col items-end gap-1.5 opacity-80">
                             <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
@@ -120,13 +120,13 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
 
                 <td className="py-4 px-6 text-right font-medium text-gray-600">₹{row.debitAmount.toLocaleString()}</td>
                 <td className="py-4 px-6 text-right font-medium text-purple-600">₹{row.creditAmount.toLocaleString()}</td>
-                <td className="py-4 px-6 text-right">
-                    <span className="text-base font-bold text-gray-900">₹{row.totalAmount.toLocaleString()}</span>
+                <td className="py-2 px-4 text-right">
+                    <span className="text-sm font-bold text-gray-900">₹{row.totalAmount.toLocaleString()}</span>
                 </td>
 
                 {/* Actions */}
                 {(activeTab === 'cashier' || activeTab === 'daily') && (
-                    <td className="py-4 px-6 text-right">
+                    <td className="py-2 px-4 text-right">
                         <button
                             onClick={(e) => { e.stopPropagation(); handlePrint(); }}
                             className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-100/50 transition-all active:scale-95"
@@ -176,7 +176,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
             {activeTab === 'daily' && row.transactions && isExpanded && (
                 <tr className="bg-blue-50/40">
                     <td colSpan="100%" className="p-0">
-                        <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">
+                        <div className="p-3 pl-[3.5rem] pr-4 border-b border-blue-100">
                             <div className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
                                 <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
                                     <h4 className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-widest">
@@ -284,11 +284,11 @@ const Reports = () => {
             <div className="flex-1 flex flex-col h-full overflow-hidden relative">
 
                 {/* --- Top Navbar --- */}
-                <header className="px-8 py-6 bg-white border-b border-gray-200 z-20 flex-none shadow-sm">
+                <header className="px-6 py-4 bg-white border-b border-gray-200 z-20 flex-none shadow-sm">
                     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
-                                <TrendingUp className="text-blue-600" size={28} />
+                            <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+                                <TrendingUp className="text-blue-600" size={24} />
                                 Reports & Analytics
                             </h1>
                             <p className="text-sm text-gray-500 mt-1 pl-10">Monitor financial performance and generate detailed statements.</p>
@@ -300,7 +300,7 @@ const Reports = () => {
                                     key={tab}
                                     onClick={() => { setActiveTab(tab); setData([]); }}
                                     className={`
-                                        flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 capitalize
+                                        flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 capitalize
                                         ${activeTab === tab
                                             ? 'bg-white text-blue-600 shadow-md transform scale-100 ring-1 ring-black/5'
                                             : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60'}
@@ -317,8 +317,8 @@ const Reports = () => {
                 </header>
 
                 {/* --- Scrollable Main Area --- */}
-                <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-thin scrollbar-thumb-gray-200">
-                    <div className="max-w-[1600px] mx-auto space-y-8">
+                <main className="flex-1 overflow-y-auto p-3 md:p-6 scroll-smooth scrollbar-thin scrollbar-thumb-gray-200">
+                    <div className="max-w-[1600px] mx-auto space-y-6">
 
                         {/* 1. Stats Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -353,7 +353,7 @@ const Reports = () => {
                         <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
 
                             {/* Toolbar (Filters) */}
-                            <div className="p-5 border-b border-gray-100 bg-white flex flex-wrap justify-between items-center gap-4">
+                            <div className="p-3 border-b border-gray-100 bg-white flex flex-wrap justify-between items-center gap-4">
                                 <div className="flex items-center gap-3 bg-gray-50 p-1.5 rounded-2xl border border-gray-200 pl-4 py-2">
                                     <div className="flex items-center gap-2">
                                         <label className="text-[10px] uppercase font-bold text-gray-400">Range:</label>
@@ -379,7 +379,7 @@ const Reports = () => {
                                     </button>
                                     <button
                                         onClick={fetchReport}
-                                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200 transition"
+                                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200 transition"
                                     >
                                         <Filter size={16} /> Refresh Data
                                     </button>
@@ -391,15 +391,15 @@ const Reports = () => {
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-400 font-bold">
-                                            <th className="py-5 px-6 w-1/4">
+                                            <th className="py-3 px-4 w-1/4">
                                                 {activeTab === 'daily' ? 'Date' : activeTab === 'cashier' ? 'Cashier' : 'Fee Head'}
                                             </th>
-                                            <th className="py-5 px-6 text-right">Transactions</th>
-                                            <th className="py-5 px-6 text-right">Method</th>
-                                            <th className="py-5 px-6 text-right text-gray-600">Collected</th>
-                                            <th className="py-5 px-6 text-right text-gray-600">Concession</th>
-                                            <th className="py-5 px-6 text-right text-black">Net Total</th>
-                                            {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-5 px-6 text-right">Actions</th>}
+                                            <th className="py-3 px-4 text-right">Transactions</th>
+                                            <th className="py-3 px-4 text-right">Method</th>
+                                            <th className="py-3 px-4 text-right text-gray-600">Collected</th>
+                                            <th className="py-3 px-4 text-right text-gray-600">Concession</th>
+                                            <th className="py-3 px-4 text-right text-black">Net Total</th>
+                                            {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-3 px-4 text-right">Actions</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white">
@@ -445,9 +445,9 @@ const Reports = () => {
                                     {!loading && data.length > 0 && (
                                         <tfoot className="bg-gray-50 border-t border-gray-200">
                                             <tr>
-                                                <td className="py-5 px-6 font-bold text-gray-800 text-sm">GRAND TOTAL</td>
-                                                <td className="py-5 px-6 text-right font-bold text-sm text-gray-800">{summary.count}</td>
-                                                <td className="py-5 px-6 text-right">
+                                                <td className="py-3 px-4 font-bold text-gray-800 text-xs text-right uppercase tracking-wide" colSpan="3">GRAND TOTAL</td>
+                                                <td className="py-3 px-4 text-right font-bold text-sm text-gray-800">{summary.count}</td>
+                                                <td className="py-3 px-4 text-right">
                                                     {(activeTab === 'cashier' || activeTab === 'feeHead') && (
                                                         <div className="flex flex-col items-end gap-0.5 text-[10px] font-mono font-medium text-gray-500">
                                                             <span>C: {(summary.totalCash || 0).toLocaleString()}</span>
@@ -455,13 +455,13 @@ const Reports = () => {
                                                         </div>
                                                     )}
                                                 </td>
-                                                <td className="py-5 px-6 text-right font-bold text-sm text-emerald-700">
+                                                <td className="py-3 px-4 text-right font-bold text-sm text-emerald-700">
                                                     ₹{data.reduce((a, c) => a + (c.debitAmount || 0), 0).toLocaleString()}
                                                 </td>
-                                                <td className="py-5 px-6 text-right font-bold text-sm text-purple-700">
+                                                <td className="py-3 px-4 text-right font-bold text-sm text-purple-700">
                                                     ₹{data.reduce((a, c) => a + (c.creditAmount || 0), 0).toLocaleString()}
                                                 </td>
-                                                <td className="py-5 px-6 text-right font-extrabold text-lg text-gray-900">
+                                                <td className="py-3 px-4 text-right font-extrabold text-base text-gray-900">
                                                     ₹{summary.totalConfirm.toLocaleString()}
                                                 </td>
                                                 {(activeTab === 'cashier' || activeTab === 'daily') && <td></td>}
