@@ -1,14 +1,53 @@
-import React, { useState, useEffect, useRef, forwardRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
+import {
+    Calendar,
+    Printer,
+    Wallet,
+    Landmark,
+    CreditCard,
+    TrendingUp,
+    FileText,
+    Users,
+    Filter,
+    Search,
+    ChevronDown,
+    ChevronUp,
+    Download
+} from 'lucide-react';
 import CashierReportTemplate from '../components/CashierReportTemplate';
-
-// Row Component to handle Printing Ref independently
-
 import DailyReportTemplate from '../components/DailyReportTemplate';
 
-// Row Component to handle Printing Ref independently
+// --- Components ---
+
+const StatCard = ({ title, value, color, icon: Icon, note }) => {
+    const colorStyles = {
+        blue: "bg-blue-50 text-blue-600 border-blue-100",
+        green: "bg-emerald-50 text-emerald-600 border-emerald-100",
+        indigo: "bg-indigo-50 text-indigo-600 border-indigo-100",
+        purple: "bg-purple-50 text-purple-600 border-purple-100",
+    };
+
+    return (
+        <div className={`p-6 rounded-2xl border ${colorStyles[color]} relative overflow-hidden group transition-all duration-300 hover:shadow-lg hover:-translate-y-1`}>
+            <div className="relative z-10 flex justify-between items-start">
+                <div>
+                    <h3 className="text-3xl font-bold tracking-tight mb-1">{value}</h3>
+                    <p className="text-xs font-semibold uppercase tracking-wider opacity-80">{title}</p>
+                    {note && <p className="text-[10px] mt-2 opacity-70 font-medium">{note}</p>}
+                </div>
+                <div className={`p-3 rounded-xl bg-white/60 backdrop-blur-md shadow-sm transition-transform group-hover:scale-110`}>
+                    <Icon size={24} strokeWidth={2} />
+                </div>
+            </div>
+            {/* Decorative circle */}
+            <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-white/20 z-0"></div>
+        </div>
+    );
+};
+
 const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) => {
     const printRef = useRef();
     const handlePrint = useReactToPrint({
@@ -16,45 +55,87 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
         documentTitle: `${activeTab}_Report_${row._id}_${Date.now()}`
     });
 
+    const isExpanded = expandedRows.includes(idx);
+    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'feeHead' ? FileText : Calendar;
+    const formattedDate = row._id?.day ? `${row._id.day}-${row._id.month}-${row._id.year}` : 'Date';
+
+    // Label determination logic
+    const rowLabel = activeTab === 'daily'
+        ? <span className="font-mono text-gray-700 tracking-tight">{formattedDate}</span>
+        : activeTab === 'feeHead'
+            ? (row.name || 'Unknown Fee Head')
+            : (row.name || row._id || 'Unknown');
+
     return (
         <React.Fragment>
             <tr
-                className={`hover:bg-gray-50 cursor-pointer transition ${expandedRows.includes(idx) ? 'bg-blue-50' : ''}`}
                 onClick={() => (activeTab === 'cashier' || activeTab === 'daily') && toggleRow(idx)}
+                className={`
+                    group border-b border-gray-100 transition-all duration-200
+                    ${isExpanded ? 'bg-blue-50/60' : 'hover:bg-gray-50 cursor-pointer'}
+                `}
             >
-                <td className="py-3 px-6 text-sm font-medium text-gray-800">
-                    {/* Safer Rendering Logic */}
-                    {activeTab === 'daily' && row._id?.day
-                        ? `${row._id.day}-${row._id.month}-${row._id.year}`
-                        : (activeTab === 'feeHead' ? (row.name || 'Unknown Fee Head') : (typeof row._id === 'object' ? 'Date' : (row.name || row._id || 'Unknown')))}
-                    {(activeTab === 'cashier' || activeTab === 'daily') && (
-                        <span className="text-[10px] text-blue-500 font-normal ml-2 flex items-center gap-1 inline-flex">
-                            {expandedRows.includes(idx) ? 'Hide Details' : 'View Details'}
-                            <svg className={`w-3 h-3 transform transition ${expandedRows.includes(idx) ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                        </span>
+                {/* Identifier */}
+                <td className="py-4 px-6">
+                    <div className="flex items-center gap-4">
+                        <div className={`
+                            p-2.5 rounded-xl transition-colors duration-200
+                            ${isExpanded ? 'bg-blue-500 text-white shadow-blue-200 shadow-md' : 'bg-gray-100 text-gray-500 group-hover:bg-white group-hover:shadow-sm'}
+                        `}>
+                            <RowIcon size={18} strokeWidth={2} />
+                        </div>
+                        <div>
+                            <p className="text-sm font-bold text-gray-900">{rowLabel}</p>
+                            {(activeTab === 'cashier' || activeTab === 'daily') && (
+                                <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 mt-0.5 group-hover:text-blue-500 transition-colors">
+                                    {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                                    {isExpanded ? 'Collapse' : 'Expand Details'}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </td>
+
+                <td className="py-4 px-6 text-right">
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+                        {row.count || row.totalCount}
+                    </span>
+                </td>
+
+                {/* Cash/Bank Breakdown */}
+                <td className="py-4 px-6 text-right">
+                    {(activeTab === 'cashier' || activeTab === 'feeHead') ? (
+                        <div className="flex flex-col items-end gap-1.5 opacity-80">
+                            <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
+                                <Wallet size={12} /> ₹{(row.cashAmount || 0).toLocaleString()}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-700">
+                                <Landmark size={12} /> ₹{(row.bankAmount || 0).toLocaleString()}
+                            </div>
+                        </div>
+                    ) : (
+                        <span className="text-gray-300 text-xs">-</span>
                     )}
                 </td>
-                <td className="py-3 px-6 text-sm text-gray-600 text-right">{row.count || row.totalCount}</td>
 
-                {/* Cashier AND Fee Head Specifics */}
-                {(activeTab === 'cashier' || activeTab === 'feeHead') && (
-                    <>
-                        <td className="py-3 px-6 text-sm text-gray-600 text-right font-mono">₹{(row.cashAmount || 0).toLocaleString()}</td>
-                        <td className="py-3 px-6 text-sm text-gray-600 text-right font-mono">₹{(row.bankAmount || 0).toLocaleString()}</td>
-                    </>
-                )}
+                <td className="py-4 px-6 text-right font-medium text-gray-600">₹{row.debitAmount.toLocaleString()}</td>
+                <td className="py-4 px-6 text-right font-medium text-purple-600">₹{row.creditAmount.toLocaleString()}</td>
+                <td className="py-4 px-6 text-right">
+                    <span className="text-base font-bold text-gray-900">₹{row.totalAmount.toLocaleString()}</span>
+                </td>
 
-                <td className="py-3 px-6 text-sm text-green-600 text-right font-medium">₹{row.debitAmount.toLocaleString()}</td>
-                <td className="py-3 px-6 text-sm text-purple-600 text-right font-medium">₹{row.creditAmount.toLocaleString()}</td>
-                <td className="py-3 px-6 text-sm text-gray-900 text-right font-bold">₹{row.totalAmount.toLocaleString()}</td>
-
-                {/* Action Column for Print */}
+                {/* Actions */}
                 {(activeTab === 'cashier' || activeTab === 'daily') && (
-                    <td className="py-3 px-6 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={handlePrint} className="text-gray-500 hover:text-blue-600 p-1" title={`Print ${activeTab} Report`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                    <td className="py-4 px-6 text-right">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handlePrint(); }}
+                            className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-100/50 transition-all active:scale-95"
+                            title="Print Report"
+                        >
+                            <Printer size={18} />
                         </button>
-                        <div style={{ display: 'none' }}>
+                        {/* Hidden refs for printing */}
+                        <div className="hidden">
                             {activeTab === 'cashier' ? (
                                 <CashierReportTemplate ref={printRef} data={row} dateRange={dateRange} />
                             ) : (
@@ -65,70 +146,83 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                 )}
             </tr>
 
-            {/* Detailed Fee Head Breakdown Row for Cashier */}
-            {activeTab === 'cashier' && row.feeHeads && expandedRows.includes(idx) && (
-                <tr className="bg-gray-50">
-                    <td colSpan="8" className="p-4 pl-10 border-t border-blue-100 shadow-inner">
-                        <div className="flex justify-between items-center mb-3">
-                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">Fee Head Separation</div>
-                        </div>
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            {Object.values(row.feeHeads.reduce((acc, curr) => {
-                                if (!acc[curr.name]) acc[curr.name] = 0;
-                                acc[curr.name] += curr.amount;
-                                return acc;
-                            }, {})).map((amt, i, arr) => {
-                                const name = Object.keys(row.feeHeads.reduce((acc, curr) => { if (!acc[curr.name]) acc[curr.name] = 0; acc[curr.name] += curr.amount; return acc; }, {}))[i];
-                                return (
-                                    <div key={i} className="flex justify-between border-b border-gray-200 pb-1 text-xs">
-                                        <span className="text-gray-600">{name}</span>
-                                        <span className="font-bold">₹{amt.toLocaleString()}</span>
-                                    </div>
-                                )
-                            })}
+            {/* EXPANDED CONTENT: Cashier Fee Head Breakdown */}
+            {activeTab === 'cashier' && row.feeHeads && isExpanded && (
+                <tr className="bg-blue-50/40">
+                    <td colSpan="100%" className="p-0">
+                        <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">
+                            <div className="bg-white rounded-xl border border-blue-100 p-4 shadow-sm">
+                                <h4 className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-widest mb-4">
+                                    <FileText size={14} /> Fee Head Breakdown
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                    {Object.entries(row.feeHeads.reduce((acc, curr) => {
+                                        acc[curr.name] = (acc[curr.name] || 0) + curr.amount;
+                                        return acc;
+                                    }, {})).map(([name, amount], i) => (
+                                        <div key={i} className="flex flex-col p-3 rounded-lg bg-gray-50 border border-gray-100">
+                                            <span className="text-[10px] text-gray-500 font-semibold uppercase truncate mb-1" title={name}>{name}</span>
+                                            <span className="text-sm font-bold text-gray-800">₹{amount.toLocaleString()}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </td>
                 </tr>
             )}
 
-            {/* Detailed Transactions Row for Daily */}
-            {activeTab === 'daily' && row.transactions && expandedRows.includes(idx) && (
-                <tr className="bg-gray-50">
-                    <td colSpan="10" className="p-4 pl-10 border-t border-blue-100 shadow-inner">
-                        <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Transactions Details</div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs bg-white rounded border">
-                                <thead className="bg-gray-100 border-b">
-                                    <tr>
-                                        <th className="p-2 border-r">Receipt No</th>
-                                        <th className="p-2 border-r">Student Name</th>
-                                        <th className="p-2 border-r">Pin Number</th>
-                                        <th className="p-2 border-r">Admiss No</th>
-                                        <th className="p-2 border-r">Course</th>
-                                        <th className="p-2 border-r">Branch</th>
-                                        <th className="p-2 border-r">Year</th>
-                                        <th className="p-2 border-r">Sem</th>
-                                        <th className="p-2 border-r">Mode</th>
-                                        <th className="p-2 text-right">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {row.transactions.map((tx, i) => (
-                                        <tr key={i} className="border-b hover:bg-gray-50">
-                                            <td className="p-2 border-r font-mono">{tx.receiptNo || '-'}</td>
-                                            <td className="p-2 border-r">{tx.studentName || '-'}</td>
-                                            <td className="p-2 border-r">{tx.pinNo || '-'}</td>
-                                            <td className="p-2 border-r">{tx.studentId || '-'}</td>
-                                            <td className="p-2 border-r">{tx.course || '-'}</td>
-                                            <td className="p-2 border-r">{tx.branch || '-'}</td>
-                                            <td className="p-2 border-r">{tx.studentYear || '-'}</td>
-                                            <td className="p-2 border-r">{tx.semester || '-'}</td>
-                                            <td className="p-2 border-r">{tx.paymentMode}</td>
-                                            <td className="p-2 text-right font-bold text-gray-700">₹{tx.amount.toLocaleString()}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+            {/* EXPANDED CONTENT: Daily Transactions List */}
+            {activeTab === 'daily' && row.transactions && isExpanded && (
+                <tr className="bg-blue-50/40">
+                    <td colSpan="100%" className="p-0">
+                        <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">
+                            <div className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
+                                <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
+                                    <h4 className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-widest">
+                                        <CreditCard size={14} /> Transaction Details
+                                    </h4>
+                                    <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                        {row.transactions.length} Records
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto max-h-[400px] scrollbar-thin scrollbar-thumb-gray-200">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-gray-50 text-gray-500 font-semibold sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-4 py-3 whitespace-nowrap">Receipt #</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Student Name</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Pin No</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Course / Branch</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Year</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Mode</th>
+                                                <th className="px-4 py-3 text-right whitespace-nowrap">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {row.transactions.map((tx, i) => (
+                                                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-4 py-2 font-mono text-gray-500">{tx.receiptNo || '-'}</td>
+                                                    <td className="px-4 py-2 font-bold text-gray-800">{tx.studentName}</td>
+                                                    <td className="px-4 py-2 text-gray-600">{tx.pinNo}</td>
+                                                    <td className="px-4 py-2 text-gray-600">
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 border border-gray-200 mr-1">{tx.course}</span>
+                                                        {tx.branch}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-gray-600">{tx.studentYear}</td>
+                                                    <td className="px-4 py-2">
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${tx.paymentMode === 'CASH' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
+                                                            {tx.paymentMode === 'CASH' ? <Wallet size={8} /> : <Landmark size={8} />}
+                                                            {tx.paymentMode}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-bold text-gray-900">₹{tx.amount.toLocaleString()}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </td>
                 </tr>
@@ -147,28 +241,23 @@ const Reports = () => {
     const [expandedRows, setExpandedRows] = useState([]);
 
     const toggleRow = (idx) => {
-        if (expandedRows.includes(idx)) {
-            setExpandedRows(expandedRows.filter(i => i !== idx));
-        } else {
-            setExpandedRows([...expandedRows, idx]);
-        }
+        setExpandedRows(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
     };
 
     const fetchReport = async () => {
         setLoading(true);
-        setExpandedRows([]); // Reset expansion on refetch
+        setExpandedRows([]);
         try {
-            let groupBy = 'day';
-            if (activeTab === 'cashier') groupBy = 'cashier';
-            if (activeTab === 'feeHead') groupBy = 'feeHead';
-            if (activeTab === 'mode') groupBy = 'mode';
+            let groupBy = activeTab;
+            if (activeTab === 'daily') groupBy = 'day';
+            else if (activeTab === 'cashier') groupBy = 'cashier';
+            else if (activeTab === 'feeHead') groupBy = 'feeHead';
 
             const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/transactions`, {
-                params: { startDate, endDate, groupBy }
+                params: { startDate, endDate, groupBy: groupBy === 'daily' ? 'day' : groupBy }
             });
             setData(res.data);
 
-            // Calc summary
             const tot = res.data.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
             const cnt = res.data.reduce((acc, curr) => acc + (curr.count || 0), 0);
             const cash = res.data.reduce((acc, curr) => acc + (curr.cashAmount || 0), 0);
@@ -178,145 +267,212 @@ const Reports = () => {
 
         } catch (error) {
             console.error(error);
-            alert('Failed to fetch report');
+            // alert('Failed to fetch report');
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        setData([]); // Clear previous data to prevent render mismatch
         fetchReport();
-    }, [activeTab]);
+    }, [activeTab, startDate, endDate]);
 
     return (
-        <div className="flex min-h-screen bg-gray-50 font-sans">
+        <div className="flex h-screen bg-gray-50/30 font-sans overflow-hidden">
             <Sidebar />
-            <div className="flex-1 p-4 md:p-8">
-                <header className="mb-6">
-                    <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+
+            <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+
+                {/* --- Top Navbar --- */}
+                <header className="px-8 py-6 bg-white border-b border-gray-200 z-20 flex-none shadow-sm">
+                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-800">Reports & Analytics</h1>
-                            <p className="text-sm text-gray-500 mt-1">Generate financial reports and statements.</p>
+                            <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+                                <TrendingUp className="text-blue-600" size={28} />
+                                Reports & Analytics
+                            </h1>
+                            <p className="text-sm text-gray-500 mt-1 pl-10">Monitor financial performance and generate detailed statements.</p>
                         </div>
 
-                        {/* Tabs in Header - Clean No Background */}
-                        <div className="flex items-center gap-6 border-b border-gray-200 pb-1">
-                            <button
-                                onClick={() => { setActiveTab('daily'); setData([]); }}
-                                className={`pb-2 text-sm font-bold transition border-b-2 ${activeTab === 'daily' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                            >Daily</button>
-                            <button
-                                onClick={() => { setActiveTab('cashier'); setData([]); }}
-                                className={`pb-2 text-sm font-bold transition border-b-2 ${activeTab === 'cashier' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                            >Cashier</button>
-                            <button
-                                onClick={() => { setActiveTab('feeHead'); setData([]); }}
-                                className={`pb-2 text-sm font-bold transition border-b-2 ${activeTab === 'feeHead' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                            >Fee Head</button>
+                        <div className="flex bg-gray-100/80 p-1.5 rounded-xl border border-gray-200 self-start xl:self-auto">
+                            {['daily', 'cashier', 'feeHead'].map((tab) => (
+                                <button
+                                    key={tab}
+                                    onClick={() => { setActiveTab(tab); setData([]); }}
+                                    className={`
+                                        flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 capitalize
+                                        ${activeTab === tab
+                                            ? 'bg-white text-blue-600 shadow-md transform scale-100 ring-1 ring-black/5'
+                                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60'}
+                                    `}
+                                >
+                                    {tab === 'daily' && <Calendar size={16} />}
+                                    {tab === 'cashier' && <Users size={16} />}
+                                    {tab === 'feeHead' && <FileText size={16} />}
+                                    {tab === 'feeHead' ? 'Fee Head' : tab}
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </header>
 
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden w-full">
-                    {/* Filters */}
-                    <div className="p-4 border-b bg-white flex flex-wrap gap-4 items-end">
-                        {/* Tabs removed from here */}
+                {/* --- Scrollable Main Area --- */}
+                <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth scrollbar-thin scrollbar-thumb-gray-200">
+                    <div className="max-w-[1600px] mx-auto space-y-8">
 
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">From</label>
-                            <input
-                                type="date"
-                                className="border rounded px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                value={startDate}
-                                onChange={e => setStartDate(e.target.value)}
+                        {/* 1. Stats Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                            <StatCard
+                                title="Net Collection"
+                                value={`₹${summary.totalConfirm.toLocaleString()}`}
+                                color="blue"
+                                icon={TrendingUp}
+                            />
+                            <StatCard
+                                title="Cash Received"
+                                value={`₹${(summary.totalCash || 0).toLocaleString()}`}
+                                color="green"
+                                icon={Wallet}
+                            />
+                            <StatCard
+                                title="Bank Transfers"
+                                value={`₹${(summary.totalBank || 0).toLocaleString()}`}
+                                color="indigo"
+                                icon={Landmark}
+                            />
+                            <StatCard
+                                title="Transactions"
+                                value={summary.count}
+                                color="purple"
+                                icon={CreditCard}
+                                note="Total records found"
                             />
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">To</label>
-                            <input
-                                type="date"
-                                className="border rounded px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                value={endDate}
-                                onChange={e => setEndDate(e.target.value)}
-                            />
-                        </div>
-                        <button
-                            onClick={fetchReport}
-                            className="bg-gray-800 text-white px-5 py-1.5 rounded text-sm font-bold hover:bg-gray-900 h-[34px]"
-                        >
-                            Filter
-                        </button>
-                    </div>
 
-                    {/* Stats Summary - Expanded */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b">
-                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                            <p className="text-xs text-blue-600 font-bold uppercase">Total Collection</p>
-                            <p className="text-xl md:text-2xl font-bold text-blue-900">₹{summary.totalConfirm.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-                            <p className="text-xs text-green-600 font-bold uppercase">Total Cash</p>
-                            <p className="text-xl md:text-2xl font-bold text-green-900">₹{(summary.totalCash || 0).toLocaleString()}</p>
-                        </div>
-                        <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                            <p className="text-xs text-indigo-600 font-bold uppercase">Total Bank</p>
-                            <p className="text-xl md:text-2xl font-bold text-indigo-900">₹{(summary.totalBank || 0).toLocaleString()}</p>
-                        </div>
-                        <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                            <p className="text-xs text-purple-600 font-bold uppercase">Transactions</p>
-                            <p className="text-xl md:text-2xl font-bold text-purple-900">{summary.count}</p>
-                        </div>
-                    </div>
+                        {/* 2. Main Data Section */}
+                        <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
 
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b">
-                                <tr>
-                                    <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase">
-                                        {activeTab === 'daily' ? 'Date' :
-                                            activeTab === 'cashier' ? 'Cashier Name' :
-                                                'Fee Head'}
-                                    </th>
-                                    <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Transactions</th>
-
-                                    {/* Additional Columns for Cashier AND Fee Head */}
-                                    {(activeTab === 'cashier' || activeTab === 'feeHead') && (
-                                        <>
-                                            <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Cash</th>
-                                            <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Bank</th>
-                                        </>
-                                    )}
-
-                                    <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Collected (DEBIT)</th>
-                                    <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Concession (CREDIT)</th>
-                                    <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Net Amount</th>
-                                    {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-3 px-6 text-xs font-bold text-gray-600 uppercase text-right">Action</th>}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                                {loading ? (
-                                    <tr><td colSpan="9" className="py-10 text-center text-gray-500">Loading data...</td></tr>
-                                ) : data.length === 0 ? (
-                                    <tr><td colSpan="9" className="py-10 text-center text-gray-500">No records found for selected period.</td></tr>
-                                ) : (
-                                    data.map((row, idx) => (
-                                        <ReportRow
-                                            key={idx}
-                                            row={row}
-                                            idx={idx}
-                                            activeTab={activeTab}
-                                            expandedRows={expandedRows}
-                                            toggleRow={toggleRow}
-                                            dateRange={{ start: startDate, end: endDate }}
+                            {/* Toolbar (Filters) */}
+                            <div className="p-5 border-b border-gray-100 bg-white flex flex-wrap justify-between items-center gap-4">
+                                <div className="flex items-center gap-3 bg-gray-50 p-1.5 rounded-2xl border border-gray-200 pl-4 py-2">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] uppercase font-bold text-gray-400">Range:</label>
+                                        <input
+                                            type="date"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer w-32"
+                                            value={startDate}
+                                            onChange={e => setStartDate(e.target.value)}
                                         />
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                                        <span className="text-gray-300">to</span>
+                                        <input
+                                            type="date"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-800 focus:ring-0 cursor-pointer w-32"
+                                            value={endDate}
+                                            onChange={e => setEndDate(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition">
+                                        <Download size={16} /> Export CSV
+                                    </button>
+                                    <button
+                                        onClick={fetchReport}
+                                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-200 transition"
+                                    >
+                                        <Filter size={16} /> Refresh Data
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Table */}
+                            <div className="overflow-x-auto min-h-[400px]">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-400 font-bold">
+                                            <th className="py-5 px-6 w-1/4">
+                                                {activeTab === 'daily' ? 'Date' : activeTab === 'cashier' ? 'Cashier' : 'Fee Head'}
+                                            </th>
+                                            <th className="py-5 px-6 text-right">Transactions</th>
+                                            <th className="py-5 px-6 text-right">Method</th>
+                                            <th className="py-5 px-6 text-right text-gray-600">Collected</th>
+                                            <th className="py-5 px-6 text-right text-gray-600">Concession</th>
+                                            <th className="py-5 px-6 text-right text-black">Net Total</th>
+                                            {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-5 px-6 text-right">Actions</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white">
+                                        {loading ? (
+                                            <tr>
+                                                <td colSpan="8" className="py-32 text-center pointer-events-none">
+                                                    <div className="flex flex-col items-center justify-center gap-4">
+                                                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                                        <p className="text-gray-400 font-medium animate-pulse">Computing financials...</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : data.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="8" className="py-32 text-center pointer-events-none">
+                                                    <div className="flex flex-col items-center justify-center gap-4 opacity-50">
+                                                        <div className="bg-gray-100 p-4 rounded-full">
+                                                            <Search size={32} className="text-gray-400" />
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <p className="text-gray-900 font-bold text-lg">No reports found.</p>
+                                                            <p className="text-gray-500 text-sm">Try adjusting your date filters.</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            data.map((row, idx) => (
+                                                <ReportRow
+                                                    key={idx}
+                                                    row={row}
+                                                    idx={idx}
+                                                    activeTab={activeTab}
+                                                    expandedRows={expandedRows}
+                                                    toggleRow={toggleRow}
+                                                    dateRange={{ start: startDate, end: endDate }}
+                                                />
+                                            ))
+                                        )}
+                                    </tbody>
+
+                                    {/* Footer Summary */}
+                                    {!loading && data.length > 0 && (
+                                        <tfoot className="bg-gray-50 border-t border-gray-200">
+                                            <tr>
+                                                <td className="py-5 px-6 font-bold text-gray-800 text-sm">GRAND TOTAL</td>
+                                                <td className="py-5 px-6 text-right font-bold text-sm text-gray-800">{summary.count}</td>
+                                                <td className="py-5 px-6 text-right">
+                                                    {(activeTab === 'cashier' || activeTab === 'feeHead') && (
+                                                        <div className="flex flex-col items-end gap-0.5 text-[10px] font-mono font-medium text-gray-500">
+                                                            <span>C: {(summary.totalCash || 0).toLocaleString()}</span>
+                                                            <span>B: {(summary.totalBank || 0).toLocaleString()}</span>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="py-5 px-6 text-right font-bold text-sm text-emerald-700">
+                                                    ₹{data.reduce((a, c) => a + (c.debitAmount || 0), 0).toLocaleString()}
+                                                </td>
+                                                <td className="py-5 px-6 text-right font-bold text-sm text-purple-700">
+                                                    ₹{data.reduce((a, c) => a + (c.creditAmount || 0), 0).toLocaleString()}
+                                                </td>
+                                                <td className="py-5 px-6 text-right font-extrabold text-lg text-gray-900">
+                                                    ₹{summary.totalConfirm.toLocaleString()}
+                                                </td>
+                                                {(activeTab === 'cashier' || activeTab === 'daily') && <td></td>}
+                                            </tr>
+                                        </tfoot>
+                                    )}
+                                </table>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </main>
             </div>
         </div>
     );
