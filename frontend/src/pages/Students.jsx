@@ -59,10 +59,10 @@ const Students = () => {
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-8 overflow-hidden flex flex-col">
-                <header className="mb-6 flex justify-between items-end">
+                <header className="mb-4 flex justify-between items-end">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-800">Student Directory</h1>
-                        <p className="text-gray-500 mt-1">View and search student records.</p>
+                        <h1 className="text-2xl font-bold text-gray-800">Student Directory</h1>
+                        <p className="text-sm text-gray-500 mt-1">View and search student records.</p>
                     </div>
                 </header>
 

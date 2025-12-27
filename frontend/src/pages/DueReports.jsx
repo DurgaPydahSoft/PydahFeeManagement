@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import axios from 'axios';
-import { Filter, Download, ArrowRight, DollarSign, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Filter, Download, ArrowRight, DollarSign, Search, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const DueReports = () => {
@@ -197,26 +197,28 @@ const DueReports = () => {
             <Sidebar />
 
             <div className="flex-1 flex flex-col h-full overflow-hidden">
-                {/* Header */}
-                <header className="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shrink-0">
-                    <h1 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                        <DollarSign className="text-gray-500" size={18} /> Student Due Reports
-                    </h1>
-                    <div className="text-xs text-gray-500">
-                        {reportData.length > 0 ? (
-                            <span className="flex gap-4">
-                                <span>Total Paid: <b className="text-green-600">₹{totalCollected.toLocaleString()}</b></span>
-                                <span>Total Due: <b className="text-red-600">₹{totalDue.toLocaleString()}</b></span>
-                            </span>
-                        ) : (
-                            <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full font-bold border border-blue-200 animate-pulse">
-                                Set filters or search to show results
-                            </span>
-                        )}
-                    </div>
-                </header>
-
-                <main className="flex-1 overflow-y-auto p-4">
+                <main className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+                    <header className="mb-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <FileText className="text-gray-800" size={24} /> Student Due Reports
+                            </h1>
+                            <p className="text-sm text-gray-500 mt-1">View pending fees and generate reports.</p>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                            {reportData.length > 0 ? (
+                                <span className="flex gap-4 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
+                                    <span>Total Paid: <b className="text-green-600">₹{totalCollected.toLocaleString()}</b></span>
+                                    <span className="w-px h-4 bg-gray-200"></span>
+                                    <span>Total Due: <b className="text-red-600">₹{totalDue.toLocaleString()}</b></span>
+                                </span>
+                            ) : (
+                                <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full font-bold border border-blue-200 animate-pulse">
+                                    Set filters or search to show results
+                                </span>
+                            )}
+                        </div>
+                    </header>
                     <div className="max-w-[1600px] mx-auto space-y-4">
 
                         {/* Control Bar: Filters & Search */}

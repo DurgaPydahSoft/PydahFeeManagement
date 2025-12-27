@@ -146,28 +146,30 @@ const UserManagement = () => {
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6">
-                <header className="mb-4">
-                    <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
-                    <p className="text-sm text-gray-500 mt-1">Create and manage access for system users.</p>
-                </header>
-
-                {/* Tab Navigation */}
-                <div className="mb-6 border-b border-gray-200">
-                    <nav className="flex space-x-4">
+                <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
+                        <p className="text-sm text-gray-500 mt-1">Create and manage access for system users.</p>
+                    </div>
+                    {/* Tabs */}
+                    <div className="flex bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
                         <button
-                            className={`px-4 py-2 font-medium text-sm ${activeTab === 'users' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
                             onClick={() => setActiveTab('users')}
+                            className={`px-4 py-2 rounded-md text-sm font-bold transition ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
                         >
                             Users
                         </button>
                         <button
-                            className={`px-4 py-2 font-medium text-sm ${activeTab === 'permissions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
                             onClick={() => setActiveTab('permissions')}
+                            className={`px-4 py-2 rounded-md text-sm font-bold transition ${activeTab === 'permissions' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
                         >
                             Permissions
                         </button>
-                    </nav>
-                </div>
+                    </div>
+                </header>
+
+                {/* Tab Navigation */}
+
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Only show Create User Form in Users tab */}
