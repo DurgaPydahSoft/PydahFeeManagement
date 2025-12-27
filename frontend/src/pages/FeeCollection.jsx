@@ -809,47 +809,107 @@ const FeeCollection = () => {
                     </div>
                 )}
 
-                {/* CONFIRMATION MODAL */}
+                {/* CONFIRMATION / RECEIPT PREVIEW MODAL */}
                 {showConfirmModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px] p-4 transition-all duration-300">
-                        <div className="bg-white rounded-lg shadow-2xl max-w-sm w-full overflow-hidden border border-gray-100 transform scale-100 transition-transform">
-                            <div className="p-6">
-                                <h3 className="text-lg font-bold text-gray-800 mb-4">Confirm Payment?</h3>
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-all duration-300">
+                        {/* Receipt Container */}
+                        <div className="bg-white rounded-sm shadow-2xl max-w-sm w-full overflow-hidden relative transform scale-100 transition-transform">
 
-                                <div className="space-y-2 mb-6">
-                                    {feeRows.filter(r => r.feeHeadId && r.amount > 0).map((row, idx) => {
-                                        const fh = feeDetails.find(f => f._id === row.feeHeadId);
-                                        return (
-                                            <div key={idx} className="flex justify-between text-sm">
-                                                <span className="text-gray-600">{fh ? fh.feeHeadName : 'Fee Head'}</span>
-                                                <span className="font-bold">₹{row.amount}</span>
-                                            </div>
-                                        );
-                                    })}
-                                    <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-base mt-2">
-                                        <span>Total</span>
-                                        <span className="text-blue-600">₹{totalSelectedAmount}</span>
+                            <div className="p-6 font-mono text-sm leading-relaxed">
+                                {/* Header */}
+                                <div className="text-center mb-6">
+                                    <h2 className="text-lg font-bold text-gray-800 uppercase tracking-widest border-b-2 border-gray-800 pb-1 inline-block mb-1">Payment Preview</h2>
+                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Please review before processing</p>
+                                </div>
+
+                                {/* Meta Info */}
+                                <div className="flex justify-between text-xs text-gray-500 mb-4 border-b border-dashed border-gray-300 pb-2">
+                                    <div className="space-y-0.5">
+                                        <div><span className="font-bold text-gray-700">Date:</span> {new Date().toLocaleDateString()}</div>
+                                        <div><span className="font-bold text-gray-700">Time:</span> {new Date().toLocaleTimeString()}</div>
                                     </div>
-                                    <div className="text-xs text-gray-500 mt-2">
-                                        Mode: <span className="font-semibold">{paymentForm.paymentMode}</span>
+                                    <div className="text-right space-y-0.5">
+                                        <div className="uppercase font-bold text-gray-800">{student?.student_name}</div>
+                                        <div className="text-[10px]">Adm: {student?.admission_number}</div>
                                     </div>
                                 </div>
 
-                                <div className="flex gap-3">
+                                {/* Items */}
+                                <div className="mb-4">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="border-b border-gray-800 text-[10px] uppercase">
+                                                <th className="pb-1 text-gray-600">Fee Description</th>
+                                                <th className="pb-1 text-right text-gray-600">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="text-xs">
+                                            {feeRows.filter(r => r.feeHeadId && r.amount > 0).map((row, idx) => {
+                                                const fh = feeDetails.find(f => f._id === row.feeHeadId);
+                                                return (
+                                                    <tr key={idx}>
+                                                        <td className="py-1.5 pr-2">
+                                                            <div className="font-bold text-gray-800">{fh ? fh.feeHeadName : 'Fee Head'}</div>
+                                                            {/* <div className="text-[9px] text-gray-400 truncate">Sem {student?.current_semester}</div> */}
+                                                        </td>
+                                                        <td className="py-1.5 text-right font-medium text-gray-800">
+                                                            ₹{Number(row.amount).toLocaleString()}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        {/* Footer Totals */}
+                                        <tfoot className="border-t border-dashed border-gray-400 mt-2">
+                                            {/* <div className="my-2 border-b border-dashed border-gray-400"></div> */}
+                                            <tr>
+                                                <td className="pt-3 font-bold text-gray-800 uppercase text-xs">Total Amount</td>
+                                                <td className="pt-3 text-right text-lg font-bold text-gray-900">₹{totalSelectedAmount.toLocaleString()}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+
+                                {/* Payment Details Box */}
+                                <div className="bg-gray-50 p-3 rounded border border-gray-200 mb-6 text-xs">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-gray-500">Payment Mode:</span>
+                                        <span className="font-bold text-gray-800 uppercase">{paymentForm.paymentMode}</span>
+                                    </div>
+                                    {paymentForm.transactionType === 'DEBIT' && paymentForm.paymentMode !== 'Cash' && (
+                                        <div className="space-y-0.5 pt-1 mt-1 border-t border-gray-100">
+                                            {paymentForm.bankName && <div className="flex justify-between"><span>Bank:</span> <span className="font-medium">{paymentForm.bankName}</span></div>}
+                                            {paymentForm.referenceNo && <div className="flex justify-between"><span>Ref No:</span> <span className="font-medium">{paymentForm.referenceNo}</span></div>}
+                                            {paymentForm.instrumentDate && <div className="flex justify-between"><span>Inst. Date:</span> <span className="font-medium">{paymentForm.instrumentDate}</span></div>}
+                                        </div>
+                                    )}
+                                    {paymentForm.remarks && (
+                                        <div className="mt-2 pt-2 border-t border-gray-200 italic text-gray-500 text-[10px]">
+                                            "{paymentForm.remarks}"
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Actions */}
+                                <div className="flex flex-col gap-3">
                                     <button
                                         onClick={confirmAndPay}
-                                        className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700"
+                                        className="w-full bg-blue-600 text-white py-3 rounded shadow-lg hover:bg-blue-700 font-sans font-bold uppercase tracking-wide text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                                     >
-                                        Yes, Confirm
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                        Confirm
                                     </button>
                                     <button
                                         onClick={() => setShowConfirmModal(false)}
-                                        className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg font-bold hover:bg-gray-200"
+                                        className="w-full bg-white text-gray-500 py-2 rounded border border-gray-200 hover:bg-gray-50 hover:text-gray-700 font-sans font-medium text-xs uppercase tracking-wide transition-all"
                                     >
-                                        Cancel
+                                        Cancel Transaction
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Decorative Bottom Edge */}
+                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100"></div>
                         </div>
                     </div>
                 )}
