@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
+import * as XLSX from 'xlsx';
 import {
     Calendar,
     Printer,
@@ -273,6 +274,47 @@ const Reports = () => {
         }
     };
 
+    const exportToCSV = () => {
+        if (!data || data.length === 0) return alert("No data to export");
+
+        const headers = [
+            activeTab === 'daily' ? 'Date' : activeTab === 'cashier' ? 'Cashier' : 'Fee Head',
+            "Transactions",
+            "Cash",
+            "Bank",
+            "Collected",
+            "Concession",
+            "Net Total"
+        ];
+
+        const rows = data.map(row => {
+            let identifier = '';
+            if (activeTab === 'daily') {
+                identifier = row._id?.day ? `${row._id.day}-${row._id.month}-${row._id.year}` : 'Date';
+            } else if (activeTab === 'feeHead') {
+                identifier = row.name || 'Unknown Fee Head';
+            } else {
+                identifier = row.name || row._id || 'Unknown';
+            }
+
+            return [
+                identifier,
+                row.count || row.totalCount || 0,
+                row.cashAmount || 0,
+                row.bankAmount || 0,
+                row.debitAmount || 0,
+                row.creditAmount || 0,
+                row.totalAmount || 0
+            ];
+        });
+
+        const wsData = [headers, ...rows];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Report");
+        XLSX.writeFile(wb, `Report_${activeTab}_${startDate}_to_${endDate}.csv`);
+    };
+
     useEffect(() => {
         fetchReport();
     }, [activeTab, startDate, endDate]);
@@ -374,7 +416,10 @@ const Reports = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition">
+                                    <button
+                                        onClick={exportToCSV}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition"
+                                    >
                                         <Download size={16} /> Export CSV
                                     </button>
                                     <button
@@ -445,14 +490,16 @@ const Reports = () => {
                                     {!loading && data.length > 0 && (
                                         <tfoot className="bg-gray-50 border-t border-gray-200">
                                             <tr>
-                                                <td className="py-3 px-4 font-bold text-gray-800 text-xs text-right uppercase tracking-wide" colSpan="3">GRAND TOTAL</td>
+                                                <td className="py-3 px-4 font-bold text-gray-800 text-xs text-right uppercase tracking-wide">GRAND TOTAL</td>
                                                 <td className="py-3 px-4 text-right font-bold text-sm text-gray-800">{summary.count}</td>
                                                 <td className="py-3 px-4 text-right">
-                                                    {(activeTab === 'cashier' || activeTab === 'feeHead') && (
+                                                    {(activeTab === 'cashier' || activeTab === 'feeHead') ? (
                                                         <div className="flex flex-col items-end gap-0.5 text-[10px] font-mono font-medium text-gray-500">
                                                             <span>C: {(summary.totalCash || 0).toLocaleString()}</span>
                                                             <span>B: {(summary.totalBank || 0).toLocaleString()}</span>
                                                         </div>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-xs">-</span>
                                                     )}
                                                 </td>
                                                 <td className="py-3 px-4 text-right font-bold text-sm text-emerald-700">

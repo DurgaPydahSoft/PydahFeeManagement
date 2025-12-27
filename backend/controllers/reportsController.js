@@ -277,46 +277,100 @@ const getDueReports = async (req, res) => {
 
         const studentIds = students.map(s => s.admission_number);
         const studentMap = {};
+        // Initialize details map
         students.forEach(s => {
             studentMap[s.admission_number] = {
                 ...s,
                 totalFee: 0,
                 paidAmount: 0,
-                dueAmount: 0
+                dueAmount: 0,
+                feeDetails: {} // Map key: feeHeadId -> { total: 0, paid: 0, due: 0 }
             };
         });
 
-        // 2. Aggregate Total Fee (Demand) - Cumulative
-        const feeMatch = {
-            studentId: { $in: studentIds }
-        };
-
+        // 2. Aggregate Total Fee (Demand) - Grouped by FeeHead
+        const feeMatch = { studentId: { $in: studentIds } };
         const feeDemands = await StudentFee.aggregate([
             { $match: feeMatch },
-            { $group: { _id: "$studentId", totalFee: { $sum: "$amount" } } }
+            {
+                $group: {
+                    _id: { studentId: "$studentId", feeHead: "$feeHead" },
+                    totalFee: { $sum: "$amount" }
+                }
+            }
         ]);
 
         feeDemands.forEach(f => {
-            if (studentMap[f._id]) studentMap[f._id].totalFee = f.totalFee;
+            const sid = f._id.studentId;
+            const fid = f._id.feeHead;
+            if (studentMap[sid]) {
+                studentMap[sid].totalFee += f.totalFee;
+                if (!studentMap[sid].feeDetails[fid]) studentMap[sid].feeDetails[fid] = { total: 0, paid: 0, due: 0 };
+                studentMap[sid].feeDetails[fid].total = f.totalFee;
+            }
         });
 
-        // 3. Aggregate Total Paid - Cumulative
-        const txMatch = {
-            studentId: { $in: studentIds }
-        };
-
+        // 3. Aggregate Total Paid - Grouped by FeeHead
+        const txMatch = { studentId: { $in: studentIds } };
         const payments = await Transaction.aggregate([
             { $match: txMatch },
-            { $group: { _id: "$studentId", totalPaid: { $sum: "$amount" } } }
+            {
+                $group: {
+                    _id: { studentId: "$studentId", feeHead: "$feeHead" },
+                    totalPaid: { $sum: "$amount" }
+                }
+            }
         ]);
 
         payments.forEach(p => {
-            if (studentMap[p._id]) studentMap[p._id].paidAmount = p.totalPaid;
+            const sid = p._id.studentId;
+            const fid = p._id.feeHead;
+            if (studentMap[sid]) {
+                studentMap[sid].paidAmount += p.totalPaid;
+                if (!studentMap[sid].feeDetails[fid]) studentMap[sid].feeDetails[fid] = { total: 0, paid: 0, due: 0 };
+                studentMap[sid].feeDetails[fid].paid = p.totalPaid;
+            }
         });
 
-        // 4. Calculate Due
+        // 4. Resolve FeeHead Names
+        // Get all unique feeHead IDs from all students
+        const allFeeHeadIds = new Set();
+        Object.values(studentMap).forEach(s => {
+            Object.keys(s.feeDetails).forEach(fid => allFeeHeadIds.add(fid));
+        });
+
+        let feeHeadNameMap = {};
+        if (allFeeHeadIds.size > 0) {
+            // We need to fetch FeeHead names. Assuming 'FeeHead' model exists or we query collection 'feeheads'.
+            // In getTransactionReports, it does $lookup from 'feeheads'. Let's use mongoose model if available or distinct lookup.
+            // We don't have FeeHead imported at top, let's try direct connection collection query or assume standard model name.
+            // Best to just use direct db collection query if model not imported, OR import it. 
+            // Let's use raw collection query via mongoose.connection to be safe on imports, or 'mongoose.model("FeeHead")' if registered.
+            try {
+                const heads = await mongoose.connection.collection('feeheads').find({
+                    _id: { $in: Array.from(allFeeHeadIds).map(id => new mongoose.Types.ObjectId(id)) }
+                }).toArray();
+
+                heads.forEach(h => {
+                    feeHeadNameMap[h._id.toString()] = h.name;
+                });
+            } catch (e) {
+                console.log('Error fetching fee heads', e);
+            }
+        }
+
+        // 5. Finalize Data Structure
         const reportData = Object.values(studentMap).map(s => {
             s.dueAmount = (s.totalFee || 0) - (s.paidAmount || 0);
+
+            // Convert feeDetails map to array with names
+            s.feeDetailsArray = Object.keys(s.feeDetails).map(fid => {
+                const d = s.feeDetails[fid];
+                d.due = (d.total || 0) - (d.paid || 0);
+                d.headName = feeHeadNameMap[fid] || 'Unknown Fee';
+                return d;
+            });
+
             return s;
         });
 
