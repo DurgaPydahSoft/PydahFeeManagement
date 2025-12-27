@@ -122,16 +122,31 @@ const FeeCollection = () => {
             const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`);
 
             // Allow searching by Name, Admission No, Mobile, or Pin No
-            const matches = studentsRes.data.filter(s =>
-                s.admission_number === searchQuery ||
-                s.admission_no === searchQuery ||
-                s.student_mobile === searchQuery ||
-                s.pin_no === searchQuery ||
-                (s.student_name && s.student_name.toLowerCase().includes(searchQuery.toLowerCase()))
-            );
+            // Improved Filtering: Case-insensitive, trimmed, and type-safe with Partial Matching
+            const query = searchQuery.trim().toLowerCase();
+            const matches = studentsRes.data.filter(s => {
+                const admNum = s.admission_number ? String(s.admission_number).toLowerCase().trim() : '';
+                const admNo = s.admission_no ? String(s.admission_no).toLowerCase().trim() : '';
+                const mobile = s.student_mobile ? String(s.student_mobile).toLowerCase().trim() : '';
+                const pin = s.pin_no ? String(s.pin_no).toLowerCase().trim() : '';
+                const name = s.student_name ? s.student_name.toLowerCase().trim() : '';
+
+                // Optional: Check Father's name if beneficial
+                // const father = s.father_name ? s.father_name.toLowerCase().trim() : '';
+
+                return (
+                    admNum.includes(query) ||
+                    admNo.includes(query) ||
+                    mobile.includes(query) ||
+                    pin.includes(query) ||
+                    name.includes(query)
+                );
+            });
 
             if (matches.length === 0) {
-                setError('Student not found. Please check Admission No, Mobile, or Pin No.');
+                // If no matches, check if status might be the issue (though we only fetch Regular)
+                console.warn(`No matches found for query: "${query}" among ${studentsRes.data.length} students.`);
+                setError('Student not found. Filter is searching in Name, Admission No, Mobile, and Pin.');
                 setLoading(false);
                 return;
             }
