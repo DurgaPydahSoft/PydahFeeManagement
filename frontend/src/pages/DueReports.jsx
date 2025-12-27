@@ -26,7 +26,12 @@ const DueReports = () => {
     // Search & Pagination
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 20; // Increased density means more items
+    const [itemsPerPage, setItemsPerPage] = useState(20);
+    const [expandedRow, setExpandedRow] = useState(null);
+
+    const toggleRow = (admissionNumber) => {
+        setExpandedRow(prev => prev === admissionNumber ? null : admissionNumber);
+    };
 
     // Fetch Metadata on Load
     useEffect(() => {
@@ -93,18 +98,82 @@ const DueReports = () => {
     };
 
     const exportToExcel = () => {
-        const ws = XLSX.utils.json_to_sheet(reportData.map(r => ({
-            "Admission No": r.admission_number,
-            "Pin No": r.pin_no,
-            "Student Name": r.student_name,
-            "Course": r.course,
-            "Branch": r.branch,
-            "Year": r.current_year,
-            "Phone": r.student_mobile,
-            "Total Fee (Demand)": r.totalFee,
-            "Total Paid": r.paidAmount,
-            "Due Amount": r.dueAmount
-        })));
+        if (!reportData || reportData.length === 0) return;
+
+        // 1. Identify all Unique Fee Heads dynamically
+        const allFeeHeads = new Set();
+        reportData.forEach(r => {
+            if (r.feeDetailsArray) {
+                r.feeDetailsArray.forEach(d => allFeeHeads.add(d.headName));
+            }
+        });
+        const feeHeadsList = Array.from(allFeeHeads).sort();
+
+        // 2. Define Static Columns
+        const staticHeaders = [
+            "Admission No", "Pin No", "Student Name", "Course", "Branch", "Year", "Phone",
+            "Overall Total", "Overall Paid", "Overall Due"
+        ];
+
+        // 3. Build Header Rows (Row 1: Main Headers, Row 2: Sub Headers)
+        const headerRow1 = [...staticHeaders];
+        const headerRow2 = staticHeaders.map(() => ""); // Placeholders for static columns
+
+        // Appending Fee Head Headers
+        feeHeadsList.forEach(head => {
+            headerRow1.push(head, "", ""); // Push head name and 2 empty slots for merge
+            headerRow2.push("Total", "Paid", "Due");
+        });
+
+        // 4. Build Data Rows
+        const dataRows = reportData.map(r => {
+            const row = [
+                r.admission_number,
+                r.pin_no,
+                r.student_name,
+                r.course,
+                r.branch,
+                r.current_year,
+                r.student_mobile,
+                r.totalFee,
+                r.paidAmount,
+                r.dueAmount
+            ];
+
+            // Fill dynamic columns matching the sorted feeHeadsList
+            feeHeadsList.forEach(head => {
+                const detail = r.feeDetailsArray?.find(d => d.headName === head);
+                if (detail) {
+                    row.push(detail.total || 0, detail.paid || 0, detail.due || 0);
+                } else {
+                    row.push(0, 0, 0); // No record for this fee head
+                }
+            });
+            return row;
+        });
+
+        // 5. Construct Worksheet Data
+        const wsData = [headerRow1, headerRow2, ...dataRows];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        // 6. Apply Cell Merges
+        const merges = [];
+
+        // Vertical merges for static columns (spanning Row 0 and Row 1)
+        for (let i = 0; i < staticHeaders.length; i++) {
+            merges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
+        }
+
+        // Horizontal merges for Fee Head groupings (Row 0)
+        let colIdx = staticHeaders.length;
+        feeHeadsList.forEach(() => {
+            merges.push({ s: { r: 0, c: colIdx }, e: { r: 0, c: colIdx + 2 } });
+            colIdx += 3;
+        });
+
+        ws['!merges'] = merges;
+
+        // 7. Write File
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "DueReport");
         XLSX.writeFile(wb, `DueReport_${filters.college || 'Search'}_${filters.batch || 'All'}.xlsx`);
@@ -203,18 +272,33 @@ const DueReports = () => {
 
                                     <div className="w-px h-8 bg-gray-200 mx-1 hidden xl:block"></div>
 
-                                    <div className="relative flex-1 xl:w-64">
-                                        <div className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none">
-                                            <Search size={14} className="text-gray-400" />
+                                    <div className="relative flex-1 xl:w-64 flex gap-2">
+                                        {/* Items Per Page */}
+                                        <select
+                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-16 p-2"
+                                            value={itemsPerPage}
+                                            onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                                            title="Rows per page"
+                                        >
+                                            <option value={10}>10</option>
+                                            <option value={20}>20</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                        </select>
+
+                                        <div className="relative flex-1">
+                                            <div className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none">
+                                                <Search size={14} className="text-gray-400" />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full pl-8 p-2"
+                                                placeholder="Quick Search (Enter to fetch)..."
+                                                value={searchTerm}
+                                                onChange={e => { setSearchTerm(e.target.value); }}
+                                                onKeyDown={(e) => e.key === 'Enter' && fetchReport()}
+                                            />
                                         </div>
-                                        <input
-                                            type="text"
-                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full pl-8 p-2"
-                                            placeholder="Quick Search (Enter to fetch)..."
-                                            value={searchTerm}
-                                            onChange={e => { setSearchTerm(e.target.value); }}
-                                            onKeyDown={(e) => e.key === 'Enter' && fetchReport()}
-                                        />
                                     </div>
                                     <button
                                         onClick={exportToExcel}
@@ -263,24 +347,62 @@ const DueReports = () => {
                                             paginatedData.map((student, idx) => {
                                                 const due = student.dueAmount || 0;
                                                 const status = due <= 0 ? 'CLEARED' : 'PENDING';
+                                                const isExpanded = expandedRow === student.admission_number;
 
                                                 return (
-                                                    <tr key={idx} className="hover:bg-blue-50 transition">
-                                                        <td className="p-2 text-center text-gray-400">{(currentPage - 1) * itemsPerPage + idx + 1}</td>
-                                                        <td className="p-2 font-mono font-medium text-gray-600">{student.pin_no || '-'}</td>
-                                                        <td className="p-2">
-                                                            <div className="font-medium text-gray-900">{student.student_name}</div>
-                                                            <div className="text-[10px] text-gray-500">{student.admission_number}</div>
-                                                        </td>
-                                                        <td className="p-2 text-right text-gray-600">₹{(student.totalFee || 0).toLocaleString()}</td>
-                                                        <td className="p-2 text-right text-green-600">₹{(student.paidAmount || 0).toLocaleString()}</td>
-                                                        <td className="p-2 text-right font-bold text-red-600">₹{due.toLocaleString()}</td>
-                                                        <td className="p-2 text-center">
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${status === 'CLEARED' ? 'bg-green-100 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                                                                {status}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
+                                                    <React.Fragment key={student.admission_number}>
+                                                        <tr
+                                                            className={`hover:bg-blue-50 transition cursor-pointer ${isExpanded ? 'bg-blue-50' : ''}`}
+                                                            onClick={() => toggleRow(student.admission_number)}
+                                                        >
+                                                            <td className="p-2 text-center text-gray-400">{(currentPage - 1) * itemsPerPage + idx + 1}</td>
+                                                            <td className="p-2 font-mono font-medium text-gray-600">{student.pin_no || '-'}</td>
+                                                            <td className="p-2">
+                                                                <div className="font-medium text-gray-900">{student.student_name}</div>
+                                                                <div className="text-[10px] text-gray-500">{student.admission_number}</div>
+                                                            </td>
+                                                            <td className="p-2 text-right text-gray-600">₹{(student.totalFee || 0).toLocaleString()}</td>
+                                                            <td className="p-2 text-right text-green-600">₹{(student.paidAmount || 0).toLocaleString()}</td>
+                                                            <td className="p-2 text-right font-bold text-red-600">₹{due.toLocaleString()}</td>
+                                                            <td className="p-2 text-center">
+                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${status === 'CLEARED' ? 'bg-green-100 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                                                                    {status}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded && (
+                                                            <tr className="bg-gray-50">
+                                                                <td colSpan="7" className="p-4 border-b border-gray-200">
+                                                                    <div className="bg-white border border-gray-200 rounded p-4 shadow-sm">
+                                                                        {/* <h4 className="text-xs font-bold text-gray-700 uppercase mb-3">Fee Breakdown</h4> */}
+                                                                        <table className="w-full text-xs">
+                                                                            <thead>
+                                                                                <tr className="text-gray-500 border-b border-gray-100">
+                                                                                    <th className="text-left pb-2 font-medium">Type of Fee</th>
+                                                                                    <th className="text-right pb-2 font-medium">Total</th>
+                                                                                    <th className="text-right pb-2 font-medium">Paid</th>
+                                                                                    <th className="text-right pb-2 font-medium">Due</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {student.feeDetailsArray && student.feeDetailsArray.map((detail, dIdx) => (
+                                                                                    <tr key={dIdx}>
+                                                                                        <td className="py-2 text-gray-800 font-medium">{detail.headName}</td>
+                                                                                        <td className="py-2 text-right text-gray-600">₹{(detail.total || 0).toLocaleString()}</td>
+                                                                                        <td className="py-2 text-right text-green-600">₹{(detail.paid || 0).toLocaleString()}</td>
+                                                                                        <td className="py-2 text-right text-red-600 font-bold">₹{((detail.total || 0) - (detail.paid || 0)).toLocaleString()}</td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                                {(!student.feeDetailsArray || student.feeDetailsArray.length === 0) && (
+                                                                                    <tr><td colSpan="4" className="py-2 text-center text-gray-400">No detailed fee breakdown available.</td></tr>
+                                                                                )}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
                                                 );
                                             })
                                         )}
