@@ -12,7 +12,7 @@ const getTransactionReports = async (req, res) => {
 
         // Base matching condition
         const matchStage = {};
-        
+
         // Date Filter
         if (startDate || endDate) {
             matchStage.createdAt = {};
@@ -34,73 +34,73 @@ const getTransactionReports = async (req, res) => {
         // Transaction schema: studentId, ... 
         // We'd have to $lookup or add 'college' to Transaction. 
         // For existing data, we can't filter easily. Let's proceed without college filter for MVP or assume global.)
-        
+
         // Actually, let's check Transaction schema again. Not there.
         // We'll proceed with basic filtering.
 
         if (groupBy === 'cashier') {
-             // Advanced Cashier Report: Group by Cashier + FeeHead first
-             pipeline = [
-                 { $match: matchStage },
-                 // 1. Group by Cashier + FeeHead + Mode
-                 { 
-                     $group: { 
+            // Advanced Cashier Report: Group by Cashier + FeeHead first
+            pipeline = [
+                { $match: matchStage },
+                // 1. Group by Cashier + FeeHead + Mode
+                {
+                    $group: {
                         _id: { cashier: "$collectedByName", feeHead: "$feeHead", mode: "$paymentMode", type: "$transactionType" },
                         amount: { $sum: "$amount" },
                         count: { $sum: 1 }
-                     } 
-                 },
-                 // 2. Lookup Fee Head Name
-                 {
-                     $lookup: {
-                         from: 'feeheads',
-                         localField: '_id.feeHead',
-                         foreignField: '_id',
-                         as: 'feeHeadDetails'
-                     }
-                 },
-                 { $unwind: { path: "$feeHeadDetails", preserveNullAndEmptyArrays: true } },
-                 // 3. Regroup by Cashier to consolidate
-                 { 
+                    }
+                },
+                // 2. Lookup Fee Head Name
+                {
+                    $lookup: {
+                        from: 'feeheads',
+                        localField: '_id.feeHead',
+                        foreignField: '_id',
+                        as: 'feeHeadDetails'
+                    }
+                },
+                { $unwind: { path: "$feeHeadDetails", preserveNullAndEmptyArrays: true } },
+                // 3. Regroup by Cashier to consolidate
+                {
                     $group: {
                         _id: "$_id.cashier",
                         totalAmount: { $sum: "$amount" },
                         totalCount: { $sum: "$count" },
-                        debitAmount: { 
-                            $sum: { $cond: [{ $eq: ["$_id.type", "DEBIT"] }, "$amount", 0] } 
+                        debitAmount: {
+                            $sum: { $cond: [{ $eq: ["$_id.type", "DEBIT"] }, "$amount", 0] }
                         },
-                        creditAmount: { 
-                            $sum: { $cond: [{ $eq: ["$_id.type", "CREDIT"] }, "$amount", 0] } 
+                        creditAmount: {
+                            $sum: { $cond: [{ $eq: ["$_id.type", "CREDIT"] }, "$amount", 0] }
                         },
                         // Cash vs Bank (For DEBIT only usually? Or all? Let's do all payments)
-                        cashAmount: { 
-                            $sum: { $cond: [{ $eq: ["$_id.mode", "Cash"] }, "$amount", 0] } 
+                        cashAmount: {
+                            $sum: { $cond: [{ $eq: ["$_id.mode", "Cash"] }, "$amount", 0] }
                         },
-                        bankAmount: { 
-                            $sum: { $cond: [{ $ne: ["$_id.mode", "Cash"] }, "$amount", 0] } 
+                        bankAmount: {
+                            $sum: { $cond: [{ $ne: ["$_id.mode", "Cash"] }, "$amount", 0] }
                         },
                         // Consolidate Fee Heads
-                        feeHeads: { 
-                            $push: { 
-                                name: "$feeHeadDetails.name", 
+                        feeHeads: {
+                            $push: {
+                                name: "$feeHeadDetails.name",
                                 amount: "$amount",
                                 count: "$count" // Optional
-                            } 
+                            }
                         }
                     }
-                 },
-                 // 4. Clean up the feeHeads array (merge duplicates since we grouped by Mode too)
-                 // Or we can rely on frontend. But let's try to merge per feeHead in backend? 
-                 // It's easier to just return the list; frontend can reduce if same feehead appears twice (once for cash, once for bank)
-                 { $sort: { totalAmount: -1 } }
-             ];
-             
-             // Additional Sort
-             // pipeline.push({ $sort: { totalAmount: -1 } }); 
+                },
+                // 4. Clean up the feeHeads array (merge duplicates since we grouped by Mode too)
+                // Or we can rely on frontend. But let's try to merge per feeHead in backend? 
+                // It's easier to just return the list; frontend can reduce if same feehead appears twice (once for cash, once for bank)
+                { $sort: { totalAmount: -1 } }
+            ];
+
+            // Additional Sort
+            // pipeline.push({ $sort: { totalAmount: -1 } }); 
 
         } else if (groupBy === 'feeHead') {
-             // Enhanced Fee Head Report
-             pipeline = [
+            // Enhanced Fee Head Report
+            pipeline = [
                 { $match: matchStage },
                 {
                     $group: {
@@ -136,12 +136,12 @@ const getTransactionReports = async (req, res) => {
                     }
                 },
                 { $sort: { totalAmount: -1 } }
-             ];
-        // 'mode' groupBy removed as per request
+            ];
+            // 'mode' groupBy removed as per request
         } else {
-             // Default Day
-             groupId = { year: { $year: "$createdAt" }, month: { $month: "$createdAt" }, day: { $dayOfMonth: "$createdAt" } };
-             pipeline = [
+            // Default Day
+            groupId = { year: { $year: "$createdAt" }, month: { $month: "$createdAt" }, day: { $dayOfMonth: "$createdAt" } };
+            pipeline = [
                 { $match: matchStage },
                 {
                     $group: {
@@ -168,33 +168,33 @@ const getTransactionReports = async (req, res) => {
                     }
                 },
                 { $sort: { "_id.year": -1, "_id.month": -1, "_id.day": -1 } }
-             ];
+            ];
 
-             const dailyStats = await Transaction.aggregate(pipeline);
+            const dailyStats = await Transaction.aggregate(pipeline);
 
-             // --- SQL Enrichment Start ---
-             // Extract all studentIds (Admission Numbers)
-             const admissionNumbers = new Set();
-             dailyStats.forEach(day => {
-                 if(day.transactions) {
-                     day.transactions.forEach(tx => {
-                         if(tx.studentId) admissionNumbers.add(tx.studentId);
-                     });
-                 }
-             });
+            // --- SQL Enrichment Start ---
+            // Extract all studentIds (Admission Numbers)
+            const admissionNumbers = new Set();
+            dailyStats.forEach(day => {
+                if (day.transactions) {
+                    day.transactions.forEach(tx => {
+                        if (tx.studentId) admissionNumbers.add(tx.studentId);
+                    });
+                }
+            });
 
-             if (admissionNumbers.size > 0) {
-                 const ids = Array.from(admissionNumbers).map(id => `'${id}'`).join(',');
-                 // Query SQL for Course, Branch, Pin No
-                 const sqlQuery = `SELECT admission_number, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`;
-                 
-                 // Fix: Use await directly for Promise-based pool
-                 try {
+            if (admissionNumbers.size > 0) {
+                const ids = Array.from(admissionNumbers).map(id => `'${id}'`).join(',');
+                // Query SQL for Course, Branch, Pin No
+                const sqlQuery = `SELECT admission_number, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`;
+
+                // Fix: Use await directly for Promise-based pool
+                try {
                     const [studentDetails] = await db.query(sqlQuery);
-                    
+
                     // Create Map: AdmissionNo -> Details
                     const studentMap = {};
-                    if(studentDetails) {
+                    if (studentDetails) {
                         studentDetails.forEach(s => {
                             studentMap[s.admission_number] = s;
                         });
@@ -202,10 +202,10 @@ const getTransactionReports = async (req, res) => {
 
                     // Attach to transactions
                     dailyStats.forEach(day => {
-                        if(day.transactions) {
+                        if (day.transactions) {
                             day.transactions.forEach(tx => {
                                 const details = studentMap[tx.studentId];
-                                if(details) {
+                                if (details) {
                                     tx.pinNo = details.pin_no;
                                     tx.course = details.course;
                                     tx.branch = details.branch;
@@ -215,15 +215,15 @@ const getTransactionReports = async (req, res) => {
                         }
                     });
 
-                 } catch (sqlErr) {
-                     console.error("SQL Enrichment Error:", sqlErr);
-                     // Proceed without enrichment if SQL fails, or handle appropriately
-                 }
-             }
-             // --- SQL Enrichment End ---
+                } catch (sqlErr) {
+                    console.error("SQL Enrichment Error:", sqlErr);
+                    // Proceed without enrichment if SQL fails, or handle appropriately
+                }
+            }
+            // --- SQL Enrichment End ---
 
-             res.json(dailyStats);
-             return; // Return here as we handled response
+            res.json(dailyStats);
+            return; // Return here as we handled response
         }
 
         const stats = await Transaction.aggregate(pipeline);
@@ -235,6 +235,100 @@ const getTransactionReports = async (req, res) => {
     }
 };
 
+const getDueReports = async (req, res) => {
+    try {
+        const { college, course, branch, batch, search } = req.query;
+
+        // 1. Build SQL Query for Students
+        // Added pin_no, replaced phone_number with student_mobile
+        let sqlQuery = `SELECT admission_number, student_name, course, branch, current_year, student_mobile, pin_no FROM students WHERE 1=1`;
+        const params = [];
+
+        if (college) {
+            sqlQuery += ` AND college = ?`;
+            params.push(college);
+        }
+        if (course) {
+            sqlQuery += ` AND course = ?`;
+            params.push(course);
+        }
+        if (branch) {
+            sqlQuery += ` AND branch = ?`;
+            params.push(branch);
+        }
+        // Filter by Batch instead of Year
+        if (batch) {
+            sqlQuery += ` AND batch = ?`;
+            params.push(batch);
+        }
+
+        // Search Filter (Global or Refined)
+        if (search) {
+            sqlQuery += ` AND (student_name LIKE ? OR admission_number LIKE ? OR pin_no LIKE ?)`;
+            const searchPattern = `%${search}%`;
+            params.push(searchPattern, searchPattern, searchPattern);
+        }
+
+        const [students] = await db.query(sqlQuery, params);
+
+        if (!students || students.length === 0) {
+            return res.json([]);
+        }
+
+        const studentIds = students.map(s => s.admission_number);
+        const studentMap = {};
+        students.forEach(s => {
+            studentMap[s.admission_number] = {
+                ...s,
+                totalFee: 0,
+                paidAmount: 0,
+                dueAmount: 0
+            };
+        });
+
+        // 2. Aggregate Total Fee (Demand) - Cumulative
+        const feeMatch = {
+            studentId: { $in: studentIds }
+        };
+
+        const feeDemands = await StudentFee.aggregate([
+            { $match: feeMatch },
+            { $group: { _id: "$studentId", totalFee: { $sum: "$amount" } } }
+        ]);
+
+        feeDemands.forEach(f => {
+            if (studentMap[f._id]) studentMap[f._id].totalFee = f.totalFee;
+        });
+
+        // 3. Aggregate Total Paid - Cumulative
+        const txMatch = {
+            studentId: { $in: studentIds }
+        };
+
+        const payments = await Transaction.aggregate([
+            { $match: txMatch },
+            { $group: { _id: "$studentId", totalPaid: { $sum: "$amount" } } }
+        ]);
+
+        payments.forEach(p => {
+            if (studentMap[p._id]) studentMap[p._id].paidAmount = p.totalPaid;
+        });
+
+        // 4. Calculate Due
+        const reportData = Object.values(studentMap).map(s => {
+            s.dueAmount = (s.totalFee || 0) - (s.paidAmount || 0);
+            return s;
+        });
+
+        res.json(reportData);
+
+    } catch (error) {
+        console.error('Due Report Error:', error);
+        res.status(500).json({ message: 'Error generating due report' });
+    }
+};
+
 module.exports = {
-    getTransactionReports
+    getTransactionReports,
+    getDueReports
 };

@@ -27,7 +27,8 @@ const Sidebar = () => {
         { name: 'Payment Config', path: '/payment-config', icon: icons.PaymentConfig },
         { name: 'Students', path: '/students', icon: icons.Students },
         { name: 'Fee Collection', path: '/fee-collection', icon: icons.Collection },
-        { name: 'Reports', path: '/reports', icon: icons.Reports },
+        { name: 'Reports and Analytics', path: '/reports', icon: icons.Reports },
+        { name: 'Due Reports', path: '/due-reports', icon: icons.Reports },
         { name: 'Transport Config', path: '/transport-config', icon: icons.Transport },
         { name: 'User Management', path: '/user-management', icon: icons.Users },
     ];
