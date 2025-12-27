@@ -19,7 +19,8 @@ const UserManagement = () => {
         { name: 'Fee Configuration', path: '/fee-config' },
         { name: 'Students', path: '/students' },
         { name: 'Fee Collection', path: '/fee-collection' },
-        { name: 'Reports', path: '/reports' }, // User Management is hidden/protected usually
+        { name: 'Reports', path: '/reports' },
+        { name: 'Due Reports', path: '/due-reports' }, // Added for user access management
     ];
 
     // Form State
