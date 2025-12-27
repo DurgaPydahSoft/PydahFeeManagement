@@ -325,41 +325,32 @@ const Reports = () => {
 
             <div className="flex-1 flex flex-col h-full overflow-hidden relative">
 
-                {/* --- Top Navbar --- */}
-                <header className="px-6 py-4 bg-white border-b border-gray-200 z-20 flex-none shadow-sm">
-                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+                <main className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+                    <header className="mb-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
                         <div>
-                            <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
-                                <TrendingUp className="text-blue-600" size={24} />
-                                Reports & Analytics
+                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <TrendingUp className="text-gray-800" size={24} /> Reports & Analytics
                             </h1>
-                            <p className="text-sm text-gray-500 mt-1 pl-10">Monitor financial performance and generate detailed statements.</p>
+                            <p className="text-sm text-gray-500 mt-1">Monitor financial performance and generate detailed statements.</p>
                         </div>
 
-                        <div className="flex bg-gray-100/80 p-1.5 rounded-xl border border-gray-200 self-start xl:self-auto">
+                        <div className="flex bg-white p-1 rounded-lg border border-gray-200 shadow-sm self-start xl:self-auto">
                             {['daily', 'cashier', 'feeHead'].map((tab) => (
                                 <button
                                     key={tab}
                                     onClick={() => { setActiveTab(tab); setData([]); }}
                                     className={`
-                                        flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 capitalize
+                                        px-4 py-2 rounded-md text-sm font-bold transition-all duration-300 capitalize whitespace-nowrap
                                         ${activeTab === tab
-                                            ? 'bg-white text-blue-600 shadow-md transform scale-100 ring-1 ring-black/5'
-                                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60'}
+                                            ? 'bg-blue-600 text-white shadow-md'
+                                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}
                                     `}
                                 >
-                                    {tab === 'daily' && <Calendar size={16} />}
-                                    {tab === 'cashier' && <Users size={16} />}
-                                    {tab === 'feeHead' && <FileText size={16} />}
                                     {tab === 'feeHead' ? 'Fee Head' : tab}
                                 </button>
                             ))}
                         </div>
-                    </div>
-                </header>
-
-                {/* --- Scrollable Main Area --- */}
-                <main className="flex-1 overflow-y-auto p-3 md:p-6 scroll-smooth scrollbar-thin scrollbar-thumb-gray-200">
+                    </header>
                     <div className="max-w-[1600px] mx-auto space-y-6">
 
                         {/* 1. Stats Cards */}
@@ -490,7 +481,7 @@ const Reports = () => {
                                     {!loading && data.length > 0 && (
                                         <tfoot className="bg-gray-50 border-t border-gray-200">
                                             <tr>
-                                                <td className="py-3 px-4 font-bold text-gray-800 text-xs text-right uppercase tracking-wide">GRAND TOTAL</td>
+                                                <td className="py-3 px-4 font-bold text-gray-800 text-xs text-left uppercase tracking-wide">GRAND TOTAL</td>
                                                 <td className="py-3 px-4 text-right font-bold text-sm text-gray-800">{summary.count}</td>
                                                 <td className="py-3 px-4 text-right">
                                                     {(activeTab === 'cashier' || activeTab === 'feeHead') ? (

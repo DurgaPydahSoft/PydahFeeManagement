@@ -27,11 +27,12 @@ const Dashboard = () => {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col">
-                <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-800">Dashboard Overview</h1>
-                </header>
-
                 <main className="flex-1 p-8">
+                    <header className="mb-4">
+                        <h1 className="text-2xl font-bold text-gray-800">Dashboard Overview</h1>
+                        <p className="text-sm text-gray-500 mt-1">Welcome back to your dashboard.</p>
+                    </header>
+
                     <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-6">
                         <h2 className="text-xl font-semibold text-gray-800 mb-2">Welcome Back</h2>
                         <p className="text-gray-500 mb-6">Role: <span className="uppercase tracking-wide text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{user.role}</span></p>

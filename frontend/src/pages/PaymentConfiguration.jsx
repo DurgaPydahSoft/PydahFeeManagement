@@ -114,12 +114,12 @@ const PaymentConfiguration = () => {
             <Sidebar />
             <div className="flex-1 p-4 md:p-8">
                 {/* Header */}
-                <header className="mb-8">
+                <header className="mb-4">
                     <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                         <CreditCard className="w-8 h-8 text-blue-600" />
                         Payment Configuration
                     </h1>
-                    <p className="text-gray-500 mt-1">Configure Bank Accounts and UPI details for online fee collection.</p>
+                    <p className="text-sm text-gray-500 mt-1">Configure Bank Accounts and UPI details for online fee collection.</p>
                 </header>
 
                 {message && (

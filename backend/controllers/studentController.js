@@ -10,12 +10,9 @@ const getStudents = async (req, res) => {
     const { college } = req.query;
 
     console.log('Attempting to fetch students from SQL...');
-    
+
     let query = `
-      SELECT 
-        id, admission_number, student_name, father_name, 
-        college, course, branch, student_mobile, student_status,
-        current_year, current_semester, pin_no, stud_type, batch
+      SELECT *
       FROM students
       WHERE LOWER(student_status) = 'regular'
     `;
@@ -24,6 +21,18 @@ const getStudents = async (req, res) => {
     if (college) {
       query += ` AND college = ?`;
       params.push(college);
+    }
+    if (req.query.course) {
+      query += ` AND course = ?`;
+      params.push(req.query.course);
+    }
+    if (req.query.branch) {
+      query += ` AND branch = ?`;
+      params.push(req.query.branch);
+    }
+    if (req.query.batch) {
+      query += ` AND batch = ?`;
+      params.push(req.query.batch);
     }
 
     // Optimize query: Select only necessary columns
@@ -69,8 +78,8 @@ const getStudentMetadata = async (req, res) => {
       }
       if (!hierarchy[row.college][row.course]) {
         hierarchy[row.college][row.course] = {
-            branches: [],
-            total_years: row.total_years || 4 // Fallback if null
+          branches: [],
+          total_years: row.total_years || 4 // Fallback if null
         };
       }
       if (!hierarchy[row.college][row.course].branches.includes(row.branch)) {
@@ -79,8 +88,8 @@ const getStudentMetadata = async (req, res) => {
     });
 
     res.json({
-        hierarchy,
-        batches: batchList
+      hierarchy,
+      batches: batchList
     });
   } catch (error) {
     console.error('Error fetching metadata:', error);
@@ -91,20 +100,20 @@ const getStudentMetadata = async (req, res) => {
 // @desc    Get Single Student by Admission Number (with Photo)
 // @route   GET /api/students/:id
 const getStudentByAdmissionNumber = async (req, res) => {
-    try {
-        const { id } = req.params; // admission_number
+  try {
+    const { id } = req.params; // admission_number
 
-        const [rows] = await db.query(`SELECT * FROM students WHERE admission_number = ?`, [id]);
+    const [rows] = await db.query(`SELECT * FROM students WHERE admission_number = ?`, [id]);
 
-        if (rows.length === 0) {
-            return res.status(404).json({ message: 'Student not found' });
-        }
-
-        res.json(rows[0]);
-    } catch (error) {
-        console.error('Error fetching student details:', error);
-        res.status(500).json({ message: 'Server Error' });
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Student not found' });
     }
+
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching student details:', error);
+    res.status(500).json({ message: 'Server Error' });
+  }
 };
 
 module.exports = {

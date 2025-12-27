@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Plus, Edit2, Trash2, Bus, MapPin, X, User } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, X, User, Bus } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const TransportConfiguration = () => {
@@ -252,58 +252,40 @@ const TransportConfiguration = () => {
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
-            <div className="flex-1 p-8">
-                <header className="mb-8 flex flex-col md:flex-row justify-between md:items-end gap-4">
+            <div className="flex-1 p-4 md:p-6">
+                <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <h1 className="text-3xl font-extrabold text-gray-800 flex items-center gap-3">
-                            <Bus className="w-8 h-8 text-blue-600" />
+                        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                            <Bus className="text-gray-800" size={28} />
                             Transport Configuration
                         </h1>
-                        <p className="text-gray-500 mt-2">Manage transport routes, stops, and fee structures.</p>
+                        <p className="text-sm text-gray-500 mt-1">Manage transport routes, stops, and fee structures.</p>
                     </div>
-
-                    <div className="flex flex-col items-end gap-3">
-                        {/* Tabs in Header */}
-                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                    {/* Tabs */}
+                    <div className="flex bg-white p-1 rounded-lg border border-gray-200 shadow-sm overflow-x-auto">
+                        {['routes', 'stages', 'allocation', 'list'].map((tab) => (
                             <button
-                                onClick={() => setActiveTab('routes')}
-                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'routes' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`px-4 py-2 rounded-md text-sm font-bold transition whitespace-nowrap capitalize ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
+                                    }`}
                             >
-                                Routes
+                                {tab === 'list' ? 'Assigned List' : tab}
                             </button>
-                            <button
-                                onClick={() => setActiveTab('stages')}
-                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'stages' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                Stages
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('allocation')}
-                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'allocation' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                Allocation
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('list')}
-                                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${activeTab === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                Assigned List
-                            </button>
-                        </div>
-
-                        {/* Context Action Button */}
-                        {activeTab === 'routes' && (
-                            <button onClick={() => openRouteModal()} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition text-sm">
-                                <Plus size={18} /> Add New Route
-                            </button>
-                        )}
+                        ))}
                     </div>
                 </header>
+
+
 
                 {/* --- ROUTES TAB --- */}
                 {activeTab === 'routes' && (
                     <div>
-
+                        <div className="flex justify-end mb-4">
+                            <button onClick={() => openRouteModal()} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition text-sm">
+                                <Plus size={18} /> Add New Route
+                            </button>
+                        </div>
 
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                             <table className="w-full text-left">
