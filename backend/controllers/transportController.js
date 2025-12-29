@@ -17,7 +17,7 @@ exports.getRoutes = async (req, res) => {
 exports.createRoute = async (req, res) => {
     try {
         const { name, code, description, status } = req.body;
-        
+
         // Check uniqueness
         const existing = await TransportRoute.findOne({ code });
         if (existing) return res.status(400).json({ message: 'Route Code already exists' });
@@ -51,10 +51,10 @@ exports.deleteRoute = async (req, res) => {
     try {
         const route = await TransportRoute.findByIdAndDelete(req.params.id);
         if (!route) return res.status(404).json({ message: 'Route not found' });
-        
+
         // Also delete associated stages
         await RouteStage.deleteMany({ routeId: req.params.id });
-        
+
         res.json({ message: 'Route and associated stages deleted' });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -77,9 +77,9 @@ exports.getStages = async (req, res) => {
 // Create a new stage
 exports.createStage = async (req, res) => {
     try {
-        const { routeId, stageName, stopOrder, amount } = req.body;
-        
-        const stage = new RouteStage({ routeId, stageName, stopOrder, amount });
+        const { routeId, stageCode, stageName, stopOrder, amount } = req.body;
+
+        const stage = new RouteStage({ routeId, stageCode, stageName, stopOrder, amount });
         const savedStage = await stage.save();
         res.status(201).json(savedStage);
     } catch (error) {
@@ -90,10 +90,10 @@ exports.createStage = async (req, res) => {
 // Update a stage
 exports.updateStage = async (req, res) => {
     try {
-        const { stageName, stopOrder, amount } = req.body;
+        const { stageCode, stageName, stopOrder, amount } = req.body;
         const stage = await RouteStage.findByIdAndUpdate(
             req.params.id,
-            { stageName, stopOrder, amount },
+            { stageCode, stageName, stopOrder, amount },
             { new: true, runValidators: true }
         );
         if (!stage) return res.status(404).json({ message: 'Stage not found' });
@@ -138,7 +138,7 @@ exports.assignTransportToStudent = async (req, res) => {
 
         // 2. Get Student Details from SQL
         const [students] = await db.query('SELECT student_name, college, course, branch, current_year, current_semester FROM students WHERE admission_number = ?', [studentId]);
-        
+
         if (students.length === 0) return res.status(404).json({ message: 'Student not found in database' });
         const student = students[0];
 
@@ -156,7 +156,7 @@ exports.assignTransportToStudent = async (req, res) => {
         // We use 'Transport Fee' head. Unique index is on { studentId, feeHead, academicYear, studentYear, semester }
         // We assume transport fee is per year usually, but here we can stick to the passed academicYear.
         // We'll upsert based on this to avoid duplicates for the same year.
-        
+
         const feePayload = {
             studentId,
             studentName: student.student_name,
@@ -170,14 +170,14 @@ exports.assignTransportToStudent = async (req, res) => {
             semester: student.current_semester || 1, // Default if null
             semester: student.current_semester || 1, // Default if null
             amount: req.body.amount || stage.amount, // Allow override
-            remarks: `Transport: ${route.name} - ${stage.stageName}`
+            remarks: `Transport: ${route.name} - ${stage.stageCode ? '[' + stage.stageCode + '] ' : ''}${stage.stageName}`
         };
 
         await StudentFee.findOneAndUpdate(
-            { 
-                studentId, 
-                feeHead: feeHead._id, 
-                academicYear, 
+            {
+                studentId,
+                feeHead: feeHead._id,
+                academicYear,
                 studentYear: student.current_year
                 // We intentionally omit semester here if we want one transport fee per year, 
                 // OR include it if we want per semester. 
@@ -209,7 +209,7 @@ exports.getStudentTransportAllocation = async (req, res) => {
         // Find most recent allocation? Or all? Let's return the latest for the current year context if possible
         // For now, let's return all transport fees for this student
         const allocations = await StudentFee.find({ studentId, feeHead: feeHead._id }).sort({ createdAt: -1 });
-        
+
         res.json(allocations);
     } catch (error) {
         res.status(500).json({ message: error.message });
