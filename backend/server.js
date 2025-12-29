@@ -32,6 +32,7 @@ app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/transport', require('./routes/transportRoutes'));
 app.use('/api/payment-config', require('./routes/paymentConfigRoutes'));
 app.use('/api/reminders', require('./routes/reminderRoutes'));
+app.use('/api/bulk-fee', require('./routes/bulkFeeRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });

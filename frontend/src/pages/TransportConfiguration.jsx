@@ -21,7 +21,7 @@ const TransportConfiguration = () => {
     const [routeForm, setRouteForm] = useState({ name: '', code: '', description: '', status: 'Active' });
 
     // Stage Form Data
-    const [stageForm, setStageForm] = useState({ stageName: '', stopOrder: '', amount: '' });
+    const [stageForm, setStageForm] = useState({ stageCode: '', stageName: '', stopOrder: '', amount: '' });
 
     const API_URL = import.meta.env.VITE_API_URL;
 
@@ -130,7 +130,7 @@ const TransportConfiguration = () => {
 
     const openStageModal = (stage = null) => {
         setCurrentStage(stage);
-        setStageForm(stage ? { stageName: stage.stageName, stopOrder: stage.stopOrder, amount: stage.amount } : { stageName: '', stopOrder: '', amount: '' });
+        setStageForm(stage ? { stageCode: stage.stageCode || '', stageName: stage.stageName, stopOrder: stage.stopOrder, amount: stage.amount } : { stageCode: '', stageName: '', stopOrder: '', amount: '' });
         setIsStageModalOpen(true);
     };
 
@@ -368,6 +368,7 @@ const TransportConfiguration = () => {
                                             <thead className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase text-xs font-semibold">
                                                 <tr>
                                                     <th className="p-4 w-16">Order</th>
+                                                    <th className="p-4">Code</th>
                                                     <th className="p-4">Stage Name</th>
                                                     <th className="p-4 text-right">Fee Amount (₹)</th>
                                                     <th className="p-4 text-right">Actions</th>
@@ -380,6 +381,7 @@ const TransportConfiguration = () => {
                                                     stages.map((s) => (
                                                         <tr key={s._id} className="hover:bg-gray-50 relative group">
                                                             <td className="p-4 font-mono text-gray-500">{s.stopOrder}</td>
+                                                            <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-mono font-bold">{s.stageCode || '-'}</span></td>
                                                             <td className="p-4 font-medium text-gray-800">{s.stageName}</td>
                                                             <td className="p-4 text-right font-bold text-gray-700">₹{s.amount.toLocaleString()}</td>
                                                             <td className="p-4 text-right">
@@ -615,6 +617,10 @@ const TransportConfiguration = () => {
                                 <button onClick={closeStageModal} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
                             </div>
                             <form onSubmit={handleStageSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Stage Code</label>
+                                    <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none uppercase" value={stageForm.stageCode} onChange={e => setStageForm({ ...stageForm, stageCode: e.target.value.toUpperCase() })} placeholder="e.g. ST-01" />
+                                </div>
                                 <div>
                                     <label className="block text-sm font-bold text-gray-700 mb-1">Stage Name</label>
                                     <input type="text" required className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" value={stageForm.stageName} onChange={e => setStageForm({ ...stageForm, stageName: e.target.value })} placeholder="e.g. Main Market Stop" />

@@ -259,6 +259,8 @@ const FeeCollection = () => {
                 return {
                     ...commonData,
                     feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
+                    studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
+                    semester: selectedFee ? selectedFee.semester : commonData.semester,
                     amount: Number(row.amount)
                 };
             });
@@ -518,11 +520,11 @@ const FeeCollection = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
-                                            {displayedFees.length === 0 ? (
-                                                <tr><td colSpan="5" className="py-6 text-center text-gray-500 italic text-sm">No fees found for this selection.</td></tr>
+                                            {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0).length === 0 ? (
+                                                <tr><td colSpan="5" className="py-6 text-center text-gray-500 italic text-sm">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
                                             ) : (
                                                 <>
-                                                    {displayedFees.map((fee, idx) => {
+                                                    {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0).map((fee, idx) => {
                                                         const isFullyPaid = fee.dueAmount <= 0;
                                                         const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
                                                         return (

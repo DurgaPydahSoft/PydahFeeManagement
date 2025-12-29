@@ -276,20 +276,38 @@ const getDueReports = async (req, res) => {
         }
 
         const studentIds = students.map(s => s.admission_number);
+        const pinNumbers = students.map(s => s.pin_no).filter(Boolean); // Get valid pins
+        const allIdentifiers = [...new Set([...studentIds, ...pinNumbers])]; // Unique list of all IDs
+
         const studentMap = {};
+        const idToStudentMap = {}; // Helper to resolve any ID (Pin or Adm) to the Student Object
+
         // Initialize details map
         students.forEach(s => {
-            studentMap[s.admission_number] = {
+            const studentObj = {
                 ...s,
                 totalFee: 0,
                 paidAmount: 0,
                 dueAmount: 0,
                 feeDetails: {} // Map key: feeHeadId -> { total: 0, paid: 0, due: 0 }
             };
+
+            // Key by Primary ID (Admission Number) for final list
+            studentMap[s.admission_number] = studentObj;
+
+            // Map identifiers to this object
+            if (s.admission_number) idToStudentMap[s.admission_number] = studentObj;
+            // Also map normalized versions if needed (e.g. trimmed)
+            if (s.admission_number) idToStudentMap[s.admission_number.trim()] = studentObj;
+
+            if (s.pin_no) {
+                idToStudentMap[s.pin_no] = studentObj;
+                idToStudentMap[s.pin_no.trim()] = studentObj;
+            }
         });
 
         // 2. Aggregate Total Fee (Demand) - Grouped by FeeHead
-        const feeMatch = { studentId: { $in: studentIds } };
+        const feeMatch = { studentId: { $in: allIdentifiers } };
         const feeDemands = await StudentFee.aggregate([
             { $match: feeMatch },
             {
@@ -301,17 +319,21 @@ const getDueReports = async (req, res) => {
         ]);
 
         feeDemands.forEach(f => {
-            const sid = f._id.studentId;
+            const rawSid = f._id.studentId; // Could be Pin or Admission
             const fid = f._id.feeHead;
-            if (studentMap[sid]) {
-                studentMap[sid].totalFee += f.totalFee;
-                if (!studentMap[sid].feeDetails[fid]) studentMap[sid].feeDetails[fid] = { total: 0, paid: 0, due: 0 };
-                studentMap[sid].feeDetails[fid].total = f.totalFee;
+
+            // Resolve student using the map
+            const student = idToStudentMap[rawSid] || idToStudentMap[String(rawSid).trim()];
+
+            if (student) {
+                student.totalFee += f.totalFee;
+                if (!student.feeDetails[fid]) student.feeDetails[fid] = { total: 0, paid: 0, due: 0 };
+                student.feeDetails[fid].total += f.totalFee;
             }
         });
 
         // 3. Aggregate Total Paid - Grouped by FeeHead
-        const txMatch = { studentId: { $in: studentIds } };
+        const txMatch = { studentId: { $in: allIdentifiers } };
         const payments = await Transaction.aggregate([
             { $match: txMatch },
             {
@@ -323,12 +345,15 @@ const getDueReports = async (req, res) => {
         ]);
 
         payments.forEach(p => {
-            const sid = p._id.studentId;
+            const rawSid = p._id.studentId;
             const fid = p._id.feeHead;
-            if (studentMap[sid]) {
-                studentMap[sid].paidAmount += p.totalPaid;
-                if (!studentMap[sid].feeDetails[fid]) studentMap[sid].feeDetails[fid] = { total: 0, paid: 0, due: 0 };
-                studentMap[sid].feeDetails[fid].paid = p.totalPaid;
+
+            const student = idToStudentMap[rawSid] || idToStudentMap[String(rawSid).trim()];
+
+            if (student) {
+                student.paidAmount += p.totalPaid;
+                if (!student.feeDetails[fid]) student.feeDetails[fid] = { total: 0, paid: 0, due: 0 };
+                student.feeDetails[fid].paid += p.totalPaid;
             }
         });
 
