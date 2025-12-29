@@ -15,7 +15,7 @@ const getStudents = async (req, res) => {
       SELECT 
         id, admission_number, student_name, father_name, 
         college, course, branch, student_mobile, student_status,
-        current_year, current_semester, pin_no, stud_type, batch, student_email
+        current_year, current_semester, pin_no, stud_type, batch, email
       FROM students
       WHERE LOWER(student_status) = 'regular'
     `;

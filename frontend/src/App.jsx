@@ -10,6 +10,7 @@ import UserManagement from './pages/UserManagement';
 import TransportConfiguration from './pages/TransportConfiguration';
 import PaymentConfiguration from './pages/PaymentConfiguration';
 import ReminderConfiguration from './pages/ReminderConfiguration';
+import BulkFeeUpload from './pages/BulkFeeUpload';
 
 import Reports from './pages/Reports';
 import DueReports from './pages/DueReports';
@@ -32,6 +33,7 @@ function App() {
         <Route path="/transport-config" element={<TransportConfiguration />} />
         <Route path="/payment-config" element={<PaymentConfiguration />} />
         <Route path="/reminders" element={<ReminderConfiguration />} />
+        <Route path="/bulk-fee-upload" element={<BulkFeeUpload />} />
       </Routes>
     </Router>
   );

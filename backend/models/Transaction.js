@@ -69,4 +69,8 @@ const transactionSchema = mongoose.Schema({
   timestamps: true,
 });
 
+// Index for optimizing Bulk Upload "Sync" (Delete & Aggregation)
+transactionSchema.index({ studentId: 1, feeHead: 1, studentYear: 1 });
+transactionSchema.index({ studentId: 1 }); // Basic lookup index
+
 module.exports = mongoose.model('Transaction', transactionSchema);
