@@ -27,6 +27,7 @@ const transactionSchema = mongoose.Schema({
   },
   paymentMode: {
     type: String,
+    enum: ['Cash', 'UPI', 'Cheque', 'DD', 'Card', 'Net Banking', 'Adjustment', 'Waiver', 'Refund', 'Credit'],
     default: 'Cash',
   },
   bankName: {
@@ -36,7 +37,12 @@ const transactionSchema = mongoose.Schema({
     type: Date, // For Cheque/DD Date
   },
   referenceNo: {
-    type: String,
+    type: String, // Bank RRN (Retrieval Reference Number) or Txn ID from Bank
+  },
+  gatewayPaymentId: {
+    type: String, // Razorpay Payment ID or Gateway Reference
+    unique: true,
+    sparse: true
   },
   remarks: {
     type: String,
