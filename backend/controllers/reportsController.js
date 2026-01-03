@@ -385,20 +385,6 @@ const getDueReports = async (req, res) => {
         }
 
         // 5. Finalize Data Structure
-        const reportData = Object.values(studentMap).map(s => {
-            s.dueAmount = (s.totalFee || 0) - (s.paidAmount || 0);
-
-            // Convert feeDetails map to array with names
-            s.feeDetailsArray = Object.keys(s.feeDetails).map(fid => {
-                const d = s.feeDetails[fid];
-                d.due = (d.total || 0) - (d.paid || 0);
-                d.headName = feeHeadNameMap[fid] || 'Unknown Fee';
-                return d;
-            });
-
-            return s;
-        });
-
         res.json(reportData);
 
     } catch (error) {
@@ -407,7 +393,124 @@ const getDueReports = async (req, res) => {
     }
 };
 
+const getDashboardStats = async (req, res) => {
+    try {
+        const { college } = req.query; // Optional: filter by college
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+        // 1. Collections (DEBIT transactions)
+        const collectionStats = await Transaction.aggregate([
+            {
+                $match: {
+                    transactionType: 'DEBIT'
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    today: {
+                        $sum: { $cond: [{ $gte: ["$createdAt", today] }, "$amount", 0] }
+                    },
+                    monthly: {
+                        $sum: { $cond: [{ $gte: ["$createdAt", firstDayOfMonth] }, "$amount", 0] }
+                    },
+                    total: { $sum: "$amount" }
+                }
+            }
+        ]);
+
+        const collections = collectionStats[0] || { today: 0, monthly: 0, total: 0 };
+
+        // 2. Student Count (Regular students from SQL)
+        const [studentCountResult] = await db.query("SELECT COUNT(*) as count FROM students WHERE LOWER(student_status) = 'regular'");
+        const totalStudents = studentCountResult[0]?.count || 0;
+
+        // 3. Recent Transactions
+        const recentTransactions = await Transaction.find()
+            .populate('feeHead', 'name')
+            .sort({ createdAt: -1 })
+            .limit(5);
+
+        // 4. Collection Trend (Last 7 days)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+
+        const trendData = await Transaction.aggregate([
+            {
+                $match: {
+                    transactionType: 'DEBIT',
+                    createdAt: { $gte: sevenDaysAgo }
+                }
+            },
+            {
+                $group: {
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                    amount: { $sum: "$amount" }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]);
+
+        // 5. College and Course Wise Breakdown
+        const studentAggregates = await Transaction.aggregate([
+            { $match: { transactionType: 'DEBIT' } },
+            { $group: { _id: "$studentId", total: { $sum: "$amount" } } }
+        ]);
+
+        const uniqueStudentIds = studentAggregates.map(s => s._id);
+        let collegeWise = [];
+        let courseWise = [];
+
+        if (uniqueStudentIds.length > 0) {
+            // Fetch student metadata from SQL
+            const [studentMeta] = await db.query(
+                `SELECT admission_number, college, course FROM students WHERE admission_number IN (?)`,
+                [uniqueStudentIds]
+            );
+
+            const metaMap = {};
+            studentMeta.forEach(sm => metaMap[sm.admission_number] = sm);
+
+            const collegeMap = {};
+            const courseMap = {};
+
+            studentAggregates.forEach(sa => {
+                const meta = metaMap[sa._id];
+                if (meta) {
+                    collegeMap[meta.college] = (collegeMap[meta.college] || 0) + sa.total;
+                    courseMap[meta.course] = (courseMap[meta.course] || 0) + sa.total;
+                } else {
+                    collegeMap['Unknown'] = (collegeMap['Unknown'] || 0) + sa.total;
+                    courseMap['Unknown'] = (courseMap['Unknown'] || 0) + sa.total;
+                }
+            });
+
+            collegeWise = Object.entries(collegeMap).map(([name, amount]) => ({ name, amount }));
+            courseWise = Object.entries(courseMap).map(([name, amount]) => ({ name, amount }));
+        }
+
+        res.json({
+            collections,
+            totalStudents,
+            recentTransactions,
+            trendData,
+            collegeWise,
+            courseWise
+        });
+
+    } catch (error) {
+        console.error('Dashboard Stats Error:', error);
+        res.status(500).json({ message: 'Error fetching dashboard stats' });
+    }
+};
+
 module.exports = {
     getTransactionReports,
-    getDueReports
+    getDueReports,
+    getDashboardStats
 };
