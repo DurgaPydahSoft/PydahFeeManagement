@@ -48,7 +48,7 @@ const Dashboard = () => {
     const kpis = [
         {
             label: "Today's Collection",
-            value: `₹${stats?.collections?.today.toLocaleString() || 0}`,
+            value: `₹${stats?.collections?.today.toLocaleString() || 0}`, 
             icon: Calendar,
             color: "border-blue-500",
             iconColor: "text-blue-500"
