@@ -1,4 +1,32 @@
 const NotificationTemplate = require('../models/NotificationTemplate');
+const db = require('../config/sqlDb');
+
+// @desc    Get Academic Years from MySQL
+// @route   GET /api/reminders/academic-years
+// @access  Private
+const getAcademicYears = async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                s.id,
+                ay.year_label,
+                c.name as course_name,
+                s.year_of_study,
+                s.semester_number,
+                s.start_date,
+                s.end_date
+            FROM semesters s
+            JOIN academic_years ay ON s.academic_year_id = ay.id
+            JOIN courses c ON s.course_id = c.id
+            ORDER BY ay.year_label DESC, c.name, s.year_of_study, s.semester_number
+        `;
+        const [rows] = await db.query(query);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching academic years:', error);
+        res.status(500).json({ message: 'Error fetching academic years', error: error.message });
+    }
+};
 
 // @desc    Get all templates
 // @route   GET /api/reminders/templates
@@ -193,5 +221,6 @@ module.exports = {
     getTemplates,
     saveTemplate,
     deleteTemplate,
-    sendReminders
+    sendReminders,
+    getAcademicYears
 };

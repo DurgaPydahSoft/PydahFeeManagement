@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import axios from 'axios';
-import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit2, Send, Users, CheckSquare, Square, X, Loader2 } from 'lucide-react';
+import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity } from 'lucide-react';
 
 const ReminderConfiguration = () => {
-    // Top Level Mode: 'CONFIG' or 'SEND'
+    // Top Level Mode: 'CONFIG' or 'SEND' or 'CALENDAR'
     const [mode, setMode] = useState('CONFIG');
 
     // --- CONFIG MODE STATE ---
@@ -36,11 +36,48 @@ const ReminderConfiguration = () => {
     const [missingEmailStudent, setMissingEmailStudent] = useState(null); // { student, email: '' } for modal
     const [newEmail, setNewEmail] = useState('');
 
+    const [academicYears, setAcademicYears] = useState([]);
+    const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
+    const [calendarFilters, setCalendarFilters] = useState({ course: '' });
+
+    const filteredCalendarData = React.useMemo(() => {
+        return academicYears.filter(item =>
+            !calendarFilters.course || item.course_name === calendarFilters.course
+        );
+    }, [academicYears, calendarFilters]);
+
+    const uniqueCalendarCourses = React.useMemo(() => {
+        return [...new Set(academicYears.map(item => item.course_name))].sort();
+    }, [academicYears]);
+
+    const groupedCalendar = React.useMemo(() => {
+        const groups = {};
+        academicYears.forEach(item => {
+            if (!groups[item.year_label]) groups[item.year_label] = {};
+            if (!groups[item.year_label][item.course_name]) groups[item.year_label][item.course_name] = [];
+            groups[item.year_label][item.course_name].push(item);
+        });
+        return groups;
+    }, [academicYears]);
+
     // --- SHARED EFFECTS ---
     useEffect(() => {
         fetchTemplates();
         fetchMetadata();
+        fetchAcademicYears();
     }, []);
+
+    const fetchAcademicYears = async () => {
+        setIsFetchingCalendar(true);
+        try {
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/academic-years`);
+            setAcademicYears(res.data);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsFetchingCalendar(false);
+        }
+    };
 
     const fetchTemplates = async () => {
         try {
@@ -255,6 +292,12 @@ const ReminderConfiguration = () => {
                             className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'SEND' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
                         >
                             Send Reminders
+                        </button>
+                        <button
+                            onClick={() => { setMode('CALENDAR'); fetchAcademicYears(); }}
+                            className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'CALENDAR' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Academic Calendar
                         </button>
                     </div>
                 </header>
@@ -564,6 +607,114 @@ const ReminderConfiguration = () => {
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- ACADEMIC CALENDAR MODE --- */}
+                    {mode === 'CALENDAR' && (
+                        <div className="w-full h-full flex flex-col bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                    <Calendar className="text-blue-600" size={18} /> Academic Calendar
+                                </h3>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter by Course:</label>
+                                        <select
+                                            className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer"
+                                            value={calendarFilters.course}
+                                            onChange={(e) => setCalendarFilters({ ...calendarFilters, course: e.target.value })}
+                                        >
+                                            <option value="">All Courses</option>
+                                            {uniqueCalendarCourses.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <button
+                                        onClick={fetchAcademicYears}
+                                        className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors hover:bg-blue-100"
+                                    >
+                                        {isFetchingCalendar ? <Loader2 size={12} className="animate-spin" /> : <Activity size={12} />} Refresh
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4">
+                                {isFetchingCalendar && academicYears.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                                        <Loader2 size={32} className="animate-spin mb-2" />
+                                        <p className="text-sm">Loading academic years...</p>
+                                    </div>
+                                ) : academicYears.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                                        <Calendar size={48} className="mb-4 opacity-20" />
+                                        <p className="text-sm font-medium">No academic years found.</p>
+                                    </div>
+                                ) : (
+                                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden pb-10">
+                                        <table className="w-full text-left text-xs border-collapse">
+                                            <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+                                                <tr>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider">Session</th>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider">Course</th>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider text-center">Year</th>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider text-center">Semester</th>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider">Start Date</th>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider">End Date</th>
+                                                    <th className="px-6 py-4 font-black uppercase text-slate-500 tracking-wider text-right">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {filteredCalendarData.length > 0 ? (
+                                                    filteredCalendarData.map((item, index) => {
+                                                        const isNewYear = index === 0 || filteredCalendarData[index - 1].year_label !== item.year_label;
+                                                        const isNewCourse = index === 0 || filteredCalendarData[index - 1].course_name !== item.course_name || isNewYear;
+
+                                                        return (
+                                                            <tr key={item.id} className="hover:bg-blue-50/50 transition-colors group">
+                                                                <td className={`px-6 py-4 font-black text-slate-800 ${!isNewYear ? 'opacity-0' : 'border-t border-slate-200 bg-slate-50/30'}`}>
+                                                                    {item.year_label}
+                                                                </td>
+                                                                <td className={`px-6 py-4 font-bold text-slate-700 ${!isNewCourse && !isNewYear ? 'opacity-20' : 'font-black'}`}>
+                                                                    {item.course_name}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-center">
+                                                                    <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-bold">Year {item.year_of_study}</span>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-center">
+                                                                    <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold">Sem {item.semester_number}</span>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">
+                                                                    {new Date(item.start_date).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">
+                                                                    {new Date(item.end_date).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-right">
+                                                                    <div className="flex justify-end gap-1 items-center">
+                                                                        {new Date() >= new Date(item.start_date) && new Date() <= new Date(item.end_date) ? (
+                                                                            <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 uppercase bg-emerald-50 px-2 py-1 rounded">
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                                                                Current
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Scheduled</span>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <tr>
+                                                        <td colSpan="7" className="px-6 py-20 text-center text-slate-400">
+                                                            No academic calendar records found.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
