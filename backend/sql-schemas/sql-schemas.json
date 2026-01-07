@@ -1,0 +1,310 @@
+[
+    {
+        "tableName": "students",
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": "AI PK"
+            },
+            {
+                "name": "admission_number",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "admission_no",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "student_data",
+                "type": "text"
+            },
+            {
+                "name": "created_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "updated_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "dob",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "adhar_no",
+                "type": "varchar(20)"
+            },
+            {
+                "name": "student_name",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "email",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "father_name",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "student_mobile",
+                "type": "varchar(20)"
+            },
+            {
+                "name": "parent_mobile1",
+                "type": "varchar(20)"
+            },
+            {
+                "name": "parent_mobile2",
+                "type": "varchar(20)"
+            },
+            {
+                "name": "admission_date",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "student_address",
+                "type": "text"
+            },
+            {
+                "name": "city_village",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "mandal_name",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "district",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "batch",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "college",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "course",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "branch",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "stud_type",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "student_status",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "scholar_status",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "caste",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "gender",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "remarks",
+                "type": "varchar(100)"
+            },
+            {
+                "name": "pin_no",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "previous_college",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "certificates_status",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "student_photo",
+                "type": "longtext"
+            },
+            {
+                "name": "current_year",
+                "type": "tinyint"
+            },
+            {
+                "name": "current_semester",
+                "type": "tinyint"
+            },
+            {
+                "name": "fee_status",
+                "type": "varchar(20)"
+            },
+            {
+                "name": "registration_status",
+                "type": "varchar(20)"
+            }
+        ]
+    },
+    {
+        "tableName": "colleges",
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": "AI PK"
+            },
+            {
+                "name": "name",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "code",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "is_active",
+                "type": "tinyint(1)"
+            },
+            {
+                "name": "metadata",
+                "type": "json"
+            },
+            {
+                "name": "created_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "updated_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "header_image",
+                "type": "longblob"
+            },
+            {
+                "name": "footer_image",
+                "type": "longblob"
+            },
+            {
+                "name": "header_image_type",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "footer_image_type",
+                "type": "varchar(50)"
+            }
+        ]
+    },
+    {
+        "tableName": "courses",
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": "AI PK"
+            },
+            {
+                "name": "college_id",
+                "type": "int"
+            },
+            {
+                "name": "name",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "code",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "total_years",
+                "type": "tinyint"
+            },
+            {
+                "name": "semesters_per_year",
+                "type": "tinyint"
+            },
+            {
+                "name": "year_semester_config",
+                "type": "json"
+            },
+            {
+                "name": "metadata",
+                "type": "json"
+            },
+            {
+                "name": "is_active",
+                "type": "tinyint(1)"
+            },
+            {
+                "name": "created_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "updated_at",
+                "type": "timestamp"
+            }
+        ]
+    },
+    {
+        "tableName": "course_branches",
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": "AI PK"
+            },
+            {
+                "name": "course_id",
+                "type": "int"
+            },
+            {
+                "name": "name",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "code",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "total_years",
+                "type": "tinyint"
+            },
+            {
+                "name": "semesters_per_year",
+                "type": "tinyint"
+            },
+            {
+                "name": "year_semester_config",
+                "type": "json"
+            },
+            {
+                "name": "metadata",
+                "type": "json"
+            },
+            {
+                "name": "is_active",
+                "type": "tinyint(1)"
+            },
+            {
+                "name": "created_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "updated_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "academic_year_id",
+                "type": "int"
+            }
+        ]
+    }
+]
