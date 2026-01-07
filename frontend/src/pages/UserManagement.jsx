@@ -20,7 +20,8 @@ const UserManagement = () => {
         { name: 'Students', path: '/students' },
         { name: 'Fee Collection', path: '/fee-collection' },
         { name: 'Reports', path: '/reports' },
-        { name: 'Due Reports', path: '/due-reports' }, // Added for user access management
+        { name: 'Due Reports', path: '/due-reports' },
+        { name: 'Concession Management', path: '/concessions' }, // Added for user access management
     ];
 
     // Form State
@@ -41,7 +42,10 @@ const UserManagement = () => {
     const fetchMetadata = async () => {
         try {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
-            setColleges(Object.keys(response.data));
+            // response.data = { hierarchy: { 'College': ... }, batches: [...] }
+            if (response.data && response.data.hierarchy) {
+                setColleges(Object.keys(response.data.hierarchy));
+            }
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
