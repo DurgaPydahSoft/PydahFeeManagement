@@ -166,6 +166,8 @@ const FeeConfiguration = () => {
             college: row.college,
             course: row.course,
             branch: row.branch,
+            batch: row.batch, // Ensure Batch is selected
+            categories: row.category ? [row.category] : [], // Initialize Categories safely
             academicYear: row.academicYear,
             studentYear: '', // User must select year to refine OR use Multi-Year
             amount: '',
