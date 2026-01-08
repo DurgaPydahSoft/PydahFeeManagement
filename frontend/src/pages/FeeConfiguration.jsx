@@ -20,7 +20,7 @@ const FeeConfiguration = () => {
     const [structures, setStructures] = useState([]);
     const [structForm, setStructForm] = useState({
         feeHeadId: '', college: '', course: '', branch: '',
-        batch: '', category: '', studentYear: '', amount: '', // Replaced academicYear with batch
+        batch: '', categories: [], studentYear: '', amount: '', // Replaced category with categories
         semester: '' // '1', '2' or empty for yearly
     });
     const [feeType, setFeeType] = useState('Yearly'); // 'Yearly' or 'Semester'
@@ -132,15 +132,16 @@ const FeeConfiguration = () => {
                                 studentYear: y,
                                 semester: null,
                                 amount: Number(amount),
-                                batch: structForm.batch // Explicitly ensure batch is sent
+                                batch: structForm.batch, // Explicitly ensure batch is sent
+                                categories: structForm.categories // Send array
                             }));
                         }
                     } else {
                         // Semester Wise
                         const s1 = bulkAmounts[`${y}-S1`];
                         const s2 = bulkAmounts[`${y}-S2`];
-                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 1, amount: Number(s1), batch: structForm.batch }));
-                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 2, amount: Number(s2), batch: structForm.batch }));
+                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 1, amount: Number(s1), batch: structForm.batch, categories: structForm.categories }));
+                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 2, amount: Number(s2), batch: structForm.batch, categories: structForm.categories }));
                     }
                 }
 
@@ -461,30 +462,79 @@ const FeeConfiguration = () => {
                             <div className="flex justify-between mb-3"><h2 className="font-semibold text-gray-800">{editingId ? 'Edit' : 'Define Standard Fees'}</h2>{editingId && <button onClick={() => setEditingId(null)} className="text-xs bg-gray-200 px-2 rounded">Cancel</button>}</div>
                             <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
                                 {/* Context Selection */}
-                                {/* Row 1: College & Batch */}
-                                <div className="grid grid-cols-3 gap-4">
-                                    <select className="w-full border p-2 rounded" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '' }); }} required><option value="">Select College</option>{colleges.map(c => <option key={c}>{c}</option>)}</select>
-                                    <select className="w-full border p-2 rounded" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
-                                        <option value="">Select Batch</option>
-                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
-                                    <select className="w-full border p-2 rounded" value={structForm.category} onChange={e => setStructForm({ ...structForm, category: e.target.value })} required>
-                                        <option value="">Select Category</option>
-                                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
+
+                                {/* Row 1: Primary Filters (College, Batch, Fee Head) */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="group">
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">College</label>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '' }); }} required>
+                                            <option value="">Select College</option>
+                                            {colleges.map(c => <option key={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="group">
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Batch</label>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
+                                            <option value="">Select Batch</option>
+                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="group">
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Fee Head</label>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required>
+                                            <option value="">Select Fee Head</option>
+                                            {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
 
-                                {/* Row 2: Course & Branch */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <select className="w-full border p-2 rounded" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '' }); }} required disabled={!structForm.college}><option value="">Select Course</option>{(structForm.college ? Object.keys(metadata[structForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}</select>
-                                    <select className="w-full border p-2 rounded" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}><option value="">Select Branch</option>{(metadata[structForm.college]?.[structForm.course]?.branches || []).map(b => <option key={b}>{b}</option>)}</select>
+                                {/* Row 2: Academic Context (Course & Branch) */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="group">
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Course</label>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '' }); }} required disabled={!structForm.college}>
+                                            <option value="">Select Course</option>
+                                            {(structForm.college ? Object.keys(metadata[structForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="group">
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Branch</label>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}>
+                                            <option value="">Select Branch</option>
+                                            {(metadata[structForm.college]?.[structForm.course]?.branches || []).map(b => <option key={b}>{b}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
 
-                                {/* Row 3: Fee Head Selection */}
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500">Fee Head</label>
-                                    <select className="w-full border p-2 rounded mt-1" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required><option value="">Select Fee Head</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select>
-                                </div>
+                                {/* Row 3: Categories (Full Width Grid) - Conditional Visibility */}
+                                {structForm.college && structForm.batch && structForm.feeHeadId && structForm.course && structForm.branch && (
+                                    <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                        <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+                                            {categories.map(c => (
+                                                <label key={c} className={`flex items-center gap-2 cursor-pointer p-2 rounded border transition ${structForm.categories.includes(c) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={structForm.categories.includes(c)}
+                                                        onChange={e => {
+                                                            const isChecked = e.target.checked;
+                                                            let newCategories = [...structForm.categories];
+                                                            if (isChecked) newCategories.push(c);
+                                                            else newCategories = newCategories.filter(cat => cat !== c);
+                                                            setStructForm({ ...structForm, categories: newCategories });
+                                                        }}
+                                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                    />
+                                                    <span className={`text-sm ${structForm.categories.includes(c) ? 'font-semibold text-blue-700' : 'text-gray-600'}`}>{c}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                        {structForm.categories.length === 0 && <p className="text-xs text-red-500 mt-1">Please select at least one category.</p>}
+                                    </div>
+                                )}
 
                                 {/* Amount Section */}
                                 {editingId ? (

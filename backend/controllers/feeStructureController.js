@@ -6,22 +6,45 @@ const db = require('../config/sqlDb');
 
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
+// @desc    Create/Update Fee Structure (Single or Bulk)
+// @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester } = req.body;
-  // yearAmounts logic removed for simplifying Semester implementation as per requirement "semester heading... not display all eight semesters" in matrix.
-  // We focus on single create or toggle-based create from UI.
+  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester } = req.body;
+  // yearAmounts logic removed for simplifying Semester implementation as per requirement.
 
   try {
-    if (!feeHeadId || !college || !course || !branch || !batch || !category || !studentYear || amount === undefined || amount === null || amount === '') {
-      return res.status(400).json({ message: 'All fields including Batch, Category and Student Year are required' });
+    // Basic Validation
+    if (!feeHeadId || !college || !course || !branch || !batch || !studentYear || amount === undefined || amount === null || amount === '') {
+      return res.status(400).json({ message: 'All fields including Batch, Student Year and Amount are required' });
     }
 
-    const structure = await FeeStructure.findOneAndUpdate(
-      { feeHead: feeHeadId, college, course, branch, batch, category, studentYear, semester: semester || null },
-      { amount, description },
-      { new: true, upsert: true }
-    );
-    res.status(201).json(structure);
+    // Determine categories to process: either key 'categories' (array) or 'category' (single string)
+    let catsToProcess = [];
+    if (Array.isArray(categories) && categories.length > 0) {
+        catsToProcess = categories;
+    } else if (category) {
+        catsToProcess = [category];
+    } else {
+        return res.status(400).json({ message: 'Category is required' });
+    }
+
+    const results = [];
+    for (const cat of catsToProcess) {
+        const structure = await FeeStructure.findOneAndUpdate(
+            { feeHead: feeHeadId, college, course, branch, batch, category: cat, studentYear, semester: semester || null },
+            { amount, description },
+            { new: true, upsert: true }
+        );
+        results.push(structure);
+    }
+    
+    // Return last created or array? Frontend expects one object usually for single create, but array for multi?
+    // Let's just return the last created structure or a success message to avoid breaking standard flow too much,
+    // or simply return the list.
+    // Given the frontend logic iterates over years and awaits one by one, returning the last one is safe enough 
+    // to prevent errors, as the frontend mainly checks 201 status. 
+    // But ideally we return list.
+    res.status(201).json(results.length === 1 ? results[0] : results);
 
   } catch (error) {
     console.error("Error creating fee structure:", error);

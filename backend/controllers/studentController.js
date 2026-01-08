@@ -128,7 +128,7 @@ const searchStudents = async (req, res) => {
 
         const searchTerm = `%${q}%`;
         const [rows] = await db.query(`
-            SELECT admission_number, student_name, pin_no, college, course, branch 
+            SELECT admission_number, student_name, pin_no, college, course, branch, batch, current_year, current_semester, student_photo 
             FROM students 
             WHERE admission_number LIKE ? OR student_name LIKE ? OR pin_no LIKE ? 
             LIMIT 20

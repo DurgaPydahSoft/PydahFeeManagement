@@ -1,22 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { Search, Upload, X, Check, Save } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const ConcessionManagement = () => {
     const [activeTab, setActiveTab] = useState('request'); // 'request' or 'approvals'
     const [user, setUser] = useState(null);
 
+    const searchInputRef = React.useRef(null);
+
+    useEffect(() => {
+        if (activeTab === 'request' && searchInputRef.current) {
+            searchInputRef.current.focus();
+        }
+    }, [activeTab]);
+
     // Request State
-    const [searchQuery, setSearchQuery] = useState('');
-    const [foundStudents, setFoundStudents] = useState([]);
-    const [selectedStudents, setSelectedStudents] = useState([]); // List of students to apply concession to
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [selectedStudent, setSelectedStudent] = useState(null); // Single student only
+
     const [feeHeads, setFeeHeads] = useState([]);
-    const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         feeHeadId: '',
         amount: '',
         reason: '',
-        studentYear: '', // Default to 1
+        studentYear: '',
         semester: '',
         college: '',
         course: '',
@@ -61,12 +71,44 @@ const ConcessionManagement = () => {
         }
     }, [activeTab]);
 
+    // Search Logic (Debounced)
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(async () => {
+            if (activeTab === 'request' && searchTerm.length >= 3) {
+                setIsSearching(true);
+                try {
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`);
+                    setSearchResults(res.data);
+                } catch (error) { console.error(error); }
+                setIsSearching(false);
+            } else {
+                setSearchResults([]);
+            }
+        }, 300);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchTerm, activeTab]);
+
+    const selectStudent = (s) => {
+        setSelectedStudent(s);
+        setFormData(prev => ({
+            ...prev,
+            studentYear: s.current_year,
+            semester: s.current_semester,
+            college: s.college,
+            course: s.course,
+            branch: s.branch,
+            batch: s.batch
+        }));
+        setSearchTerm('');
+        setSearchResults([]);
+    };
+
     const fetchMetadata = async () => {
         try {
             const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
             setMetadata(res.data);
-            setCollegeList(Object.keys(res.data.hierarchy));
-            setBatchList(res.data.batches);
+            setCollegeList(Object.keys(res.data.hierarchy || {}));
+            setBatchList(res.data.batches || []);
         } catch (e) { console.error(e); }
     };
 
@@ -89,22 +131,6 @@ const ConcessionManagement = () => {
 
     }, [filters.college, filters.course, metadata]);
 
-    // Auto-fill Year/Sem/Demographics when first student is selected
-    useEffect(() => {
-        if (selectedStudents.length > 0) {
-            // Use the most recently selected student (or the first one)
-            const latest = selectedStudents[selectedStudents.length - 1];
-            setFormData(prev => ({
-                ...prev,
-                studentYear: latest.current_year || prev.studentYear,
-                semester: latest.current_semester || prev.semester,
-                college: latest.college || '',
-                course: latest.course || '',
-                branch: latest.branch || '',
-                batch: latest.batch || ''
-            }));
-        }
-    }, [selectedStudents]);
 
     const fetchFeeHeads = async () => {
         try {
@@ -122,8 +148,6 @@ const ConcessionManagement = () => {
     const fetchPendingRequests = async () => {
         try {
             const params = new URLSearchParams(filters);
-            // If status is ALL, don't send it or send ALL depending on backend. Backend handles ALL.
-            // Remove empty filters
             Object.keys(filters).forEach(key => {
                 if (!filters[key] && key !== 'status') params.delete(key);
             });
@@ -135,47 +159,22 @@ const ConcessionManagement = () => {
         } catch (e) { console.error(e); }
     };
 
-    // --- Search Logic (Simplified from FeeCollection) ---
-    const handleSearch = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`); // Fetch all then filter locally for simplicity as in FeeCollection
-            // Optimize later to use backend search if available
-            const query = searchQuery.toLowerCase().trim();
-            const matches = res.data.filter(s =>
-                (s.admission_number && s.admission_number.toLowerCase().includes(query)) ||
-                (s.student_name && s.student_name.toLowerCase().includes(query))
-            );
-            setFoundStudents(matches);
-        } catch (e) { console.error(e); }
-        setLoading(false);
-    };
-
-    const toggleStudentSelection = (student) => {
-        if (selectedStudents.find(s => s.admission_number === student.admission_number)) {
-            setSelectedStudents(selectedStudents.filter(s => s.admission_number !== student.admission_number));
-        } else {
-            setSelectedStudents([...selectedStudents, student]);
-        }
-    };
-
     const handleSubmitRequest = async (e) => {
         e.preventDefault();
-        if (selectedStudents.length === 0) return alert('Please select at least one student');
+        if (!selectedStudent) return alert('Please select a student');
 
         try {
             const formDataObjs = new FormData();
 
-            // Append Students as JSON string
-            const studentsData = selectedStudents.map(s => ({
-                studentId: s.admission_number,
-                studentName: s.student_name,
-                college: s.college_name || s.college,
-                course: s.course_name || s.course,
-                branch: s.branch_name || s.branch,
-                batch: s.batch_name || s.batch
-            }));
+            // Single Student Array
+            const studentsData = [{
+                studentId: selectedStudent.admission_number,
+                studentName: selectedStudent.student_name,
+                college: selectedStudent.college,
+                course: selectedStudent.course,
+                branch: selectedStudent.branch,
+                batch: selectedStudent.batch
+            }];
             formDataObjs.append('students', JSON.stringify(studentsData));
 
             // Append other fields
@@ -185,7 +184,6 @@ const ConcessionManagement = () => {
             formDataObjs.append('studentYear', formData.studentYear || '1');
             if (formData.semester) formDataObjs.append('semester', formData.semester);
 
-            // Append Image
             if (imageFile) {
                 formDataObjs.append('image', imageFile);
             }
@@ -199,11 +197,9 @@ const ConcessionManagement = () => {
 
             alert('Concession Request Submitted Successfully');
             // Reset
-            setSelectedStudents([]);
-            setFoundStudents([]);
-            setSearchQuery('');
+            setSelectedStudent(null);
             setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '', college: '', course: '', branch: '', batch: '' });
-            setImageFile(null); // Reset image
+            setImageFile(null);
 
         } catch (error) {
             console.error(error);
@@ -253,187 +249,232 @@ const ConcessionManagement = () => {
     const isSuperAdmin = user?.role === 'superadmin';
 
     return (
-        <div className="flex min-h-screen bg-gray-50 font-sans">
+        <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
             <Sidebar />
-            <div className="flex-1 p-6">
-                <div className="flex flex-col sm:flex-row justify-between items-center mb-6 border-b border-gray-200 pb-4 gap-4">
-                    <h1 className="text-2xl font-bold text-gray-800">Concession Management</h1>
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+                {/* Header Section */}
+                <header className="bg-white border-b px-6 py-3 flex justify-between items-center shrink-0">
+                    <div>
+                        <h1 className="text-xl font-bold text-gray-800">Concession Management</h1>
+                        <p className="text-xs text-gray-500">Manage student fee concessions and approvals</p>
+                    </div>
 
-                    {/* Tabs (Pill Style) */}
+                    {/* Tabs */}
                     <div className="flex bg-gray-100 p-1 rounded-lg">
                         <button
-                            className={`py-2 px-4 text-sm font-medium rounded-md transition-all ${activeTab === 'request' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'request' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             onClick={() => setActiveTab('request')}
                         >
-                            Request Concession
+                            Request
                         </button>
                         {isSuperAdmin && (
                             <button
-                                className={`py-2 px-4 text-sm font-medium rounded-md transition-all ${activeTab === 'approvals' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'approvals' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                                 onClick={() => setActiveTab('approvals')}
                             >
-                                Approval Queue
+                                Approvals
                                 {pendingRequests.length > 0 && (
-                                    <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${activeTab === 'approvals' ? 'bg-red-100 text-red-600' : 'bg-gray-200 text-gray-600'}`}>
+                                    <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${activeTab === 'approvals' ? 'bg-red-100 text-red-600' : 'bg-gray-200 text-gray-600'}`}>
                                         {pendingRequests.length}
                                     </span>
                                 )}
                             </button>
                         )}
                     </div>
-                </div>
+                </header>
 
-                {/* Tab Content: REQUEST */}
+                {/* Content Area - Request Tab */}
                 {activeTab === 'request' && (
-                    <div className="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200">
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 border-b pb-2">New Concession Request</h2>
+                    <div className="flex-1 flex overflow-hidden p-6 gap-6">
+                        {/* LEFT COLUMN: Student Context & Search */}
+                        <div className="w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+                            <div className="p-4 border-b bg-gray-50">
+                                <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Find Student</label>
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Search className="h-4 w-4 text-gray-400" />
+                                    </div>
+                                    <input
+                                        ref={searchInputRef}
+                                        type="text"
+                                        className="pl-10 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="Name, ID or Pin (min 3 chars)..."
+                                        value={searchTerm}
+                                        onChange={e => { setSearchTerm(e.target.value); setSelectedStudent(null); }}
+                                    />
+                                    {isSearching && <div className="absolute right-3 top-2.5 text-xs text-gray-400">...</div>}
 
-                        {/* 1. Student Selection Section */}
-                        <div className="mb-8">
-                            <label className="block text-sm font-bold text-gray-700 mb-2">1. Select Student(s)</label>
-                            <div className="flex gap-2 mb-4">
-                                <input
-                                    type="text"
-                                    placeholder="Search by Name or Admission No..."
-                                    className="flex-1 border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                />
-                                <button onClick={handleSearch} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold shadow-sm">Search</button>
+                                    {/* Search Dropdown */}
+                                    {(searchResults.length > 0 || isSearching) && (
+                                        <div className="absolute z-20 w-full bg-white border rounded-lg shadow-xl max-h-60 overflow-y-auto mt-1 left-0">
+                                            {searchResults.map(s => (
+                                                <div
+                                                    key={s.admission_number}
+                                                    onClick={() => selectStudent(s)}
+                                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
+                                                >
+                                                    <div className="font-bold text-gray-800 text-sm">{s.student_name}</div>
+                                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                                        <span>{s.admission_number}</span>
+                                                        <span>{s.course} - {s.branch}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {isSearching && (
+                                                <div className="p-3 text-center text-xs text-gray-500 italic bg-gray-50">
+                                                    Searching...
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
-                            {/* Search Results */}
-                            {foundStudents.length > 0 && (
-                                <div className="mb-4 text-sm border rounded-lg overflow-hidden">
-                                    {foundStudents.map(s => {
-                                        const isSelected = selectedStudents.some(sel => sel.admission_number === s.admission_number);
-                                        return (
-                                            <div
-                                                key={s.admission_number}
-                                                onClick={() => toggleStudentSelection(s)}
-                                                className={`p-3 cursor-pointer flex justify-between items-center border-b last:border-b-0 hover:bg-blue-50 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}
-                                            >
-                                                <div>
-                                                    <span className="font-bold text-gray-800">{s.student_name}</span>
-                                                    <span className="text-gray-500 mx-2">|</span>
-                                                    <span className="text-gray-500">{s.admission_number}</span>
-                                                    <span className="text-gray-400 text-xs ml-2">({s.course} - {s.branch})</span>
-                                                </div>
-                                                {isSelected && <span className="text-blue-600 font-bold">Selected ✓</span>}
+                            {/* Student Card Details */}
+                            <div className="flex-1 p-6 overflow-y-auto bg-gray-50/50">
+                                {selectedStudent ? (
+                                    <div className="flex flex-col items-center text-center space-y-4 animate-fade-in">
+                                        {selectedStudent.student_photo ? (
+                                            <img
+                                                src={selectedStudent.student_photo}
+                                                alt="Student"
+                                                className="w-24 h-24 rounded-full border-4 border-white shadow object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-3xl font-bold border-4 border-white shadow">
+                                                {selectedStudent.student_name.charAt(0)}
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-
-                            {/* Selected Chips */}
-                            <div className="min-h-[50px] p-3 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 flex flex-wrap gap-2 items-center">
-                                {selectedStudents.length === 0 ? (
-                                    <span className="text-gray-400 text-sm">No students selected. Search and select above.</span>
-                                ) : (
-                                    selectedStudents.map(s => (
-                                        <div key={s.admission_number} className="bg-white border border-blue-200 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
-                                            <span className="font-medium">{s.student_name}</span>
-                                            <button onClick={() => toggleStudentSelection(s)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
+                                        )}
+                                        <div>
+                                            <h2 className="text-lg font-bold text-gray-800">{selectedStudent.student_name}</h2>
+                                            <p className="text-sm text-gray-500 font-mono tracking-wide">{selectedStudent.admission_number}</p>
                                         </div>
-                                    ))
+
+                                        <div className="w-full bg-white rounded-lg border border-gray-100 p-4 text-left space-y-3 shadow-sm">
+                                            <div className="flex justify-between border-b border-gray-50 pb-2">
+                                                <span className="text-xs text-gray-400 uppercase">College</span>
+                                                <span className="text-sm font-medium text-gray-700">{selectedStudent.college}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b border-gray-50 pb-2">
+                                                <span className="text-xs text-gray-400 uppercase">Course</span>
+                                                <span className="text-sm font-medium text-gray-700">{selectedStudent.course}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b border-gray-50 pb-2">
+                                                <span className="text-xs text-gray-400 uppercase">Branch</span>
+                                                <span className="text-sm font-medium text-gray-700">{selectedStudent.branch}</span>
+                                            </div>
+                                            <div className="flex justify-between pb-1">
+                                                <span className="text-xs text-gray-400 uppercase">Batch</span>
+                                                <span className="text-sm font-medium text-gray-700">{selectedStudent.batch}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex gap-2 w-full">
+                                            <div className="flex-1 bg-blue-50 rounded p-2 text-center">
+                                                <div className="text-xs text-blue-400 font-bold uppercase">Year</div>
+                                                <div className="text-lg font-bold text-blue-700">{selectedStudent.current_year}</div>
+                                            </div>
+                                            <div className="flex-1 bg-purple-50 rounded p-2 text-center">
+                                                <div className="text-xs text-purple-400 font-bold uppercase">Sem</div>
+                                                <div className="text-lg font-bold text-purple-700">{selectedStudent.current_semester || '-'}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-3">
+                                        <Search className="w-12 h-12 opacity-20" />
+                                        <p className="text-sm font-medium">Search & Select a student to proceed</p>
+                                    </div>
                                 )}
                             </div>
                         </div>
 
-                        {/* 2. Concession Details Form */}
-                        <div className={`transition-opacity ${selectedStudents.length === 0 ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-                            <h3 className="text-lg font-bold text-gray-700 mb-4">2. Application Details</h3>
-                            <form onSubmit={handleSubmitRequest} className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* RIGHT COLUMN: Action Form */}
+                        <div className={`flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden transition-all duration-300 ${!selectedStudent ? 'opacity-50 pointer-events-none grayscale-[0.5]' : ''}`}>
+                            <div className="p-4 border-b flex items-center gap-2">
+                                <div className="bg-blue-600 text-white rounded p-1"><Check size={16} /></div>
+                                <h2 className="font-bold text-gray-700">Concession Details</h2>
+                            </div>
+
+                            <form onSubmit={handleSubmitRequest} className="flex-1 p-6 overflow-y-auto space-y-5">
+                                <div className="grid grid-cols-2 gap-5">
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Fee Head <span className="text-red-500">*</span></label>
+                                        <label className="text-xs font-bold text-gray-600 mb-1 block">Fee Head <span className="text-red-500">*</span></label>
                                         <select
-                                            className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                            className="w-full border border-gray-300 p-2.5 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition hover:border-blue-300"
                                             value={formData.feeHeadId}
                                             onChange={e => setFormData({ ...formData, feeHeadId: e.target.value })}
                                             required
                                         >
-                                            <option value="">-- Select Fee Head --</option>
+                                            <option value="">Select Fee Component</option>
                                             {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Concession Amount (₹) <span className="text-red-500">*</span></label>
+                                        <label className="text-xs font-bold text-gray-600 mb-1 block">Amount (₹) <span className="text-red-500">*</span></label>
                                         <input
                                             type="number"
-                                            className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg"
+                                            className="w-full border border-gray-300 p-2.5 rounded-lg text-sm font-semibold text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition"
                                             value={formData.amount}
                                             onChange={e => setFormData({ ...formData, amount: e.target.value })}
                                             required
-                                            placeholder="0"
+                                            placeholder="0.00"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border">
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase">Year</label>
-                                        <div className="font-medium text-gray-800">{formData.studentYear || '-'}</div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase">Semester</label>
-                                        <div className="font-medium text-gray-800">{formData.semester || '-'}</div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase">College</label>
-                                        <div className="text-sm text-gray-800 truncate" title={formData.college}>{formData.college || '-'}</div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase">Batch</label>
-                                        <div className="text-sm text-gray-800">{formData.batch || '-'}</div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-600 mb-1">Reason / Justification <span className="text-red-500">*</span></label>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-gray-600 block">Justification / Reason <span className="text-red-500">*</span></label>
                                     <textarea
-                                        className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+                                        className="w-full border border-gray-300 p-3 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition h-24 resize-none"
                                         value={formData.reason}
                                         onChange={e => setFormData({ ...formData, reason: e.target.value })}
                                         required
-                                        placeholder="Ex: Merit student, Financial hardship..."
+                                        placeholder="Enter detailed reason for this concession..."
                                     ></textarea>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-600 mb-2">Upload Proof Document (Optional)</label>
-                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center bg-gray-50 hover:bg-white transition-colors cursor-pointer relative">
-                                        <input
-                                            type="file"
-                                            accept="image/*,.pdf"
-                                            onChange={e => setImageFile(e.target.files[0])}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        />
-                                        <span className="text-gray-500 font-medium mb-1">{imageFile ? imageFile.name : 'Click to Upload Image/PDF'}</span>
-                                        <span className="text-xs text-gray-400">Max size 5MB</span>
+                                <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-4">
+                                    <label className="text-xs font-bold text-gray-500 block mb-2">Proof Document (Optional)</label>
+                                    <div className="flex items-center gap-4">
+                                        <label className="flex items-center gap-2 cursor-pointer bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-md text-sm hover:bg-gray-50 hover:border-gray-300 shadow-sm transition">
+                                            <Upload size={16} />
+                                            <span>{imageFile ? 'Change File' : 'Upload File'}</span>
+                                            <input
+                                                type="file"
+                                                accept="image/*,.pdf"
+                                                onChange={e => setImageFile(e.target.files[0])}
+                                                className="hidden"
+                                            />
+                                        </label>
+                                        {imageFile && (
+                                            <span className="text-xs text-blue-600 font-medium truncate max-w-[200px]">{imageFile.name}</span>
+                                        )}
+                                        {!imageFile && <span className="text-xs text-gray-400">PDF, JPG or PNG (Max 5MB)</span>}
                                     </div>
                                 </div>
+                            </form>
 
+                            <div className="p-4 border-t bg-gray-50 flex justify-end">
                                 <button
-                                    type="submit"
-                                    className="w-full bg-blue-600 text-white font-bold py-4 rounded-lg hover:bg-blue-700 transition shadow-lg mt-4"
+                                    onClick={handleSubmitRequest}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm flex items-center gap-2 transition transform active:scale-95"
                                 >
+                                    <Save size={18} />
                                     Submit Request
                                 </button>
-                            </form>
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* Tab Content: APPROVALS */}
+                {/* Content Area - Approvals Tab */}
                 {activeTab === 'approvals' && (
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-
+                    <div className="flex-1 p-6 overflow-hidden flex flex-col">
                         {/* Filters Toolbar */}
-                        <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-wrap gap-4 items-center">
+                        <div className="p-4 border rounded-t-xl bg-white flex flex-wrap gap-3 items-center shadow-sm">
                             <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
                                 value={filters.status}
                                 onChange={e => setFilters({ ...filters, status: e.target.value })}
                             >
@@ -444,7 +485,7 @@ const ConcessionManagement = () => {
                             </select>
 
                             <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 min-w-[150px]"
+                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 min-w-[140px] bg-gray-50"
                                 value={filters.college}
                                 onChange={e => setFilters({ ...filters, college: e.target.value, course: '', branch: '' })}
                             >
@@ -452,202 +493,169 @@ const ConcessionManagement = () => {
                                 {collegeList.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
 
-                            <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 min-w-[150px]"
-                                value={filters.course}
-                                onChange={e => setFilters({ ...filters, course: e.target.value, branch: '' })}
-                                disabled={!filters.college}
-                            >
-                                <option value="">All Courses</option>
-                                {courseList.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-
-                            <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 min-w-[150px]"
-                                value={filters.branch}
-                                onChange={e => setFilters({ ...filters, branch: e.target.value })}
-                                disabled={!filters.course}
-                            >
-                                <option value="">All Branches</option>
-                                {branchList.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
-
-                            <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 min-w-[100px]"
-                                value={filters.batch}
-                                onChange={e => setFilters({ ...filters, batch: e.target.value })}
-                            >
-                                <option value="">All Batches</option>
-                                {batchList.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
-
                             <input
                                 type="text"
-                                placeholder="Search Student..."
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 flex-1"
+                                placeholder="Search by student name..."
+                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-[200px] bg-gray-50"
                                 value={filters.search}
                                 onChange={e => setFilters({ ...filters, search: e.target.value })}
                             />
                         </div>
 
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase">Date</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase">Student</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase">Fee Head / Year</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase">Reason</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase">Requested By</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {pendingRequests.length === 0 ? (
-                                    <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic">No pending requests found.</td></tr>
-                                ) : (
-                                    pendingRequests.map(req => (
-                                        <tr
-                                            key={req._id}
-                                            className="hover:bg-blue-50 cursor-pointer transition-colors"
-                                            onClick={() => openModal(req)}
-                                        >
-                                            <td className="p-4 text-sm text-gray-600">{new Date(req.createdAt).toLocaleDateString()}</td>
-                                            <td className="p-4">
-                                                <div className="font-bold text-gray-800">{req.studentName}</div>
-                                                <div className="text-xs text-gray-500">{req.studentId}</div>
-                                                <div className="text-xs text-blue-600 font-medium">{req.course} - {req.branch}</div>
-                                            </td>
-                                            <td className="p-4 text-sm text-gray-600">
-                                                {req.feeHead?.name}
-                                                <div className="text-xs text-gray-400">Year {req.studentYear} {req.semester ? `(S${req.semester})` : ''}</div>
-                                            </td>
-                                            <td className="p-4 text-sm font-bold text-gray-800 text-right">
-                                                ₹{req.amount.toLocaleString()}
-                                            </td>
-                                            <td className="p-4 text-sm text-gray-600 max-w-xs truncate">{req.reason}</td>
-                                            <td className="p-4 text-sm text-gray-600">{req.requestedBy}</td>
-                                            <td className="p-4 text-right">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
-                                                    req.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                                                        'bg-yellow-100 text-yellow-700'
-                                                    }`}>
-                                                    {req.status}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                        {/* Table */}
+                        <div className="flex-1 bg-white border-x border-b border-gray-200 rounded-b-xl overflow-auto shadow-sm">
+                            <table className="w-full text-left whitespace-nowrap">
+                                <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
+                                    <tr>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Date</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Student</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Fee Head</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Reason</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">By</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {pendingRequests.length === 0 ? (
+                                        <tr><td colSpan="7" className="p-10 text-center text-gray-400 italic">No concession requests found for current filters.</td></tr>
+                                    ) : (
+                                        pendingRequests.map(req => (
+                                            <tr
+                                                key={req._id}
+                                                className="hover:bg-blue-50 cursor-pointer transition-colors"
+                                                onClick={() => openModal(req)}
+                                            >
+                                                <td className="p-4 text-sm text-gray-600">{new Date(req.createdAt).toLocaleDateString()}</td>
+                                                <td className="p-4">
+                                                    <div className="font-bold text-gray-800 text-sm">{req.studentName}</div>
+                                                    <div className="text-xs text-gray-500">{req.studentId}</div>
+                                                </td>
+                                                <td className="p-4 text-sm text-gray-600">
+                                                    {req.feeHead?.name}
+                                                    <div className="text-[10px] text-gray-400">Yr {req.studentYear}</div>
+                                                </td>
+                                                <td className="p-4 text-sm font-semibold text-gray-800 text-right">
+                                                    ₹{req.amount.toLocaleString()}
+                                                </td>
+                                                <td className="p-4 text-sm text-gray-600 max-w-[200px] truncate">{req.reason}</td>
+                                                <td className="p-4 text-sm text-gray-500">{req.requestedBy}</td>
+                                                <td className="p-4 text-right">
+                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                                                        req.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
+                                                            'bg-yellow-100 text-yellow-700'
+                                                        }`}>
+                                                        {req.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
 
-                {/* MODAL */}
+                {/* MODAL (Reused logic) */}
                 {selectedRequest && (
-                    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                        <div className="bg-white rounded-xl shadow-lg max-w-lg w-full p-6 animate-fade-in">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-xl font-bold text-gray-800">Request Details</h2>
-                                <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+                    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 animate-fade-in flex flex-col max-h-[90vh]">
+                            <div className="flex justify-between items-start mb-4 shrink-0">
+                                <div>
+                                    <h2 className="text-xl font-bold text-gray-800">Request Details</h2>
+                                    <p className="text-xs text-gray-500">Review concession application</p>
+                                </div>
+                                <button onClick={closeModal} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-full transition"><X size={16} className="text-gray-600" /></button>
                             </div>
 
-                            <div className="space-y-4 mb-6">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+                                <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 grid grid-cols-2 gap-y-3 gap-x-4 text-sm">
                                     <div>
-                                        <label className="block text-gray-500 mb-1">Student</label>
-                                        <div className="font-bold text-gray-800">{selectedRequest.studentName}</div>
+                                        <label className="text-xs text-gray-400 uppercase font-bold">Student</label>
+                                        <div className="font-semibold text-gray-800">{selectedRequest.studentName}</div>
                                         <div className="text-xs text-gray-500">{selectedRequest.studentId}</div>
                                     </div>
                                     <div>
-                                        <label className="block text-gray-500 mb-1">Course / Branch</label>
-                                        <div className="font-bold text-gray-800">{selectedRequest.course}</div>
-                                        <div className="text-xs text-gray-500">{selectedRequest.branch}</div>
+                                        <label className="text-xs text-gray-400 uppercase font-bold">Fee Head</label>
+                                        <div className="font-semibold text-gray-800">{selectedRequest.feeHead?.name}</div>
                                     </div>
-                                    <div>
-                                        <label className="block text-gray-500 mb-1">Fee Head</label>
-                                        <div className="font-bold text-gray-800">{selectedRequest.feeHead?.name}</div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-gray-500 mb-1">Requested Amount</label>
+                                    <div className="col-span-2">
+                                        <label className="text-xs text-gray-400 uppercase font-bold">Amount Requested</label>
                                         <div className="font-bold text-blue-600 text-lg">₹{selectedRequest.amount.toLocaleString()}</div>
                                     </div>
                                 </div>
+
                                 <div>
-                                    <label className="block text-gray-500 mb-1 text-sm">Reason</label>
-                                    <div className="bg-gray-50 p-3 rounded text-sm text-gray-700 italic border border-gray-100 mb-4">
-                                        "{selectedRequest.reason}"
-                                    </div>
-                                    {selectedRequest.imageUrl && (
-                                        <div>
-                                            <label className="block text-gray-500 mb-1 text-sm">Proof Document</label>
-                                            <a href={selectedRequest.imageUrl} target="_blank" rel="noopener noreferrer" className="block w-32 h-32 border rounded overflow-hidden relative group">
-                                                <img src={selectedRequest.imageUrl} alt="Proof" className="w-full h-full object-cover" />
-                                                <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white text-xs font-bold">View</div>
-                                            </a>
-                                        </div>
-                                    )}
+                                    <label className="text-xs font-bold text-gray-500 block mb-1">Reason</label>
+                                    <div className="text-sm text-gray-700 bg-white border p-3 rounded-lg italic">"{selectedRequest.reason}"</div>
                                 </div>
 
-                                {isSuperAdmin && selectedRequest.status === 'PENDING' && (
-                                    <div className="pt-4 border-t border-gray-100">
-                                        <label className="block text-sm font-bold text-gray-700 mb-2">Approved Amount (Editable)</label>
-                                        <input
-                                            type="number"
-                                            className="w-full border p-2 rounded-lg font-bold text-lg focus:ring-2 focus:ring-blue-500"
-                                            value={modalAmount}
-                                            onChange={e => setModalAmount(e.target.value)}
-                                        />
-                                        <p className="text-xs text-gray-400 mt-1">Modify this amount if you wish to approve a partial concession.</p>
+                                {selectedRequest.imageUrl && (
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Proof Document</label>
+                                        <a href={selectedRequest.imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 border rounded-lg hover:bg-blue-50 transition group cursor-pointer">
+                                            <div className="bg-gray-200 p-2 rounded"><Upload size={16} className="text-gray-600" /></div>
+                                            <div className="flex-1">
+                                                <div className="text-sm font-medium text-blue-600 underline decoration-dotted group-hover:text-blue-800">View Document</div>
+                                                <div className="text-xs text-gray-400">Click to open in new tab</div>
+                                            </div>
+                                        </a>
                                     </div>
                                 )}
 
-                                {isSuperAdmin && selectedRequest.status === 'PENDING' && (
-                                    <div className="pt-2">
-                                        <label className="block text-sm font-bold text-gray-700 mb-2">Rejection Reason (Optional)</label>
-                                        <textarea
-                                            className="w-full border p-2 rounded-lg text-sm focus:ring-2 focus:ring-red-500"
-                                            placeholder="Reason for rejection..."
-                                            value={rejectionReason}
-                                            onChange={e => setRejectionReason(e.target.value)}
-                                        />
+                                {selectedRequest.status === 'REJECTED' && selectedRequest.rejectionReason && (
+                                    <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                                        <label className="text-xs font-bold text-red-500 block">Rejection Reason</label>
+                                        <p className="text-sm text-red-700">{selectedRequest.rejectionReason}</p>
                                     </div>
                                 )}
 
+                                {/* Approval Sections */}
+                                {isSuperAdmin && selectedRequest.status === 'PENDING' && (
+                                    <div className="pt-4 border-t space-y-3">
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">Approved Amount</label>
+                                            <input
+                                                type="number"
+                                                className="w-full border p-2 rounded font-bold text-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                                value={modalAmount}
+                                                onChange={e => setModalAmount(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">Rejection Reason (If rejecting)</label>
+                                            <textarea
+                                                className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-red-500 outline-none"
+                                                placeholder="Required if rejecting..."
+                                                value={rejectionReason}
+                                                onChange={e => setRejectionReason(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
-                            <div className="flex gap-3">
+                            <div className="mt-4 pt-4 border-t shrink-0 flex gap-3">
                                 {isSuperAdmin && selectedRequest.status === 'PENDING' ? (
                                     <>
                                         <button
                                             onClick={() => handleApprovalAction('APPROVE')}
-                                            className="flex-1 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                                            className="flex-1 bg-green-600 text-white font-bold py-2.5 rounded-lg hover:bg-green-700 shadow-sm transition flex justify-center items-center gap-2"
                                             disabled={approvalLoading}
                                         >
-                                            {approvalLoading ? (
-                                                <>
-                                                    <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span>
-                                                    Processing...
-                                                </>
-                                            ) : (
-                                                `Approve (₹${Number(modalAmount).toLocaleString()})`
-                                            )}
+                                            <Check size={18} /> Approve
                                         </button>
                                         <button
                                             onClick={() => handleApprovalAction('REJECT')}
-                                            className="flex-1 bg-white border border-red-500 text-red-500 font-bold py-3 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="flex-1 bg-white border border-red-200 text-red-600 font-bold py-2.5 rounded-lg hover:bg-red-50 transition"
                                             disabled={approvalLoading}
                                         >
                                             Reject
                                         </button>
                                     </>
                                 ) : (
-                                    <button
-                                        onClick={closeModal}
-                                        className="w-full bg-gray-100 text-gray-700 font-bold py-3 rounded-lg hover:bg-gray-200"
-                                    >
-                                        Close
-                                    </button>
+                                    <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-bold py-2.5 rounded-lg hover:bg-gray-200">Close</button>
                                 )}
                             </div>
                         </div>
