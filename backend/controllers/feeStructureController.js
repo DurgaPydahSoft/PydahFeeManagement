@@ -172,7 +172,8 @@ const getStudentFeeDetails = async (req, res) => {
           semester: fee.semester,
           totalAmount: 0,
           paidAmount: 0,
-          dueAmount: 0
+          dueAmount: 0,
+          remarks: fee.remarks // Important to pass back to frontend for correct payment matching
         };
       }
       groupedData[key].totalAmount += (fee.amount || 0);
@@ -210,7 +211,10 @@ const getStudentFeeDetails = async (req, res) => {
       if (t.transactionType === 'DEBIT' && t.feeHead) {
         const hId = t.feeHead.toString();
         const year = String(t.studentYear || 1);
-        const key = getGroupKey(hId, year);
+        
+        const head = feeHeads.find(h => h._id.toString() === hId);
+        const hCode = head ? head.code : '';
+        const key = getGroupKey(hId, year, hCode, t.remarks);
 
         // If we have a payment for a head/year that wasn't previously in grouping, add it
         if (!groupedData[key]) {

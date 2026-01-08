@@ -261,7 +261,11 @@ const FeeCollection = () => {
                     feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
                     studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
                     semester: selectedFee ? selectedFee.semester : commonData.semester,
-                    amount: Number(row.amount)
+                    amount: Number(row.amount),
+                    // CRITICAL: Pass the specific Fee Remarks (e.g. "Club Fee: Coding") so backend can match it.
+                    // If user entered a global remark, append it? Or prioritize specific?
+                    // Let's use specific remarks if available (preferred for matching), or default to common.
+                    remarks: (selectedFee && selectedFee.remarks) ? selectedFee.remarks : commonData.remarks
                 };
             });
 

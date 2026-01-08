@@ -18,7 +18,8 @@ const addTransaction = async (req, res) => {
            feeHead: item.feeHeadId, // Map frontend 'feeHeadId' to schema 'feeHead'
            receiptNumber, // Shared Receipt Number
            paymentMode: item.transactionType === 'CREDIT' && !item.paymentMode ? 'Waiver' : (item.paymentMode || 'Cash'),
-           transactionType: item.transactionType || 'DEBIT' 
+           transactionType: item.transactionType || 'DEBIT',
+           remarks: item.remarks // Persistence of remarks is crucial for Club Fee matching
        }));
        
        const createdTransactions = await Transaction.insertMany(batch);
