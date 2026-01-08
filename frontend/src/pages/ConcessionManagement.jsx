@@ -23,6 +23,7 @@ const ConcessionManagement = () => {
         branch: '',
         batch: ''
     });
+    const [imageFile, setImageFile] = useState(null);
 
     // Approval State
     const [pendingRequests, setPendingRequests] = useState([]);
@@ -164,25 +165,36 @@ const ConcessionManagement = () => {
         if (selectedStudents.length === 0) return alert('Please select at least one student');
 
         try {
-            const payload = {
-                students: selectedStudents.map(s => ({
-                    studentId: s.admission_number,
-                    studentName: s.student_name,
-                    // Pass demographic info so it's stored in the request
-                    college: s.college_name || s.college,
-                    course: s.course_name || s.course,
-                    branch: s.branch_name || s.branch,
-                    batch: s.batch_name || s.batch
-                })),
-                feeHeadId: formData.feeHeadId,
-                amount: formData.amount,
-                reason: formData.reason,
-                studentYear: formData.studentYear || '1',
-                semester: formData.semester
-            };
+            const formDataObjs = new FormData();
 
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, payload, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            // Append Students as JSON string
+            const studentsData = selectedStudents.map(s => ({
+                studentId: s.admission_number,
+                studentName: s.student_name,
+                college: s.college_name || s.college,
+                course: s.course_name || s.course,
+                branch: s.branch_name || s.branch,
+                batch: s.batch_name || s.batch
+            }));
+            formDataObjs.append('students', JSON.stringify(studentsData));
+
+            // Append other fields
+            formDataObjs.append('feeHeadId', formData.feeHeadId);
+            formDataObjs.append('amount', formData.amount);
+            formDataObjs.append('reason', formData.reason);
+            formDataObjs.append('studentYear', formData.studentYear || '1');
+            if (formData.semester) formDataObjs.append('semester', formData.semester);
+
+            // Append Image
+            if (imageFile) {
+                formDataObjs.append('image', imageFile);
+            }
+
+            await axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, formDataObjs, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'multipart/form-data'
+                }
             });
 
             alert('Concession Request Submitted Successfully');
@@ -190,7 +202,8 @@ const ConcessionManagement = () => {
             setSelectedStudents([]);
             setFoundStudents([]);
             setSearchQuery('');
-            setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '' });
+            setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '', college: '', course: '', branch: '', batch: '' });
+            setImageFile(null); // Reset image
 
         } catch (error) {
             console.error(error);
@@ -272,141 +285,141 @@ const ConcessionManagement = () => {
 
                 {/* Tab Content: REQUEST */}
                 {activeTab === 'request' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* Left: Find Students */}
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                            <h2 className="text-lg font-bold text-gray-700 mb-4">1. Select Students</h2>
-                            <form onSubmit={handleSearch} className="flex gap-2 mb-4">
+                    <div className="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                        <h2 className="text-xl font-bold text-gray-800 mb-6 border-b pb-2">New Concession Request</h2>
+
+                        {/* 1. Student Selection Section */}
+                        <div className="mb-8">
+                            <label className="block text-sm font-bold text-gray-700 mb-2">1. Select Student(s)</label>
+                            <div className="flex gap-2 mb-4">
                                 <input
                                     type="text"
-                                    placeholder="Search Name or Admission No..."
-                                    className="flex-1 border p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Search by Name or Admission No..."
+                                    className="flex-1 border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                 />
-                                <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Search</button>
-                            </form>
-
-                            <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                                {loading && <p className="text-center text-gray-400">Searching...</p>}
-                                {foundStudents.map(s => {
-                                    const isSelected = selectedStudents.some(sel => sel.admission_number === s.admission_number);
-                                    return (
-                                        <div
-                                            key={s.admission_number}
-                                            onClick={() => toggleStudentSelection(s)}
-                                            className={`p-3 rounded-lg border cursor-pointer flex justify-between items-center transition-colors ${isSelected ? 'bg-blue-50 border-blue-500' : 'hover:bg-gray-50 border-gray-200'}`}
-                                        >
-                                            <div>
-                                                <p className="font-bold text-gray-800">{s.student_name}</p>
-                                                <p className="text-xs text-gray-500">{s.admission_number} | {s.course}</p>
-                                            </div>
-                                            {isSelected && <div className="text-blue-600 font-bold">✓</div>}
-                                        </div>
-                                    );
-                                })}
+                                <button onClick={handleSearch} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold shadow-sm">Search</button>
                             </div>
 
-                            {selectedStudents.length > 0 && (
-                                <div className="mt-4 pt-4 border-t border-gray-100">
-                                    <p className="font-bold text-gray-700">{selectedStudents.length} students selected</p>
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                        {selectedStudents.map(s => (
-                                            <span key={s.admission_number} className="text-xs bg-gray-100 px-2 py-1 rounded border border-gray-200 flex items-center gap-1">
-                                                {s.student_name}
-                                                <button onClick={() => toggleStudentSelection(s)} className="text-gray-400 hover:text-red-500">×</button>
-                                            </span>
-                                        ))}
-                                    </div>
+                            {/* Search Results */}
+                            {foundStudents.length > 0 && (
+                                <div className="mb-4 text-sm border rounded-lg overflow-hidden">
+                                    {foundStudents.map(s => {
+                                        const isSelected = selectedStudents.some(sel => sel.admission_number === s.admission_number);
+                                        return (
+                                            <div
+                                                key={s.admission_number}
+                                                onClick={() => toggleStudentSelection(s)}
+                                                className={`p-3 cursor-pointer flex justify-between items-center border-b last:border-b-0 hover:bg-blue-50 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}
+                                            >
+                                                <div>
+                                                    <span className="font-bold text-gray-800">{s.student_name}</span>
+                                                    <span className="text-gray-500 mx-2">|</span>
+                                                    <span className="text-gray-500">{s.admission_number}</span>
+                                                    <span className="text-gray-400 text-xs ml-2">({s.course} - {s.branch})</span>
+                                                </div>
+                                                {isSelected && <span className="text-blue-600 font-bold">Selected ✓</span>}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
+
+                            {/* Selected Chips */}
+                            <div className="min-h-[50px] p-3 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 flex flex-wrap gap-2 items-center">
+                                {selectedStudents.length === 0 ? (
+                                    <span className="text-gray-400 text-sm">No students selected. Search and select above.</span>
+                                ) : (
+                                    selectedStudents.map(s => (
+                                        <div key={s.admission_number} className="bg-white border border-blue-200 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center gap-2 shadow-sm">
+                                            <span className="font-medium">{s.student_name}</span>
+                                            <button onClick={() => toggleStudentSelection(s)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
                         </div>
 
-                        {/* Right: Concession Details */}
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
-                            <h2 className="text-lg font-bold text-gray-700 mb-4">2. Concession Details</h2>
-                            <form onSubmit={handleSubmitRequest} className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-600 mb-1">Fee Head</label>
-                                    <select
-                                        className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-                                        value={formData.feeHeadId}
-                                        onChange={e => setFormData({ ...formData, feeHeadId: e.target.value })}
-                                        required
-                                    >
-                                        <option value="">-- Select Fee Head --</option>
-                                        {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
-                                    </select>
+                        {/* 2. Concession Details Form */}
+                        <div className={`transition-opacity ${selectedStudents.length === 0 ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                            <h3 className="text-lg font-bold text-gray-700 mb-4">2. Application Details</h3>
+                            <form onSubmit={handleSubmitRequest} className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-600 mb-1">Fee Head <span className="text-red-500">*</span></label>
+                                        <select
+                                            className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                            value={formData.feeHeadId}
+                                            onChange={e => setFormData({ ...formData, feeHeadId: e.target.value })}
+                                            required
+                                        >
+                                            <option value="">-- Select Fee Head --</option>
+                                            {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-600 mb-1">Concession Amount (₹) <span className="text-red-500">*</span></label>
+                                        <input
+                                            type="number"
+                                            className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg"
+                                            value={formData.amount}
+                                            onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                                            required
+                                            placeholder="0"
+                                        />
+                                    </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border">
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">College</label>
-                                        <input type="text" className="w-full border p-2 rounded-lg bg-gray-100 text-gray-500" value={formData.college} readOnly />
+                                        <label className="text-xs font-bold text-gray-500 uppercase">Year</label>
+                                        <div className="font-medium text-gray-800">{formData.studentYear || '-'}</div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Course</label>
-                                        <input type="text" className="w-full border p-2 rounded-lg bg-gray-100 text-gray-500" value={formData.course} readOnly />
+                                        <label className="text-xs font-bold text-gray-500 uppercase">Semester</label>
+                                        <div className="font-medium text-gray-800">{formData.semester || '-'}</div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Branch</label>
-                                        <input type="text" className="w-full border p-2 rounded-lg bg-gray-100 text-gray-500" value={formData.branch} readOnly />
+                                        <label className="text-xs font-bold text-gray-500 uppercase">College</label>
+                                        <div className="text-sm text-gray-800 truncate" title={formData.college}>{formData.college || '-'}</div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Batch</label>
-                                        <input type="text" className="w-full border p-2 rounded-lg bg-gray-100 text-gray-500" value={formData.batch} readOnly />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Student Year</label>
-                                        <input
-                                            type="number"
-                                            className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 text-gray-500"
-                                            value={formData.studentYear}
-                                            readOnly
-                                            placeholder="e.g. 1"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-600 mb-1">Semester</label>
-                                        <input
-                                            type="number"
-                                            className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 text-gray-500"
-                                            value={formData.semester}
-                                            readOnly
-                                            placeholder="e.g. 1"
-                                        />
+                                        <label className="text-xs font-bold text-gray-500 uppercase">Batch</label>
+                                        <div className="text-sm text-gray-800">{formData.batch || '-'}</div>
                                     </div>
                                 </div>
+
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-600 mb-1">Concession Amount (₹)</label>
-                                    <input
-                                        type="number"
-                                        className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg"
-                                        value={formData.amount}
-                                        onChange={e => setFormData({ ...formData, amount: e.target.value })}
-                                        required
-                                        placeholder="0"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-600 mb-1">Reason / Justification</label>
+                                    <label className="block text-sm font-bold text-gray-600 mb-1">Reason / Justification <span className="text-red-500">*</span></label>
                                     <textarea
-                                        className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+                                        className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
                                         value={formData.reason}
                                         onChange={e => setFormData({ ...formData, reason: e.target.value })}
                                         required
-                                        placeholder="Enter reason for concession..."
+                                        placeholder="Ex: Merit student, Financial hardship..."
                                     ></textarea>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-600 mb-2">Upload Proof Document (Optional)</label>
+                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center bg-gray-50 hover:bg-white transition-colors cursor-pointer relative">
+                                        <input
+                                            type="file"
+                                            accept="image/*,.pdf"
+                                            onChange={e => setImageFile(e.target.files[0])}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                        <span className="text-gray-500 font-medium mb-1">{imageFile ? imageFile.name : 'Click to Upload Image/PDF'}</span>
+                                        <span className="text-xs text-gray-400">Max size 5MB</span>
+                                    </div>
                                 </div>
 
                                 <button
                                     type="submit"
-                                    className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-                                    disabled={selectedStudents.length === 0}
+                                    className="w-full bg-blue-600 text-white font-bold py-4 rounded-lg hover:bg-blue-700 transition shadow-lg mt-4"
                                 >
-                                    Submit Request ({selectedStudents.length})
+                                    Submit Request
                                 </button>
                             </form>
                         </div>
@@ -562,9 +575,18 @@ const ConcessionManagement = () => {
                                 </div>
                                 <div>
                                     <label className="block text-gray-500 mb-1 text-sm">Reason</label>
-                                    <div className="bg-gray-50 p-3 rounded text-sm text-gray-700 italic border border-gray-100">
+                                    <div className="bg-gray-50 p-3 rounded text-sm text-gray-700 italic border border-gray-100 mb-4">
                                         "{selectedRequest.reason}"
                                     </div>
+                                    {selectedRequest.imageUrl && (
+                                        <div>
+                                            <label className="block text-gray-500 mb-1 text-sm">Proof Document</label>
+                                            <a href={selectedRequest.imageUrl} target="_blank" rel="noopener noreferrer" className="block w-32 h-32 border rounded overflow-hidden relative group">
+                                                <img src={selectedRequest.imageUrl} alt="Proof" className="w-full h-full object-cover" />
+                                                <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white text-xs font-bold">View</div>
+                                            </a>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {isSuperAdmin && selectedRequest.status === 'PENDING' && (

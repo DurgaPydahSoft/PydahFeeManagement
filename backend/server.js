@@ -14,6 +14,9 @@ sqlPool.query('SELECT 1')
   .then(() => console.log('MySQL Connected'))
   .catch(err => console.error('MySQL Connection Failed:', err));
 
+const { verifyS3Connection } = require('./utils/s3Upload');
+verifyS3Connection();
+
 const app = express();
 
 // Middleware
@@ -34,6 +37,7 @@ app.use('/api/payment-config', require('./routes/paymentConfigRoutes'));
 app.use('/api/reminders', require('./routes/reminderRoutes'));
 app.use('/api/bulk-fee', require('./routes/bulkFeeRoutes'));
 app.use('/api/concessions', require('./routes/concessionRoutes'));
+app.use('/api/permissions', require('./routes/permissionRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });

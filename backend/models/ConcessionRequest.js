@@ -21,6 +21,9 @@ const concessionRequestSchema = mongoose.Schema({
     type: String,
     required: true,
   },
+  imageUrl: {
+    type: String // S3 URL
+  },
   studentYear: {
     type: String, // e.g., "1", "2"
     required: true

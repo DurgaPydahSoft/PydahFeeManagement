@@ -7,17 +7,17 @@ const db = require('../config/sqlDb');
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, studentYear, amount, description, semester } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester } = req.body;
   // yearAmounts logic removed for simplifying Semester implementation as per requirement "semester heading... not display all eight semesters" in matrix.
   // We focus on single create or toggle-based create from UI.
 
   try {
-    if (!feeHeadId || !college || !course || !branch || !batch || !studentYear || amount === undefined || amount === null || amount === '') {
-      return res.status(400).json({ message: 'All fields including Batch and Student Year are required' });
+    if (!feeHeadId || !college || !course || !branch || !batch || !category || !studentYear || amount === undefined || amount === null || amount === '') {
+      return res.status(400).json({ message: 'All fields including Batch, Category and Student Year are required' });
     }
 
     const structure = await FeeStructure.findOneAndUpdate(
-      { feeHead: feeHeadId, college, course, branch, batch, studentYear, semester: semester || null },
+      { feeHead: feeHeadId, college, course, branch, batch, category, studentYear, semester: semester || null },
       { amount, description },
       { new: true, upsert: true }
     );
@@ -207,13 +207,13 @@ const applyFeeToBatch = async (req, res) => {
     const structure = await FeeStructure.findById(structureId);
     if (!structure) return res.status(404).json({ message: 'Structure not found' });
 
-    // Fetch Students matching the structure's Batch
-    // Note: Students table has 'batch' column now
+    // Fetch Students matching the structure's Batch AND Category (stud_type)
+    // Note: Students table has 'batch' and 'stud_type' columns
     const [students] = await db.query(`
             SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
             FROM students 
-            WHERE college = ? AND course = ? AND branch = ? AND batch = ?
-        `, [structure.college, structure.course, structure.branch, structure.batch]);
+            WHERE college = ? AND course = ? AND branch = ? AND batch = ? AND stud_type = ?
+        `, [structure.college, structure.course, structure.branch, structure.batch, structure.category]);
 
     if (students.length === 0) return res.status(404).json({ message: 'No students found in this batch' });
 
@@ -323,7 +323,7 @@ const saveStudentFees = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, batch, studentYear, amount, description, semester } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester } = req.body;
   const user = req.user ? req.user.username : 'system';
 
   try {
@@ -345,6 +345,7 @@ const updateFeeStructure = async (req, res) => {
         course,
         branch,
         batch,
+        category,
         studentYear,
         semester,
         amount,

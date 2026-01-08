@@ -1,10 +1,5 @@
 const db = require('../config/sqlDb');
-// Force restart check
-
 // @desc    Get all students
-// @route   GET /api/students
-// @access  Public (for now)
-// @desc    Get All Students (from SQL)
 // @route   GET /api/students
 const getStudents = async (req, res) => {
   try {
@@ -72,9 +67,12 @@ const getStudentMetadata = async (req, res) => {
     // { "College A": { "Course X": { branches: ["Branch 1"], total_years: 4 } } }
     const hierarchy = {};
 
-    // Also fetch distinct batches
+    // Also fetch distinct batches and categories (stud_type)
     const [batches] = await db.query(`SELECT DISTINCT batch FROM students WHERE batch IS NOT NULL AND batch != '' ORDER BY batch DESC`);
     const batchList = batches.map(b => b.batch);
+
+    const [types] = await db.query(`SELECT DISTINCT stud_type FROM students WHERE stud_type IS NOT NULL AND stud_type != '' ORDER BY stud_type`);
+    const categoryList = types.map(t => t.stud_type);
 
     rows.forEach(row => {
       if (!hierarchy[row.college]) {
@@ -93,7 +91,8 @@ const getStudentMetadata = async (req, res) => {
 
     res.json({
       hierarchy,
-      batches: batchList
+      batches: batchList,
+      categories: categoryList
     });
   } catch (error) {
     console.error('Error fetching metadata:', error);
@@ -120,8 +119,31 @@ const getStudentByAdmissionNumber = async (req, res) => {
   }
 };
 
+// @desc    Search students by Name, Pin, or Admission No
+// @route   GET /api/students/search
+const searchStudents = async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.length < 3) return res.json([]); // Minimum 3 chars
+
+        const searchTerm = `%${q}%`;
+        const [rows] = await db.query(`
+            SELECT admission_number, student_name, pin_no, college, course, branch 
+            FROM students 
+            WHERE admission_number LIKE ? OR student_name LIKE ? OR pin_no LIKE ? 
+            LIMIT 20
+        `, [searchTerm, searchTerm, searchTerm]);
+
+        res.json(rows);
+    } catch (error) {
+        console.error('Error searching students:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
 module.exports = {
   getStudents,
   getStudentMetadata,
-  getStudentByAdmissionNumber
+  getStudentByAdmissionNumber,
+  searchStudents
 };

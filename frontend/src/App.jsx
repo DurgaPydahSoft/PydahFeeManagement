@@ -12,6 +12,7 @@ import PaymentConfiguration from './pages/PaymentConfiguration';
 import ReminderConfiguration from './pages/ReminderConfiguration';
 import BulkFeeUpload from './pages/BulkFeeUpload';
 import ConcessionManagement from './pages/ConcessionManagement';
+import Permissions from './pages/Permissions';
 
 import Reports from './pages/Reports';
 import DueReports from './pages/DueReports';
@@ -37,6 +38,7 @@ function App() {
         <Route path="/reminders" element={<ReminderConfiguration />} />
         <Route path="/bulk-fee-upload" element={<BulkFeeUpload />} />
         <Route path="/concessions" element={<ConcessionManagement />} />
+        <Route path="/permissions" element={<Permissions />} />
       </Routes>
     </Router>
   );

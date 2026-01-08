@@ -1,13 +1,21 @@
 const ConcessionRequest = require('../models/ConcessionRequest');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
+const { uploadToS3 } = require('../utils/s3Upload');
 
 // @desc    Create a Concession Request
 // @route   POST /api/concessions
 const createConcessionRequest = async (req, res) => {
-  const { students, feeHeadId, amount, reason, studentYear, semester } = req.body;
-  // students: Array of { studentId, studentName } or just use req.body.studentId for single if preferred.
-  // Let's support an array named 'students' for both Single and Bulk to keep it uniform.
+  let { students, feeHeadId, amount, reason, studentYear, semester } = req.body;
+  
+  // Parse students if it comes as a string (FormData)
+  if (typeof students === 'string') {
+    try {
+      students = JSON.parse(students);
+    } catch (e) {
+      return res.status(400).json({ message: 'Invalid students data' });
+    }
+  }
 
   const requestedBy = req.user ? req.user.username : 'system';
 
@@ -20,6 +28,11 @@ const createConcessionRequest = async (req, res) => {
   }
 
   try {
+    let imageUrl = null;
+    if (req.file) {
+      imageUrl = await uploadToS3(req.file);
+    }
+
     const requests = students.map(s => ({
       studentId: s.studentId,
       studentName: s.studentName,
@@ -33,7 +46,8 @@ const createConcessionRequest = async (req, res) => {
       branch: s.branch,
       batch: s.batch,
       type: students.length > 1 ? 'Bulk' : 'Single',
-      requestedBy
+      requestedBy,
+      imageUrl // Add image URL
     }));
 
     const created = await ConcessionRequest.insertMany(requests);

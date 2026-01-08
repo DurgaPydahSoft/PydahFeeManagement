@@ -8,6 +8,7 @@ const FeeConfiguration = () => {
 
     // --- SHARED STATE ---
     const [feeHeads, setFeeHeads] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [metadata, setMetadata] = useState({});
     const [message, setMessage] = useState('');
 
@@ -19,7 +20,7 @@ const FeeConfiguration = () => {
     const [structures, setStructures] = useState([]);
     const [structForm, setStructForm] = useState({
         feeHeadId: '', college: '', course: '', branch: '',
-        batch: '', studentYear: '', amount: '', // Replaced academicYear with batch
+        batch: '', category: '', studentYear: '', amount: '', // Replaced academicYear with batch
         semester: '' // '1', '2' or empty for yearly
     });
     const [feeType, setFeeType] = useState('Yearly'); // 'Yearly' or 'Semester'
@@ -37,14 +38,13 @@ const FeeConfiguration = () => {
 
     // --- TAB 3: APPLICABILITY (Assignment) ---
     const [appContext, setAppContext] = useState({
-        college: '', course: '', branch: '', studentYear: '', semester: '', feeHeadId: '', batch: ''
+        college: '', course: '', branch: '', studentYear: '', semester: '', feeHeadId: '', batch: '', category: ''
         // Removed academicYear
     });
     const [batches, setBatches] = useState([]); // Store batch list
     const [studentList, setStudentList] = useState([]);
     const [loadingStudents, setLoadingStudents] = useState(false);
     const [isBatchApplied, setIsBatchApplied] = useState(false);
-    const [templateAmount, setTemplateAmount] = useState(null); // The "standard" amount found
     const [applicabilityMode, setApplicabilityMode] = useState('individual'); // Consolidated to just individual view
     const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
 
@@ -59,6 +59,7 @@ const FeeConfiguration = () => {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
             setMetadata(response.data.hierarchy || response.data); // Handle both old and new format
             if (response.data.batches) setBatches(response.data.batches);
+            if (response.data.categories) setCategories(response.data.categories);
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
@@ -211,8 +212,8 @@ const FeeConfiguration = () => {
         const { college, course, branch, studentYear, feeHeadId, batch } = appContext;
 
 
-        if (!college || !course || !branch || !batch || !feeHeadId) {
-            alert("Please select College, Fee Head, Batch, Course, and Branch.");
+        if (!college || !course || !branch || !batch || !feeHeadId || !appContext.category) {
+            alert("Please select College, Fee Head, Batch, Course, Branch and Category.");
             return;
         }
 
@@ -223,12 +224,13 @@ const FeeConfiguration = () => {
             // 1. Fetch Students (All for the batch)
             const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`);
 
-            // Filter: Match College, Course, Branch, and Batch
+            // Filter: Match College, Course, Branch, Batch AND Category (stud_type)
             const batchStudents = studentsRes.data.filter(s =>
                 s.college === college &&
                 s.course === course &&
                 s.branch === branch &&
-                (String(s.batch) === String(batch))
+                (String(s.batch) === String(batch)) &&
+                s.stud_type === appContext.category
             );
 
             // 2. Fetch Existing Fee Records (Real Data)
@@ -255,6 +257,7 @@ const FeeConfiguration = () => {
                 structures.filter(st =>
                     st.college === college && st.course === course && st.branch === branch &&
                     String(st.batch) === String(batch) &&
+                    st.category === appContext.category && // Match Category
                     st.feeHead._id === feeHeadId
                 ).forEach(st => {
                     // Check semester logic
@@ -373,7 +376,7 @@ const FeeConfiguration = () => {
 
         return true;
     }).forEach(s => {
-        const key = `${s.college}|${s.course}|${s.branch}|${s.batch}|${s.feeHead?._id}`;
+        const key = `${s.college}|${s.course}|${s.branch}|${s.batch}|${s.category}|${s.feeHead?._id}`;
         if (!grouped[key]) grouped[key] = { ...s, feeHeadName: s.feeHead?.name, feeHeadId: s.feeHead?._id, feeHeadCode: s.feeHead?.code, years: {}, allIds: [] };
 
         // Initialize year array if missing
@@ -459,11 +462,15 @@ const FeeConfiguration = () => {
                             <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
                                 {/* Context Selection */}
                                 {/* Row 1: College & Batch */}
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-3 gap-4">
                                     <select className="w-full border p-2 rounded" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '' }); }} required><option value="">Select College</option>{colleges.map(c => <option key={c}>{c}</option>)}</select>
                                     <select className="w-full border p-2 rounded" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
                                         <option value="">Select Batch</option>
                                         {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
+                                    <select className="w-full border p-2 rounded" value={structForm.category} onChange={e => setStructForm({ ...structForm, category: e.target.value })} required>
+                                        <option value="">Select Category</option>
+                                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 </div>
 
@@ -533,6 +540,7 @@ const FeeConfiguration = () => {
                                     <tr>
                                         <th className="p-3">Fee Head</th>
                                         <th className="p-3">Context</th>
+                                        <th className="p-3">Category</th>
                                         {tableYears.map(y => <th key={y} className="p-3 text-center">Yr {y}</th>)}
                                         <th className="p-3 text-right">Action</th>
                                     </tr>
@@ -547,6 +555,9 @@ const FeeConfiguration = () => {
                                                 <div className="font-bold">{row.course} - {row.branch}</div>
                                                 <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{row.college}</div>
                                                 <div className="mt-1 text-black font-semibold">Batch: {row.batch}</div>
+                                            </td>
+                                            <td className="p-3">
+                                                <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full font-medium">{row.category}</span>
                                             </td>
                                             {tableYears.map(y => (
                                                 <td key={y} className="p-2 text-center text-gray-700 align-top">
@@ -612,8 +623,8 @@ const FeeConfiguration = () => {
 
                                 <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Filters</h2>
 
-                                {/* Strict Order: College -> Fee Head -> Academic Year -> Course -> Branch */}
-                                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                {/* Strict Order: College -> Fee Head -> Academic Year -> Course -> Branch -> Category */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     {/* 1. College */}
                                     <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
 
@@ -626,6 +637,15 @@ const FeeConfiguration = () => {
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.batch} onChange={e => setAppContext({ ...appContext, batch: e.target.value })}>
                                             <option value="">Select Batch</option>
                                             {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+
+                                    {/* Category */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500">Category</label>
+                                        <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required>
+                                            <option value="">Select Category</option>
+                                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
 
