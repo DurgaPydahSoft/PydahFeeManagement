@@ -72,10 +72,66 @@ const getStudentFeeDetails = async (req, res) => {
 
   try {
     // 1. Fetch Student Info (to get current batch and year)
-    const [students] = await db.query('SELECT current_year, batch FROM students WHERE admission_number = ?', [admissionNo]);
+    const [students] = await db.query('SELECT id, current_year, batch, current_semester FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
     const currentYear = student ? Number(student.current_year) : (Number(queryYear) || 1);
     const batch = student ? student.batch : '';
+
+    // --- CLUB FEE SYNC START ---
+    if (student) {
+        try {
+            // Get Approved Clubs
+            const [approvedClubs] = await db.query(`
+                SELECT cm.club_id, c.membership_fee, c.name, cm.updated_at 
+                FROM club_members cm 
+                JOIN clubs c ON cm.club_id = c.id 
+                WHERE cm.student_id = ? AND cm.status = 'approved'
+            `, [student.id]);
+
+            if (approvedClubs.length > 0) {
+                // Find Generic 'Club Fee' Head
+                const clubFeeHead = await FeeHead.findOne({ code: 'CF' });
+
+                if (clubFeeHead) {
+                    for (const club of approvedClubs) {
+                        // Check if fee already exists for this specific club (using remarks or composite check if possible)
+                        // We check: same student, same fee head, same year.
+                        // Ideally we should also check if the amount matches or 'remarks' contains club name to distinguish multiple clubs
+                        const remarksKey = `Club Fee: ${club.name}`;
+                        
+                        const existingFee = await StudentFee.findOne({
+                            studentId: admissionNo,
+                            feeHead: clubFeeHead._id,
+                            remarks: remarksKey // Strict check to allow multiple different club fees
+                        });
+
+                        if (!existingFee) {
+                            console.log(`Syncing Club Fee: ${club.name} for ${admissionNo}`);
+                            await StudentFee.create({
+                                studentId: admissionNo,
+                                studentName: '', // Optional
+                                feeHead: clubFeeHead._id,
+                                college: 'ANY', // Default
+                                course: 'ANY',
+                                branch: 'ANY',
+                                academicYear: batch, // Use Batch as AY
+                                studentYear: currentYear,
+                                semester: student.current_semester || 1,
+                                amount: Number(club.membership_fee),
+                                remarks: remarksKey
+                            });
+                        }
+                    }
+                } else {
+                    console.warn('Club Fee Sync Skipped: Fee Head "CF" not found.');
+                }
+            }
+        } catch (syncError) {
+            console.error('Club Fee Sync Error:', syncError);
+            // Non-blocking error
+        }
+    }
+    // --- CLUB FEE SYNC END ---
 
     // 2. Fetch all Demands (StudentFee)
     const studentFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code');
@@ -88,21 +144,28 @@ const getStudentFeeDetails = async (req, res) => {
 
     // 5. Data Structures for aggregation
     // Key: [HeadID]-[Year]
+    
     const groupedData = {};
 
-    const getGroupKey = (headId, year) => `${headId}-${year}`;
+    const getGroupKey = (headId, year, feeCode, remarks) => {
+        if (feeCode === 'CF') {
+            return `${headId}-${year}-${remarks || 'General'}`;
+        }
+        return `${headId}-${year}`;
+    };
 
     // A. Initialize with actual Demands
     studentFees.forEach(fee => {
       const hId = fee.feeHead ? fee.feeHead._id.toString() : 'unknown';
+      const hCode = fee.feeHead ? fee.feeHead.code : '';
       const year = String(fee.studentYear || 1);
-      const key = getGroupKey(hId, year);
+      const key = getGroupKey(hId, year, hCode, fee.remarks);
 
       if (!groupedData[key]) {
         groupedData[key] = {
           _id: fee._id, // Keep the actual demand ID if found
           feeHeadId: fee.feeHead ? fee.feeHead._id : null,
-          feeHeadName: fee.feeHead ? fee.feeHead.name : 'Unknown',
+          feeHeadName: (fee.feeHead && fee.feeHead.code === 'CF') ? (fee.remarks || fee.feeHead.name) : (fee.feeHead ? fee.feeHead.name : 'Unknown'),
           feeHeadCode: fee.feeHead ? fee.feeHead.code : '',
           academicYear: fee.academicYear || batch,
           studentYear: year,

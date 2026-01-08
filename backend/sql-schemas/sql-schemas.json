@@ -306,5 +306,105 @@
                 "type": "int"
             }
         ]
+    },
+    {
+        "tableName": "clubs",
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": "AI PK"
+            },
+            {
+                "name": "name",
+                "type": "varchar(255)"
+            },
+            {
+                "name": "description",
+                "type": "text"
+            },
+            {
+                "name": "image_url",
+                "type": "longtext"
+            },
+            {
+                "name": "form_fields",
+                "type": "json"
+            },
+            {
+                "name": "members",
+                "type": "json"
+            },
+            {
+                "name": "activities",
+                "type": "json"
+            },
+            {
+                "name": "is_active",
+                "type": "tinyint(1)"
+            },
+            {
+                "name": "created_by",
+                "type": "int"
+            },
+            {
+                "name": "created_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "updated_at",
+                "type": "timestamp"
+            },
+            {
+                "name": "membership_fee",
+                "type": "decimal(10,2)"
+            },
+            {
+                "name": "fee_type",
+                "type": "varchar(20)"
+            },
+            {
+                "name": "target_audience",
+                "type": "json"
+            }
+        ]
+    },
+    {
+        "tableName": "club_members",
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": "AI PK"
+            },
+            {
+                "name": "club_id",
+                "type": "int"
+            },
+            {
+                "name": "student_id",
+                "type": "int"
+            },
+            {
+                "name": "status",
+                "type": "enum('pending','approved','rejected')"
+            },
+            {
+                "name": "payment_status",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "fee_type",
+                "type": "varchar(50)"
+            },
+            {
+                "name": "joined_at",
+                "type": "datetime"
+            },
+            {
+                "name": "updated_at",
+                "type": "datetime"
+            }
+        ]
     }
 ]

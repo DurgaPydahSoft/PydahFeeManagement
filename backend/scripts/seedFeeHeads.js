@@ -26,7 +26,9 @@ const importData = async () => {
       { name: 'Admission Fee', code: 'ADM01', description: 'One-time admission charge' },
       { name: 'Building Fund', code: 'BLD01', description: 'Infrastructure development fund' },
       { name: 'Sports Fee', code: 'SPT01', description: 'Sports equipment and facilities' },
-      { name: 'Identity Card Fee', code: 'IDC01', description: 'ID Card generation' }
+      { name: 'Identity Card Fee', code: 'IDC01', description: 'ID Card generation' },
+      { name: 'Club Fee', code: 'CF', description: 'Club Fees for all types of clubs.' },
+      { name: 'Student Services FEE', code: 'SSF', description: 'Fees For the Student Services' }
     ];
 
     console.log('Seeding Fee Heads...');
