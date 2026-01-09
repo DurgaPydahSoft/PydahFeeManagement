@@ -88,10 +88,8 @@ const BulkFeeUpload = () => {
 
     const handleUpload = async () => {
         if (!file) { setError('Please select a file first.'); return; }
-        if (!filters.college || !filters.course || !filters.branch || !filters.batch) {
-            setError('Please select all filters (College, Course, Branch, Batch) before uploading.');
-            return;
-        }
+        // Note: We no longer enforce filters strictly here because "Transaction Dump" mode 
+        // (detected by backend) doesn't require them.
 
         setUploading(true);
         setError('');
@@ -99,10 +97,10 @@ const BulkFeeUpload = () => {
 
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('college', filters.college);
-        formData.append('course', filters.course);
-        formData.append('branch', filters.branch);
-        formData.append('batch', filters.batch);
+        formData.append('college', filters.college || '');
+        formData.append('course', filters.course || '');
+        formData.append('branch', filters.branch || '');
+        formData.append('batch', filters.batch || '');
 
         try {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/upload`, formData, {
@@ -117,7 +115,7 @@ const BulkFeeUpload = () => {
             } else {
                 setPreviewData(data);
                 setSelectedIds(data.map((_, i) => i));
-                setMessage(`Successfully parsed ${data.length} records.`);
+                setMessage(response.data.message || `Successfully parsed ${data.length} records.`);
             }
         } catch (err) {
             console.error(err);
@@ -175,32 +173,70 @@ const BulkFeeUpload = () => {
         }
     };
 
-    // Helper to merge demands and payments for unified view
+    // Helper to merge demands and payments for unified view (Individual Transactions)
     const getUnifiedDetails = (row) => {
-        const map = new Map();
+        const demandsMap = new Map();
+        // 1. Index Demands
+        if (row.demands) {
+            row.demands.forEach(d => {
+                const key = `${d.headId}-${d.year}`;
+                if (!demandsMap.has(key)) {
+                    demandsMap.set(key, { ...d, matches: false });
+                } else {
+                    const existing = demandsMap.get(key);
+                    existing.amount += d.amount;
+                    demandsMap.set(key, existing);
+                }
+            });
+        }
 
-        row.demands.forEach(d => {
-            const key = `${d.headId}-${d.year}`;
-            if (!map.has(key)) map.set(key, { ...d, demand: d.amount, paid: 0, mode: '-' });
-            else {
-                const existing = map.get(key);
-                existing.demand = d.amount;
-                map.set(key, existing);
+        const result = [];
+
+        // 2. Process Payments (Individual Rows)
+        if (row.payments) {
+            row.payments.forEach(p => {
+                const key = `${p.headId}-${p.year}`;
+                let demandVal = 0;
+
+                // Match with Demand
+                if (demandsMap.has(key)) {
+                    const d = demandsMap.get(key);
+                    if (!d.matches) {
+                        demandVal = d.amount;
+                        d.matches = true; // Mark as displayed
+                    }
+                }
+
+                result.push({
+                    headId: p.headId,
+                    headName: p.headName,
+                    year: p.year,
+                    mode: p.mode,
+                    date: p.date,
+                    demand: demandVal,
+                    paid: p.amount,
+                    remarks: p.remarks
+                });
+            });
+        }
+
+        // 3. Add Leftover Demands (Unpaid)
+        demandsMap.forEach((d, key) => {
+            if (!d.matches) {
+                result.push({
+                    headId: d.headId,
+                    headName: d.headName,
+                    year: d.year,
+                    mode: '-',
+                    date: null,
+                    demand: d.amount,
+                    paid: 0,
+                    remarks: ''
+                });
             }
         });
 
-        row.payments.forEach(p => {
-            const key = `${p.headId}-${p.year}`;
-            if (!map.has(key)) map.set(key, { ...p, demand: 0, paid: p.amount });
-            else {
-                const existing = map.get(key);
-                existing.paid = p.amount;
-                existing.mode = p.mode;
-                map.set(key, existing);
-            }
-        });
-
-        return Array.from(map.values());
+        return result;
     };
 
     return (
@@ -344,6 +380,7 @@ const BulkFeeUpload = () => {
                                                                     <tr>
                                                                         <th className="px-4 py-2">Fee Head</th>
                                                                         <th className="px-4 py-2">Year</th>
+                                                                        <th className="px-4 py-2">Date</th>
                                                                         <th className="px-4 py-2 text-right">Demand (Fee)</th>
                                                                         <th className="px-4 py-2 text-right">Paid Amount</th>
                                                                         <th className="px-4 py-2 text-center">Mode</th>
@@ -354,6 +391,9 @@ const BulkFeeUpload = () => {
                                                                         <tr key={i} className="hover:bg-gray-50">
                                                                             <td className="px-4 py-2 font-medium text-gray-800">{d.headName}</td>
                                                                             <td className="px-4 py-2 text-gray-600">Year {d.year}</td>
+                                                                            <td className="px-4 py-2 text-gray-600 text-xs">
+                                                                                {d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'}
+                                                                            </td>
                                                                             <td className="px-4 py-2 text-right font-mono text-gray-700">{d.demand > 0 ? `₹${d.demand.toLocaleString()}` : '-'}</td>
                                                                             <td className="px-4 py-2 text-right font-mono text-green-700">{d.paid > 0 ? `₹${d.paid.toLocaleString()}` : '-'}</td>
                                                                             <td className="px-4 py-2 text-center text-xs text-gray-500">{d.mode}</td>
