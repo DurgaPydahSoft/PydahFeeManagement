@@ -148,10 +148,17 @@ const getStudentFeeDetails = async (req, res) => {
     const groupedData = {};
 
     const getGroupKey = (headId, year, feeCode, remarks) => {
-        if (feeCode === 'CF') {
+        if (feeCode === 'CF' || feeCode === 'SSF') {
             return `${headId}-${year}-${remarks || 'General'}`;
         }
         return `${headId}-${year}`;
+    };
+
+    const formatServiceFeeName = (headName, remarks) => {
+        if (!remarks) return headName;
+        // Clean "Service Request: Name (Ref: 123)" -> "Name"
+        let name = remarks.replace(/^Service Request:\s*/i, '').replace(/\s*\(Ref:.*?\)\s*$/i, '');
+        return `${headName} - ${name.trim()}`;
     };
 
     // A. Initialize with actual Demands
@@ -165,7 +172,7 @@ const getStudentFeeDetails = async (req, res) => {
         groupedData[key] = {
           _id: fee._id, // Keep the actual demand ID if found
           feeHeadId: fee.feeHead ? fee.feeHead._id : null,
-          feeHeadName: (fee.feeHead && fee.feeHead.code === 'CF') ? (fee.remarks || fee.feeHead.name) : (fee.feeHead ? fee.feeHead.name : 'Unknown'),
+          feeHeadName: (fee.feeHead && (fee.feeHead.code === 'CF' || fee.feeHead.code === 'SSF')) ? formatServiceFeeName(fee.feeHead.name, fee.remarks) : (fee.feeHead ? fee.feeHead.name : 'Unknown'),
           feeHeadCode: fee.feeHead ? fee.feeHead.code : '',
           academicYear: fee.academicYear || batch,
           studentYear: year,
@@ -222,7 +229,7 @@ const getStudentFeeDetails = async (req, res) => {
           groupedData[key] = {
             _id: `pay-${hId}-${year}`,
             feeHeadId: hId,
-            feeHeadName: head ? head.name : 'Unknown',
+            feeHeadName: (head && (head.code === 'CF' || head.code === 'SSF')) ? formatServiceFeeName(head.name, t.remarks) : (head ? head.name : 'Unknown'),
             feeHeadCode: head ? head.code : '',
             academicYear: batch,
             studentYear: year,
