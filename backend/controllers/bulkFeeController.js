@@ -13,49 +13,33 @@ const processBulkUpload = async (req, res) => {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
-        const { college, course: defaultCourse, branch: defaultBranch, batch } = req.body;
+        const { uploadType } = req.body; // 'DUE' or 'PAYMENT'
+        console.log(`Processing Bulk Upload. Mode: ${uploadType}`);
 
-        // Fetch all Fee Heads for mapping
+        // Fetch all Fee Heads
         const allFeeHeads = await FeeHead.find({});
         
-        // Fee Head Mapping Helper for DUMP MODE
-        // We will match Narration keywords to these Heads
-        const getFeeHeadFromNarration = (narration) => {
-            if (!narration) return null;
-            const text = narration.toUpperCase();
-            
-            // 1. Exact Name Match (Normalized)
-            const normalizedText = text.replace(/[^A-Z0-9]/g, '');
-            const exactMatch = allFeeHeads.find(h => 
-                normalizedText.includes(h.name.toUpperCase().replace(/[^A-Z0-9]/g, '')) 
-            );
-            if (exactMatch) return { _id: exactMatch._id, name: exactMatch.name };
-
-            // 2. Keyword Heuristics
-            if (text.includes('TUTION') || text.includes('TUITION')) {
-                const match = allFeeHeads.find(h => h.name.toUpperCase().includes('TUITION'));
-                if (match) return { _id: match._id, name: match.name };
+        let miscHead = null;
+        if (uploadType === 'DUE') {
+            miscHead = allFeeHeads.find(h => h.name.toLowerCase().includes('miscellaneous') && h.name.toLowerCase().includes('due'));
+            if (!miscHead) {
+                 miscHead = allFeeHeads.find(h => h.name.toLowerCase().includes('miscellaneous') || h.name.toLowerCase().includes('other fees'));
+                 
+                if (!miscHead) {
+                    try {
+                        miscHead = await FeeHead.create({
+                             name: 'Miscellaneous Due',
+                             alias: 'MISC',
+                             type: 'General',
+                             description: 'Auto-created for Bulk Dues'
+                        });
+                        console.log('Created new Miscellaneous Due fee head');
+                    } catch (err) {
+                        miscHead = await FeeHead.findOne({ name: 'Miscellaneous Due' });
+                    }
+                }
             }
-            if (text.includes('BUS') || text.includes('TRANSPORT') || text.includes('TRPT')) {
-                const match = allFeeHeads.find(h => h.name.toUpperCase().includes('TRANSPORT') || h.name.toUpperCase().includes('BUS'));
-                if (match) return { _id: match._id, name: match.name };
-            }
-            if (text.includes('PW') || text.includes('SPECIAL')) {
-                 // Try to find "Special Fee" or "PW" specific head
-                 const match = allFeeHeads.find(h => h.name.toUpperCase().includes('SPECIAL') || h.name.toUpperCase().includes('PW'));
-                 if (match) return { _id: match._id, name: match.name };
-                 // Fallback
-                 const fallback = allFeeHeads.find(h => h.code === 'SF' || h.name.toUpperCase().includes('SPECIAL'));
-                 if (fallback) return { _id: fallback._id, name: fallback.name };
-            }
-            if (text.includes('HOSTEL')) {
-                const match = allFeeHeads.find(h => h.name.toUpperCase().includes('HOSTEL'));
-                if (match) return { _id: match._id, name: match.name };
-            }
-
-            // 3. Fallback to "General" or log failure
-            return null;
-        };
+        }
 
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
@@ -66,570 +50,244 @@ const processBulkUpload = async (req, res) => {
             return res.status(400).json({ message: 'File is empty or missing headers' });
         }
 
-        const row0 = rawData[0]; // Headers
+        const row0 = rawData[0]; 
 
-        // MODE DETECTION
-        const headerStr = row0.map(String).join(' ').toUpperCase();
-        // Check for specific headers from User's Dump Format
-        const isDumpMode = headerStr.includes('SECID') || (headerStr.includes('NARRATION') && headerStr.includes('ADMNNO'));
-
-        console.log(`Upload Mode Detected: ${isDumpMode ? 'TRANSACTION DUMP' : 'STUDENT MATRIX'}`);
-
-        // --- MODE 1: STANDARD MATRIX PREVIEW --- 
-        if (!isDumpMode) {
-             // Validate filters for Matrix Mode
-             if (!college || !defaultCourse || !defaultBranch || !batch) {
-                 return res.status(400).json({ message: 'For Standard Matrix upload, please select College, Course, Branch, and Batch filters.' });
-             }
-             return processMatrixUpload(req, res, rawData, allFeeHeads, { college, defaultCourse, defaultBranch, batch });
-        }
-
-        // --- MODE 2: TRANSACTION DUMP PREVIEW ---
-        // Robust Format: RecNo, SecId, TransDate, AdmnNo (Pin), StudentName, Amount, Narration, PayMode, PaymentDetails
-        
-        // Map Columns Dynamically
+        // Map Columns (Flexible)
         const colMap = {};
         row0.forEach((h, i) => {
             const head = String(h).toUpperCase().replace(/[^A-Z0-9]/g, '');
             if (head.includes('ADMN') || head.includes('PIN')) colMap.ID = i;
-            if (head.includes('SECID') || head.includes('SECTION')) colMap.SEC = i;
-            if (head.includes('DATE') && head.includes('TRANS')) colMap.DATE = i;
             if (head.includes('AMOUNT')) colMap.AMOUNT = i;
-            if (head.includes('NARRATION')) colMap.NARRATION = i;
+            if (head.includes('YEAR')) colMap.YEAR = i; 
+            if (head.includes('SEM') || head.includes('SEC')) colMap.SEM = i; // Added SEM/SEC support
+            
+            // Payment specific
+            if (head.includes('DATE') && head.includes('TRANS')) colMap.DATE = i;
             if (head.includes('MODE') && head.includes('PAY')) colMap.MODE = i;
-            if (head.includes('DETAIL') && head.includes('PAY')) colMap.DETAILS = i;
+            if (head.includes('NARRATION') || head.includes('REMARKS')) colMap.NARRATION = i;
+            if (head.includes('REF') || (head.includes('TRANS') && head.includes('ID'))) colMap.REF = i;
+            
+            // Name for preview
             if (head.includes('NAME') && head.includes('STUDENT')) colMap.NAME = i;
         });
 
         if (colMap.ID === undefined || colMap.AMOUNT === undefined) {
-             return res.status(400).json({ message: 'Dump file missing critical columns: AdmnNo/Pin or Amount.' });
+             return res.status(400).json({ message: 'File missing critical columns: AdmnNo/Pin or Amount.' });
         }
 
-        const previewDataMap = new Map(); // Key: Student ID (Pin/Adm)
+        const previewDataMap = new Map(); 
         let processedCount = 0;
 
-        // Helper to parse "2-1" -> Year 2, Sem 1 OR "11A" -> Year 1, Sem 1
-        const parseSecId = (secId) => {
-            if (!secId) return { year: 1, semester: 1 };
-            const s = String(secId).trim();
-            
-            // Format 1: "2-1"
-            if (s.includes('-')) {
-                const parts = s.split('-');
-                return { year: parseInt(parts[0]) || 1, semester: parseInt(parts[1]) || 1 };
-            }
-
-            // Format 2: "21A", "11", "32B" (YearSemSuffix)
-            // Extract first two digits
-            const match = s.match(/^(\d)(\d)/);
-            if (match) {
-                return { year: parseInt(match[1]), semester: parseInt(match[2]) };
-            }
-
-            // Fallback: If just "1", assume Year 1
-            return { year: parseInt(s) || 1, semester: 1 };
+        const parseYear = (val) => {
+             if (!val) return 1; 
+             const s = String(val).trim();
+             if (s.match(/1|one|I/i)) return 1;
+             if (s.match(/2|two|II/i)) return 2;
+             if (s.match(/3|three|III/i)) return 3;
+             if (s.match(/4|four|IV/i)) return 4;
+             return parseInt(s) || 1;
         };
 
         const parseDate = (xlsDate) => {
              if (!xlsDate) return new Date();
              if (typeof xlsDate === 'number') return new Date((xlsDate - (25569)) * 86400 * 1000);
-             
              const str = String(xlsDate).trim();
-             
-             // Format: DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
-             // Regex matches: Group 1 (DD), Group 2 (MM), Group 3 (YYYY)
-             const dmy = str.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/);
-             if (dmy) {
-                 const day = dmy[1].padStart(2, '0');
-                 const month = dmy[2].padStart(2, '0');
-                 return new Date(`${dmy[3]}-${month}-${day}`); // YYYY-MM-DD (Strict ISO)
-             }
-
-             // Format: YYYY-MM-DD or YYYY/MM/DD
-             const ymd = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
-             if (ymd) {
-                 const month = ymd[2].padStart(2, '0');
-                 const day = ymd[3].padStart(2, '0');
-                 return new Date(`${ymd[1]}-${month}-${day}`);
-             }
-
-             // Fallback
              const attempt = new Date(str);
              return isNaN(attempt.getTime()) ? new Date() : attempt;
         };
 
-        const parsePaymentDetails = (detailsStr) => {
-            // Format: "Inst Dt: 30/05/2025 No: CNRB-42715"
-            const res = { date: null, ref: '' };
-            if (!detailsStr) return res;
-            
-            const txt = String(detailsStr);
-            if (txt.includes('No:')) {
-                const afterNo = txt.split('No:')[1];
-                if (afterNo) res.ref = afterNo.trim();
-            } else if (txt.includes('UPI')) {
-                 // Try to grab UPI ID if needed, or leave ref empty
-            } else {
-                res.ref = txt; // fallback
+        // Improved SECID Parser
+        const parseSecId = (val) => {
+            if (!val) return { year: null, semester: null };
+            const s = String(val).trim().toUpperCase();
+
+            // Format 1: "2-1" or "2/1" (Year-Sem)
+            if (s.includes('-') || s.includes('/')) {
+                const parts = s.split(/[-/]/);
+                return { year: parseInt(parts[0]) || null, semester: parseInt(parts[1]) || null };
             }
             
-            // Regex for DD/MM/YYYY
-            const dateMatch = txt.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-            if (dateMatch) {
-                const parts = dateMatch[0].split('/');
-                res.date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+            // Format 2: "11A", "22C", "31B" (YearSemSuffix) -> 2 digits followed by optional letters
+            // ^(\d)(\d)
+            const match = s.match(/^(\d)(\d)/);
+            if (match) {
+                return { year: parseInt(match[1]), semester: parseInt(match[2]) };
             }
-            return res;
+
+            // Format 3: "I", "II" (Roman numerals for Year or Sem? Ambiguous. Assume Sem 1, Year = Roman)
+            if (s.match(/^(I|II|III|IV)$/)) {
+                let y = 1;
+                if (s === 'II') y = 2;
+                if (s === 'III') y = 3;
+                if (s === 'IV') y = 4;
+                return { year: y, semester: 1 }; // Default sem 1
+            }
+
+            // Format 4: Just a number "1", "2" -> Generally Sem? or Year? 
+            // If explicit YEAR column exists, this is Sem. If not, it's ambiguous. 
+            // Let's assume it's just Sem if Year is handled elsewhere, or Year if only column?
+            // Safer to return just semester if single digit.
+            const n = parseInt(s);
+            if (!isNaN(n)) return { year: null, semester: n };
+
+            return { year: null, semester: 1 };
         };
 
-        // Pre-fetch all Student IDs from the file to check for existing fees in DB
-        const allSheetIds = new Set();
-        for (let i = 2; i < rawData.length; i++) { // rawData handles headers at 0, 1? Check loop start
-             const r = rawData[i];
-             if (r && r[colMap.ID]) allSheetIds.add(String(r[colMap.ID]).trim());
-        }
-        const distinctIds = Array.from(allSheetIds);
-
-        // Fetch Existing StudentFees for these students
-        // We need to resolve Pin -> Admission Number first? 
-        // Actually, StudentFee stores 'studentId' which is Admission Number.
-        // But the Excel might have Pins.
-        // We need the SQL lookup FIRST to map Pin->AdminNo, THEN fetch MongoDB fees.
-        
-        // 1. Resolve Pins to Admission Numbers
-        let pinToAdminMap = new Map(); // Pin -> AdminNo
-        if (distinctIds.length > 0) {
-            const [students] = await db.query(`
-                SELECT admission_number, pin_no 
-                FROM students 
-                WHERE pin_no IN (?) OR admission_number IN (?)
-            `, [distinctIds, distinctIds]);
-            
-            students.forEach(s => {
-                if (s.pin_no) pinToAdminMap.set(s.pin_no, s.admission_number);
-                pinToAdminMap.set(s.admission_number, s.admission_number); // Self-map
-            });
-        }
-
-        // 2. Fetch StudentFees
-        const relevantAdminNos = Array.from(pinToAdminMap.values());
-        const existingFeeMap = new Map(); // Key: AdminNo-HeadId-Year -> Amount
-        
-        if (relevantAdminNos.length > 0) {
-            const fees = await StudentFee.find({ 
-                studentId: { $in: relevantAdminNos } 
-            }).select('studentId feeHead studentYear amount');
-            
-            fees.forEach(f => {
-                const key = `${f.studentId}-${f.feeHead}-${f.studentYear}`;
-                existingFeeMap.set(key, f.amount);
-            });
-        }
-
-        const demandTracker = new Set(); // Track added demands to avoid duplicates in preview
-
-        for (let i = 2; i < rawData.length; i++) {
+        // --- PROCESSING LOOP ---
+        for (let i = 1; i < rawData.length; i++) { 
             const row = rawData[i];
             if (!row || row.length === 0) continue;
 
             const rawId = row[colMap.ID];
             if (!rawId) continue;
-
-            const cleanId = String(rawId).trim(); // Pin or Adm from Excel
-            const adminNo = pinToAdminMap.get(cleanId) || cleanId; // Resolved AdminNo
-
-            const narration = row[colMap.NARRATION] ? String(row[colMap.NARRATION]) : '';
+            const cleanId = String(rawId).trim();
             const amount = parseFloat(row[colMap.AMOUNT]) || 0;
-            
             if (amount <= 0) continue;
 
-            const transDate = parseDate(row[colMap.DATE]);
-            const secInfo = parseSecId(row[colMap.SEC]);
-            const payMode = row[colMap.MODE] ? String(row[colMap.MODE]).trim().toUpperCase() : 'CASH';
-            const details = parsePaymentDetails(row[colMap.DETAILS]);
+            const name = colMap.NAME !== undefined ? row[colMap.NAME] : 'Unknown';
             
-            const feeHeadInfo = getFeeHeadFromNarration(narration);
-            const feeHeadName = feeHeadInfo ? feeHeadInfo.name : 'Unknown Fee (Check Narration)';
-            const feeHeadId = feeHeadInfo ? feeHeadInfo._id.toString() : 'UNKNOWN';
+            // Resolve Year & Semester
+            // 1. Try explicit columns
+            let year = colMap.YEAR !== undefined ? parseYear(row[colMap.YEAR]) : 1;
+            let semester = 1;
 
-            // Group by Student ID (Use cleaned Excel ID for display grouping, identifying by AdminNo internally)
+            // 2. Try SECID logic (Override or Augment)
+            if (colMap.SEM !== undefined) {
+                const secParsed = parseSecId(row[colMap.SEM]);
+                if (secParsed.semester) semester = secParsed.semester;
+                // If explicit Year was NOT found, or SECID provides a valid year, use SECID's year?
+                // User said "From Year we extracting... 11A". It's a strong signal.
+                // Let's trust SECID's year if present, especially if colMap.YEAR is missing.
+                // Even if colMap.YEAR is present, SECID "11A" strongly implies Year 1.
+                if (secParsed.year) year = secParsed.year;
+            }
+
             if (!previewDataMap.has(cleanId)) {
                 previewDataMap.set(cleanId, {
                     id: i,
                     displayId: cleanId, 
-                    studentName: row[colMap.NAME] || 'Unknown',
-                    pinNumber: cleanId, 
-                    admissionNumber: adminNo,
+                    studentName: name, 
                     totalDemand: 0, 
                     totalPaid: 0,
                     demands: [],
                     payments: [],
-                    year: secInfo.year || 1, 
-                    semester: secInfo.semester || 1,
-                    // Will populate rest from DB later if needed
-                    batch: 'Unknown',
+                    year: year, 
+                    semester: semester, 
+                    admissionNumber: null,
+                    pinNumber: null,
                     college: 'Unknown',
                     course: 'Unknown',
-                    branch: 'Unknown'
+                    branch: 'Unknown',
+                    batch: '2024-2025' // Default fallback
                 });
             }
-
             const entry = previewDataMap.get(cleanId);
-            
-            // Logic: Check if Student Fee exists in DB
-            const feeKey = `${adminNo}-${feeHeadId}-${secInfo.year}`;
-            const actualDemandAmount = existingFeeMap.get(feeKey); // undefined if not found
 
-            if (actualDemandAmount !== undefined) {
-                // Fee Exists! Map it.
-                // Only add to 'demands' list if not already added for this student/head/year in this preview session
-                const trackKey = `${cleanId}-${feeHeadId}-${secInfo.year}`;
-                if (!demandTracker.has(trackKey)) {
-                    entry.demands.push({
-                        headId: feeHeadId,
-                        headName: feeHeadName,
-                        year: secInfo.year,
-                        amount: actualDemandAmount
-                    });
-                    entry.totalDemand += actualDemandAmount;
-                    demandTracker.add(trackKey);
-                }
+            if (uploadType === 'DUE') {
+                // DUES MODE
+                entry.demands.push({
+                    headId: miscHead ? miscHead._id.toString() : 'UNKNOWN',
+                    headName: miscHead ? miscHead.name : 'Miscellaneous Due',
+                    year: year,
+                    semester: semester,
+                    amount: amount
+                });
+                entry.totalDemand += amount;
+
             } else {
-                // Fee Does NOT Exist -> Treat as Payment ONLY. No Demand created.
-                // entry.totalDemand does NOT increase.
+                // PAYMENT MODE
+                const narration = colMap.NARRATION !== undefined ? String(row[colMap.NARRATION]) : '';
+                const payMode = colMap.MODE !== undefined ? String(row[colMap.MODE]) : 'Cash';
+                const transDate = colMap.DATE !== undefined ? parseDate(row[colMap.DATE]) : new Date();
+                const ref = colMap.REF !== undefined ? String(row[colMap.REF]) : '';
+
+                // Fee Head Logic
+                let feeHeadInfo = null;
+                const getFeeHeadFromNarration = (narration) => {
+                    if (!narration) return null;
+                    const text = narration.toUpperCase();
+                    // 1. Exact Name Match (Normalized)
+                    const normalizedText = text.replace(/[^A-Z0-9]/g, '');
+                    const exactMatch = allFeeHeads.find(h => normalizedText.includes(h.name.toUpperCase().replace(/[^A-Z0-9]/g, '')));
+                    if (exactMatch) return exactMatch;
+                    // 2. Keyword Heuristics
+                    if (text.includes('TUTION') || text.includes('TUITION')) return allFeeHeads.find(h => h.name.toUpperCase().includes('TUITION'));
+                    if (text.includes('BUS') || text.includes('TRANSPORT')) return allFeeHeads.find(h => h.name.toUpperCase().includes('TRANSPORT'));
+                    if (text.includes('HOSTEL')) return allFeeHeads.find(h => h.name.toUpperCase().includes('HOSTEL'));
+                    if (text.includes('SPECIAL') || text.includes('PW')) return allFeeHeads.find(h => h.name.toUpperCase().includes('SPECIAL'));
+                    return null;
+                };
+
+                feeHeadInfo = getFeeHeadFromNarration(narration);
+                
+                entry.payments.push({
+                    headId: feeHeadInfo ? feeHeadInfo._id.toString() : 'UNKNOWN',
+                    headName: feeHeadInfo ? feeHeadInfo.name : 'Unknown Fee',
+                    year: year,
+                    semester: semester,
+                    amount: amount,
+                    mode: payMode,
+                    date: transDate,
+                    ref: ref,
+                    remarks: narration
+                });
+                entry.totalPaid += amount;
             }
-
-            // Determine Payment Mode
-            let finalMode = 'Cash';
-            if (payMode.includes('CONC')) finalMode = 'Waiver';
-            else if (payMode.includes('BANK') || payMode.includes('ONLINE') || payMode.includes('NEFT') || payMode.includes('RTGS')) finalMode = 'Net Banking';
-            else if (payMode.includes('UPI') || payMode.includes('PHONEPE') || payMode.includes('GPAY')) finalMode = 'UPI';
-            else if (payMode.includes('DD')) finalMode = 'DD';
-            else if (payMode.includes('CHEQ')) finalMode = 'Cheque';
-            else if (payMode.includes('CARD')) finalMode = 'Card';
-
-            // Add Payment
-            entry.payments.push({
-                headId: feeHeadId,
-                headName: feeHeadName,
-                year: secInfo.year,
-                amount: amount,
-                mode: finalMode,
-                date: transDate,
-                ref: details.ref || '',
-                receipt: '', 
-                remarks: narration
-            });
-            entry.totalPaid += amount;
+            
             processedCount++;
         }
 
         const previewData = Array.from(previewDataMap.values());
         
-        // Enrich with DB Data (Resolve Pin -> Admission)
-        const allIds = previewData.map(d => String(d.displayId).trim()).filter(Boolean);
+        // --- DATA ENRICHMENT (SQL) ---
+        // Resolve Pin/Admission -> Real Admission Number & Batch
+        const allIds = previewData.map(d => d.displayId);
         
+        // Chunking the SQL query to avoid limits if too many students
         if (allIds.length > 0) {
-             const [dbStudents] = await db.query(`
-                SELECT admission_number, pin_no, student_name, batch, current_year
-                FROM students
-                WHERE pin_no IN (?) OR admission_number IN (?)
-            `, [allIds, allIds]);
+            // We'll just take unique IDs
+            const uniqueIds = [...new Set(allIds)];
             
-            const dbMap = {};
-            dbStudents.forEach(s => {
-                if (s.pin_no) dbMap[s.pin_no.trim().toLowerCase()] = s;
-                if (s.admission_number) dbMap[s.admission_number.trim().toLowerCase()] = s;
+             const [students] = await db.query(`
+                SELECT admission_number, pin_no, student_name, batch, college, course, branch, current_year
+                FROM students 
+                WHERE pin_no IN (?) OR admission_number IN (?)
+            `, [uniqueIds, uniqueIds]);
+
+            const dbMap = {}; // Key: lowercase ID (pin or adm) -> Student Obj
+            students.forEach(s => {
+                const adm = s.admission_number.trim().toLowerCase();
+                const pin = s.pin_no ? s.pin_no.trim().toLowerCase() : null;
+                dbMap[adm] = s;
+                if (pin) dbMap[pin] = s;
             });
 
             previewData.forEach(entry => {
                 const key = entry.displayId.toLowerCase();
                 const match = dbMap[key];
                 if (match) {
-                    entry.studentName = match.student_name;
+                    entry.studentName = match.student_name; // Prioritize SQL name
                     entry.admissionNumber = match.admission_number;
                     entry.pinNumber = match.pin_no;
-                    entry.batch = match.batch; 
+                    entry.batch = match.batch;
+                    entry.college = match.college;
+                    entry.course = match.course;
+                    entry.branch = match.branch;
                 }
             });
         }
 
         res.json({
-            message: `Processed Dump: ${processedCount} transactions for ${previewData.length} students.`,
+            message: `Processed ${uploadType}: ${processedCount} records.`,
             count: previewData.length,
             data: previewData,
             warnings: previewData.filter(d => d.payments.some(p => p.headId === 'UNKNOWN')).length > 0 ? 'Some fee heads could not be identified.' : null
         });
 
     } catch (error) {
-        console.error('Error processing:', error);
-        res.status(500).json({ message: 'Error processing file', error: error.message });
+        console.error('Error processing bulk upload:', error);
+        res.status(500).json({ message: 'Processing Failed', error: error.message });
     }
-};
-
-// Extracted Matrix Logic (Existing)
-const processMatrixUpload = async (req, res, rawData, allFeeHeads, { college, defaultCourse, defaultBranch, batch }) => {
-        // Normalize helper
-        const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const feeHeadMap = {};
-        allFeeHeads.forEach(h => {
-            const norm = normalize(h.name);
-            feeHeadMap[norm] = { _id: h._id, name: h.name, rawName: h.name };
-        });
-
-        const row0 = rawData[0];
-        const row1 = rawData[1]; 
-        const columnMap = [];
-        let currentMainHeader = '';
-        let currentFeeHead = null;
-
-        for (let c = 0; c < row0.length; c++) {
-            const h0 = row0[c] ? String(row0[c]) : '';
-            const h1 = row1[c] ? String(row1[c]) : '';
-            const h0Upper = h0.trim().toUpperCase();
-            const continuationKeywords = ['TOTAL', 'DEMAND', 'PAID', 'MODE', 'TYPE', 'DATE', 'REF', 'REFERENCE', 'TRANSACTION', 'RECEIPT', 'REMARKS', 'NARRATION'];
-            const isExplicitGlobal = h0Upper.includes('GLOBAL');
-            const isKeyword = continuationKeywords.some(k => h0Upper === k || h0Upper.startsWith(k + ' ') || h0Upper.endsWith(' ' + k));
-            
-            let effectiveMain = currentMainHeader;
-            let effectiveSub = h1;
-
-            if (h0.trim()) {
-                if (currentFeeHead && isKeyword && !isExplicitGlobal) {
-                    if (!effectiveSub) effectiveSub = h0;
-                } else {
-                    currentMainHeader = h0;
-                    effectiveMain = h0;
-                    currentFeeHead = null;
-                }
-            }
-
-            const mainUpper = effectiveMain.toUpperCase();
-            const subUpper = effectiveSub.toUpperCase();
-            let cleanMain = normalize(effectiveMain);
-            if (cleanMain.includes('tution')) cleanMain = cleanMain.replace(/tution/g, 'tuition');
-
-            if (['ADMISSION', 'ADM', 'ROLL', 'REG', 'STUDENT ID'].some(k => mainUpper.includes(k))) { columnMap[c] = { type: 'admission' }; continue; }
-            else if (mainUpper.includes('PIN') || mainUpper.includes('HALL TICKET')) { columnMap[c] = { type: 'pin' }; continue; }
-            else if (mainUpper.includes('NAME')) { columnMap[c] = { type: 'name' }; continue; }
-            else if (mainUpper.includes('YEAR')) { columnMap[c] = { type: 'year' }; continue; }
-            else if (mainUpper.includes('COURSE')) { columnMap[c] = { type: 'course' }; continue; }
-            else if (mainUpper.includes('BRANCH')) { columnMap[c] = { type: 'branch' }; continue; }
-
-            // Fee Columns
-            let feeMatched = false;
-            const feeKeys = Object.keys(feeHeadMap).sort((a, b) => b.length - a.length);
-            for (const key of feeKeys) {
-                const head = feeHeadMap[key];
-                const keySingular = key.endsWith('s') ? key.slice(0, -1) : key;
-                if (cleanMain.includes(key) || (key.endsWith('s') && cleanMain.includes(keySingular))) {
-                    currentFeeHead = head;
-                    const isTotal = (subUpper === 'TOTAL' || subUpper === 'DEMAND' || mainUpper.endsWith(' TOTAL') || mainUpper.endsWith(' DEMAND'));
-                    const isPaid = (subUpper.includes('PAID') || mainUpper.includes('PAID') || subUpper.includes('COLLECTED')) && !subUpper.includes('UNPAID');
-                    const isMode = (subUpper.includes('MODE') || subUpper.includes('TYPE'));
-                    const isDate = (subUpper.includes('DATE'));
-                    const isRef = (subUpper.includes('REF') || subUpper.includes('TRANSACTION'));
-                    const isReceipt = (subUpper.includes('RECEIPT'));
-                    const isRemarks = (subUpper.includes('REMARKS'));
-
-                    if (isTotal) { columnMap[c] = { type: 'fee_total', headId: head._id, headName: head.name }; feeMatched = true; }
-                    else if (isPaid) { columnMap[c] = { type: 'fee_paid', headId: head._id, headName: head.name }; feeMatched = true; }
-                    else if (isMode) { columnMap[c] = { type: 'fee_mode', headId: head._id, headName: head.name }; feeMatched = true; }
-                    else if (isDate) { columnMap[c] = { type: 'fee_date', headId: head._id, headName: head.name }; feeMatched = true; }
-                    else if (isRef) { columnMap[c] = { type: 'fee_ref', headId: head._id, headName: head.name }; feeMatched = true; }
-                    else if (isReceipt) { columnMap[c] = { type: 'fee_receipt', headId: head._id, headName: head.name }; feeMatched = true; }
-                    else if (isRemarks) { columnMap[c] = { type: 'fee_remarks', headId: head._id, headName: head.name }; feeMatched = true; }
-                    if (feeMatched) break;
-                }
-            }
-            if (feeMatched) continue;
-
-            const h0RawCheck = h0.trim().toUpperCase();
-            if (h0RawCheck.includes('MODE') || h0RawCheck === 'TYPE') columnMap[c] = { type: 'global_mode' };
-            else if (h0RawCheck.includes('DATE')) columnMap[c] = { type: 'global_date' };
-            else if (h0RawCheck.includes('REF') || h0RawCheck.includes('TRANSACTION ID')) columnMap[c] = { type: 'global_ref' };
-            else if (h0RawCheck.includes('RECEIPT')) columnMap[c] = { type: 'global_receipt' };
-            else if (h0RawCheck.includes('REMARKS') || h0RawCheck === 'NARRATION') columnMap[c] = { type: 'global_remarks' };
-        }
-
-        const previewDataMap = new Map();
-        const parseExcelDate = (val) => {
-            if (!val) return null;
-            if (val instanceof Date) return val;
-            if (typeof val === 'number') return new Date((val - (25569)) * 86400 * 1000);
-            return new Date(val);
-        };
-
-        for (let i = 2; i < rawData.length; i++) {
-            const row = rawData[i];
-            if (!row || row.length === 0) continue;
-
-            let admission = null;
-            let pin = null;
-            let name = 'Unknown';
-            let rowCourse = null;
-            let rowBranch = null;
-            let studentYear = null;
-            let globalMode = null, globalDate = null, globalRef = null, globalReceipt = null, globalRemarks = null;
-
-            columnMap.forEach((meta, idx) => {
-                if (!meta) return;
-                const val = row[idx];
-                if (meta.type === 'admission') admission = val;
-                if (meta.type === 'pin') pin = val;
-                if (meta.type === 'name') name = val;
-                if (meta.type === 'course') rowCourse = val;
-                if (meta.type === 'branch') rowBranch = val;
-                if (meta.type === 'year') {
-                    const yStr = String(val);
-                    if (yStr.match(/1|one/i)) studentYear = 1;
-                    else if (yStr.match(/2|two/i)) studentYear = 2;
-                    else if (yStr.match(/3|three/i)) studentYear = 3;
-                    else if (yStr.match(/4|four/i)) studentYear = 4;
-                    else studentYear = parseInt(val) || 1;
-                }
-                if (meta.type === 'global_mode') globalMode = val;
-                if (meta.type === 'global_date') globalDate = val;
-                if (meta.type === 'global_ref') globalRef = val;
-                if (meta.type === 'global_receipt') globalReceipt = val;
-                if (meta.type === 'global_remarks') globalRemarks = val;
-            });
-
-            if (rowCourse) {
-                 const normalizeStr = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-                 if (normalizeStr(rowCourse) !== normalizeStr(defaultCourse)) {} // skip check for now or continue
-            }
-            if (studentYear === null) studentYear = 1;
-
-            let uid = null;
-            const cleanPin = pin ? String(pin).trim() : '';
-            const cleanAdm = admission ? String(admission).trim() : '';
-            if (cleanPin.length > 0) uid = cleanPin;
-            else if (cleanAdm.length > 0) uid = cleanAdm;
-
-            if (!uid) continue;
-
-            if (!previewDataMap.has(uid)) {
-                previewDataMap.set(uid, {
-                    id: i,
-                    studentName: name,
-                    pinNumber: cleanPin,
-                    admissionNumber: cleanAdm,
-                    displayId: uid,
-                    totalDemand: 0,
-                    totalPaid: 0,
-                    demands: [],
-                    payments: [],
-                    college,
-                    course: rowCourse || defaultCourse,
-                    branch: rowBranch || defaultBranch,
-                    batch,
-                });
-            }
-            const entry = previewDataMap.get(uid);
-            const feeData = {};
-
-            columnMap.forEach((meta, idx) => {
-                if (!meta || !meta.headId) return;
-                if (!feeData[meta.headId]) feeData[meta.headId] = { paid: -1, total: -1, mode: null, date: null, ref: null, receipt: null, remarks: null };
-                const rawVal = row[idx];
-                if (meta.type === 'fee_total') {} // ignore
-                else if (meta.type === 'fee_paid') feeData[meta.headId].paid = rawVal === undefined || rawVal === '' ? 0 : (parseFloat(rawVal) || 0);
-                else if (meta.type === 'fee_mode') feeData[meta.headId].mode = rawVal ? String(rawVal).trim() : null;
-                else if (meta.type === 'fee_date') feeData[meta.headId].date = rawVal;
-                else if (meta.type === 'fee_ref') feeData[meta.headId].ref = rawVal ? String(rawVal).trim() : null;
-                else if (meta.type === 'fee_receipt') feeData[meta.headId].receipt = rawVal ? String(rawVal).trim() : null;
-                else if (meta.type === 'fee_remarks') feeData[meta.headId].remarks = rawVal ? String(rawVal).trim() : null;
-            });
-
-            Object.keys(feeData).forEach(headId => {
-                const data = feeData[headId];
-                const headName = allFeeHeads.find(h => String(h._id) === headId)?.name || 'Unknown';
-
-                if (data.total >= 0) {
-                    entry.demands.push({ headId, headName, year: studentYear, amount: data.total });
-                    entry.totalDemand += data.total;
-                }
-                if (data.paid >= 0) {
-                    entry.payments.push({
-                        headId,
-                        headName,
-                        year: studentYear,
-                        amount: data.paid,
-                        mode: (function () {
-                            const rawMode = (data.paid > 0 ? (data.mode || globalMode || 'Cash') : (data.mode || '')).trim();
-                            if (!rawMode) return 'Cash';
-                            const m = rawMode.toLowerCase();
-                            if (m.includes('upi')) return 'UPI';
-                            if (m.includes('net') || m.includes('bank')) return 'Net Banking';
-                            if (m.includes('cheque')) return 'Cheque';
-                            if (m.includes('dd')) return 'DD';
-                            return 'Cash';
-                        })(),
-                        date: parseExcelDate(data.date) || parseExcelDate(globalDate) || new Date(),
-                        ref: data.ref || globalRef || '',
-                        receipt: data.receipt || globalReceipt || '',
-                        remarks: data.paid > 0 ? (data.remarks || globalRemarks || `Bulk Upload - Yr ${studentYear}`) : ''
-                    });
-                    entry.totalPaid += data.paid;
-                }
-            });
-        }
-
-        const previewData = Array.from(previewDataMap.values());
-        
-        // Resolve Names (Copy-Paste)
-        const allIds = previewData.map(d => String(d.displayId).trim()).filter(Boolean);
-        if (allIds.length > 0) {
-            try {
-                const [dbStudents] = await db.query(`SELECT admission_number, pin_no, student_name FROM students WHERE pin_no IN (?) OR admission_number IN (?)`, [allIds, allIds]);
-                const nameMap = {};
-                const idToAdmissionMap = {};
-                dbStudents.forEach(s => {
-                    const adm = s.admission_number;
-                    if (s.pin_no) { nameMap[s.pin_no.trim().toLowerCase()] = s.student_name; idToAdmissionMap[s.pin_no.trim().toLowerCase()] = adm; }
-                    if (s.admission_number) { nameMap[s.admission_number.trim().toLowerCase()] = s.student_name; idToAdmissionMap[s.admission_number.trim().toLowerCase()] = adm; }
-                });
-
-                let dbDemands = [];
-                const resolvedAdmissionNos = allIds.map(id => idToAdmissionMap[id.toLowerCase()]).filter(Boolean);
-                const uniqueResolvedAdms = [...new Set(resolvedAdmissionNos)];
-                if (uniqueResolvedAdms.length > 0) {
-                    dbDemands = await StudentFee.find({ studentId: { $in: uniqueResolvedAdms } });
-                }
-                const studentDemandsMap = {};
-                dbDemands.forEach(d => {
-                    const sid = d.studentId.trim().toLowerCase();
-                    if (!studentDemandsMap[sid]) studentDemandsMap[sid] = [];
-                    studentDemandsMap[sid].push(d);
-                });
-
-                previewData.forEach(entry => {
-                    const sid = String(entry.displayId).trim().toLowerCase();
-                    const realAdmissionNo = idToAdmissionMap[sid];
-                    if (nameMap[sid]) entry.studentName = nameMap[sid];
-                    if (!realAdmissionNo) return;
-                    const myDemands = studentDemandsMap[String(realAdmissionNo).trim().toLowerCase()] || [];
-                    myDemands.forEach(dbDemand => {
-                        const headId = String(dbDemand.feeHead);
-                        const existingEntryIdx = entry.demands.findIndex(d => String(d.headId) === headId);
-                        if (existingEntryIdx !== -1) {
-                            if (entry.demands[existingEntryIdx].amount !== dbDemand.amount) {
-                                entry.totalDemand -= entry.demands[existingEntryIdx].amount;
-                                entry.demands[existingEntryIdx].amount = dbDemand.amount;
-                                entry.totalDemand += dbDemand.amount;
-                            }
-                        } else {
-                            const headName = allFeeHeads.find(h => String(h._id) === headId)?.name || 'Unknown';
-                            entry.demands.push({ headId, headName, year: dbDemand.studentYear, amount: dbDemand.amount });
-                            entry.totalDemand += dbDemand.amount;
-                        }
-                    });
-                });
-            } catch (err) { console.error(err); }
-        }
-
-        res.json({ message: 'File processed', count: previewData.length, data: previewData });
 };
 
 // @desc Save Bulk Data (Demands and Transactions)
@@ -736,7 +394,7 @@ const saveBulkData = async (req, res) => {
                             feeHead: d.headId,
                             academicYear: stud.batch,
                             studentYear: dYear,
-                            semester: null,
+                            semester: d.semester || 1, // Include Semester!
                             amount: d.amount,
                             college: stud.college,
                             course: stud.course,
@@ -791,6 +449,7 @@ const saveBulkData = async (req, res) => {
                             receiptNumber: p.receipt || '',
                             remarks: p.remarks || `Bulk Upload - Yr ${sYear}`,
                             studentYear: sYear,
+                            semester: p.semester || 1, // Include Semester!
                             collectedBy: user,
                             collectedByName: 'System Bulk Upload'
                         });
@@ -819,8 +478,8 @@ const saveBulkData = async (req, res) => {
             const uniqueDemands = [];
             const demandKeys = new Set();
             newDemands.forEach(d => {
-                // Key: StudentID-FeeHead-Year-Batch
-                const key = `${d.studentId}-${d.feeHead}-${d.studentYear}-${d.academicYear}`;
+                // Key: StudentID-FeeHead-Year-Batch-Semester
+                const key = `${d.studentId}-${d.feeHead}-${d.studentYear}-${d.academicYear}-${d.semester}`;
                 if (!demandKeys.has(key)) {
                     demandKeys.add(key);
                     uniqueDemands.push(d);

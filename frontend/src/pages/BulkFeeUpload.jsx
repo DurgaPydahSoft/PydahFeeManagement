@@ -1,60 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
-import { Upload, FileUp, Save, CheckSquare, Square, Filter, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Download } from 'lucide-react';
+import { Upload, FileUp, Save, CheckSquare, Square, Download, CreditCard, Banknote } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const BulkFeeUpload = () => {
     // Shared State
-    const [metadata, setMetadata] = useState({});
-    const [batches, setBatches] = useState([]);
-
-    // Filters
-    const [filters, setFilters] = useState({
-        college: '',
-        course: '',
-        branch: '',
-        batch: ''
-    });
+    const [uploadType, setUploadType] = useState('PAYMENT'); // 'PAYMENT' or 'DUE'
 
     // Upload & Data State
     const [file, setFile] = useState(null);
-    const [previewData, setPreviewData] = useState([]); // { id, name, pin, totalDemand, totalPaid, demands: [], payments: [] }
-    const [selectedIds, setSelectedIds] = useState([]); // IDs of selected rows
-    const [expandedRows, setExpandedRows] = useState({}); // { index: true/false }
+    const [previewData, setPreviewData] = useState([]);
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [expandedRows, setExpandedRows] = useState({});
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
     const [uploading, setUploading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [downloadingTemplate, setDownloadingTemplate] = useState(false);
-
-    // Metadata Fetching
-    useEffect(() => {
-        fetchMetadata();
-    }, []);
-
-    const fetchMetadata = async () => {
-        try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
-            setMetadata(response.data.hierarchy || response.data);
-            if (response.data.batches) setBatches(response.data.batches);
-        } catch (error) { console.error('Error fetching metadata', error); }
-    };
-
-    // Filter Logic
-    const colleges = Object.keys(metadata);
-    const courses = filters.college ? Object.keys(metadata[filters.college] || {}) : [];
-    const branches = (filters.college && filters.course)
-        ? metadata[filters.college][filters.course]?.branches || []
-        : [];
-
-    const handleFilterChange = (key, value) => {
-        setFilters(prev => {
-            const newFilters = { ...prev, [key]: value };
-            if (key === 'college') { newFilters.course = ''; newFilters.branch = ''; }
-            if (key === 'course') { newFilters.branch = ''; }
-            return newFilters;
-        });
-    };
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
@@ -69,7 +31,7 @@ const BulkFeeUpload = () => {
         setDownloadingTemplate(true);
         try {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/bulk-fee/template`, {
-                responseType: 'blob', // Important
+                responseType: 'blob',
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
@@ -88,8 +50,6 @@ const BulkFeeUpload = () => {
 
     const handleUpload = async () => {
         if (!file) { setError('Please select a file first.'); return; }
-        // Note: We no longer enforce filters strictly here because "Transaction Dump" mode 
-        // (detected by backend) doesn't require them.
 
         setUploading(true);
         setError('');
@@ -97,10 +57,7 @@ const BulkFeeUpload = () => {
 
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('college', filters.college || '');
-        formData.append('course', filters.course || '');
-        formData.append('branch', filters.branch || '');
-        formData.append('batch', filters.batch || '');
+        formData.append('uploadType', uploadType);
 
         try {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/upload`, formData, {
@@ -173,10 +130,11 @@ const BulkFeeUpload = () => {
         }
     };
 
-    // Helper to merge demands and payments for unified view (Individual Transactions)
+    // Helper to merge demands and payments
     const getUnifiedDetails = (row) => {
+        // Different display logic for PAYMENT vs DUE modes? 
+        // For debugging/preview, showing everything is fine.
         const demandsMap = new Map();
-        // 1. Index Demands
         if (row.demands) {
             row.demands.forEach(d => {
                 const key = `${d.headId}-${d.year}`;
@@ -191,26 +149,22 @@ const BulkFeeUpload = () => {
         }
 
         const result = [];
-
-        // 2. Process Payments (Individual Rows)
         if (row.payments) {
             row.payments.forEach(p => {
                 const key = `${p.headId}-${p.year}`;
                 let demandVal = 0;
-
-                // Match with Demand
                 if (demandsMap.has(key)) {
                     const d = demandsMap.get(key);
                     if (!d.matches) {
                         demandVal = d.amount;
-                        d.matches = true; // Mark as displayed
+                        d.matches = true;
                     }
                 }
 
                 result.push({
-                    headId: p.headId,
                     headName: p.headName,
                     year: p.year,
+                    semester: p.semester, // Display sem from payment
                     mode: p.mode,
                     date: p.date,
                     demand: demandVal,
@@ -220,13 +174,12 @@ const BulkFeeUpload = () => {
             });
         }
 
-        // 3. Add Leftover Demands (Unpaid)
-        demandsMap.forEach((d, key) => {
+        demandsMap.forEach((d) => {
             if (!d.matches) {
                 result.push({
-                    headId: d.headId,
                     headName: d.headName,
                     year: d.year,
+                    semester: d.semester, // Display sem from demand
                     mode: '-',
                     date: null,
                     demand: d.amount,
@@ -235,7 +188,6 @@ const BulkFeeUpload = () => {
                 });
             }
         });
-
         return result;
     };
 
@@ -243,64 +195,53 @@ const BulkFeeUpload = () => {
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6 overflow-hidden flex flex-col">
-                <header className="mb-6 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                            <Upload className="text-blue-600" /> Bulk Fee Upload
-                        </h1>
-                        <p className="text-sm text-gray-500 mt-1">Upload Fees & Payments via Excel. Rows expand to show detailed fee breakdown.</p>
-                    </div>
+                <header className="mb-6">
+                    <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <Upload className="text-blue-600" /> Bulk Fee Upload
+                    </h1>
+                    <p className="text-sm text-gray-500 mt-1">Upload Fees via Excel. Switch tabs to choose mode.</p>
                 </header>
 
                 {error && <div className="p-3 bg-red-50 text-red-700 rounded mb-4 border border-red-200">{error}</div>}
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
 
-                {/* 1. Configuration */}
-                <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 mb-6">
-                    <h2 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                        <Filter size={18} /> Configuration
-                    </h2>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 block mb-1">College</label>
-                            <select className="w-full border p-2 rounded text-sm" value={filters.college} onChange={e => handleFilterChange('college', e.target.value)}>
-                                <option value="">Select College</option>
-                                {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 block mb-1">Course</label>
-                            <select className="w-full border p-2 rounded text-sm" value={filters.course} onChange={e => handleFilterChange('course', e.target.value)} disabled={!filters.college}>
-                                <option value="">Select Course</option>
-                                {courses.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 block mb-1">Branch</label>
-                            <select className="w-full border p-2 rounded text-sm" value={filters.branch} onChange={e => handleFilterChange('branch', e.target.value)} disabled={!filters.course}>
-                                <option value="">Select Branch</option>
-                                {branches.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 block mb-1">Batch</label>
-                            <select className="w-full border p-2 rounded text-sm" value={filters.batch} onChange={e => handleFilterChange('batch', e.target.value)}>
-                                <option value="">Select Batch</option>
-                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                    <div className="flex items-end gap-4 border-t pt-4">
+                {/* Tabs */}
+                <div className="flex gap-4 mb-4 border-b">
+                    <button
+                        onClick={() => { setUploadType('PAYMENT'); setPreviewData([]); setFile(null); }}
+                        className={`pb-2 px-4 font-semibold transition flex items-center gap-2 ${uploadType === 'PAYMENT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <CreditCard size={18} /> Payments
+                    </button>
+                    <button
+                        onClick={() => { setUploadType('DUE'); setPreviewData([]); setFile(null); }}
+                        className={`pb-2 px-4 font-semibold transition flex items-center gap-2 ${uploadType === 'DUE' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <Banknote size={18} /> Dues (Demand)
+                    </button>
+                </div>
+
+                {/* Upload Section */}
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+                    <div className="flex items-end gap-6">
                         <div className="flex-1">
-                            <label className="text-xs font-bold text-gray-500 block mb-1">Upload Excel File (.xlsx)</label>
-                            <input type="file" accept=".xlsx, .xls" onChange={handleFileChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                            <label className="text-sm font-bold text-gray-700 block mb-2">
+                                Upload Excel File for {uploadType === 'PAYMENT' ? 'Payments' : 'Dues'}
+                            </label>
+                            <input
+                                type="file"
+                                accept=".xlsx, .xls"
+                                onChange={handleFileChange}
+                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                key={uploadType} // Force reset on tab switch
+                            />
                         </div>
                         <button
                             onClick={handleDownloadTemplate}
                             disabled={downloadingTemplate}
-                            className={`flex items-center gap-2 px-4 py-2 rounded font-bold text-gray-700 border bg-white hover:bg-gray-50 transition mr-2`}
+                            className="flex items-center gap-2 px-4 py-2 rounded font-bold text-gray-700 border bg-white hover:bg-gray-50 transition"
                         >
-                            {downloadingTemplate ? 'Generating...' : <><Download size={18} /> Download Template</>}
+                            <Download size={18} /> Template
                         </button>
                         <button
                             onClick={handleUpload}
@@ -312,11 +253,11 @@ const BulkFeeUpload = () => {
                     </div>
                 </div>
 
-                {/* 2. Preview Table */}
+                {/* Preview Table */}
                 {previewData.length > 0 && (
                     <div className="flex-1 bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                         <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                            <h3 className="font-bold text-gray-700">Preview Data ({previewData.length} records)</h3>
+                            <h3 className="font-bold text-gray-700">Preview ({uploadType} Mode) - {previewData.length} records</h3>
                             <button
                                 onClick={handleSave}
                                 disabled={saving || selectedIds.length === 0}
@@ -337,71 +278,58 @@ const BulkFeeUpload = () => {
                                         </th>
                                         <th className="p-3 font-semibold text-gray-600">Student Name</th>
                                         <th className="p-3 font-semibold text-gray-600">Pin / Admission</th>
-                                        <th className="p-3 font-semibold text-gray-600 text-right">Total Paid</th>
-                                        <th className="p-3 font-semibold text-gray-600 w-24 text-center">Details</th>
+                                        <th className="p-3 font-semibold text-gray-600 text-right">
+                                            {uploadType === 'PAYMENT' ? 'Total Paid' : 'Total Demand'}
+                                        </th>
+                                        <th className="p-3 font-semibold text-gray-600 text-center">Batch Match</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
                                     {previewData.map((row, index) => (
                                         <React.Fragment key={index}>
-                                            <tr
-                                                className={`hover:bg-blue-50 transition cursor-pointer ${selectedIds.includes(index) ? 'bg-blue-50/50' : 'bg-white'}`}
-                                                onClick={() => toggleRow(index)}
-                                            >
+                                            <tr className={`hover:bg-blue-50 transition cursor-pointer ${selectedIds.includes(index) ? 'bg-blue-50/50' : 'bg-white'}`} onClick={() => toggleRow(index)}>
                                                 <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                                                     <button onClick={() => handleSelectRow(index)} className={`${selectedIds.includes(index) ? 'text-blue-600' : 'text-gray-400'}`}>
                                                         {selectedIds.includes(index) ? <CheckSquare size={18} /> : <Square size={18} />}
                                                     </button>
                                                 </td>
                                                 <td className="p-3 font-medium text-gray-800">{row.studentName}</td>
-                                                <td className="p-3 font-mono text-gray-600">{row.pinNumber || row.admissionNumber}</td>
-                                                <td className="p-3 text-right font-bold text-green-700">₹{(row.totalPaid || 0).toLocaleString()}</td>
+                                                <td className="p-3 font-mono text-gray-600">{row.pinNumber || row.admissionNumber || row.displayId}</td>
+                                                <td className={`p-3 text-right font-bold ${uploadType === 'PAYMENT' ? 'text-green-700' : 'text-orange-700'}`}>
+                                                    ₹{(uploadType === 'PAYMENT' ? row.totalPaid : row.totalDemand).toLocaleString()}
+                                                </td>
                                                 <td className="p-3 text-center">
-                                                    <button
-                                                        className="text-gray-400 hover:text-blue-600 transition p-1 rounded-full hover:bg-blue-100"
-                                                    >
-                                                        {expandedRows[index] ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                                                    </button>
+                                                    {row.admissionNumber ? <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">Found</span> : <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Not Found</span>}
                                                 </td>
                                             </tr>
                                             {expandedRows[index] && (
                                                 <tr className="bg-gray-50">
                                                     <td colSpan="5" className="p-4 border-b inner-shadow">
                                                         <div className="bg-white border rounded-md shadow-sm overflow-hidden max-w-4xl mx-auto">
-                                                            <div className="bg-gray-100 px-4 py-2 border-b flex justify-between items-center">
-                                                                <span className="font-bold text-xs text-gray-600 uppercase">Fee Details & Transactions</span>
-                                                                <span className="text-xs text-gray-500">
-                                                                    Demand: <span className="font-bold text-gray-700">₹{row.totalDemand.toLocaleString()}</span> |
-                                                                    Paid: <span className="font-bold text-green-700">₹{row.totalPaid.toLocaleString()}</span>
-                                                                </span>
-                                                            </div>
                                                             <table className="w-full text-sm text-left">
-                                                                <thead className="bg-gray-50 text-xs text-gray-500 uppercase border-b">
+                                                                <thead className="bg-gray-100 text-xs text-gray-500 uppercase border-b">
                                                                     <tr>
-                                                                        <th className="px-4 py-2">Fee Head</th>
+                                                                        <th className="px-4 py-2">Head</th>
                                                                         <th className="px-4 py-2">Year</th>
+                                                                        <th className="px-4 py-2">Sem</th>
                                                                         <th className="px-4 py-2">Date</th>
-                                                                        <th className="px-4 py-2 text-right">Demand (Fee)</th>
-                                                                        <th className="px-4 py-2 text-right">Paid Amount</th>
-                                                                        <th className="px-4 py-2 text-center">Mode</th>
+                                                                        <th className="px-4 py-2 text-right">Demand</th>
+                                                                        <th className="px-4 py-2 text-right">Paid</th>
+                                                                        <th className="px-4 py-2">Remarks</th>
                                                                     </tr>
                                                                 </thead>
-                                                                <tbody className="divide-y divide-gray-100">
+                                                                <tbody>
                                                                     {getUnifiedDetails(row).map((d, i) => (
-                                                                        <tr key={i} className="hover:bg-gray-50">
-                                                                            <td className="px-4 py-2 font-medium text-gray-800">{d.headName}</td>
-                                                                            <td className="px-4 py-2 text-gray-600">Year {d.year}</td>
-                                                                            <td className="px-4 py-2 text-gray-600 text-xs">
-                                                                                {d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'}
-                                                                            </td>
-                                                                            <td className="px-4 py-2 text-right font-mono text-gray-700">{d.demand > 0 ? `₹${d.demand.toLocaleString()}` : '-'}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono text-green-700">{d.paid > 0 ? `₹${d.paid.toLocaleString()}` : '-'}</td>
-                                                                            <td className="px-4 py-2 text-center text-xs text-gray-500">{d.mode}</td>
+                                                                        <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                                                                            <td className="px-4 py-2 font-medium">{d.headName}</td>
+                                                                            <td className="px-4 py-2">{d.year}</td>
+                                                                            <td className="px-4 py-2">{d.semester || '-'}</td>
+                                                                            <td className="px-4 py-2 text-xs">{d.date ? new Date(d.date).toLocaleDateString() : '-'}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono">{d.demand > 0 ? d.demand : '-'}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono text-green-700">{d.paid > 0 ? d.paid : '-'}</td>
+                                                                            <td className="px-4 py-2 text-xs text-gray-500">{d.remarks}</td>
                                                                         </tr>
                                                                     ))}
-                                                                    {getUnifiedDetails(row).length === 0 && (
-                                                                        <tr><td colSpan="5" className="p-3 text-center text-gray-400 text-xs">No fee details found for this student.</td></tr>
-                                                                    )}
                                                                 </tbody>
                                                             </table>
                                                         </div>
