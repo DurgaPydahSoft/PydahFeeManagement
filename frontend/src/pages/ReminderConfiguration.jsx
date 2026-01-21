@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import axios from 'axios';
-import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity } from 'lucide-react';
+import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity } from 'lucide-react';
 
 const ReminderConfiguration = () => {
     // Top Level Mode: 'CONFIG' or 'SEND' or 'CALENDAR'
@@ -40,6 +40,36 @@ const ReminderConfiguration = () => {
     const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
     const [calendarFilters, setCalendarFilters] = useState({ course: '' });
 
+    // --- TIMELY MODE STATE ---
+    const [configs, setConfigs] = useState([]);
+    const [isScheduling, setIsScheduling] = useState(false);
+    const [configForm, setConfigForm] = useState({
+        college: '',
+        course: '',
+        branch: '',
+        academicYear: '',
+        yearOfStudy: '',
+        semester: 'BOTH',
+        eventType: 'START_DATE',
+        triggerType: 'BEFORE',
+        offsets: [],
+        currentOffsetInput: '',
+        smsTemplateId: '',
+        emailTemplateId: '',
+        enableSMS: true,
+        enableSMS: true,
+        enableEmail: false
+    });
+
+    // Filters for Active Rules List
+    const [ruleFilters, setRuleFilters] = useState({
+        college: '',
+        course: '',
+        academicYear: ''
+    });
+
+    const [editingConfigId, setEditingConfigId] = useState(null); // Track which rule is being edited
+
     const filteredCalendarData = React.useMemo(() => {
         return academicYears.filter(item =>
             !calendarFilters.course || item.course_name === calendarFilters.course
@@ -66,6 +96,12 @@ const ReminderConfiguration = () => {
         fetchMetadata();
         fetchAcademicYears();
     }, []);
+
+    useEffect(() => {
+        if (mode === 'TIMELY') {
+            fetchConfigs();
+        }
+    }, [mode]);
 
     const fetchAcademicYears = async () => {
         setIsFetchingCalendar(true);
@@ -254,6 +290,7 @@ const ReminderConfiguration = () => {
             });
             alert('Reminders Sent Successfully!');
             setSelectedStudents([]);
+            setSendTemplateId('');
         } catch (error) {
             console.error(error);
             alert('Failed to send reminders.');
@@ -262,7 +299,146 @@ const ReminderConfiguration = () => {
         }
     };
 
+    // --- TIMELY HANDLERS ---
+    const fetchConfigs = async () => {
+        try {
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/config`);
+            setConfigs(res.data);
+        } catch (error) {
+            console.error('Failed to fetch configs', error);
+        }
+    };
+
+    const handleConfigSubmit = async () => {
+        const { college, course, academicYear, yearOfStudy, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId } = configForm;
+
+        if (!college || !course || !academicYear || !yearOfStudy || offsets.length === 0) {
+            return alert("College, Course, Academic Year, Year of Study, and at least ONE Offset are required.");
+        }
+        if (!enableSMS && !enableEmail) {
+            return alert("Please select at least one channel (SMS or Email).");
+        }
+        if (enableSMS && !smsTemplateId) return alert("Please select an SMS Template.");
+        if (enableEmail && !emailTemplateId) return alert("Please select an Email Template.");
+
+        setIsScheduling(true);
+        try {
+            // Only send the templates for enabled channels
+            const payload = {
+                ...configForm,
+                smsTemplateId: enableSMS ? smsTemplateId : null,
+                emailTemplateId: enableEmail ? emailTemplateId : null
+            };
+
+            if (editingConfigId) {
+                await axios.put(`${import.meta.env.VITE_API_URL}/api/reminders/config/${editingConfigId}`, payload);
+                alert('Rule Updated Successfully!');
+                setEditingConfigId(null);
+            } else {
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/reminders/config`, payload);
+                alert('Rule Saved Successfully!');
+            }
+
+            // Proper Reset
+            setConfigForm({
+                college: '',
+                course: '',
+                branch: '',
+                academicYear: '',
+                yearOfStudy: '',
+                semester: 'BOTH',
+                eventType: 'START_DATE',
+                triggerType: 'BEFORE',
+                offsets: [],
+                currentOffsetInput: '',
+                smsTemplateId: '',
+                emailTemplateId: '',
+                enableSMS: true,
+                enableEmail: false
+            });
+            fetchConfigs();
+        } catch (error) {
+            console.error(error);
+            alert('Failed to save rule.');
+        } finally {
+            setIsScheduling(false);
+        }
+    };
+
+    const handleDeleteConfig = async (id) => {
+        if (!window.confirm("Delete this rule?")) return;
+        try {
+            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/config/${id}`);
+            fetchConfigs();
+        } catch (error) {
+            console.error("Failed to delete", error);
+            alert("Failed to delete");
+        }
+    };
+
+    const handleEditConfig = (cfg) => {
+        setEditingConfigId(cfg._id);
+        setConfigForm({
+            college: cfg.college,
+            course: cfg.course,
+            branch: cfg.branch || '',
+            academicYear: cfg.academicYear,
+            yearOfStudy: cfg.yearOfStudy,
+            semester: cfg.semester,
+            eventType: cfg.eventType,
+            triggerType: cfg.triggerType,
+            offsets: cfg.offsets || [],
+            currentOffsetInput: '',
+            smsTemplateId: cfg.smsTemplateId?._id || '',
+            emailTemplateId: cfg.emailTemplateId?._id || '',
+            enableSMS: !!cfg.smsTemplateId,
+            enableEmail: !!cfg.emailTemplateId
+        });
+    };
+
+    const cancelEdit = () => {
+        setEditingConfigId(null);
+        setConfigForm({
+            college: '',
+            course: '',
+            branch: '',
+            academicYear: '',
+            yearOfStudy: '',
+            semester: 'BOTH',
+            eventType: 'START_DATE',
+            triggerType: 'BEFORE',
+            offsets: [],
+            currentOffsetInput: '',
+            smsTemplateId: '',
+            emailTemplateId: '',
+            enableSMS: true,
+            enableEmail: false
+        });
+    };
+
+    // Extract Unique Academic Years for Dropdown
+    const uniqueAcademicYears = [...new Set(academicYears.map(ay => ay.year_label))];
+
+    const addOffset = () => {
+        if (configForm.currentOffsetInput && !configForm.offsets.includes(Number(configForm.currentOffsetInput))) {
+            setConfigForm(prev => ({
+                ...prev,
+                offsets: [...prev.offsets, Number(prev.currentOffsetInput)].sort((a, b) => a - b),
+                currentOffsetInput: ''
+            }));
+        }
+    };
+
+    const removeOffset = (val) => {
+        setConfigForm(prev => ({
+            ...prev,
+            offsets: prev.offsets.filter(o => o !== val)
+        }));
+    };
+
     // Filtered templates for dropdown
+    const smsTemplates = templates.filter(t => t.type === 'SMS');
+    const emailTemplates = templates.filter(t => t.type === 'EMAIL');
     const sendTemplates = templates.filter(t => t.type === sendType);
     const currentTemplates = templates.filter(t => t.type === activeTab);
 
@@ -292,6 +468,12 @@ const ReminderConfiguration = () => {
                             className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'SEND' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
                         >
                             Send Reminders
+                        </button>
+                        <button
+                            onClick={() => setMode('TIMELY')}
+                            className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'TIMELY' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Timely Reminders
                         </button>
                         <button
                             onClick={() => { setMode('CALENDAR'); fetchAcademicYears(); }}
@@ -451,6 +633,361 @@ const ReminderConfiguration = () => {
                                         {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                                         {editingTemplate ? 'Update Template' : 'Save Template'}
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- TIMELY MODE --- */}
+                    {mode === 'TIMELY' && (
+                        <div className="w-full h-full flex gap-6">
+                            {/* Left: Configuration Form */}
+                            <div className="w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm p-6 overflow-y-auto">
+                                <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                    <Clock className="text-blue-600" size={20} /> Configure Reminder Rule
+                                </h2>
+
+                                <div className="space-y-5">
+                                    {/* Filters */}
+                                    <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                        <h4 className="text-xs font-black uppercase text-gray-400">Target Group</h4>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">College</label>
+                                            <select
+                                                className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                value={configForm.college}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    setConfigForm({ ...configForm, college: val, course: '', branch: '' });
+                                                }}
+                                            >
+                                                <option value="">Select College</option>
+                                                {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        {configForm.college && (
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Course</label>
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                    value={configForm.course}
+                                                    onChange={e => setConfigForm({ ...configForm, course: e.target.value, branch: '' })}
+                                                >
+                                                    <option value="">Select Course</option>
+                                                    {Object.keys(metadata[configForm.college] || {}).map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+                                        {configForm.course && (
+                                            <>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Branch (Optional)</label>
+                                                    <select
+                                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                        value={configForm.branch}
+                                                        onChange={e => setConfigForm(prev => ({ ...prev, branch: e.target.value }))}
+                                                    >
+                                                        <option value="">All Branches</option>
+                                                        {(metadata[configForm.college]?.[configForm.course]?.branches || []).map(b => <option key={b} value={b}>{b}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Academic Year</label>
+                                                    <select
+                                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                        value={configForm.academicYear}
+                                                        onChange={e => setConfigForm(prev => ({ ...prev, academicYear: e.target.value }))}
+                                                    >
+                                                        <option value="">Select AY</option>
+                                                        {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <div className="flex-1">
+                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Year of Study</label>
+                                                        <select
+                                                            className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                            value={configForm.yearOfStudy}
+                                                            onChange={e => setConfigForm(prev => ({ ...prev, yearOfStudy: e.target.value }))}
+                                                        >
+                                                            <option value="">Select Year</option>
+                                                            {[1, 2, 3, 4].map(y => <option key={y} value={y}>{y}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Semester</label>
+                                                        <select
+                                                            className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                            value={configForm.semester}
+                                                            onChange={e => setConfigForm(prev => ({ ...prev, semester: e.target.value }))}
+                                                        >
+                                                            <option value="BOTH">Both</option>
+                                                            <option value="1">Sem 1</option>
+                                                            <option value="2">Sem 2</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {/* Offset Logic */}
+                                    <div className="space-y-4">
+                                        <h4 className="text-xs font-black uppercase text-gray-400">Trigger Logic</h4>
+                                        <div className="flex gap-2 items-end">
+                                            <div className="w-32 shrink-0">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Add Offset (Days)</label>
+                                                <div className="flex gap-1">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm font-bold"
+                                                        placeholder="e.g. 1"
+                                                        value={configForm.currentOffsetInput}
+                                                        onChange={e => setConfigForm({ ...configForm, currentOffsetInput: e.target.value })}
+                                                        onKeyDown={e => e.key === 'Enter' && addOffset()}
+                                                    />
+                                                    <button onClick={addOffset} className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-3 font-bold">+</button>
+                                                </div>
+                                            </div>
+                                            <div className="w-24 shrink-0">
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
+                                                    value={configForm.triggerType}
+                                                    onChange={e => setConfigForm({ ...configForm, triggerType: e.target.value })}
+                                                >
+                                                    <option value="BEFORE">BEFORE</option>
+                                                    <option value="AFTER">AFTER</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex-1">
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
+                                                    value={configForm.eventType}
+                                                    onChange={e => setConfigForm({ ...configForm, eventType: e.target.value })}
+                                                >
+                                                    <option value="START_DATE">Semester Start</option>
+                                                    <option value="END_DATE">Semester End</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {/* Selected Offsets Tags */}
+                                        <div className="flex flex-wrap gap-2">
+                                            {configForm.offsets.map(offset => (
+                                                <span key={offset} className="px-3 py-1 bg-gray-800 text-white rounded-full text-xs font-bold flex items-center gap-1.5">
+                                                    {offset} Days
+                                                    <button onClick={() => removeOffset(offset)} className="bg-gray-600 rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-500 text-[9px] transition">×</button>
+                                                </span>
+                                            ))}
+                                            {configForm.offsets.length === 0 && <span className="text-xs text-gray-400 italic">No offsets added.</span>}
+                                        </div>
+
+                                        {/* Inline Date Preview */}
+                                        {configForm.academicYear && configForm.yearOfStudy && configForm.semester !== 'BOTH' && (
+                                            (() => {
+                                                const match = academicYears.find(ay =>
+                                                    ay.course_name === configForm.course &&
+                                                    ay.year_label === configForm.academicYear &&
+                                                    Number(ay.year_of_study) === Number(configForm.yearOfStudy) &&
+                                                    String(ay.semester_number) === String(configForm.semester)
+                                                );
+
+                                                if (match) {
+                                                    const targetDate = configForm.eventType === 'START_DATE' ? match.start_date : match.end_date;
+                                                    const dateObj = new Date(targetDate);
+                                                    return (
+                                                        <div className="mt-4 text-[10px] text-blue-600 font-bold bg-blue-50 p-2 rounded border border-blue-100 flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-1">
+                                                                <Calendar size={12} />
+                                                                <span>{configForm.eventType === 'START_DATE' ? 'Semester Start' : 'Semester End'} Date:</span>
+                                                            </div>
+                                                            <span className="text-sm bg-white px-2 py-0.5 rounded border border-blue-100 shadow-sm">{dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                                        </div>
+                                                    );
+                                                }
+                                                return (
+                                                    <div className="mt-4 text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded border border-red-100 text-center">
+                                                        Date not found in Academic Calendar
+                                                    </div>
+                                                );
+                                            })()
+                                        )}
+                                        <div className="text-[10px] text-gray-500 leading-tight bg-blue-50 p-2 rounded border border-blue-100 italic">
+                                            Example: "3 Days BEFORE Semester Start" means messages will send 3 days prior to the start date found in the calendar.
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                        <h4 className="text-xs font-black uppercase text-gray-400">Message Channels</h4>
+
+                                        <div className="flex gap-4">
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                    checked={configForm.enableSMS}
+                                                    onChange={e => setConfigForm({ ...configForm, enableSMS: e.target.checked })}
+                                                />
+                                                <span className="text-xs font-bold text-gray-700">Send SMS</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                    checked={configForm.enableEmail}
+                                                    onChange={e => setConfigForm({ ...configForm, enableEmail: e.target.checked })}
+                                                />
+                                                <span className="text-xs font-bold text-gray-700">Send Email</span>
+                                            </label>
+                                        </div>
+
+                                        {configForm.enableSMS && (
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">SMS Template</label>
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                    value={configForm.smsTemplateId}
+                                                    onChange={e => setConfigForm({ ...configForm, smsTemplateId: e.target.value })}
+                                                >
+                                                    <option value="">Select SMS Template</option>
+                                                    {smsTemplates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+
+                                        {configForm.enableEmail && (
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email Template</label>
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                    value={configForm.emailTemplateId}
+                                                    onChange={e => setConfigForm({ ...configForm, emailTemplateId: e.target.value })}
+                                                >
+                                                    <option value="">Select Email Template</option>
+                                                    {emailTemplates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+
+
+
+                                    <div className="flex gap-2">
+                                        {editingConfigId && (
+                                            <button
+                                                onClick={cancelEdit}
+                                                className="flex-1 py-3 rounded-xl bg-gray-200 text-gray-600 font-bold hover:bg-gray-300 transition"
+                                            >
+                                                Cancel
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={handleConfigSubmit}
+                                            disabled={isScheduling}
+                                            className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition flex justify-center items-center gap-2"
+                                        >
+                                            {isScheduling ? <Loader2 size={16} className="animate-spin" /> : (editingConfigId ? <Save size={16} /> : <Save size={16} />)}
+                                            {editingConfigId ? 'Update Rule' : 'Save Rule'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right: Active Configs List */}
+                            <div className="flex-1 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                                <div className="p-4 border-b border-gray-100 bg-gray-50/50 space-y-3">
+                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                        <Activity className="text-blue-600" size={18} /> Active Reminder Rules
+                                    </h3>
+                                    {/* Filters */}
+                                    <div className="flex gap-2">
+                                        <select
+                                            className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]"
+                                            value={ruleFilters.college}
+                                            onChange={e => setRuleFilters({ ...ruleFilters, college: e.target.value })}
+                                        >
+                                            <option value="">Filter College</option>
+                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                        <select
+                                            className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]"
+                                            value={ruleFilters.course}
+                                            onChange={e => setRuleFilters({ ...ruleFilters, course: e.target.value })}
+                                        >
+                                            <option value="">Filter Course</option>
+                                            {(ruleFilters.college ? Object.keys(metadata[ruleFilters.college] || {}) : []).map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                        <select
+                                            className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]"
+                                            value={ruleFilters.academicYear}
+                                            onChange={e => setRuleFilters({ ...ruleFilters, academicYear: e.target.value })}
+                                        >
+                                            <option value="">Filter AY</option>
+                                            {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                    {configs
+                                        .filter(cfg => !ruleFilters.college || cfg.college === ruleFilters.college)
+                                        .filter(cfg => !ruleFilters.course || cfg.course === ruleFilters.course)
+                                        .filter(cfg => !ruleFilters.academicYear || cfg.academicYear === ruleFilters.academicYear)
+                                        .length === 0 ? (
+                                        <div className="text-center text-gray-400 mt-20">
+                                            <Activity size={48} className="mx-auto mb-4 opacity-20" />
+                                            <p className="text-sm">No active configurations found.</p>
+                                        </div>
+                                    ) : (
+                                        configs
+                                            .filter(cfg => !ruleFilters.college || cfg.college === ruleFilters.college)
+                                            .filter(cfg => !ruleFilters.course || cfg.course === ruleFilters.course)
+                                            .filter(cfg => !ruleFilters.academicYear || cfg.academicYear === ruleFilters.academicYear)
+                                            .map(cfg => (
+                                                <div key={cfg._id} className={`p-4 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:shadow-sm transition group relative flex justify-between items-center ${editingConfigId === cfg._id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
+                                                                {cfg.offsets?.join(', ')} DAYS {cfg.triggerType}
+                                                            </span>
+                                                            <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                                                                {cfg.eventType.replace('_', ' ')} {cfg.semester !== 'BOTH' && `(SEM ${cfg.semester})`}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Detail Table-like View */}
+                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
+                                                            <div><span className="font-bold text-gray-400">AY:</span> {cfg.academicYear}</div>
+                                                            <div><span className="font-bold text-gray-400">Year:</span> {cfg.yearOfStudy}</div>
+                                                            <div><span className="font-bold text-gray-400">Course:</span> {cfg.course}</div>
+                                                            <div><span className="font-bold text-gray-400">College:</span> {cfg.college}</div>
+                                                        </div>
+
+                                                        <div className="text-xs text-gray-500 mt-1 flex flex-col gap-0.5 border-t border-gray-50 pt-1">
+                                                            {cfg.smsTemplateId && <div>📱 SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name}</span></div>}
+                                                            {cfg.emailTemplateId && <div>📧 Email: <span className="font-medium text-gray-700">{cfg.emailTemplateId?.name}</span></div>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col gap-1 ml-4">
+                                                        <button
+                                                            onClick={() => handleEditConfig(cfg)}
+                                                            className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                                                            title="Edit Rule"
+                                                        >
+                                                            <Edit size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteConfig(cfg._id)}
+                                                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                                                            title="Delete Rule"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                    )}
                                 </div>
                             </div>
                         </div>

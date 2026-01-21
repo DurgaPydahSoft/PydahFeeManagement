@@ -17,6 +17,9 @@ sqlPool.query('SELECT 1')
 const { verifyS3Connection } = require('./utils/s3Upload');
 verifyS3Connection();
 
+const { initScheduler } = require('./services/scheduler');
+initScheduler();
+
 const app = express();
 
 // Middleware
