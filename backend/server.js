@@ -5,9 +5,11 @@ dotenv.config();
 
 const cors = require('cors');
 const connectDB = require('./config/db');
+const { connectHostelDB } = require('./config/dbHostel');
 const sqlPool = require('./config/sqlDb');
 
 connectDB();
+connectHostelDB();
 
 // Test SQL Connection
 sqlPool.query('SELECT 1')
@@ -36,6 +38,7 @@ app.use('/api/transactions', require('./routes/transactionRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/transport', require('./routes/transportRoutes'));
+app.use('/api/hostels', require('./routes/hostelRoutes'));
 app.use('/api/payment-config', require('./routes/paymentConfigRoutes'));
 app.use('/api/reminders', require('./routes/reminderRoutes'));
 app.use('/api/bulk-fee', require('./routes/bulkFeeRoutes'));

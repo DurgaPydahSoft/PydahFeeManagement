@@ -21,7 +21,8 @@ const UserManagement = () => {
         { name: 'Fee Collection', path: '/fee-collection' },
         { name: 'Reports', path: '/reports' },
         { name: 'Due Reports', path: '/due-reports' },
-        { name: 'Concession Management', path: '/concessions' }, // Added for user access management
+        { name: 'Concession Management', path: '/concessions' },
+        { name: 'Hostel Config', path: '/hostel-config' },
     ];
 
     // Form State

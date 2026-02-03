@@ -8,6 +8,7 @@ import Students from './pages/Students';
 import FeeCollection from './pages/FeeCollection';
 import UserManagement from './pages/UserManagement';
 import TransportConfiguration from './pages/TransportConfiguration';
+import HostelConfiguration from './pages/HostelConfiguration';
 import PaymentConfiguration from './pages/PaymentConfiguration';
 import ReminderConfiguration from './pages/ReminderConfiguration';
 import BulkFeeUpload from './pages/BulkFeeUpload';
@@ -33,6 +34,7 @@ function App() {
         <Route path="/due-reports" element={<DueReports />} />
         <Route path="/user-management" element={<UserManagement />} />
         <Route path="/transport-config" element={<TransportConfiguration />} />
+        <Route path="/hostel-config" element={<HostelConfiguration />} />
         <Route path="/payment-config" element={<PaymentConfiguration />} />
         <Route path="/reminders" element={<ReminderConfiguration />} />
         <Route path="/reminders" element={<ReminderConfiguration />} />

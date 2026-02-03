@@ -89,10 +89,21 @@ const getStudentMetadata = async (req, res) => {
       }
     });
 
+    // Course → total_years from courses table (SQL schema: courses.total_years) – dynamic per course
+    const [courseRows] = await db.query(
+      'SELECT name, total_years FROM courses WHERE is_active = 1 AND name IS NOT NULL AND name != ""'
+    );
+    const courseYears = {};
+    courseRows.forEach((r) => {
+      const years = r.total_years != null ? Number(r.total_years) : 4;
+      if (r.name && !(r.name in courseYears)) courseYears[r.name] = Math.max(1, Math.min(years, 10));
+    });
+
     res.json({
       hierarchy,
       batches: batchList,
-      categories: categoryList
+      categories: categoryList,
+      courseYears
     });
   } catch (error) {
     console.error('Error fetching metadata:', error);
