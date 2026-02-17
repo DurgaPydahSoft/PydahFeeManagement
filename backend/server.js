@@ -6,10 +6,12 @@ dotenv.config();
 const cors = require('cors');
 const connectDB = require('./config/db');
 const { connectHostelDB } = require('./config/dbHostel');
+const { connectEmployeeDB } = require('./config/dbEmployee'); // [NEW]
 const sqlPool = require('./config/sqlDb');
 
 connectDB();
 connectHostelDB();
+connectEmployeeDB(); // [NEW]
 
 // Test SQL Connection
 sqlPool.query('SELECT 1')
@@ -44,6 +46,7 @@ app.use('/api/reminders', require('./routes/reminderRoutes'));
 app.use('/api/bulk-fee', require('./routes/bulkFeeRoutes'));
 app.use('/api/concessions', require('./routes/concessionRoutes'));
 app.use('/api/permissions', require('./routes/permissionRoutes'));
+app.use('/api/employees', require('./routes/employeeRoutes')); // [NEW]
 
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });

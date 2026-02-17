@@ -14,21 +14,61 @@ const generateToken = (id) => {
 const loginUser = async (req, res) => {
   const { username, password } = req.body;
 
-  // Check for user username
-  const user = await User.findOne({ username });
+  try {
+    // Check for user
+    const user = await User.findOne({ username });
 
-  if (user && (await bcrypt.compare(password, user.password))) {
-    res.json({
-      _id: user.id,
-      name: user.name,
-      username: user.username,
-      role: user.role,
-      college: user.college,
-      permissions: user.permissions,
-      token: generateToken(user._id),
-    });
-  } else {
-    res.status(400).json({ message: 'Invalid credentials' });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    let isMatch = false;
+
+    if (user.employeeId) {
+      // User is linked to an Employee (Staff)
+      // Verify password against Employee DB
+      const getEmployeeModel = require('../models/Employee');
+      const Employee = getEmployeeModel();
+      
+      if (Employee) {
+        // Find employee by emp_no (which matches username) or employeeId
+        // The user.username is set to emp_no for linked users
+        const employee = await Employee.findOne({ emp_no: user.username }).select('password');
+        
+        if (employee && employee.password) {
+           // Direct string comparison for now as per request implying "existing password"
+           // If the external DB uses bcrypt, we should use bcrypt.compare. 
+           // Assuming bcrypt since it looks like a standard auth field in the provided JSON "$2b$12$..."
+           isMatch = await bcrypt.compare(password, employee.password);
+        }
+      } else {
+        console.error("Employee DB not connected during login check");
+        return res.status(503).json({ message: 'Authentication service unavailable' });
+      }
+
+    } else {
+      // Legacy User (Super Admin / Admin created locally)
+      if (user.password) {
+        isMatch = await bcrypt.compare(password, user.password);
+      }
+    }
+
+    if (isMatch) {
+      res.json({
+        _id: user.id,
+        name: user.name,
+        username: user.username,
+        role: user.role,
+        college: user.college,
+        permissions: user.permissions,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(400).json({ message: 'Invalid credentials' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server Error' });
   }
 };
 

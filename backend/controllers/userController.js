@@ -17,10 +17,15 @@ const getUsers = async (req, res) => {
 // @route   POST /api/users
 // @access  Admin
 const createUser = async (req, res) => {
-  const { name, username, password, role, college } = req.body;
+  const { name, username, password, role, college, employeeId } = req.body;
 
-  if (!name || !username || !password || !role) {
+  // Validation: Password is required only if NOT linked to an employee
+  if (!name || !username || !role) {
     return res.status(400).json({ message: 'Please fill all required fields' });
+  }
+
+  if (!employeeId && !password) {
+     return res.status(400).json({ message: 'Password is required for local users' });
   }
 
   try {
@@ -30,16 +35,21 @@ const createUser = async (req, res) => {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    let hashedPassword = undefined;
+
+    // Hash password ONLY if it's a local user
+    if (!employeeId && password) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(password, salt);
+    }
 
     const user = await User.create({
       name,
       username,
-      password: hashedPassword,
+      password: hashedPassword, // Will be undefined for employee-linked users
       role,
-      college
+      college,
+      employeeId // Link to external employee
     });
 
     if (user) {
@@ -48,7 +58,8 @@ const createUser = async (req, res) => {
         name: user.name,
         username: user.username,
         role: user.role,
-        college: user.college
+        college: user.college,
+        employeeId: user.employeeId
       });
     } else {
       res.status(400).json({ message: 'Invalid user data' });
@@ -115,11 +126,17 @@ const updateUser = async (req, res) => {
     }
 
     user.name = name || user.name;
-    user.username = username || user.username;
+    
+    // Only allow changing username if NOT linked to an employee
+    if (!user.employeeId) {
+       user.username = username || user.username;
+    }
+    
     user.role = role || user.role;
     user.college = college === '' ? '' : (college || user.college); // Allow clearing college
 
-    if (password) {
+    // Only allow changing password if NOT linked to an employee
+    if (password && !user.employeeId) {
       const salt = await bcrypt.genSalt(10);
       user.password = await bcrypt.hash(password, salt);
     }

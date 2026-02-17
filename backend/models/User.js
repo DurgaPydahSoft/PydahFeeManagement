@@ -12,7 +12,11 @@ const userSchema = mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
+    // Password is now optional because it might come from the Employee DB
+  },
+  employeeId: {
+    type: String, // Storing as String to match whatever ID format comes from external DB, or ObjectId if preferred
+    ref: 'Employee',
   },
   role: {
     type: String,

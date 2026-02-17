@@ -32,8 +32,47 @@ const UserManagement = () => {
         username: '',
         password: '',
         role: 'office_staff',
-        college: ''
+        college: '',
+        employeeId: null // [NEW] Link to employee
     });
+
+    // Employee Search State
+    const [searchResults, setSearchResults] = useState([]);
+
+    const handleEmployeeSearch = async (e) => {
+        const query = e.target.value;
+        if (query.length > 2) {
+            try {
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/employees/search?name=${query}`);
+                setSearchResults(res.data);
+            } catch (error) {
+                console.error("Search failed", error);
+            }
+        } else {
+            setSearchResults([]);
+        }
+    };
+
+    const selectEmployee = (emp) => {
+        setFormData({
+            ...formData,
+            name: emp.employee_name,
+            username: emp.emp_no,
+            employeeId: emp._id, // Store ID for backend linking
+            password: '' // Clear password as it's not needed
+        });
+        setSearchResults([]);
+    };
+
+    const clearSelectedEmployee = () => {
+        setFormData({
+            ...formData,
+            name: '',
+            username: '',
+            employeeId: null,
+            password: ''
+        });
+    };
 
     useEffect(() => {
         fetchUsers();
@@ -92,14 +131,15 @@ const UserManagement = () => {
             username: user.username,
             password: '', // Don't prefill password
             role: user.role,
-            college: user.college || ''
+            college: user.college || '',
+            employeeId: user.employeeId || null
         });
         setEditingUserId(user._id);
         window.scrollTo(0, 0);
     };
 
     const handleCancelEdit = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', college: '' });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', college: '', employeeId: null });
         setEditingUserId(null);
     };
 
@@ -193,26 +233,95 @@ const UserManagement = () => {
                                 {message && <div className={`p-2 mb-4 text-sm rounded ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
 
                                 <form onSubmit={handleSubmit} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase">Full Name</label>
-                                        <input name="name" value={formData.name} onChange={handleChange} className="w-full border p-2 rounded mt-1" required />
+                                    {/* Employee Search / Name Input */}
+                                    <div className="relative">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Employee Name</label>
+
+                                        {!formData.employeeId ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    className="w-full border p-2 rounded mt-1"
+                                                    placeholder="Search employee by name..."
+                                                    onChange={handleEmployeeSearch}
+                                                />
+                                                {/* Search Results Dropdown */}
+                                                {searchResults.length > 0 && (
+                                                    <div className="absolute z-10 w-full bg-white border border-gray-200 mt-1 rounded shadow-lg max-h-60 overflow-y-auto">
+                                                        {searchResults.map(emp => (
+                                                            <div
+                                                                key={emp._id}
+                                                                className="p-2 hover:bg-blue-50 cursor-pointer border-b last:border-b-0"
+                                                                onClick={() => selectEmployee(emp)}
+                                                            >
+                                                                <p className="font-bold text-sm text-gray-800">{emp.employee_name}</p>
+                                                                <p className="text-xs text-gray-500">ID: {emp.emp_no} | {emp.designation_id}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <div className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded mt-1">
+                                                <div>
+                                                    <p className="font-bold text-sm text-blue-900">{formData.name}</p>
+                                                    <p className="text-xs text-blue-700">Emp No: {formData.username}</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={clearSelectedEmployee}
+                                                    className="text-red-500 hover:text-red-700 text-xs font-bold px-2"
+                                                >
+                                                    Change
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {!formData.employeeId && editingUserId && (
+                                            <input
+                                                name="name"
+                                                value={formData.name}
+                                                onChange={handleChange}
+                                                className="w-full border p-2 rounded mt-1"
+                                                placeholder="Or enter name manually (Legacy)"
+                                            />
+                                        )}
                                     </div>
+
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase">Username (Login ID)</label>
-                                        <input name="username" value={formData.username} onChange={handleChange} className="w-full border p-2 rounded mt-1" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase">Password</label>
                                         <input
-                                            type="password"
-                                            name="password"
-                                            value={formData.password}
+                                            name="username"
+                                            value={formData.username}
                                             onChange={handleChange}
-                                            className="w-full border p-2 rounded mt-1"
-                                            required={!editingUserId} // Password required only for new users
-                                            placeholder={editingUserId ? "Leave blank to keep unchanged" : ""}
+                                            className="w-full border p-2 rounded mt-1 bg-gray-50"
+                                            readOnly={!!formData.employeeId} // Read-only if linked
+                                            required
                                         />
                                     </div>
+
+                                    {/* Password field - Hidden if Employee Linked */}
+                                    {!formData.employeeId && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">Password</label>
+                                            <input
+                                                type="password"
+                                                name="password"
+                                                value={formData.password}
+                                                onChange={handleChange}
+                                                className="w-full border p-2 rounded mt-1"
+                                                required={!editingUserId && !formData.employeeId}
+                                                placeholder={editingUserId ? "Leave blank to keep unchanged" : "Set password"}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {formData.employeeId && (
+                                        <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                                            <span className="font-bold">Note:</span> user will login using their Employee DB password.
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
                                         <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white">
