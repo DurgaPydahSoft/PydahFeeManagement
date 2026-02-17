@@ -231,6 +231,7 @@ const FeeConfiguration = () => {
                 s.branch === branch &&
                 (String(s.batch) === String(batch))
             );
+            console.log("Filtered Students for Applicability:", batchStudents.length, batchStudents);
 
             // 2. Fetch Existing Fee Records (Real Data)
             let existingFees = [];
@@ -460,9 +461,13 @@ const FeeConfiguration = () => {
                             <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
                                 {/* Context Selection */}
                                 {/* Row 1: College & Fee Head */}
+                                {/* Row 1: College & Batch */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <select className="w-full border p-2 rounded" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value }); }} required><option value="">Select College</option>{colleges.map(c => <option key={c}>{c}</option>)}</select>
-                                    <select className="w-full border p-2 rounded" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required><option value="">Select Fee Head</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select>
+                                    <select className="w-full border p-2 rounded" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
+                                        <option value="">Select Batch</option>
+                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
                                 </div>
 
                                 {/* Row 2: Course & Branch */}
@@ -471,13 +476,10 @@ const FeeConfiguration = () => {
                                     <select className="w-full border p-2 rounded" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}><option value="">Select Branch</option>{((structForm.college && structForm.course) ? metadata[structForm.college][structForm.course].branches : []).map(b => <option key={b}>{b}</option>)}</select>
                                 </div>
 
-                                {/* Row 3: Batch Selection */}
+                                {/* Row 3: Fee Head */}
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500">Batch</label>
-                                    <select className="w-full border p-2 rounded mt-1" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
-                                        <option value="">Select Batch</option>
-                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
+                                    <label className="text-xs font-bold text-gray-500">Fee Head</label>
+                                    <select className="w-full border p-2 rounded mt-1" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required><option value="">Select Fee Head</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select>
                                 </div>
 
                                 {/* Amount Section */}
@@ -614,15 +616,12 @@ const FeeConfiguration = () => {
 
                                 <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Filters</h2>
 
-                                {/* Strict Order: College -> Fee Head -> Academic Year -> Course -> Branch */}
+                                {/* Strict Order: College -> Batch -> Course -> Branch -> Fee Head */}
                                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                                     {/* 1. College */}
                                     <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
 
-                                    {/* 2. Fee Head */}
-                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
-
-                                    {/* 3. Batch (Required) */}
+                                    {/* 2. Batch (Required) */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-500">Batch</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.batch} onChange={e => setAppContext({ ...appContext, batch: e.target.value })}>
@@ -631,16 +630,16 @@ const FeeConfiguration = () => {
                                         </select>
                                     </div>
 
-                                    {/* 4. Course */}
+                                    {/* 3. Course */}
                                     <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
 
-                                    {/* 5. Branch */}
+                                    {/* 4. Branch */}
                                     <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
-                                </div>
 
-                                {applicabilityMode === 'batch' && (
-                                    <div className="mt-3"></div>
-                                )}
+                                    {/* 5. Fee Head */}
+                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
+                                </div>
+                                {/* <div className="text-xs text-gray-400 mt-1">* Fee Head is now at the end. Branch filter depends on Course.</div> */}
 
                                 <div className="mt-4 flex justify-end">
                                     <button onClick={fetchStudentsForApplicability} className="bg-gray-800 text-white px-6 py-2 rounded font-semibold hover:bg-gray-900 shadow-md">Load Data</button>

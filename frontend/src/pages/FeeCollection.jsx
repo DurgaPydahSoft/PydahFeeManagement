@@ -342,8 +342,8 @@ const FeeCollection = () => {
             <Sidebar />
             <div className="flex-1 p-4 md:p-6 relative flex flex-col">
 
-                {/* Header - Search moves here */}
-                <header className={`mb-4 flex flex-col md:flex-row justify-between items-center gap-4 px-2 transition-all duration-500 ${!isSearchMode ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'}`}>
+                {/* Header - Search Always Visible */}
+                <header className="mb-4 flex flex-col md:flex-row justify-between items-center gap-4 px-2 transition-all duration-500 opacity-100">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-800">Fee Collection</h1>
                         <p className="text-sm text-gray-500">Collect fees and manage transactions.</p>
@@ -378,37 +378,6 @@ const FeeCollection = () => {
                                     <p className="text-xs text-gray-500 mt-1">Adm: {s.admission_number} | Year: {s.current_year}</p>
                                 </div>
                             ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Center Search State */}
-                {!isSearchMode && (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8 transition-all duration-500">
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 max-w-lg w-full">
-                            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                Search Student
-                            </h2>
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Student Fee Collection</h2>
-                            <p className="text-gray-500 mb-8">Search for a student to view details and collect fees.</p>
-
-                            <form onSubmit={handleSearch} className="relative">
-                                <input
-                                    ref={inputRef}
-                                    type="text"
-                                    placeholder="Enter Admission No, Mobile or Name..."
-                                    className="w-full pl-5 pr-12 py-4 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none text-lg shadow-sm transition-all"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                <button
-                                    type="submit"
-                                    className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-4 rounded-lg font-bold hover:bg-blue-700 transition flex items-center justify-center"
-                                >
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                </button>
-                            </form>
                         </div>
                     </div>
                 )}

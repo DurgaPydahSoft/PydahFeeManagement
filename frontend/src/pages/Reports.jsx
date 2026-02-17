@@ -103,26 +103,24 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                     </span>
                 </td>
 
-                {/* Cash/Bank Breakdown */}
-                <td className="py-2 px-4 text-right">
-                    {(activeTab === 'cashier' || activeTab === 'feeHead') ? (
-                        <div className="flex flex-col items-end gap-1.5 opacity-80">
-                            <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
-                                <Wallet size={12} /> ₹{(row.cashAmount || 0).toLocaleString()}
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-700">
-                                <Landmark size={12} /> ₹{(row.bankAmount || 0).toLocaleString()}
-                            </div>
-                        </div>
-                    ) : (
-                        <span className="text-gray-300 text-xs">-</span>
-                    )}
+                {/* Cash */}
+                <td className="py-4 px-6 text-right font-medium text-emerald-600">
+                    ₹{(row.cashAmount || 0).toLocaleString()}
                 </td>
 
-                <td className="py-4 px-6 text-right font-medium text-gray-600">₹{row.debitAmount.toLocaleString()}</td>
-                <td className="py-4 px-6 text-right font-medium text-purple-600">₹{row.creditAmount.toLocaleString()}</td>
-                <td className="py-2 px-4 text-right">
-                    <span className="text-sm font-bold text-gray-900">₹{row.totalAmount.toLocaleString()}</span>
+                {/* Bank */}
+                <td className="py-4 px-6 text-right font-medium text-indigo-600">
+                    ₹{(row.bankAmount || 0).toLocaleString()}
+                </td>
+
+                {/* Concession */}
+                <td className="py-4 px-6 text-right font-medium text-orange-600">
+                    ₹{(row.concessionAmount || 0).toLocaleString()}
+                </td>
+
+                {/* Net Total (Cash + Bank) */}
+                <td className="py-4 px-6 text-right font-extrabold text-gray-900 bg-gray-50">
+                    ₹{(row.netTotal || (row.cashAmount + row.bankAmount) || 0).toLocaleString()}
                 </td>
 
                 {/* Actions */}
@@ -431,10 +429,13 @@ const Reports = () => {
                                                 {activeTab === 'daily' ? 'Date' : activeTab === 'cashier' ? 'Cashier' : 'Fee Head'}
                                             </th>
                                             <th className="py-3 px-4 text-right">Transactions</th>
-                                            <th className="py-3 px-4 text-right">Method</th>
-                                            <th className="py-3 px-4 text-right text-gray-600">Collected</th>
-                                            <th className="py-3 px-4 text-right text-gray-600">Concession</th>
-                                            <th className="py-3 px-4 text-right text-black">Net Total</th>
+
+                                            {/* NEW COLUMNS */}
+                                            <th className="py-3 px-4 text-right text-emerald-600">Cash</th>
+                                            <th className="py-3 px-4 text-right text-indigo-600">Bank (Online)</th>
+                                            <th className="py-3 px-4 text-right text-orange-600">Concession</th>
+                                            <th className="py-3 px-4 text-right text-black font-extrabold bg-gray-50">Net Total</th>
+
                                             {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-3 px-4 text-right">Actions</th>}
                                         </tr>
                                     </thead>
@@ -483,25 +484,21 @@ const Reports = () => {
                                             <tr>
                                                 <td className="py-3 px-4 font-bold text-gray-800 text-xs text-left uppercase tracking-wide">GRAND TOTAL</td>
                                                 <td className="py-3 px-4 text-right font-bold text-sm text-gray-800">{summary.count}</td>
-                                                <td className="py-3 px-4 text-right">
-                                                    {(activeTab === 'cashier' || activeTab === 'feeHead') ? (
-                                                        <div className="flex flex-col items-end gap-0.5 text-[10px] font-mono font-medium text-gray-500">
-                                                            <span>C: {(summary.totalCash || 0).toLocaleString()}</span>
-                                                            <span>B: {(summary.totalBank || 0).toLocaleString()}</span>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-gray-300 text-xs">-</span>
-                                                    )}
-                                                </td>
+
+                                                {/* Totals for New Columns */}
                                                 <td className="py-3 px-4 text-right font-bold text-sm text-emerald-700">
-                                                    ₹{data.reduce((a, c) => a + (c.debitAmount || 0), 0).toLocaleString()}
+                                                    ₹{data.reduce((a, c) => a + (c.cashAmount || 0), 0).toLocaleString()}
                                                 </td>
-                                                <td className="py-3 px-4 text-right font-bold text-sm text-purple-700">
-                                                    ₹{data.reduce((a, c) => a + (c.creditAmount || 0), 0).toLocaleString()}
+                                                <td className="py-3 px-4 text-right font-bold text-sm text-indigo-700">
+                                                    ₹{data.reduce((a, c) => a + (c.bankAmount || 0), 0).toLocaleString()}
                                                 </td>
-                                                <td className="py-3 px-4 text-right font-extrabold text-base text-gray-900">
-                                                    ₹{summary.totalConfirm.toLocaleString()}
+                                                <td className="py-3 px-4 text-right font-bold text-sm text-orange-700">
+                                                    ₹{data.reduce((a, c) => a + (c.concessionAmount || 0), 0).toLocaleString()}
                                                 </td>
+                                                <td className="py-3 px-4 text-right font-extrabold text-base text-gray-900 bg-gray-100">
+                                                    ₹{data.reduce((a, c) => a + (c.netTotal || (c.cashAmount + c.bankAmount) || 0), 0).toLocaleString()}
+                                                </td>
+
                                                 {(activeTab === 'cashier' || activeTab === 'daily') && <td></td>}
                                             </tr>
                                         </tfoot>

@@ -201,21 +201,30 @@ const getStudentFeeDetails = async (req, res) => {
 // @desc    Apply a Template Fee to a Batch (Creates StudentFee records)
 // @route   POST /api/fee-structures/apply-batch
 const applyFeeToBatch = async (req, res) => {
-  const { structureId } = req.body; // targetAcademicYear removed, we assume Batch is enough
+  const { structureId, studentCategory } = req.body; // targetAcademicYear removed, we assume Batch is enough
 
   try {
     const structure = await FeeStructure.findById(structureId);
     if (!structure) return res.status(404).json({ message: 'Structure not found' });
 
-    // Fetch Students matching the structure's Batch
-    // Note: Students table has 'batch' column now
-    const [students] = await db.query(`
-            SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
+    // Base Query
+    let sql = `
+            SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch, stud_type
             FROM students 
             WHERE college = ? AND course = ? AND branch = ? AND batch = ?
-        `, [structure.college, structure.course, structure.branch, structure.batch]);
+        `;
+    const params = [structure.college, structure.course, structure.branch, structure.batch];
 
-    if (students.length === 0) return res.status(404).json({ message: 'No students found in this batch' });
+    // Optional Category Filter
+    if (studentCategory) {
+      sql += ` AND stud_type = ?`;
+      params.push(studentCategory);
+    }
+
+    // Fetch Students matching the structure's Batch & Category
+    const [students] = await db.query(sql, params);
+
+    if (students.length === 0) return res.status(404).json({ message: 'No students found in this batch (with selected category)' });
 
     // Check if fees are ALREADY applied for this Batch & Structure
     // usage: academicYear stores the batch string
