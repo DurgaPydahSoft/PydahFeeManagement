@@ -21,30 +21,72 @@ const createFeeStructure = async (req, res) => {
     // Determine categories to process: either key 'categories' (array) or 'category' (single string)
     let catsToProcess = [];
     if (Array.isArray(categories) && categories.length > 0) {
-        catsToProcess = categories;
+      catsToProcess = categories;
     } else if (category) {
-        catsToProcess = [category];
+      catsToProcess = [category];
     } else {
-        return res.status(400).json({ message: 'Category is required' });
+      return res.status(400).json({ message: 'Category is required' });
     }
 
     const results = [];
+    const errors = [];
+
     for (const cat of catsToProcess) {
-        const structure = await FeeStructure.findOneAndUpdate(
-            { feeHead: feeHeadId, college, course, branch, batch, category: cat, studentYear, semester: semester || null },
-            { amount, description },
-            { new: true, upsert: true }
-        );
+      try {
+        // Build clear query and update objects
+        // Strict Type Casting to ensure we match the unique index exactly
+        const sYear = Number(studentYear);
+        const sem = semester ? Number(semester) : null;
+
+        const query = {
+          feeHead: feeHeadId, // Mongoose casts string to ObjectId automatically in queries
+          college,
+          course,
+          branch,
+          batch,
+          category: cat,
+          studentYear: sYear,
+          semester: sem // Explicitly null if falsy to match index
+        };
+
+        const update = {
+          $set: {
+            amount: Number(amount),
+            description
+          }
+        };
+
+        const options = { new: true, upsert: true, runValidators: true };
+
+        const structure = await FeeStructure.findOneAndUpdate(query, update, options);
         results.push(structure);
+      } catch (err) {
+        console.error(`Error saving fee structure for category ${cat}:`, err.message);
+        if (err.code === 11000) {
+          console.error("Duplicate Key Collision Details:", err.keyValue);
+        }
+        errors.push({ category: cat, error: err.message });
+      }
     }
-    
-    // Return last created or array? Frontend expects one object usually for single create, but array for multi?
-    // Let's just return the last created structure or a success message to avoid breaking standard flow too much,
-    // or simply return the list.
-    // Given the frontend logic iterates over years and awaits one by one, returning the last one is safe enough 
-    // to prevent errors, as the frontend mainly checks 201 status. 
-    // But ideally we return list.
-    res.status(201).json(results.length === 1 ? results[0] : results);
+
+    // Consolidated Response
+    if (results.length > 0) {
+      const msg = errors.length > 0
+        ? `Saved for ${results.length} categories. Failed for ${errors.length}.`
+        : `Fee definitions created successfully for ${results.length} categories.`;
+
+      return res.status(201).json({
+        message: msg,
+        results,
+        errors
+      });
+    } else {
+      // All failed
+      return res.status(500).json({
+        message: 'Failed to create fee structures.',
+        errors
+      });
+    }
 
   } catch (error) {
     console.error("Error creating fee structure:", error);
@@ -79,57 +121,57 @@ const getStudentFeeDetails = async (req, res) => {
 
     // --- CLUB FEE SYNC START ---
     if (student) {
-        try {
-            // Get Approved Clubs
-            const [approvedClubs] = await db.query(`
+      try {
+        // Get Approved Clubs
+        const [approvedClubs] = await db.query(`
                 SELECT cm.club_id, c.membership_fee, c.name, cm.updated_at 
                 FROM club_members cm 
                 JOIN clubs c ON cm.club_id = c.id 
                 WHERE cm.student_id = ? AND cm.status = 'approved'
             `, [student.id]);
 
-            if (approvedClubs.length > 0) {
-                // Find Generic 'Club Fee' Head
-                const clubFeeHead = await FeeHead.findOne({ code: 'CF' });
+        if (approvedClubs.length > 0) {
+          // Find Generic 'Club Fee' Head
+          const clubFeeHead = await FeeHead.findOne({ code: 'CF' });
 
-                if (clubFeeHead) {
-                    for (const club of approvedClubs) {
-                        // Check if fee already exists for this specific club (using remarks or composite check if possible)
-                        // We check: same student, same fee head, same year.
-                        // Ideally we should also check if the amount matches or 'remarks' contains club name to distinguish multiple clubs
-                        const remarksKey = `Club Fee: ${club.name}`;
-                        
-                        const existingFee = await StudentFee.findOne({
-                            studentId: admissionNo,
-                            feeHead: clubFeeHead._id,
-                            remarks: remarksKey // Strict check to allow multiple different club fees
-                        });
+          if (clubFeeHead) {
+            for (const club of approvedClubs) {
+              // Check if fee already exists for this specific club (using remarks or composite check if possible)
+              // We check: same student, same fee head, same year.
+              // Ideally we should also check if the amount matches or 'remarks' contains club name to distinguish multiple clubs
+              const remarksKey = `Club Fee: ${club.name}`;
 
-                        if (!existingFee) {
-                            console.log(`Syncing Club Fee: ${club.name} for ${admissionNo}`);
-                            await StudentFee.create({
-                                studentId: admissionNo,
-                                studentName: '', // Optional
-                                feeHead: clubFeeHead._id,
-                                college: 'ANY', // Default
-                                course: 'ANY',
-                                branch: 'ANY',
-                                academicYear: batch, // Use Batch as AY
-                                studentYear: currentYear,
-                                semester: student.current_semester || 1,
-                                amount: Number(club.membership_fee),
-                                remarks: remarksKey
-                            });
-                        }
-                    }
-                } else {
-                    console.warn('Club Fee Sync Skipped: Fee Head "CF" not found.');
-                }
+              const existingFee = await StudentFee.findOne({
+                studentId: admissionNo,
+                feeHead: clubFeeHead._id,
+                remarks: remarksKey // Strict check to allow multiple different club fees
+              });
+
+              if (!existingFee) {
+                console.log(`Syncing Club Fee: ${club.name} for ${admissionNo}`);
+                await StudentFee.create({
+                  studentId: admissionNo,
+                  studentName: '', // Optional
+                  feeHead: clubFeeHead._id,
+                  college: 'ANY', // Default
+                  course: 'ANY',
+                  branch: 'ANY',
+                  academicYear: batch, // Use Batch as AY
+                  studentYear: currentYear,
+                  semester: student.current_semester || 1,
+                  amount: Number(club.membership_fee),
+                  remarks: remarksKey
+                });
+              }
             }
-        } catch (syncError) {
-            console.error('Club Fee Sync Error:', syncError);
-            // Non-blocking error
+          } else {
+            console.warn('Club Fee Sync Skipped: Fee Head "CF" not found.');
+          }
         }
+      } catch (syncError) {
+        console.error('Club Fee Sync Error:', syncError);
+        // Non-blocking error
+      }
     }
     // --- CLUB FEE SYNC END ---
 
@@ -144,21 +186,21 @@ const getStudentFeeDetails = async (req, res) => {
 
     // 5. Data Structures for aggregation
     // Key: [HeadID]-[Year]
-    
+
     const groupedData = {};
 
     const getGroupKey = (headId, year, feeCode, remarks) => {
-        if (feeCode === 'CF' || feeCode === 'SSF') {
-            return `${headId}-${year}-${remarks || 'General'}`;
-        }
-        return `${headId}-${year}`;
+      if (feeCode === 'CF' || feeCode === 'SSF') {
+        return `${headId}-${year}-${remarks || 'General'}`;
+      }
+      return `${headId}-${year}`;
     };
 
     const formatServiceFeeName = (headName, remarks) => {
-        if (!remarks) return headName;
-        // Clean "Service Request: Name (Ref: 123)" -> "Name"
-        let name = remarks.replace(/^Service Request:\s*/i, '').replace(/\s*\(Ref:.*?\)\s*$/i, '');
-        return `${headName} - ${name.trim()}`;
+      if (!remarks) return headName;
+      // Clean "Service Request: Name (Ref: 123)" -> "Name"
+      let name = remarks.replace(/^Service Request:\s*/i, '').replace(/\s*\(Ref:.*?\)\s*$/i, '');
+      return `${headName} - ${name.trim()}`;
     };
 
     // A. Initialize with actual Demands
@@ -218,7 +260,7 @@ const getStudentFeeDetails = async (req, res) => {
       if (t.transactionType === 'DEBIT' && t.feeHead) {
         const hId = t.feeHead.toString();
         const year = String(t.studentYear || 1);
-        
+
         const head = feeHeads.find(h => h._id.toString() === hId);
         const hCode = head ? head.code : '';
         const key = getGroupKey(hId, year, hCode, t.remarks);

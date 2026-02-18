@@ -465,8 +465,8 @@ const FeeConfiguration = () => {
                             <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
                                 {/* Context Selection */}
 
-                                {/* Row 1: Primary Filters (College, Batch, Fee Head) */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Row 1: Primary Filters (College, Batch) */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="group">
                                         <label className="text-xs font-bold text-gray-500 block mb-1">College</label>
                                         <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '' }); }} required>
@@ -482,18 +482,10 @@ const FeeConfiguration = () => {
                                             {batches.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
                                     </div>
-
-                                    <div className="group">
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Fee Head</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required>
-                                            <option value="">Select Fee Head</option>
-                                            {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-                                        </select>
-                                    </div>
                                 </div>
 
-                                {/* Row 2: Academic Context (Course & Branch) */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Row 2: Academic Context (Course, Branch, Fee Head) */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="group">
                                         <label className="text-xs font-bold text-gray-500 block mb-1">Course</label>
                                         <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '' }); }} required disabled={!structForm.college}>
@@ -507,6 +499,14 @@ const FeeConfiguration = () => {
                                         <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}>
                                             <option value="">Select Branch</option>
                                             {(metadata[structForm.college]?.[structForm.course]?.branches || []).map(b => <option key={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="group">
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Fee Head</label>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required>
+                                            <option value="">Select Fee Head</option>
+                                            {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -675,15 +675,12 @@ const FeeConfiguration = () => {
 
                                 <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Filters</h2>
 
-                                {/* Strict Order: College -> Fee Head -> Academic Year -> Course -> Branch -> Category */}
+                                {/* Order: College -> Batch -> Category -> Course -> Branch -> Fee Head */}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     {/* 1. College */}
                                     <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
 
-                                    {/* 2. Fee Head */}
-                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
-
-                                    {/* 3. Batch (Required) */}
+                                    {/* 2. Batch (Required) */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-500">Batch</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.batch} onChange={e => setAppContext({ ...appContext, batch: e.target.value })}>
@@ -692,7 +689,7 @@ const FeeConfiguration = () => {
                                         </select>
                                     </div>
 
-                                    {/* Category */}
+                                    {/* 3. Category */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-500">Category</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required>
@@ -706,6 +703,9 @@ const FeeConfiguration = () => {
 
                                     {/* 5. Branch */}
                                     <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
+
+                                    {/* 6. Fee Head */}
+                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
                                 </div>
 
 
