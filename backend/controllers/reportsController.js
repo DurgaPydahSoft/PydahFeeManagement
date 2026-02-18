@@ -39,64 +39,137 @@ const getTransactionReports = async (req, res) => {
         // We'll proceed with basic filtering.
 
         if (groupBy === 'cashier') {
-            // Advanced Cashier Report: Group by Cashier + FeeHead first
-            pipeline = [
-                { $match: matchStage },
-                // 1. Group by Cashier + FeeHead + Mode
-                {
-                    $group: {
-                        _id: { cashier: "$collectedByName", feeHead: "$feeHead", mode: "$paymentMode", type: "$transactionType" },
-                        amount: { $sum: "$amount" },
-                        count: { $sum: 1 }
-                    }
-                },
-                // 2. Lookup Fee Head Name
-                {
-                    $lookup: {
-                        from: 'feeheads',
-                        localField: '_id.feeHead',
-                        foreignField: '_id',
-                        as: 'feeHeadDetails'
-                    }
-                },
-                { $unwind: { path: "$feeHeadDetails", preserveNullAndEmptyArrays: true } },
-                // 3. Regroup by Cashier to consolidate
-                {
-                    $group: {
-                        _id: "$_id.cashier",
-                        totalAmount: { $sum: "$amount" },
-                        totalCount: { $sum: "$count" },
-                        debitAmount: {
-                            $sum: { $cond: [{ $eq: ["$_id.type", "DEBIT"] }, "$amount", 0] }
-                        },
-                        creditAmount: {
-                            $sum: { $cond: [{ $eq: ["$_id.type", "CREDIT"] }, "$amount", 0] }
-                        },
-                        // Cash vs Bank (For DEBIT only usually? Or all? Let's do all payments)
-                        cashAmount: {
-                            $sum: { $cond: [{ $eq: ["$_id.mode", "Cash"] }, "$amount", 0] }
-                        },
-                        bankAmount: {
-                            $sum: { $cond: [{ $ne: ["$_id.mode", "Cash"] }, "$amount", 0] }
-                        },
-                        // Consolidate Fee Heads
-                        feeHeads: {
-                            $push: {
-                                name: "$feeHeadDetails.name",
-                                amount: "$amount",
-                                count: "$count" // Optional
-                            }
-                        }
-                    }
-                },
-                // 4. Clean up the feeHeads array (merge duplicates since we grouped by Mode too)
-                // Or we can rely on frontend. But let's try to merge per feeHead in backend? 
-                // It's easier to just return the list; frontend can reduce if same feehead appears twice (once for cash, once for bank)
-                { $sort: { totalAmount: -1 } }
-            ];
+            // --- Advanced Cashier Report with College Breakdown ---
+            // 1. Fetch raw transactions for the period
+            const transactions = await Transaction.find(matchStage).lean();
 
-            // Additional Sort
-            // pipeline.push({ $sort: { totalAmount: -1 } }); 
+            if (!transactions.length) {
+                return res.json([]);
+            }
+
+            // 2. Extract Student IDs for SQL Lookup
+            const studentIds = new Set();
+            const feeHeadIds = new Set();
+            transactions.forEach(tx => {
+                if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+                if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
+            });
+
+            // 3. Fetch Fee Head Names from MongoDB
+            const feeHeadMap = {};
+            try {
+                const feeHeads = await mongoose.connection.collection('feeheads').find({
+                    _id: { $in: Array.from(feeHeadIds).map(id => new mongoose.Types.ObjectId(id)) }
+                }).toArray();
+                feeHeads.forEach(fh => feeHeadMap[fh._id.toString()] = fh.name);
+            } catch (err) {
+                console.error("Error fetching fee heads:", err);
+            }
+
+
+            // 4. Fetch College Info from SQL
+            const collegeMap = {}; // admission_number -> college_name
+            if (studentIds.size > 0) {
+                const ids = Array.from(studentIds).map(id => `'${id}'`).join(',');
+                try {
+                    const [students] = await db.query(`SELECT admission_number, college FROM students WHERE admission_number IN (${ids})`);
+                    students.forEach(s => {
+                        collegeMap[String(s.admission_number).trim()] = s.college || 'Unknown';
+                        collegeMap[String(s.admission_number).trim().toLowerCase()] = s.college || 'Unknown';
+                    });
+                } catch (sqlErr) {
+                    console.error("SQL Error fetching colleges:", sqlErr);
+                }
+            }
+
+            // 5. Aggregate Data in Memory
+            const cashierGroups = {};
+            // Structure: { cashierName: { totalAmount, totalCount, debitAmount, creditAmount, cashAmount, bankAmount, feeHeadsMap: { feeHeadId: { name, amount, count, colleges: { collegeName: amount } } } } }
+
+            transactions.forEach(tx => {
+                const cashier = tx.collectedByName || 'Unknown';
+                const sId = String(tx.studentId).trim();
+                const college = collegeMap[sId] || collegeMap[sId.toLowerCase()] || 'Unknown'; // Default college if not found
+                const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
+                const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
+                const amount = tx.amount || 0;
+                const isDebit = tx.transactionType === 'DEBIT';
+                const isCredit = tx.transactionType === 'CREDIT';
+                const isCash = tx.paymentMode === 'Cash';
+
+                if (!cashierGroups[cashier]) {
+                    cashierGroups[cashier] = {
+                        _id: cashier,
+                        totalAmount: 0, // collected - concession? Or just sum of all? Usually reports show Collection. Let's use DEBIT as Total Collected.
+                        // Wait, "Total Amount" usually implies Net Collection (Debit). 
+                        // Let's stick to standard: totalAmount = Sum of Debits? 
+                        // Actually, let's track separately.
+                        debitAmount: 0,
+                        creditAmount: 0,
+                        cashAmount: 0,
+                        bankAmount: 0,
+                        totalCount: 0,
+                        feeHeadsMap: {}
+                    };
+                }
+
+                const group = cashierGroups[cashier];
+
+                group.totalCount++;
+                if (isDebit) {
+                    group.debitAmount += amount;
+                    if (isCash) group.cashAmount += amount;
+                    else group.bankAmount += amount;
+                }
+                if (isCredit) {
+                    group.creditAmount += amount;
+                }
+
+                // Fee Head Breakdown (Count DEBIT amounts usually for "Collection Report")
+                // If the user wants Concession breakdown, we might need separate tracking.
+                // Standard Cashier Report = What did they COLLECT. So verify if we should include Credits.
+                // Usually "Fee Head Breakdown" sums the Collected amount.
+                if (isDebit) {
+                    if (!group.feeHeadsMap[fhId]) {
+                        group.feeHeadsMap[fhId] = {
+                            name: fhName,
+                            amount: 0,
+                            count: 0,
+                            colleges: {}
+                        };
+                    }
+                    const fhEntry = group.feeHeadsMap[fhId];
+                    fhEntry.amount += amount;
+                    fhEntry.count++;
+
+                    // College Breakdown for this Fee Head
+                    if (!fhEntry.colleges[college]) fhEntry.colleges[college] = 0;
+                    fhEntry.colleges[college] += amount;
+                }
+            });
+
+            // 6. Format Result Array
+            const finalResults = Object.values(cashierGroups).map(group => {
+                // Convert feeHeadsMap to array
+                const feeHeads = Object.values(group.feeHeadsMap).map(fh => ({
+                    name: fh.name,
+                    amount: fh.amount,
+                    count: fh.count,
+                    colleges: fh.colleges // Keep the map: { "College A": 1000, "College B": 500 }
+                })).sort((a, b) => b.amount - a.amount);
+
+                // Remove map
+                delete group.feeHeadsMap;
+                group.feeHeads = feeHeads;
+
+                // Ensure Total Amount is set to Debit Amount (Collections) for the report display
+                group.totalAmount = group.debitAmount;
+
+                return group;
+            });
+
+            res.json(finalResults);
+            return;
 
         } else if (groupBy === 'feeHead') {
             // Enhanced Fee Head Report
@@ -146,12 +219,30 @@ const getTransactionReports = async (req, res) => {
                 {
                     $group: {
                         _id: groupId,
-                        totalAmount: { $sum: "$amount" },
+                        totalAmount: { $sum: "$amount" }, // Grand Total (Collected + Concession)
                         count: { $sum: 1 },
-                        debitAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "DEBIT"] }, "$amount", 0] } },
-                        creditAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "CREDIT"] }, "$amount", 0] } },
-                        cashAmount: { $sum: { $cond: [{ $eq: ["$paymentMode", "Cash"] }, "$amount", 0] } },
-                        bankAmount: { $sum: { $cond: [{ $ne: ["$paymentMode", "Cash"] }, "$amount", 0] } },
+                        debitAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "DEBIT"] }, "$amount", 0] } }, // Collected
+                        creditAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "CREDIT"] }, "$amount", 0] } }, // Concession
+
+                        // FIX: Cash and Bank should ONLY count DEBIT transactions (Real Money)
+                        cashAmount: {
+                            $sum: {
+                                $cond: [
+                                    { $and: [{ $eq: ["$transactionType", "DEBIT"] }, { $eq: ["$paymentMode", "Cash"] }] },
+                                    "$amount",
+                                    0
+                                ]
+                            }
+                        },
+                        bankAmount: {
+                            $sum: {
+                                $cond: [
+                                    { $and: [{ $eq: ["$transactionType", "DEBIT"] }, { $ne: ["$paymentMode", "Cash"] }] },
+                                    "$amount",
+                                    0
+                                ]
+                            }
+                        },
                         transactions: {
                             $push: {
                                 receiptNo: "$receiptNumber",
@@ -178,7 +269,7 @@ const getTransactionReports = async (req, res) => {
             dailyStats.forEach(day => {
                 if (day.transactions) {
                     day.transactions.forEach(tx => {
-                        if (tx.studentId) admissionNumbers.add(tx.studentId);
+                        if (tx.studentId) admissionNumbers.add(String(tx.studentId).trim());
                     });
                 }
             });
@@ -196,7 +287,10 @@ const getTransactionReports = async (req, res) => {
                     const studentMap = {};
                     if (studentDetails) {
                         studentDetails.forEach(s => {
-                            studentMap[s.admission_number] = s;
+                            // Map both exact and trimmed upper/lower for safety
+                            const adm = String(s.admission_number).trim();
+                            studentMap[adm] = s;
+                            studentMap[adm.toLowerCase()] = s;
                         });
                     }
 
@@ -204,12 +298,15 @@ const getTransactionReports = async (req, res) => {
                     dailyStats.forEach(day => {
                         if (day.transactions) {
                             day.transactions.forEach(tx => {
-                                const details = studentMap[tx.studentId];
+                                const validId = String(tx.studentId).trim();
+                                const details = studentMap[validId] || studentMap[validId.toLowerCase()];
                                 if (details) {
-                                    tx.pinNo = details.pin_no;
+                                    tx.pinNo = details.pin_no || '-'; // Ensure '-' if null
                                     tx.course = details.course;
                                     tx.branch = details.branch;
                                     tx.studentYear = details.current_year;
+                                } else {
+                                    tx.pinNo = '-';
                                 }
                             });
                         }

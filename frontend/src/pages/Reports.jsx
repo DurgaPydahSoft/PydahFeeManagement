@@ -65,6 +65,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
             ? (row.name || 'Unknown Fee Head')
             : (row.name || row._id || 'Unknown');
 
+    // Calculate Net Total (Cash + Bank) - equivalent to debitAmount
+    const netTotal = (row.cashAmount || 0) + (row.bankAmount || 0);
+
     return (
         <React.Fragment>
             <tr
@@ -75,7 +78,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                 `}
             >
                 {/* Identifier */}
-                <td className="py-4 px-6">
+                <td className="py-4 px-6 md:w-1/4">
                     <div className="flex items-center gap-3">
                         <div className={`
                             p-2 rounded-lg transition-colors duration-200
@@ -94,39 +97,40 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                     </div>
                 </td>
 
+                {/* Transactions Count */}
                 <td className="py-4 px-6 text-right">
                     <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 text-gray-700">
                         {row.count || row.totalCount}
                     </span>
                 </td>
 
-                {/* Cash/Bank Breakdown - Hide for Daily Tab */}
-                {activeTab !== 'daily' && (
-                    <td className="py-4 px-6 text-right">
-                        <div className="flex flex-row justify-end gap-2">
-                            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                                Cash: {Number(row.cashAmount || 0).toLocaleString()}
-                            </span>
-                            <span className="text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                                Bank: {Number(row.bankAmount || 0).toLocaleString()}
-                            </span>
-                        </div>
-                    </td>
-                )}
-
-                <td className="py-4 px-6 text-right font-medium text-gray-500">
-                    <span className="text-xs text-gray-400 mr-1">Collected:</span>
-                    ₹{Number(row.debitAmount || 0).toLocaleString()}
+                {/* Cash */}
+                <td className="py-4 px-6 text-right font-medium text-emerald-600">
+                    ₹{Number(row.cashAmount || 0).toLocaleString()}
                 </td>
+
+                {/* Bank */}
+                <td className="py-4 px-6 text-right font-medium text-indigo-600">
+                    ₹{Number(row.bankAmount || 0).toLocaleString()}
+                </td>
+
+                {/* Concession */}
                 <td className="py-4 px-6 text-right font-medium text-purple-600">
-                    <span className="text-xs text-purple-300 mr-1">Conc:</span>
                     ₹{Number(row.creditAmount || 0).toLocaleString()}
                 </td>
+
+                {/* Net Total */}
                 <td className="py-4 px-6 text-right">
                     <span className="text-sm font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                        ₹{Number(row.totalAmount || 0).toLocaleString()}
+                        ₹{Number(netTotal || 0).toLocaleString()}
                     </span>
                 </td>
+
+                {/* Old Total Amount (Hidden or Removed? Keeping for compatibility if needed, but NetTotal is what reflects Collection) */}
+                {/* <td className="py-4 px-6 text-right font-medium text-gray-400 line-through decoration-red-400">
+                    ₹{Number(row.totalAmount || 0).toLocaleString()}
+                </td> */}
+
 
                 {/* Actions */}
                 {(activeTab === 'cashier' || activeTab === 'daily') && (
@@ -208,19 +212,22 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                                                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                                                     <td className="px-4 py-2 font-mono text-gray-500">{tx.receiptNo || '-'}</td>
                                                     <td className="px-4 py-2 font-bold text-gray-800">{tx.studentName}</td>
-                                                    <td className="px-4 py-2 text-gray-600">{tx.pinNo}</td>
+                                                    {/* Updated Pin No Access: Verify backend sends 'pinNo' */}
+                                                    <td className="px-4 py-2 text-gray-600 font-mono">{tx.pinNo || '-'}</td>
                                                     <td className="px-4 py-2 text-gray-600">
                                                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 border border-gray-200 mr-1">{tx.course}</span>
                                                         {tx.branch}
                                                     </td>
                                                     <td className="px-4 py-2 text-gray-600">{tx.studentYear}</td>
                                                     <td className="px-4 py-2">
-                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${tx.paymentMode === 'CASH' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
-                                                            {tx.paymentMode === 'CASH' ? <Wallet size={8} /> : <Landmark size={8} />}
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${tx.paymentMode === 'Cash' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
+                                                            {tx.paymentMode === 'Cash' ? <Wallet size={8} /> : <Landmark size={8} />}
                                                             {tx.paymentMode}
                                                         </span>
                                                     </td>
-                                                    <td className="px-4 py-2 text-right font-bold text-gray-900">₹{Number(tx.amount).toLocaleString()}</td>
+                                                    <td className={`px-4 py-2 text-right font-bold ${tx.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-gray-900'}`}>
+                                                        {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -304,10 +311,15 @@ const Reports = () => {
 
             const tot = res.data.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
             const cnt = res.data.reduce((acc, curr) => acc + (curr.count || curr.totalCount || 0), 0);
+
+            // New Summaries based on Debit Amount (Real Collection)
+            const debitSum = res.data.reduce((acc, curr) => acc + (curr.debitAmount || 0), 0);
+            const creditSum = res.data.reduce((acc, curr) => acc + (curr.creditAmount || 0), 0);
             const cash = res.data.reduce((acc, curr) => acc + (curr.cashAmount || 0), 0);
             const bank = res.data.reduce((acc, curr) => acc + (curr.bankAmount || 0), 0);
 
-            setSummary({ totalConfirm: tot, count: cnt, totalCash: cash, totalBank: bank });
+            // Use Debit Sum as the main "Total Collected" metric
+            setSummary({ totalConfirm: debitSum, count: cnt, totalCash: cash, totalBank: bank, totalCredit: creditSum });
 
         } catch (error) {
             console.error(error);
@@ -324,8 +336,7 @@ const Reports = () => {
             activeTab === 'daily' ? 'Date' : activeTab === 'cashier' ? 'Cashier' : 'Fee Head',
             "Transactions",
             "Cash",
-            "Bank",
-            "Collected",
+            "Bank (Online)",
             "Concession",
             "Net Total"
         ];
@@ -340,14 +351,15 @@ const Reports = () => {
                 identifier = row.name || row._id || 'Unknown';
             }
 
+            const netTotal = (row.cashAmount || 0) + (row.bankAmount || 0);
+
             return [
                 identifier,
                 row.count || row.totalCount || 0,
                 row.cashAmount || 0,
                 row.bankAmount || 0,
-                row.debitAmount || 0,
                 row.creditAmount || 0,
-                row.totalAmount || 0
+                netTotal
             ];
         });
 
@@ -425,12 +437,12 @@ const Reports = () => {
                                 color="indigo"
                                 icon={Landmark}
                             />
+                            {/* Added Concession Stat */}
                             <StatCard
-                                title="Transactions"
-                                value={summary.count}
+                                title="Concessions"
+                                value={`₹${Number(summary.totalCredit || 0).toLocaleString()}`}
                                 color="purple"
                                 icon={CreditCard}
-                                note="Total records found"
                             />
                         </div>
 
@@ -505,10 +517,13 @@ const Reports = () => {
                                                 {tabs.find(t => t.id === activeTab)?.label || 'Identifier'}
                                             </th>
                                             <th className="py-4 px-6 text-right">Transactions</th>
-                                            {activeTab !== 'daily' && <th className="py-4 px-6 text-right">Method Breakdown</th>}
-                                            <th className="py-4 px-6 text-right text-gray-600">Collected</th>
+
+                                            {/* Columns for ALL tabs now, but specifically requested for Daily */}
+                                            <th className="py-4 px-6 text-right text-emerald-600">Cash</th>
+                                            <th className="py-4 px-6 text-right text-indigo-600 text-nowrap">Bank (Online)</th>
                                             <th className="py-4 px-6 text-right text-purple-600">Concession</th>
-                                            <th className="py-4 px-6 text-right text-black">Net Total</th>
+                                            <th className="py-4 px-6 text-right text-black font-extrabold">Net Total</th>
+
                                             {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-4 px-6 text-right">Actions</th>}
                                         </tr>
                                     </thead>
@@ -557,23 +572,20 @@ const Reports = () => {
                                             <tr>
                                                 <td className="py-4 px-6 font-bold text-gray-800 text-xs text-left uppercase tracking-wide">GRAND TOTAL</td>
                                                 <td className="py-4 px-6 text-right font-bold text-sm text-gray-800">{summary.count}</td>
-                                                {activeTab !== 'daily' && (
-                                                    <td className="py-4 px-6 text-right">
-                                                        <div className="flex flex-row justify-end gap-2 text-[10px] font-mono font-medium text-gray-500">
-                                                            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">C: {Number(summary.totalCash || 0).toLocaleString()}</span>
-                                                            <span className="text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">B: {Number(summary.totalBank || 0).toLocaleString()}</span>
-                                                        </div>
-                                                    </td>
-                                                )}
-                                                <td className="py-4 px-6 text-right font-bold text-sm text-gray-700">
-                                                    ₹{Number(data.reduce((a, c) => a + (c.debitAmount || 0), 0)).toLocaleString()}
+
+                                                <td className="py-4 px-6 text-right font-bold text-sm text-emerald-600">
+                                                    ₹{Number(summary.totalCash || 0).toLocaleString()}
+                                                </td>
+                                                <td className="py-4 px-6 text-right font-bold text-sm text-indigo-600">
+                                                    ₹{Number(summary.totalBank || 0).toLocaleString()}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-bold text-sm text-purple-700">
-                                                    ₹{Number(data.reduce((a, c) => a + (c.creditAmount || 0), 0)).toLocaleString()}
+                                                    ₹{Number(summary.totalCredit || 0).toLocaleString()}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-extrabold text-lg text-blue-900">
                                                     ₹{Number(summary.totalConfirm).toLocaleString()}
                                                 </td>
+
                                                 {(activeTab === 'cashier' || activeTab === 'daily') && <td></td>}
                                             </tr>
                                         </tfoot>

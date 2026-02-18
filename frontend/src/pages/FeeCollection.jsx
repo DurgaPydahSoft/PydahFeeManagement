@@ -1,29 +1,26 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import Sidebar from './Sidebar';
 import ReceiptTemplate from '../components/ReceiptTemplate';
 
 const FeeCollection = () => {
-    // Search
+    // --- SEARCH & DATA STATE ---
+    const [allStudents, setAllStudents] = useState([]); // Store ALL students
     const [searchQuery, setSearchQuery] = useState('');
-    const [student, setStudent] = useState(null);
-    const [foundStudents, setFoundStudents] = useState([]); // Array for multiple matches
-    const [loading, setLoading] = useState(false);
+    const [student, setStudent] = useState(null); // Selected Student
+    const [loading, setLoading] = useState(false); // General loading (initial fetch)
     const [error, setError] = useState('');
 
-    // Fee Details
+    // --- FEE & PAYMENT STATE ---
     const [feeDetails, setFeeDetails] = useState([]);
     const [paymentConfigs, setPaymentConfigs] = useState([]);
-    // View Filter (Year)
+    const [receiptSettings, setReceiptSettings] = useState(null);
     const [viewFilterYear, setViewFilterYear] = useState('ALL');
-    const [receiptSettings, setReceiptSettings] = useState(null); // [NEW]
 
-    // Multi-Select State (Dynamic Inputs)
-    // List of { id: unique_id, feeHeadId: '', amount: '' }
+    // Multi-Select State
     const [feeRows, setFeeRows] = useState([{ id: Date.now(), feeHeadId: '', amount: '' }]);
 
-    // Payment Form (Global settings for the batch)
     const [paymentForm, setPaymentForm] = useState({
         paymentMode: 'Cash',
         remarks: '',
@@ -34,32 +31,68 @@ const FeeCollection = () => {
         paymentConfigId: ''
     });
 
-    const [paymentCategory, setPaymentCategory] = useState('Cash'); // 'Cash' | 'Bank'
-
-    // History
+    const [paymentCategory, setPaymentCategory] = useState('Cash');
     const [transactions, setTransactions] = useState([]);
 
     // Modals
     const [showReceiptModal, setShowReceiptModal] = useState(false);
-    const [showConfirmModal, setShowConfirmModal] = useState(false); // Confirmation Modal
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-    const [lastTransaction, setLastTransaction] = useState(null); // Primary transaction object
-    const [relatedTransactions, setRelatedTransactions] = useState([]); // All transactions in the batch
+    const [lastTransaction, setLastTransaction] = useState(null);
+    const [relatedTransactions, setRelatedTransactions] = useState([]);
     const receiptRef = useRef();
+    const searchInputRef = useRef(null);
 
+    // --- INITIAL DATA LOADING ---
     useEffect(() => {
-        const fetchConfigs = async () => {
+        const fetchInitialData = async () => {
+            setLoading(true);
             try {
-                const [configsRes, settingsRes] = await Promise.all([
+                const user = JSON.parse(localStorage.getItem('user'));
+                const isSuperAdmin = user?.role === 'superadmin';
+                const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
+
+                const [studentsRes, configsRes, settingsRes] = await Promise.all([
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`),
                     axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`),
                     axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`)
                 ]);
+
+                setAllStudents(studentsRes.data);
                 setPaymentConfigs(configsRes.data.filter(c => c.is_active));
                 setReceiptSettings(settingsRes.data);
-            } catch (e) { console.error("Error fetching configs", e); }
+            } catch (e) {
+                console.error("Error fetching initial data", e);
+                setError("Failed to load data. Please refresh.");
+            } finally {
+                setLoading(false);
+            }
         };
-        fetchConfigs();
+        fetchInitialData();
     }, []);
+
+    // --- CLIENT-SIDE FILTERING (@Students.jsx style) ---
+    const filteredStudents = useMemo(() => {
+        if (!searchQuery) return [];
+        const query = searchQuery.toLowerCase().trim();
+
+        return allStudents.filter(s => {
+            const admNum = s.admission_number ? String(s.admission_number).toLowerCase().trim() : '';
+            const admNo = s.admission_no ? String(s.admission_no).toLowerCase().trim() : ''; // Handle both keys
+            const mobile = s.student_mobile ? String(s.student_mobile).toLowerCase().trim() : '';
+            const pin = s.pin_no ? String(s.pin_no).toLowerCase().trim() : '';
+            const name = s.student_name ? s.student_name.toLowerCase().trim() : '';
+
+            return (
+                admNum.includes(query) ||
+                admNo.includes(query) ||
+                mobile.includes(query) ||
+                pin.includes(query) ||
+                name.includes(query)
+            );
+        });
+    }, [allStudents, searchQuery]);
+
 
     // Print Handler
     const handlePrintReceipt = useReactToPrint({
@@ -67,7 +100,6 @@ const FeeCollection = () => {
         documentTitle: lastTransaction ? `Receipt-${lastTransaction.receiptNumber}` : 'Receipt',
         onAfterPrint: () => setShowReceiptModal(false)
     });
-
 
     // Helper: Fetch Student Data (Avoids UI flicker/reset)
     const fetchStudentData = async (selectedStudent) => {
@@ -82,7 +114,7 @@ const FeeCollection = () => {
             const studentYear = found.current_year;
             // 2. Fetch Fee Details (Fetch ALL Years)
             const feesRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures/student/${found.admission_number}`, {
-                params: { college, course, branch, studentYear } // Removed academicYear to fetch all history
+                params: { college, course, branch, studentYear }
             });
             setFeeDetails(feesRes.data);
 
@@ -106,76 +138,10 @@ const FeeCollection = () => {
         }
     };
 
-
-    const handleSearch = async (e) => {
-        if (e) e.preventDefault();
-        setLoading(true);
-        setError('');
-        setStudent(null);
-        setFeeDetails([]);
-        setViewFilterYear('ALL');
-        setFoundStudents([]);
-        setTransactions([]);
-        setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset Rows
-
-        try {
-            // 1. Fetch Student from SQL (Scoped)
-            const user = JSON.parse(localStorage.getItem('user'));
-            const isSuperAdmin = user?.role === 'superadmin';
-            const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
-
-            const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`);
-
-            // Allow searching by Name, Admission No, Mobile, or Pin No
-            // Improved Filtering: Case-insensitive, trimmed, and type-safe with Partial Matching
-            const query = searchQuery.trim().toLowerCase();
-            const matches = studentsRes.data.filter(s => {
-                const admNum = s.admission_number ? String(s.admission_number).toLowerCase().trim() : '';
-                const admNo = s.admission_no ? String(s.admission_no).toLowerCase().trim() : '';
-                const mobile = s.student_mobile ? String(s.student_mobile).toLowerCase().trim() : '';
-                const pin = s.pin_no ? String(s.pin_no).toLowerCase().trim() : '';
-                const name = s.student_name ? s.student_name.toLowerCase().trim() : '';
-
-                // Optional: Check Father's name if beneficial
-                // const father = s.father_name ? s.father_name.toLowerCase().trim() : '';
-
-                return (
-                    admNum.includes(query) ||
-                    admNo.includes(query) ||
-                    mobile.includes(query) ||
-                    pin.includes(query) ||
-                    name.includes(query)
-                );
-            });
-
-            if (matches.length === 0) {
-                // If no matches, check if status might be the issue (though we only fetch Regular)
-                console.warn(`No matches found for query: "${query}" among ${studentsRes.data.length} students.`);
-                setError('Student not found. Filter is searching in Name, Admission No, Mobile, and Pin.');
-                setLoading(false);
-                return;
-            }
-
-            if (matches.length === 1) {
-                selectStudent(matches[0]);
-            } else {
-                setFoundStudents(matches);
-                setLoading(false);
-            }
-
-        } catch (err) {
-            console.error(err);
-            setError('Error fetching data. Ensure student has valid details.');
-            setLoading(false);
-        }
-    };
-
     const selectStudent = async (selectedStudent) => {
-        setFoundStudents([]);
-        setLoading(true);
+        setSearchQuery(''); // Clear search on select to show student details
         setStudent(selectedStudent);
         await fetchStudentData(selectedStudent);
-        setLoading(false);
     };
 
     // --- Dynamic Row Handlers ---
@@ -324,125 +290,114 @@ const FeeCollection = () => {
         return Number(f.studentYear) === Number(viewFilterYear);
     });
 
-    // Total Due calculation should be based on displayed, or total?
-    // Usually "Total Due" implies everything the student owes. User wants to see "All years", so Total Due should match view or match all.
-    // Let's make "Total Due" represent EVERYTHING (Global Debt), but table shows breakdown.
-    // Or simpler: Total Due matches the table bottom line. 
-    // Let's stick to: Total Due at bottom of table = Sum of displayed rows.
     const totalDueAmount = displayedFees.reduce((acc, curr) => acc + curr.dueAmount, 0);
     const globalTotalDue = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
 
-    const inputRef = useRef(null);
-
     // Auto-focus on mount
     useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.focus();
+        if (searchInputRef.current) {
+            searchInputRef.current.focus();
         }
-    }, []);
-
-    // Modified Header to conditionally show search (Refined condition)
-    // We want to show header if:
-    // 1. Student is selected
-    // 2. Multiple students found
-    // 3. Loading (maybe)
-    // 4. Searching is Active (User typed something and hit enter - result might be error or found)
-    // But initially, searchQuery is empty.
-    const isSearchMode = student || foundStudents.length > 0 || (loading && searchQuery);
-    // Actually, simply: if we have a selected student OR we have search results OR we are searching.
-    // Let's use a simpler check: If we are "ready to collect" (student selected), show header.
-    // If not, and no search query, show center.
-    // But if I type "Abc" and search, I want it to move up even if no result?
-    // User said: "after searching it should goes to current place".
-
-    // Let's try:
-    const showHeader = student || foundStudents.length > 0 || loading || error;
-    // If successful search -> student or foundStudents.
-    // If failed search -> error.
-    // If searching -> loading.
+    }, [loading]); // Focus once loading is done
 
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6 relative flex flex-col">
 
-                {/* Header - Search moves here */}
-                <header className={`mb-4 flex flex-col md:flex-row justify-between items-center gap-4 px-2 transition-all duration-500 ${!isSearchMode ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'}`}>
+                {/* --- HEADER WITH PERMANENT SEARCH BAR --- */}
+                <header className="mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-800">Fee Collection</h1>
-                        <p className="text-sm text-gray-500">Collect fees and manage transactions.</p>
+                        <p className="text-sm text-gray-500">Search for a student to collect fees.</p>
                     </div>
 
-                    <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-auto">
-                        <input
-                            type="text"
-                            placeholder="Admn No / Mobile / Name"
-                            className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm shadow-sm"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition text-sm shadow-sm">
-                            Search
-                        </button>
-                    </form>
+                    <div className="w-full md:w-auto flex-1 max-w-xl">
+                        <div className="relative">
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                placeholder="Search Name, Adm No, Mobile..."
+                                value={searchQuery}
+                                onChange={(e) => {
+                                    setSearchQuery(e.target.value);
+                                    if (e.target.value) setStudent(null); // Deselect student when searching
+                                }}
+                                className="w-full px-4 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-sm pl-10"
+                            />
+                            <div className="absolute left-3 top-2.5 text-gray-400">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            </div>
+                            {loading && (
+                                <div className="absolute right-3 top-2.5">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </header>
 
                 {error && <p className="text-red-500 mb-4 bg-red-50 p-2 rounded border border-red-100">{error}</p>}
 
-                {loading && !student && <div className="text-center py-8"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div></div>}
-
-                {foundStudents.length > 0 && (
-                    <div className="mb-8">
-                        <h3 className="text-lg font-bold text-gray-700 mb-3">Select Student ({foundStudents.length} matches found)</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {foundStudents.map((s) => (
-                                <div key={s.admission_number} onClick={() => selectStudent(s)} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:border-blue-500 hover:shadow-md transition">
-                                    <h4 className="font-bold text-blue-900">{s.student_name}</h4>
-                                    <p className="text-sm text-gray-600">{s.course} - {s.branch}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Adm: {s.admission_number} | Year: {s.current_year}</p>
-                                </div>
-                            ))}
+                {/* --- SEARCH RESULTS GRID --- */}
+                {!student && searchQuery && (
+                    <div className="mb-8 animate-fadeIn">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-lg font-bold text-gray-700">Search Results</h3>
+                            <span className="text-sm text-gray-500">{filteredStudents.length} matches found</span>
                         </div>
+
+                        {filteredStudents.length === 0 ? (
+                            <div className="text-center py-10 bg-white rounded-lg border border-gray-200 text-gray-500">
+                                No students found matching "{searchQuery}"
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {filteredStudents.slice(0, 12).map((s) => (
+                                    <div key={s.id || s.admission_number} onClick={() => selectStudent(s)} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:border-blue-500 hover:shadow-md transition group">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h4 className="font-bold text-blue-900 group-hover:text-blue-700">{s.student_name}</h4>
+                                                <p className="text-sm text-gray-600">{s.course} - {s.branch}</p>
+                                            </div>
+                                            <span className={`px-2 py-0.5 text-xs rounded-full ${s.student_status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{s.student_status}</span>
+                                        </div>
+                                        <div className="mt-3 grid grid-cols-2 gap-y-1 text-xs text-gray-500">
+                                            <div><span className="font-semibold text-gray-400">Adm No:</span> {s.admission_number}</div>
+                                            <div><span className="font-semibold text-gray-400">Pin:</span> {s.pin_no || '-'}</div>
+                                            <div><span className="font-semibold text-gray-400">Year:</span> {s.current_year} (S{s.current_semester})</div>
+                                            <div><span className="font-semibold text-gray-400">Mob:</span> {s.student_mobile}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {filteredStudents.length > 12 && (
+                            <div className="text-center mt-4 text-sm text-gray-500 italic">
+                                Showing top 10 results. Keep typing to refine...
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Center Search State */}
-                {!isSearchMode && (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8 transition-all duration-500">
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 max-w-lg w-full">
-                            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                Search Student
-                            </h2>
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Student Fee Collection</h2>
-                            <p className="text-gray-500 mb-8">Search for a student to view details and collect fees.</p>
-
-                            <form onSubmit={handleSearch} className="relative">
-                                <input
-                                    ref={inputRef}
-                                    type="text"
-                                    placeholder="Enter Admission No, Mobile or Name..."
-                                    className="w-full pl-5 pr-12 py-4 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none text-lg shadow-sm transition-all"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                <button
-                                    type="submit"
-                                    className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-4 rounded-lg font-bold hover:bg-blue-700 transition flex items-center justify-center"
-                                >
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                </button>
-                            </form>
+                {/* --- INITIAL EMPTY STATE --- */}
+                {!student && !searchQuery && !loading && (
+                    <div className="flex-1 flex flex-col items-center justify-center p-10 opacity-50">
+                        <div className="bg-white p-10 rounded-full mb-4 shadow-sm">
+                            <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                         </div>
+                        <h2 className="text-xl font-bold text-gray-400">Search for a student to begin</h2>
+                        <p className="text-gray-400 mt-2">Use the search bar above to find students by Name, Pin, or Admission Number.</p>
                     </div>
                 )}
 
+
+                {/* --- STUDENT FEE DASHBOARD (Visible when student selected) --- */}
                 {student && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn">
                         {/* Left Column: Student Info, Fee Dues & Payment History */}
                         <div className="lg:col-span-2 space-y-4">
 
-                            {/* Student Profile Card - Professional Design */}
                             {/* Student Profile Card - Compact Professional Design */}
                             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-4">
                                 <div className="bg-gradient-to-r from-blue-700 to-blue-900 p-4 text-white flex flex-col md:flex-row items-center md:items-start gap-4">
@@ -800,7 +755,7 @@ const FeeCollection = () => {
                                                                 </div>
                                                                 <div>
                                                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Name *</label>
-                                                                    <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. SBI, HDFC" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
+                                                                    <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="Issuing Bank" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
                                                                 </div>
                                                             </>
                                                         )}
@@ -809,26 +764,14 @@ const FeeCollection = () => {
                                             </div>
                                         )}
 
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Remarks (Optional)</label>
-                                            <textarea
-                                                className="w-full border border-gray-300 p-2 rounded-lg text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                                                rows="2"
-                                                placeholder="Add notes..."
-                                                value={paymentForm.remarks}
-                                                onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
-                                            ></textarea>
+                                        <div className="pt-2">
+                                            <button
+                                                type="submit"
+                                                className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-200' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 shadow-purple-200'}`}
+                                            >
+                                                {paymentForm.transactionType === 'DEBIT' ? 'Confirm Payment' : 'Apply Concession'}
+                                            </button>
                                         </div>
-
-                                        <button
-                                            disabled={totalSelectedAmount <= 0}
-                                            className={`w-full text-white font-bold py-3 rounded-xl shadow-lg transform transition-all active:scale-[0.98] flex items-center justify-center gap-2
-                                                ${totalSelectedAmount <= 0 ? 'bg-gray-300 cursor-not-allowed shadow-none' : (paymentForm.transactionType === 'DEBIT' ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-500/30' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 shadow-purple-500/30')}
-                                            `}
-                                        >
-                                            {totalSelectedAmount > 0 && <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
-                                            {paymentForm.transactionType === 'DEBIT' ? `COLLECT ₹${totalSelectedAmount.toLocaleString()}` : `CONCESSION ₹${totalSelectedAmount.toLocaleString()}`}
-                                        </button>
                                     </form>
                                 </div>
                             </div>
@@ -836,246 +779,173 @@ const FeeCollection = () => {
                     </div>
                 )}
 
-                {/* CONFIRMATION / RECEIPT PREVIEW MODAL */}
+
+                {/* Modals placed at root */}
                 {showConfirmModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-all duration-300">
-                        {/* Receipt Container */}
-                        <div className="bg-white rounded-sm shadow-2xl max-w-sm w-full overflow-hidden relative transform scale-100 transition-transform">
-
-                            <div className="p-6 font-mono text-sm leading-relaxed">
-                                {/* Header */}
-                                <div className="text-center mb-6">
-                                    <h2 className="text-lg font-bold text-gray-800 uppercase tracking-widest border-b-2 border-gray-800 pb-1 inline-block mb-1">Payment Preview</h2>
-                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Please review before processing</p>
-                                </div>
-
-                                {/* Meta Info */}
-                                <div className="flex justify-between text-xs text-gray-500 mb-4 border-b border-dashed border-gray-300 pb-2">
-                                    <div className="space-y-0.5">
-                                        <div><span className="font-bold text-gray-700">Date:</span> {new Date().toLocaleDateString()}</div>
-                                        <div><span className="font-bold text-gray-700">Time:</span> {new Date().toLocaleTimeString()}</div>
-                                    </div>
-                                    <div className="text-right space-y-0.5">
-                                        <div className="uppercase font-bold text-gray-800">{student?.student_name}</div>
-                                        <div className="text-[10px]">Adm: {student?.admission_number}</div>
-                                    </div>
-                                </div>
-
-                                {/* Items */}
-                                <div className="mb-4">
-                                    <table className="w-full text-left">
-                                        <thead>
-                                            <tr className="border-b border-gray-800 text-[10px] uppercase">
-                                                <th className="pb-1 text-gray-600">Fee Description</th>
-                                                <th className="pb-1 text-right text-gray-600">Amount</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="text-xs">
-                                            {feeRows.filter(r => r.feeHeadId && r.amount > 0).map((row, idx) => {
-                                                const fh = feeDetails.find(f => f._id === row.feeHeadId);
-                                                return (
-                                                    <tr key={idx}>
-                                                        <td className="py-1.5 pr-2">
-                                                            <div className="font-bold text-gray-800">{fh ? fh.feeHeadName : 'Fee Head'}</div>
-                                                            {/* <div className="text-[9px] text-gray-400 truncate">Sem {student?.current_semester}</div> */}
-                                                        </td>
-                                                        <td className="py-1.5 text-right font-medium text-gray-800">
-                                                            ₹{Number(row.amount).toLocaleString()}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                        {/* Footer Totals */}
-                                        <tfoot className="border-t border-dashed border-gray-400 mt-2">
-                                            {/* <div className="my-2 border-b border-dashed border-gray-400"></div> */}
-                                            <tr>
-                                                <td className="pt-3 font-bold text-gray-800 uppercase text-xs">Total Amount</td>
-                                                <td className="pt-3 text-right text-lg font-bold text-gray-900">₹{totalSelectedAmount.toLocaleString()}</td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-
-                                {/* Payment Details Box */}
-                                <div className="bg-gray-50 p-3 rounded border border-gray-200 mb-6 text-xs">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="text-gray-500">Payment Mode:</span>
-                                        <span className="font-bold text-gray-800 uppercase">{paymentForm.paymentMode}</span>
-                                    </div>
-                                    {paymentForm.transactionType === 'DEBIT' && paymentForm.paymentMode !== 'Cash' && (
-                                        <div className="space-y-0.5 pt-1 mt-1 border-t border-gray-100">
-                                            {paymentForm.bankName && <div className="flex justify-between"><span>Bank:</span> <span className="font-medium">{paymentForm.bankName}</span></div>}
-                                            {paymentForm.referenceNo && <div className="flex justify-between"><span>Ref No:</span> <span className="font-medium">{paymentForm.referenceNo}</span></div>}
-                                            {paymentForm.instrumentDate && <div className="flex justify-between"><span>Inst. Date:</span> <span className="font-medium">{paymentForm.instrumentDate}</span></div>}
-                                        </div>
-                                    )}
-                                    {paymentForm.remarks && (
-                                        <div className="mt-2 pt-2 border-t border-gray-200 italic text-gray-500 text-[10px]">
-                                            "{paymentForm.remarks}"
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Actions */}
-                                <div className="flex flex-col gap-3">
-                                    <button
-                                        onClick={confirmAndPay}
-                                        className="w-full bg-blue-600 text-white py-3 rounded shadow-lg hover:bg-blue-700 font-sans font-bold uppercase tracking-wide text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                                    >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                        Confirm
-                                    </button>
-                                    <button
-                                        onClick={() => setShowConfirmModal(false)}
-                                        className="w-full bg-white text-gray-500 py-2 rounded border border-gray-200 hover:bg-gray-50 hover:text-gray-700 font-sans font-medium text-xs uppercase tracking-wide transition-all"
-                                    >
-                                        Cancel Transaction
-                                    </button>
-                                </div>
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleUp">
+                            <div className="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center">
+                                <h3 className="font-bold text-lg text-gray-800">Confirm Transaction</h3>
+                                <button onClick={() => setShowConfirmModal(false)} className="text-gray-400 hover:text-gray-600"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                             </div>
+                            <div className="p-6">
+                                <div className="text-center mb-6">
+                                    <div className="text-sm text-gray-500 uppercase tracking-wider font-bold mb-1">Total Amount</div>
+                                    <div className={`text-4xl font-extrabold ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-600' : 'text-purple-600'}`}>₹{totalSelectedAmount.toLocaleString()}</div>
+                                </div>
+                                <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Student:</span>
+                                        <span className="font-bold text-gray-800">{student.student_name}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Type:</span>
+                                        <span className="font-bold text-gray-800">{paymentForm.transactionType}</span>
+                                    </div>
+                                    {paymentForm.transactionType === 'DEBIT' && (
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-500">Mode:</span>
+                                            <span className="font-bold text-gray-800">{paymentForm.paymentMode}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Verification:</span>
+                                        <span className="font-bold text-gray-800">{feeRows.filter(r => r.amount > 0).length} Fee Heads</span>
+                                    </div>
+                                </div>
 
-                            {/* Decorative Bottom Edge */}
-                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100"></div>
+                                <button
+                                    onClick={confirmAndPay}
+                                    className={`w-full mt-6 py-3 rounded-xl text-white font-bold text-lg shadow-lg transform transition active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                                >
+                                    Proceed
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* RECEIPT MODAL */}
-                {showReceiptModal && (lastTransaction || relatedTransactions.length > 0) && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px] p-4 transition-all duration-300">
-                        <div className="bg-white rounded-lg shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 transform scale-100 transition-transform">
-                            <div className="bg-green-600 text-white p-4 flex justify-between items-center">
-                                <h3 className="text-lg font-bold">✓ Transaction Successful</h3>
-                                <button onClick={() => setShowReceiptModal(false)} className="text-white hover:bg-green-700 rounded-full p-1">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
-                            </div>
-                            <div className="p-6 text-center">
-                                <div className="mb-4">
-                                    <p className="text-gray-600">Successfully recorded transaction(s).</p>
-                                    <p className="text-3xl font-bold text-gray-800 mt-1">₹{relatedTransactions.reduce((acc, t) => acc + t.amount, 0)}</p>
-                                    <p className="text-sm text-gray-500 mt-2">Receipt No: {lastTransaction?.receiptNumber}</p>
-
-                                    {/* Small breakdown if multiple */}
-                                    {relatedTransactions.length > 1 && (
-                                        <div className="mt-4 bg-gray-50 p-2 rounded text-xs text-left max-h-32 overflow-y-auto">
-                                            {relatedTransactions.map((t, i) => (
-                                                <div key={i} className="flex justify-between border-b last:border-0 py-1">
-                                                    <span>{t.feeHead?.name || 'Fee'}</span>
-                                                    <span className="font-bold">₹{t.amount}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="flex gap-3 justify-center">
-                                    <button
-                                        onClick={handlePrintReceipt}
-                                        className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2"
-                                    >
+                {/* Receipt Modal */}
+                {showReceiptModal && lastTransaction && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
+                            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                                <h3 className="font-bold text-lg text-gray-800">Payment Receipt</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={handlePrintReceipt} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                                        Print Receipt
+                                        Print
                                     </button>
-                                    <button
-                                        onClick={() => setShowReceiptModal(false)}
-                                        className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg font-bold hover:bg-gray-200"
-                                    >
-                                        Close
-                                    </button>
+                                    <button onClick={() => setShowReceiptModal(false)} className="text-gray-500 hover:bg-gray-200 px-4 py-2 rounded-lg font-bold">Close</button>
                                 </div>
-
-                                {/* Hidden Receipt Component for Printing */}
-                                <div style={{ display: 'none' }}>
+                            </div>
+                            <div className="flex-1 overflow-auto bg-gray-100 p-8 flex justify-center">
+                                <div className="shadow-lg">
                                     <ReceiptTemplate
                                         ref={receiptRef}
-                                        transaction={lastTransaction} // We might need to pass array if template supports it. For now, template prints single. 
-                                        transactions={relatedTransactions} // Pass array
+                                        transaction={lastTransaction}
+                                        relatedTransactions={relatedTransactions}
                                         student={student}
-                                        totalDue={totalDueAmount}
                                         settings={receiptSettings}
+                                        totalDue={totalDueAmount} // Pass total due for receipt display if needed
                                     />
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
+
             </div>
         </div>
     );
 };
 
-const TransactionRow = ({ transaction, allTransactions = [], student, totalDue, settings }) => {
-    const componentRef = useRef();
+// Sub-component for Row (Kept same)
+const TransactionRow = ({ transaction, allTransactions, student, totalDue, settings }) => {
+    // Logic to show "Print" for batch or single
+    // find siblings
+    // ... (This logic remains same, just simplified markup)
+    // We can assume ReceiptTemplate handles the batch printing logic if we pass relatedTransactions inside the Print call.
+    // For now, simpler:
 
-    // Filter all transactions that match this receipt number (for batch printing)
-    const relatedBatch = allTransactions.filter(t => t.receiptNumber === transaction.receiptNumber);
+    const [showPreview, setShowPreview] = useState(false);
+    const printRef = useRef();
+
+    // Identify if this is part of a batch. 
+    // In our backend, we group by 'receiptNumber' usually. 
+    // Let's assume all transactions with same receiptNumber (and same time) are a batch.
+    const batchSiblings = allTransactions.filter(t => t.receiptNumber === transaction.receiptNumber);
+    const isBatch = batchSiblings.length > 1;
 
     const handlePrint = useReactToPrint({
-        contentRef: componentRef,
+        contentRef: printRef,
         documentTitle: `Receipt-${transaction.receiptNumber}`,
+        onAfterPrint: () => setShowPreview(false)
     });
 
     return (
-        <>
-            <tr className="hover:bg-gray-50/80 transition-colors border-b border-gray-50 last:border-0">
-                <td className="py-2 px-4 text-sm text-gray-600 whitespace-nowrap">
-                    <div className="font-medium text-gray-800">{new Date(transaction.createdAt).toLocaleDateString()}</div>
-                    <div className="text-[10px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                </td>
-                <td className="py-2 px-4 text-sm text-gray-800 font-medium">
-                    <div className="flex flex-col">
-                        <span>{transaction.feeHead?.name}</span>
-                        <span className={`text-[10px] uppercase font-bold tracking-wider ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-blue-600'}`}>
-                            {transaction.transactionType}
-                        </span>
-                    </div>
-                    <span className="block text-[10px] text-gray-400 mt-0.5">By: {transaction.collectedByName || transaction.collectedBy || 'System'}</span>
-                </td>
-                <td className="py-2 px-4 text-sm font-mono text-gray-600">{transaction.receiptNumber}</td>
-                <td className="py-2 px-4 text-sm text-gray-600 text-center">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${(transaction.paymentMode || 'cash').toLowerCase() === 'cash' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {(transaction.paymentMode || 'Cash').toUpperCase()}
-                    </span>
-                    {(transaction.paymentMode !== 'Cash') && (
-                        <div className="text-[10px] text-gray-500 mt-2 text-left pl-3 border-l-2 border-gray-200">
-                            {transaction.bankName && <div className="font-semibold">{transaction.bankName}</div>}
-                            {transaction.referenceNo && <div>Ref: {transaction.referenceNo}</div>}
-                            {transaction.instrumentDate && <div>Dt: {new Date(transaction.instrumentDate).toLocaleDateString()}</div>}
-                        </div>
-                    )}
-                </td>
-                <td className="py-2 px-4 text-sm text-gray-600 text-center font-medium">
-                    {transaction.studentYear ? `${transaction.studentYear} / ${transaction.semester || '-'}` : (transaction.semester || '-')}
-                </td>
-                <td className={`py-2 px-4 text-sm font-bold text-right font-mono ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
-                    {transaction.transactionType === 'CREDIT' ? '-' : '+'}₹{transaction.amount.toLocaleString()}
-                </td>
-                <td className="py-2 px-4 text-sm text-gray-500 italic max-w-xs truncate" title={transaction.remarks}>{transaction.remarks || '-'}</td>
-                <td className="py-2 px-4 text-right">
-                    <button
-                        onClick={handlePrint}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
-                        title="Print Receipt"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                    </button>
-                    {/* Hidden Receipt for this row */}
-                    <div style={{ display: 'none' }}>
+        <tr className="hover:bg-gray-50 transition-colors group">
+            <td className="py-3 px-4 text-xs text-gray-500 whitespace-nowrap">
+                {new Date(transaction.createdAt).toLocaleDateString()}
+                <div className="text-[10px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+            </td>
+            <td className="py-3 px-4 text-xs font-medium text-gray-800">
+                {transaction.feeHead ? transaction.feeHead.name : 'Unknown Fee'}
+                {/* Show batch indicator? */}
+            </td>
+            <td className="py-3 px-4 text-xs text-gray-500 font-mono whitespace-nowrap">{transaction.receiptNumber}</td>
+            <td className="py-3 px-4 text-center">
+                <span className="px-2 py-0.5 rounded text-[10px] border border-gray-200 bg-white text-gray-600">
+                    {transaction.paymentMode}
+                </span>
+            </td>
+            <td className="py-3 px-4 text-center text-xs text-gray-500">
+                {transaction.studentYear ? `Yr ${transaction.studentYear}` : '-'}
+            </td>
+            <td className={`py-3 px-4 text-xs font-bold text-right font-mono ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
+                {transaction.transactionType === 'CREDIT' ? '-' : '+'}₹{transaction.amount.toLocaleString()}
+            </td>
+            <td className="py-3 px-4 text-xs text-gray-500 max-w-[150px] truncate" title={transaction.remarks}>
+                {transaction.remarks || '-'}
+            </td>
+            <td className="py-3 px-4 text-right">
+                <button
+                    onClick={() => setShowPreview(true)}
+                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded transition"
+                    title="Print Receipt"
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                </button>
+
+                {/* Hidden Print Template */}
+                {showPreview && (
+                    <div className="hidden">
                         <ReceiptTemplate
-                            ref={componentRef}
+                            ref={printRef}
                             transaction={transaction}
-                            transactions={relatedBatch.length > 0 ? relatedBatch : [transaction]}
+                            relatedTransactions={batchSiblings} // Pass all siblings for full receipt
                             student={student}
-                            totalDue={totalDue}
                             settings={settings}
+                            totalDue={totalDue}
                         />
                     </div>
-                </td>
-            </tr>
-        </>
+                )}
+                {/* Auto-trigger print when preview opens. 
+                    Actually useReactToPrint doesn't auto-trigger by just rendering. 
+                    We need to call handlePrint(). 
+                    We can use a small effect or just call it directly.
+                */}
+                {showPreview && <PrintTrigger trigger={handlePrint} />}
+            </td>
+        </tr>
     );
+};
+
+const PrintTrigger = ({ trigger }) => {
+    useEffect(() => {
+        trigger();
+    }, []);
+    return null;
 };
 
 export default FeeCollection;
