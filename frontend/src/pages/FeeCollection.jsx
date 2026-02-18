@@ -17,6 +17,7 @@ const FeeCollection = () => {
     const [paymentConfigs, setPaymentConfigs] = useState([]);
     // View Filter (Year)
     const [viewFilterYear, setViewFilterYear] = useState('ALL');
+    const [receiptSettings, setReceiptSettings] = useState(null); // [NEW]
 
     // Multi-Select State (Dynamic Inputs)
     // List of { id: unique_id, feeHeadId: '', amount: '' }
@@ -49,9 +50,13 @@ const FeeCollection = () => {
     useEffect(() => {
         const fetchConfigs = async () => {
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`);
-                setPaymentConfigs(res.data.filter(c => c.is_active));
-            } catch (e) { console.error("Error fetching payment configs", e); }
+                const [configsRes, settingsRes] = await Promise.all([
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`),
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`)
+                ]);
+                setPaymentConfigs(configsRes.data.filter(c => c.is_active));
+                setReceiptSettings(settingsRes.data);
+            } catch (e) { console.error("Error fetching configs", e); }
         };
         fetchConfigs();
     }, []);
@@ -620,6 +625,7 @@ const FeeCollection = () => {
                                                         allTransactions={transactions} // Pass full history to find batch siblings
                                                         student={student}
                                                         totalDue={totalDueAmount}
+                                                        settings={receiptSettings}
                                                     />
                                                 ))
                                             )}
@@ -988,6 +994,7 @@ const FeeCollection = () => {
                                         transactions={relatedTransactions} // Pass array
                                         student={student}
                                         totalDue={totalDueAmount}
+                                        settings={receiptSettings}
                                     />
                                 </div>
                             </div>
@@ -999,7 +1006,7 @@ const FeeCollection = () => {
     );
 };
 
-const TransactionRow = ({ transaction, allTransactions = [], student, totalDue }) => {
+const TransactionRow = ({ transaction, allTransactions = [], student, totalDue, settings }) => {
     const componentRef = useRef();
 
     // Filter all transactions that match this receipt number (for batch printing)
@@ -1062,6 +1069,7 @@ const TransactionRow = ({ transaction, allTransactions = [], student, totalDue }
                             transactions={relatedBatch.length > 0 ? relatedBatch : [transaction]}
                             student={student}
                             totalDue={totalDue}
+                            settings={settings}
                         />
                     </div>
                 </td>

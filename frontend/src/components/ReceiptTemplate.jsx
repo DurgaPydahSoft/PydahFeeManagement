@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 
-const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalDue }, ref) => {
+const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalDue, settings }, ref) => { // Accept settings
     // Determine the list of items to show
     let items = [];
     if (transactions && transactions.length > 0) {
@@ -14,6 +14,11 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
     const primary = items[0]; // Shared details
     const totalAmount = items.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
+    // Apply settings
+    const showHeader = settings?.showCollegeHeader !== false; // Default true
+    const maskedFeeHeads = settings?.maskedFeeHeads || [];
+    const maskName = settings?.maskName || 'Processing Fee';
+
     // Helper component for a single receipt copy
     const ReceiptOneCopy = ({ copyTitle }) => (
         <div style={{
@@ -25,19 +30,29 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
             boxSizing: 'border-box'
         }}>
             {/* Header */}
-            <div style={{ textAlign: 'center', borderBottom: '1px solid #ccc', paddingBottom: '10px', marginBottom: '15px' }}>
-                <h1 style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, color: '#000' }}>
-                    {student.college || 'PYDAH GROUP OF COLLEGES'}
-                </h1>
-                <p style={{ fontSize: '12px', color: '#555', margin: '2px 0' }}>Kakinada, Andhra Pradesh</p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
-                    <div style={{ fontSize: '11px', fontStyle: 'italic' }}>{copyTitle}</div>
-                    <div style={{ border: '1px solid #000', padding: '2px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                        Fee Receipt
+            {showHeader ? (
+                <div style={{ textAlign: 'center', borderBottom: '1px solid #ccc', paddingBottom: '10px', marginBottom: '15px' }}>
+                    <h1 style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, color: '#000' }}>
+                        {student.college || 'PYDAH GROUP OF COLLEGES'}
+                    </h1>
+                    <p style={{ fontSize: '12px', color: '#555', margin: '2px 0' }}>Kakinada, Andhra Pradesh</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
+                        <div style={{ fontSize: '11px', fontStyle: 'italic' }}>{copyTitle}</div>
+                        <div style={{ border: '1px solid #000', padding: '2px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                            Fee Receipt
+                        </div>
+                        <div style={{ fontSize: '11px', width: '60px' }}></div> {/* Spacer for center alignment */}
                     </div>
-                    <div style={{ fontSize: '11px', width: '60px' }}></div> {/* Spacer for center alignment */}
                 </div>
-            </div>
+            ) : (
+                <div style={{ marginBottom: '20px', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: '11px', fontStyle: 'italic' }}>{copyTitle}</div>
+                        <h1 style={{ fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0 }}>Fee Receipt</h1>
+                        <div style={{ fontSize: '11px' }}>Date: {new Date().toLocaleDateString()}</div>
+                    </div>
+                </div>
+            )}
 
             {/* Meta Info */}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '10px' }}>
@@ -75,16 +90,24 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
                         </tr>
                     </thead>
                     <tbody>
-                        {items.map((item, index) => (
-                            <tr key={index}>
-                                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{index + 1}</td>
-                                <td style={{ border: '1px solid #000', padding: '5px' }}>
-                                    <div>{item.feeHead?.name || 'Fee'}</div>
-                                    {item.remarks && <div style={{ fontSize: '10px', fontStyle: 'italic', color: '#666' }}>{item.remarks}</div>}
-                                </td>
-                                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right' }}>{item.amount}</td>
-                            </tr>
-                        ))}
+                        {items.map((item, index) => {
+                            // Check if this fee head is masked
+                            // item.feeHead might be populated object OR just ID. Handle both.
+                            const feeHeadId = item.feeHead?._id || item.feeHead;
+                            const isMasked = maskedFeeHeads.includes(feeHeadId);
+                            const displayName = isMasked ? maskName : (item.feeHead?.name || 'Fee');
+
+                            return (
+                                <tr key={index}>
+                                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{index + 1}</td>
+                                    <td style={{ border: '1px solid #000', padding: '5px' }}>
+                                        <div>{displayName}</div>
+                                        {item.remarks && <div style={{ fontSize: '10px', fontStyle: 'italic', color: '#666' }}>{item.remarks}</div>}
+                                    </td>
+                                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right' }}>{item.amount}</td>
+                                </tr>
+                            );
+                        })}
                         {/* Fill empty rows to maintain height if needed, OR just let it flex */}
 
                         <tr style={{ backgroundColor: '#f9f9f9' }}>
