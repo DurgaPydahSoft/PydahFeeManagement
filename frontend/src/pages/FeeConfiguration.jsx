@@ -45,6 +45,9 @@ const FeeConfiguration = () => {
     const [batches, setBatches] = useState([]); // Store batch list
     const [studentList, setStudentList] = useState([]);
     const [loadingStudents, setLoadingStudents] = useState(false);
+    const [isSavingDefinition, setIsSavingDefinition] = useState(false);
+    const [isApplyingBatch, setIsApplyingBatch] = useState(false);
+    const [isSavingFees, setIsSavingFees] = useState(false);
     const [isBatchApplied, setIsBatchApplied] = useState(false);
     const [applicabilityMode, setApplicabilityMode] = useState('individual'); // Consolidated to just individual view
     const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
@@ -114,6 +117,7 @@ const FeeConfiguration = () => {
     const activeStructSubmit = async (e) => {
         e.preventDefault();
         setMessage('');
+        setIsSavingDefinition(true);
         try {
             if (editingId) {
                 // Update existing
@@ -159,6 +163,7 @@ const FeeConfiguration = () => {
             setEditingId(null);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { setMessage(error.response?.data?.message || 'Error saving structure'); }
+        finally { setIsSavingDefinition(false); }
     };
 
     // Edit entire row (Propagate context)
@@ -306,6 +311,7 @@ const FeeConfiguration = () => {
     const handleApplyBatch = async (row) => {
         if (!window.confirm(`Apply Fee Structure to ALL students in Batch ${row.batch}?`)) return;
 
+        setIsApplyingBatch(true);
         try {
             // Processing ALL IDs in this structure row
             const idsToProcess = row.allIds || [];
@@ -330,10 +336,13 @@ const FeeConfiguration = () => {
         } catch (error) {
             const msg = error.response?.data?.message || "Failed to apply batch";
             alert(msg);
+        } finally {
+            setIsApplyingBatch(false);
         }
     };
 
     const handleSaveStudentFees = async () => {
+        setIsSavingFees(true);
         try {
             // Flatten the studentList to extract all fee entries
             const fees = [];
@@ -365,6 +374,7 @@ const FeeConfiguration = () => {
             setMessage("Student List fees saved successfully!");
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { alert("Failed to save student fees"); }
+        finally { setIsSavingFees(false); }
     };
 
     // --- RENDER HELPERS ---
@@ -599,7 +609,17 @@ const FeeConfiguration = () => {
                                         </div>
                                     </div>
                                 )}
-                                <button className="w-full bg-blue-600 text-white py-2 rounded font-bold">Save Definition</button>
+                                <button
+                                    disabled={isSavingDefinition}
+                                    className={`w-full text-white py-2 rounded font-bold flex items-center justify-center gap-2 ${isSavingDefinition ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                >
+                                    {isSavingDefinition ? (
+                                        <>
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                            Saving...
+                                        </>
+                                    ) : 'Save Definition'}
+                                </button>
                             </form>
                         </div>
 
@@ -658,10 +678,11 @@ const FeeConfiguration = () => {
                                                     </button>
                                                     <button
                                                         onClick={() => handleApplyBatch(row)}
-                                                        className="text-green-600 hover:text-green-800 bg-green-50 hover:bg-green-100 p-2 rounded transition"
+                                                        disabled={isApplyingBatch}
+                                                        className={`text-green-600 hover:text-green-800 bg-green-50 hover:bg-green-100 p-2 rounded transition flex items-center justify-center ${isApplyingBatch ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                         title="Apply to Batch"
                                                     >
-                                                        <Send size={16} />
+                                                        {isApplyingBatch ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div> : <Send size={16} />}
                                                     </button>
                                                     <button
                                                         onClick={async () => {
@@ -732,7 +753,18 @@ const FeeConfiguration = () => {
 
 
                                 <div className="mt-4 flex justify-end">
-                                    <button onClick={fetchStudentsForApplicability} className="bg-gray-800 text-white px-6 py-2 rounded font-semibold hover:bg-gray-900 shadow-md">Load Data</button>
+                                    <button
+                                        onClick={fetchStudentsForApplicability}
+                                        disabled={loadingStudents}
+                                        className={`text-white px-6 py-2 rounded font-semibold shadow-md flex items-center gap-2 transition ${loadingStudents ? 'bg-gray-400 cursor-not-allowed' : 'bg-gray-800 hover:bg-gray-900'}`}
+                                    >
+                                        {loadingStudents ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                Loading...
+                                            </>
+                                        ) : 'Load Data'}
+                                    </button>
                                 </div>
                             </div>
 
@@ -751,7 +783,18 @@ const FeeConfiguration = () => {
                                                     <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded w-fit mt-1">⚠ Fees Not Applied (Showing Templates)</span>
                                                 )}
                                             </div>
-                                            <button onClick={handleSaveStudentFees} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 shadow">Save Changes</button>
+                                            <button
+                                                onClick={handleSaveStudentFees}
+                                                disabled={isSavingFees}
+                                                className={`text-white px-6 py-2 rounded font-bold shadow flex items-center gap-2 transition ${isSavingFees ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                                            >
+                                                {isSavingFees ? (
+                                                    <>
+                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                        Saving...
+                                                    </>
+                                                ) : 'Save Changes'}
+                                            </button>
                                         </div>
                                         <div className="overflow-x-auto max-h-[500px] border rounded bg-white">
                                             <table className="w-full text-left text-sm whitespace-nowrap">

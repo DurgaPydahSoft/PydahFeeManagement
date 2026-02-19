@@ -37,6 +37,7 @@ const FeeCollection = () => {
     // Modals
     const [showReceiptModal, setShowReceiptModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const [lastTransaction, setLastTransaction] = useState(null);
     const [relatedTransactions, setRelatedTransactions] = useState([]);
@@ -125,8 +126,8 @@ const FeeCollection = () => {
             });
             setFeeDetails(feesRes.data);
 
-            // Set Default Filter to ALL to show total outstanding (including future/past dues)
-            setViewFilterYear('ALL');
+            // Set Default Filter to student's current year to show active dues immediately
+            setViewFilterYear(String(found.current_year));
 
             // 3. Fetch History
             const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`);
@@ -177,6 +178,35 @@ const FeeCollection = () => {
         });
         setFeeRows(newRows);
     };
+
+    const toggleFeeSelection = (fee) => {
+        const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
+
+        if (isSelected) {
+            // Remove it
+            const newRows = feeRows.filter(row => row.feeHeadId !== fee._id);
+            // Ensure at least one row exists
+            if (newRows.length === 0) {
+                setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]);
+            } else {
+                setFeeRows(newRows);
+            }
+        } else {
+            // Check if first row is empty
+            const firstRowEmpty = feeRows.length === 1 && !feeRows[0].feeHeadId && !feeRows[0].amount;
+            const newRow = {
+                id: Date.now(),
+                feeHeadId: fee._id,
+                amount: fee.dueAmount > 0 ? fee.dueAmount : ''
+            };
+
+            if (firstRowEmpty) {
+                setFeeRows([newRow]);
+            } else {
+                setFeeRows([...feeRows, newRow]);
+            }
+        }
+    };
     // ----------------------------
 
     // Step 1: Trigger Confirmation
@@ -195,6 +225,7 @@ const FeeCollection = () => {
 
     // Step 2: Actual Submission
     const confirmAndPay = async () => {
+        setIsProcessing(true);
         try {
             const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
 
@@ -270,7 +301,8 @@ const FeeCollection = () => {
         } catch (error) {
             console.error(error);
             alert('Payment Failed');
-            setShowConfirmModal(false);
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -471,7 +503,55 @@ const FeeCollection = () => {
                                 </div>
                             </div>
 
-                            {/* Fee Summary Table */}
+                            {/* --- YEAR WISE STATS CARDS --- */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fadeIn">
+                                {(() => {
+                                    const yearWiseStats = feeDetails.reduce((acc, curr) => {
+                                        const y = curr.studentYear;
+                                        if (!acc[y]) acc[y] = { total: 0, paid: 0, due: 0, year: y };
+                                        acc[y].total += curr.totalAmount;
+                                        acc[y].paid += curr.paidAmount;
+                                        acc[y].due += curr.dueAmount;
+                                        return acc;
+                                    }, {});
+                                    const sortedYearStats = Object.values(yearWiseStats).sort((a, b) => Number(a.year) - Number(b.year));
+
+                                    if (sortedYearStats.length === 0) return null;
+
+                                    return sortedYearStats.map(stat => (
+                                        <div
+                                            key={stat.year}
+                                            onClick={() => setViewFilterYear(String(stat.year))}
+                                            className={`bg-white p-4 rounded-xl border transition-all relative overflow-hidden group cursor-pointer ${String(viewFilterYear) === String(stat.year) ? 'ring-2 ring-blue-500 shadow-md border-blue-500' : 'border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300'}`}
+                                        >
+                                            <div className={`absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-transparent ${stat.due > 0 ? 'to-red-50/50' : 'to-green-50/50'} rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110`}></div>
+
+                                            <div className="flex justify-between items-center mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${stat.due > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                                        Y{stat.year}
+                                                    </span>
+                                                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Year {stat.year}</span>
+                                                </div>
+                                                {stat.due <= 0 && <span className="text-[9px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded border border-green-100 font-bold uppercase">Paid</span>}
+                                            </div>
+
+                                            <div className="space-y-1 relative z-10">
+                                                <div className="flex justify-between items-end">
+                                                    <span className="text-[10px] font-semibold text-gray-400 uppercase">Balance</span>
+                                                    <span className={`text-lg font-extrabold font-mono leading-none ${stat.due > 0 ? 'text-red-600' : 'text-emerald-600'}`}>₹{stat.due.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-[10px] text-gray-400 pt-1">
+                                                    <span>Total: ₹{stat.total.toLocaleString()}</span>
+                                                    <span>Paid: <span className="text-gray-600 font-medium">₹{stat.paid.toLocaleString()}</span></span>
+                                                </div>
+
+
+                                            </div>
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
                                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -495,24 +575,40 @@ const FeeCollection = () => {
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left">
                                         <thead>
-                                            <tr className="border-b border-gray-100 bg-gray-50/50">
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Fee Head / Year</th>
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Total Fee</th>
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Paid</th>
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Balance</th>
-                                                <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Status</th>
+                                            <tr className="border-b-2 border-gray-200 bg-gray-100/80">
+                                                <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center w-10">Select</th>
+                                                <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider">Fee Head / Year</th>
+                                                <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Total Fee</th>
+                                                <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Paid</th>
+                                                <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Balance</th>
+                                                <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center">Status</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
                                             {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0).length === 0 ? (
-                                                <tr><td colSpan="5" className="py-6 text-center text-gray-500 italic text-sm">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
+                                                <tr><td colSpan="6" className="py-6 text-center text-gray-500 italic text-sm">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
                                             ) : (
                                                 <>
                                                     {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0).map((fee, idx) => {
                                                         const isFullyPaid = fee.dueAmount <= 0;
                                                         const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
+                                                        const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
+
                                                         return (
-                                                            <tr key={idx} className="hover:bg-gray-50/80 transition-colors">
+                                                            <tr
+                                                                key={idx}
+                                                                onClick={() => !isFullyPaid && toggleFeeSelection(fee)}
+                                                                className={`transition-colors cursor-pointer ${isSelected ? 'bg-blue-100/50 hover:bg-blue-100' : 'hover:bg-blue-50/50 even:bg-gray-50/50'}`}
+                                                            >
+                                                                <td className="py-2 px-4 text-center">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isSelected}
+                                                                        readOnly
+                                                                        disabled={isFullyPaid}
+                                                                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                                                                    />
+                                                                </td>
                                                                 <td className="py-2 px-4 text-sm font-medium text-gray-700">
                                                                     <div>
                                                                         {fee.feeHeadName}
@@ -554,8 +650,38 @@ const FeeCollection = () => {
                                                     })}
                                                     {/* Total Row */}
                                                     <tr className="bg-gray-50/50 border-t border-gray-200">
-                                                        <td className="py-2.5 px-4 text-sm font-bold text-gray-800 text-right uppercase tracking-wide" colSpan="3">
-                                                            Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):
+                                                        <td className="py-2.5 px-4" colSpan="4">
+                                                            <div className="flex justify-between items-center">
+                                                                {/* Left: Stats */}
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {(() => {
+                                                                        const yearBreakdown = displayedFees.reduce((acc, curr) => {
+                                                                            if (curr.dueAmount > 0) {
+                                                                                const y = curr.studentYear;
+                                                                                if (!acc[y]) acc[y] = 0;
+                                                                                acc[y] += curr.dueAmount;
+                                                                            }
+                                                                            return acc;
+                                                                        }, {});
+
+                                                                        const sortedYears = Object.keys(yearBreakdown).sort((a, b) => Number(a) - Number(b));
+
+                                                                        if (sortedYears.length === 0) return <span className="text-[10px] text-gray-400 italic">No Dues</span>;
+
+                                                                        return sortedYears.map(yr => (
+                                                                            <div key={yr} className="flex items-center text-xs bg-white border border-gray-200 px-2 py-0.5 rounded-full shadow-sm">
+                                                                                <span className="text-gray-500 font-bold mr-1">Yr {yr}:</span>
+                                                                                <span className="font-mono font-medium text-red-600">₹{yearBreakdown[yr].toLocaleString()}</span>
+                                                                            </div>
+                                                                        ));
+                                                                    })()}
+                                                                </div>
+
+                                                                {/* Right: Label */}
+                                                                <span className="text-sm font-bold text-gray-800 uppercase tracking-wide">
+                                                                    Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):
+                                                                </span>
+                                                            </div>
                                                         </td>
                                                         <td className="py-2.5 px-4 text-right">
                                                             <div className="text-base font-extrabold text-red-600 font-mono">₹{totalDueAmount.toLocaleString()}</div>
@@ -861,9 +987,15 @@ const FeeCollection = () => {
 
                                 <button
                                     onClick={confirmAndPay}
-                                    className={`w-full mt-6 py-3 rounded-xl text-white font-bold text-lg shadow-lg transform transition active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                                    disabled={isProcessing}
+                                    className={`w-full mt-6 py-3 rounded-xl text-white font-bold text-lg shadow-lg transform transition flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-400 cursor-not-allowed' : (paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700 active:scale-95' : 'bg-purple-600 hover:bg-purple-700 active:scale-95')}`}
                                 >
-                                    Proceed
+                                    {isProcessing ? (
+                                        <>
+                                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                                            Processing...
+                                        </>
+                                    ) : 'Proceed'}
                                 </button>
                             </div>
                         </div>
@@ -872,29 +1004,44 @@ const FeeCollection = () => {
 
                 {/* Receipt Modal */}
                 {showReceiptModal && lastTransaction && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                        <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
-                            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                                <h3 className="font-bold text-lg text-gray-800">Payment Receipt</h3>
-                                <div className="flex gap-2">
-                                    <button onClick={handlePrintReceipt} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                                        Print
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-fadeIn">
+                        <div className="relative w-full max-w-sm">
+                            {/* Success Header Card */}
+                            <div className="bg-white p-8 rounded-3xl shadow-2xl border border-green-100 w-full max-w-sm text-center animate-scaleUp">
+                                <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl shadow-inner">
+                                    ✅
+                                </div>
+                                <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Payment Successful!</h2>
+                                <p className="text-sm text-gray-500 mb-8 px-4">The transaction has been recorded successfully. You can now download or print the receipt.</p>
+
+                                <div className="space-y-3">
+                                    <button
+                                        onClick={handlePrintReceipt}
+                                        className="w-full bg-blue-600 text-white px-6 py-4 rounded-2xl font-bold hover:bg-blue-700 flex items-center justify-center gap-3 shadow-xl shadow-blue-200 transition-all transform active:scale-95 text-lg"
+                                    >
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                                        PRINT RECEIPT
                                     </button>
-                                    <button onClick={() => setShowReceiptModal(false)} className="text-gray-500 hover:bg-gray-200 px-4 py-2 rounded-lg font-bold">Close</button>
+
+                                    <button
+                                        onClick={() => setShowReceiptModal(false)}
+                                        className="w-full bg-gray-50 text-gray-600 px-6 py-3 rounded-2xl font-bold hover:bg-gray-100 transition-colors text-sm"
+                                    >
+                                        DONE
+                                    </button>
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-auto bg-gray-100 p-8 flex justify-center">
-                                <div className="shadow-lg">
-                                    <ReceiptTemplate
-                                        ref={receiptRef}
-                                        transaction={lastTransaction}
-                                        relatedTransactions={relatedTransactions}
-                                        student={student}
-                                        settings={receiptSettings}
-                                        totalDue={totalDueAmount} // Pass total due for receipt display if needed
-                                    />
-                                </div>
+
+                            {/* Hidden Receipt (Accessible by Ref) */}
+                            <div className="hidden">
+                                <ReceiptTemplate
+                                    ref={receiptRef}
+                                    transaction={lastTransaction}
+                                    relatedTransactions={relatedTransactions}
+                                    student={student}
+                                    settings={receiptSettings}
+                                    totalDue={totalDueAmount}
+                                />
                             </div>
                         </div>
                     </div>
