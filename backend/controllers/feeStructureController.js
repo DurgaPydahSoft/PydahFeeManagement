@@ -447,7 +447,8 @@ const saveStudentFees = async (req, res) => {
               amount: Number(f.amount),
               semester: f.semester,
               academicYear: f.batch, // Ensure it is saved
-              batch: f.batch // Also save batch explicitly
+              batch: f.batch, // Also save batch explicitly
+              isScholarshipApplicable: f.isScholarshipApplicable || false
             }
           },
           upsert: true

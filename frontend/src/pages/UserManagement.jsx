@@ -100,12 +100,27 @@ const UserManagement = () => {
     };
 
     const handlePermissionToggle = (path) => {
-        const currentPermissions = formData.permissions || [];
+        let currentPermissions = formData.permissions || [];
+
         if (currentPermissions.includes(path)) {
-            setFormData({ ...formData, permissions: currentPermissions.filter(p => p !== path) });
+            // Unchecking
+            currentPermissions = currentPermissions.filter(p => p !== path);
+
+            // If unchecking Fee Collection, also remove sub-permissions
+            if (path === '/fee-collection') {
+                currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession');
+            }
         } else {
-            setFormData({ ...formData, permissions: [...currentPermissions, path] });
+            // Checking
+            currentPermissions = [...currentPermissions, path];
+
+            // If checking Fee Collection, auto-select both sub-permissions by default
+            if (path === '/fee-collection') {
+                if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
+                if (!currentPermissions.includes('fee_collection_concession')) currentPermissions.push('fee_collection_concession');
+            }
         }
+        setFormData({ ...formData, permissions: currentPermissions });
     };
 
     const handleSubmit = async (e) => {
@@ -292,17 +307,43 @@ const UserManagement = () => {
                             {/* Permission Checkboxes */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Permissions</label>
-                                <div className="grid grid-cols-3 gap-2 border p-2 rounded bg-gray-50">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 border p-2 rounded bg-gray-50 max-h-60 overflow-y-auto">
                                     {availablePages.map(page => (
-                                        <label key={page.path} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                            <input
-                                                type="checkbox"
-                                                checked={(formData.permissions || []).includes(page.path)}
-                                                onChange={() => handlePermissionToggle(page.path)}
-                                                className="rounded text-blue-600 focus:ring-blue-500"
-                                            />
-                                            <span className="text-sm text-gray-700">{page.name}</span>
-                                        </label>
+                                        <div key={page.path} className="flex flex-col">
+                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(formData.permissions || []).includes(page.path)}
+                                                    onChange={() => handlePermissionToggle(page.path)}
+                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm text-gray-700 font-medium">{page.name}</span>
+                                            </label>
+
+                                            {/* Sub-Permissions for Fee Collection */}
+                                            {page.path === '/fee-collection' && (formData.permissions || []).includes('/fee-collection') && (
+                                                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('fee_collection_pay')}
+                                                            onChange={() => handlePermissionToggle('fee_collection_pay')}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Enable Fee Collection</span>
+                                                    </label>
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('fee_collection_concession')}
+                                                            onChange={() => handlePermissionToggle('fee_collection_concession')}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Enable Fee Concession</span>
+                                                    </label>
+                                                </div>
+                                            )}
+                                        </div>
                                     ))}
                                 </div>
                             </div>
