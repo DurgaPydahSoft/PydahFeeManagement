@@ -21,7 +21,8 @@ const FeeConfiguration = () => {
     const [structForm, setStructForm] = useState({
         feeHeadId: '', college: '', course: '', branch: '',
         batch: '', categories: [], studentYear: '', amount: '', // Replaced category with categories
-        semester: '' // '1', '2' or empty for yearly
+        semester: '', // '1', '2' or empty for yearly
+        isScholarshipApplicable: false
     });
     const [feeType, setFeeType] = useState('Yearly'); // 'Yearly' or 'Semester'
     const [semAmounts, setSemAmounts] = useState({ 1: '', 2: '' }); // For simultaneous creation
@@ -133,15 +134,16 @@ const FeeConfiguration = () => {
                                 semester: null,
                                 amount: Number(amount),
                                 batch: structForm.batch, // Explicitly ensure batch is sent
-                                categories: structForm.categories // Send array
+                                categories: structForm.categories, // Send array
+                                isScholarshipApplicable: structForm.isScholarshipApplicable
                             }));
                         }
                     } else {
                         // Semester Wise
                         const s1 = bulkAmounts[`${y}-S1`];
                         const s2 = bulkAmounts[`${y}-S2`];
-                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 1, amount: Number(s1), batch: structForm.batch, categories: structForm.categories }));
-                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 2, amount: Number(s2), batch: structForm.batch, categories: structForm.categories }));
+                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 1, amount: Number(s1), batch: structForm.batch, categories: structForm.categories, isScholarshipApplicable: structForm.isScholarshipApplicable }));
+                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 2, amount: Number(s2), batch: structForm.batch, categories: structForm.categories, isScholarshipApplicable: structForm.isScholarshipApplicable }));
                     }
                 }
 
@@ -171,7 +173,8 @@ const FeeConfiguration = () => {
             academicYear: row.academicYear,
             studentYear: '', // User must select year to refine OR use Multi-Year
             amount: '',
-            semester: ''
+            semester: '',
+            isScholarshipApplicable: row.isScholarshipApplicable || false
         });
 
         // Populate bulkAmounts for Multi-Year Editing
@@ -538,6 +541,17 @@ const FeeConfiguration = () => {
                                     </div>
                                 )}
 
+                                <div className="flex items-center gap-2 mb-2">
+                                    <input
+                                        type="checkbox"
+                                        id="scholarshipCheck"
+                                        checked={structForm.isScholarshipApplicable}
+                                        onChange={e => setStructForm({ ...structForm, isScholarshipApplicable: e.target.checked })}
+                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="scholarshipCheck" className="text-sm font-bold text-gray-700 cursor-pointer">Eligible for Scholarship</label>
+                                </div>
+
                                 {/* Amount Section */}
                                 {editingId ? (
                                     <input type="number" className="w-full border p-2 rounded" value={structForm.amount} onChange={e => setStructForm({ ...structForm, amount: e.target.value })} placeholder="Amount" />
@@ -602,6 +616,9 @@ const FeeConfiguration = () => {
                                         <tr key={i} className="hover:bg-gray-50 group/row">
                                             <td className="p-3 font-medium text-blue-800 relative">
                                                 {row.feeHeadName} <span className="text-xs text-gray-400">({row.feeHeadCode || '-'})</span>
+                                                {row.isScholarshipApplicable && (
+                                                    <span title="Scholarship Eligible" className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200">🎓</span>
+                                                )}
                                             </td>
                                             <td className="p-3 text-xs text-gray-500">
                                                 <div className="font-bold">{row.course} - {row.branch}</div>
@@ -777,8 +794,9 @@ const FeeConfiguration = () => {
                                 </div>
                             )}
                         </div>
-                    )}
-            </div>
+                    )
+                }
+            </div >
         </div >
     );
 };

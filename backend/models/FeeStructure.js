@@ -40,6 +40,10 @@ const feeStructureSchema = mongoose.Schema({
   description: {
     type: String,
   },
+  isScholarshipApplicable: {
+    type: Boolean,
+    default: false
+  },
   history: [{
     updatedBy: String,
     updatedAt: { type: Date, default: Date.now },

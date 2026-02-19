@@ -9,7 +9,7 @@ const db = require('../config/sqlDb');
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable } = req.body;
   // yearAmounts logic removed for simplifying Semester implementation as per requirement.
 
   try {
@@ -52,7 +52,8 @@ const createFeeStructure = async (req, res) => {
         const update = {
           $set: {
             amount: Number(amount),
-            description
+            description,
+            isScholarshipApplicable: isScholarshipApplicable || false
           }
         };
 
@@ -114,7 +115,7 @@ const getStudentFeeDetails = async (req, res) => {
 
   try {
     // 1. Fetch Student Info (to get current batch and year)
-    const [students] = await db.query('SELECT id, current_year, batch, current_semester FROM students WHERE admission_number = ?', [admissionNo]);
+    const [students] = await db.query('SELECT id, current_year, batch, current_semester, scholar_status FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
     const currentYear = student ? Number(student.current_year) : (Number(queryYear) || 1);
     const batch = student ? student.batch : '';
@@ -222,7 +223,9 @@ const getStudentFeeDetails = async (req, res) => {
           totalAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
-          remarks: fee.remarks // Important to pass back to frontend for correct payment matching
+          remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
+          isScholarshipApplicable: fee.isScholarshipApplicable || false,
+          studentScholarStatus: student ? student.scholar_status : null
         };
       }
       groupedData[key].totalAmount += (fee.amount || 0);
@@ -249,7 +252,8 @@ const getStudentFeeDetails = async (req, res) => {
             semester: null,
             totalAmount: 0,
             paidAmount: 0,
-            dueAmount: 0
+            dueAmount: 0,
+            isScholarshipApplicable: false // Default templates are not applied, so defaults to false unless we fetch it from FeeStructure (which we don't here effectively without query)
           };
         }
       });
@@ -400,7 +404,8 @@ const applyFeeToBatch = async (req, res) => {
               amount: structure.amount,
               structureId: structure._id,
               semester: structure.semester,
-              batch: s.batch // Store the batch from the student
+              batch: s.batch, // Store the batch from the student
+              isScholarshipApplicable: structure.isScholarshipApplicable || false
             }
           },
           upsert: true
@@ -462,7 +467,7 @@ const saveStudentFees = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable } = req.body;
   const user = req.user ? req.user.username : 'system';
 
   try {
@@ -489,6 +494,7 @@ const updateFeeStructure = async (req, res) => {
         semester,
         amount,
         description,
+        isScholarshipApplicable,
         $push: { history: historyEntry }
       },
       { new: true }

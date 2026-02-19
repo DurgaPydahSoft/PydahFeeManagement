@@ -494,7 +494,14 @@ const FeeCollection = () => {
                                                         return (
                                                             <tr key={idx} className="hover:bg-gray-50/80 transition-colors">
                                                                 <td className="py-2 px-4 text-sm font-medium text-gray-700">
-                                                                    <div>{fee.feeHeadName}</div>
+                                                                    <div>
+                                                                        {fee.feeHeadName}
+                                                                        {fee.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(fee.studentScholarStatus || '').toLowerCase()) && (
+                                                                            <span title="Scholarship Applicable" className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 font-bold uppercase tracking-wider">
+                                                                                Scholarship
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                     <div className="text-[10px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
                                                                 </td>
                                                                 <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">₹{fee.totalAmount.toLocaleString()}</td>
