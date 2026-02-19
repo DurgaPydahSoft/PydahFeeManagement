@@ -557,14 +557,13 @@ const saveBulkData = async (req, res) => {
                             studentName: stud.studentName,
                             feeHead: p.headId,
                             amount: p.amount,
-                            transactionType: 'CREDIT',
+                            transactionType: 'DEBIT',
                             paymentMode: p.mode || 'Cash',
                             paymentDate: parseDate(p.date),
                             referenceNo: p.ref || '',
                             receiptNumber: p.receipt || '',
                             remarks: p.remarks || `Bulk Upload - Yr ${sYear}`,
                             studentYear: sYear,
-                            academicYear: stud.batch, // Added academicYear
                             semester: p.semester || 1, // Include Semester!
                             collectedBy: user,
                             collectedByName: 'System Bulk Upload'
