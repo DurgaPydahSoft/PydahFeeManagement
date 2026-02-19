@@ -17,6 +17,7 @@ const BulkFeeUpload = () => {
     const [uploading, setUploading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+    const [isPendingMode, setIsPendingMode] = useState(false);
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
@@ -31,12 +32,14 @@ const BulkFeeUpload = () => {
         setDownloadingTemplate(true);
         try {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/bulk-fee/template`, {
+                params: { type: uploadType },
                 responseType: 'blob',
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', 'BulkFeeUploadTemplate.xlsx');
+            const filename = uploadType === 'DUE' ? 'BulkDuesTemplate.xlsx' : 'BulkPaymentTemplate.xlsx';
+            link.setAttribute('download', filename);
             document.body.appendChild(link);
             link.click();
             link.parentNode.removeChild(link);
@@ -58,6 +61,7 @@ const BulkFeeUpload = () => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('uploadType', uploadType);
+        formData.append('isPendingMode', isPendingMode);
 
         try {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/upload`, formData, {
@@ -219,6 +223,21 @@ const BulkFeeUpload = () => {
                     >
                         <Banknote size={18} /> Dues (Demand)
                     </button>
+
+                    {uploadType === 'DUE' && (
+                        <div className="ml-auto flex items-center gap-2 pr-4">
+                            <input
+                                type="checkbox"
+                                id="pendingMode"
+                                checked={isPendingMode}
+                                onChange={e => setIsPendingMode(e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded"
+                            />
+                            <label htmlFor="pendingMode" className="text-sm font-bold text-gray-700 cursor-pointer select-none" title="If checked, uploaded values are treated as 'Existing Due'. System will calculate 'Paid = Total - Due' and create a Transaction.">
+                                Upload as Pending Dues (Auto-Calc Payment)
+                            </label>
+                        </div>
+                    )}
                 </div>
 
                 {/* Upload Section */}

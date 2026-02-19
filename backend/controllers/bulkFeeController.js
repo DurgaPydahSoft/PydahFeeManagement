@@ -13,8 +13,8 @@ const processBulkUpload = async (req, res) => {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
-        const { uploadType } = req.body; // 'DUE' or 'PAYMENT'
-        console.log(`Processing Bulk Upload. Mode: ${uploadType}`);
+        const { uploadType, isPendingMode } = req.body; // 'DUE' or 'PAYMENT', isPendingMode boolean
+        console.log(`Processing Bulk Upload. Mode: ${uploadType}, PendingMode: ${isPendingMode}`);
 
         // Fetch all Fee Heads
         const allFeeHeads = await FeeHead.find({});
@@ -56,7 +56,13 @@ const processBulkUpload = async (req, res) => {
         const colMap = {};
         row0.forEach((h, i) => {
             const head = String(h).toUpperCase().replace(/[^A-Z0-9]/g, '');
-            if (head.includes('ADMN') || head.includes('PIN')) colMap.ID = i;
+            // Separate mapping for Admission and Pin
+            if (head.includes('ADMN') || head.includes('ADMISSION') || (head.includes('STUDENT') && head.includes('ID'))) colMap.ADMISSION = i;
+            if (head.includes('PIN') || head.includes('HTNO') || head.includes('HALLTICKET')) colMap.PIN = i;
+            
+            // Fallback for generic ID if specific ones not found (legacy support)
+            if ((head === 'ID' || head === 'STUDENTID') && colMap.ADMISSION === undefined) colMap.ADMISSION = i;
+
             if (head.includes('AMOUNT')) colMap.AMOUNT = i;
             if (head.includes('YEAR')) colMap.YEAR = i; 
             if (head.includes('SEM') || head.includes('SEC')) colMap.SEM = i; // Added SEM/SEC support
@@ -71,8 +77,24 @@ const processBulkUpload = async (req, res) => {
             if (head.includes('NAME') && head.includes('STUDENT')) colMap.NAME = i;
         });
 
-        if (colMap.ID === undefined || colMap.AMOUNT === undefined) {
-             return res.status(400).json({ message: 'File missing critical columns: AdmnNo/Pin or Amount.' });
+        // DUES MATRIX LOGIC (If DUE mode, look for Fee Heads in Columns)
+        const feeHeadColMap = {}; // name -> index
+        if (uploadType === 'DUE') {
+            row0.forEach((h, i) => {
+                const headerText = String(h).toUpperCase().replace(/[^A-Z0-9]/g, '');
+                // Try to match against allFeeHeads
+                allFeeHeads.forEach(fh => {
+                    const fhName = fh.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    if (headerText === fhName || headerText.includes(fhName)) {
+                        feeHeadColMap[fh.name] = i;
+                    }
+                });
+            });
+            console.log('Identified Fee Head Columns:', Object.keys(feeHeadColMap));
+        }
+
+        if (colMap.ADMISSION === undefined && colMap.PIN === undefined && Object.keys(feeHeadColMap).length === 0 && colMap.AMOUNT === undefined) {
+             return res.status(400).json({ message: 'File missing critical columns: Admission No or Pin No.' });
         }
 
         const previewDataMap = new Map(); 
@@ -134,15 +156,21 @@ const processBulkUpload = async (req, res) => {
         };
 
         // --- PROCESSING LOOP ---
-        for (let i = 1; i < rawData.length; i++) { 
-            const row = rawData[i];
-            if (!row || row.length === 0) continue;
+        for (let r = 1; r < rawData.length; r++) {
+            const row = rawData[r]; // Array of values
+            
+            // Get ID (Try Admission, then Pin, then fallback)
+            let rawId = null;
+            if (colMap.ADMISSION !== undefined && row[colMap.ADMISSION]) rawId = row[colMap.ADMISSION];
+            if (!rawId && colMap.PIN !== undefined && row[colMap.PIN]) rawId = row[colMap.PIN];
+            // Backward compatibility if generic ID was mapped (not needed if we split logic well, but safer)
+            if (!rawId && colMap.ID !== undefined && row[colMap.ID]) rawId = row[colMap.ID];
 
-            const rawId = row[colMap.ID];
             if (!rawId) continue;
             const cleanId = String(rawId).trim();
-            const amount = parseFloat(row[colMap.AMOUNT]) || 0;
-            if (amount <= 0) continue;
+            // In Matrix mode, 'amount' column might not exist, we check specific Fee Cols later
+            const defaultAmount = colMap.AMOUNT !== undefined ? (parseFloat(row[colMap.AMOUNT]) || 0) : 0;
+
 
             const name = colMap.NAME !== undefined ? row[colMap.NAME] : 'Unknown';
             
@@ -185,41 +213,40 @@ const processBulkUpload = async (req, res) => {
 
             if (uploadType === 'DUE') {
                 // DUES MODE
-                entry.demands.push({
-                    headId: miscHead ? miscHead._id.toString() : 'UNKNOWN',
-                    headName: miscHead ? miscHead.name : 'Miscellaneous Due',
-                    year: year,
-                    semester: semester,
-                    amount: amount
+                // 1. Check Matrix Columns First
+                let matrixFound = false;
+                Object.keys(feeHeadColMap).forEach(headName => {
+                    const idx = feeHeadColMap[headName];
+                    const val = parseFloat(row[idx]);
+                    if (val > 0) {
+                        matrixFound = true;
+                        const headObj = allFeeHeads.find(h => h.name === headName);
+                        entry.demands.push({
+                            headId: headObj ? headObj._id.toString() : 'UNKNOWN',
+                            headName: headName,
+                            year: year,
+                            semester: semester,
+                            amount: val
+                        });
+                        entry.totalDemand += val;
+                    }
                 });
-                entry.totalDemand += amount;
+
+                // 2. Fallback to Single Amount Column if no Matrix columns found OR if Amount col exists
+                if (!matrixFound && defaultAmount > 0) {
+                     entry.demands.push({
+                        headId: miscHead ? miscHead._id.toString() : 'UNKNOWN',
+                        headName: miscHead ? miscHead.name : 'Miscellaneous Due',
+                        year: year,
+                        semester: semester,
+                        amount: defaultAmount
+                    });
+                    entry.totalDemand += defaultAmount;
+                }
 
             } else {
-                // PAYMENT MODE
-                const narration = colMap.NARRATION !== undefined ? String(row[colMap.NARRATION]) : '';
-                const payMode = colMap.MODE !== undefined ? String(row[colMap.MODE]) : 'Cash';
-                const transDate = colMap.DATE !== undefined ? parseDate(row[colMap.DATE]) : new Date();
-                const ref = colMap.REF !== undefined ? String(row[colMap.REF]) : '';
-
-                // Fee Head Logic
-                let feeHeadInfo = null;
-                const getFeeHeadFromNarration = (narration) => {
-                    if (!narration) return null;
-                    const text = narration.toUpperCase();
-                    // 1. Exact Name Match (Normalized)
-                    const normalizedText = text.replace(/[^A-Z0-9]/g, '');
-                    const exactMatch = allFeeHeads.find(h => normalizedText.includes(h.name.toUpperCase().replace(/[^A-Z0-9]/g, '')));
-                    if (exactMatch) return exactMatch;
-                    // 2. Keyword Heuristics
-                    if (text.includes('TUTION') || text.includes('TUITION')) return allFeeHeads.find(h => h.name.toUpperCase().includes('TUITION'));
-                    if (text.includes('BUS') || text.includes('TRANSPORT')) return allFeeHeads.find(h => h.name.toUpperCase().includes('TRANSPORT'));
-                    if (text.includes('HOSTEL')) return allFeeHeads.find(h => h.name.toUpperCase().includes('HOSTEL'));
-                    if (text.includes('SPECIAL') || text.includes('PW')) return allFeeHeads.find(h => h.name.toUpperCase().includes('SPECIAL'));
-                    return null;
-                };
-
-                feeHeadInfo = getFeeHeadFromNarration(narration);
-                
+                const amount = defaultAmount;
+                if (amount <= 0) continue; // Skip if no amount in payment mode
                 entry.payments.push({
                     headId: feeHeadInfo ? feeHeadInfo._id.toString() : 'UNKNOWN',
                     headName: feeHeadInfo ? feeHeadInfo.name : 'Unknown Fee',
@@ -275,7 +302,84 @@ const processBulkUpload = async (req, res) => {
                     entry.branch = match.branch;
                 }
             });
-        }
+                }
+
+
+            // --- PENDING DUES MODE EXTRACTION ---
+            if (uploadType === 'DUE' && isPendingMode === 'true') {
+                 console.log('Calculating Payments from Pending Dues...');
+                 // We need to fetch EXISTING DEMANDS for these students to calculate the difference
+                 // Query StudentFee for these students
+                 const allAdmNos = previewData.map(d => d.admissionNumber).filter(Boolean);
+                 
+                 if (allAdmNos.length > 0) {
+                     const [existingDemands] = await db.query(`
+                        SELECT studentId, feeHead, amount 
+                        FROM student_fees 
+                        WHERE studentId IN (?)
+                     `, [allAdmNos]);
+
+                     const demandMap = {}; // key: studentId-feeHeadId -> amount
+                     existingDemands.forEach(d => {
+                         demandMap[`${d.studentId}-${d.feeHead}`] = Number(d.amount);
+                     });
+
+                     // Now iterate preview data and CONVERT Demands to Payments based on difference
+                     previewData.forEach(entry => {
+                         if (!entry.admissionNumber) return; // Can't calc without valid student
+
+                         const newDemands = []; // We might NOT keep demands if we are just creating payments? 
+                         // actually user said "upload the list as 2000... then 3000 will be saved in transaction".
+                         // Does this mean we UPDATE the Demand to 2000? NO.
+                         // Fee Structure says 5000. He paid 3000. Pending is 2000.
+                         // If we upload 2000, we want to result in: Demand 5000, Paid 3000.
+                         // So we should NOT touch the Demand (unless it's missing?).
+                         // But the "Dues Upload" logic usually *creates* demands.
+                         // In "Pending Mode", we use the upload value ONLY to calculate payment.
+                         // We should NOT create a formatted Demand entry in `entry.demands` that would overwrite the 5000.
+                         
+                         // Move items from entry.demands to entry.payments essentially
+                         const calculatedPayments = [];
+                         
+                         entry.demands.forEach(d => {
+                             // d.amount is the PENDING amount (e.g. 2000)
+                             const key = `${entry.admissionNumber}-${d.headId}`;
+                             const totalFee = demandMap[key] || 0;
+                             
+                             if (totalFee > 0 && totalFee >= d.amount) {
+                                 const paidAmount = totalFee - d.amount;
+                                 if (paidAmount > 0) {
+                                     calculatedPayments.push({
+                                         headId: d.headId,
+                                         headName: d.headName,
+                                         year: d.year,
+                                         semester: d.semester,
+                                         amount: paidAmount,
+                                         mode: 'Cash', // Default
+                                         date: new Date(),
+                                         remarks: 'Auto-generated from Pending Due Upload'
+                                     });
+                                     entry.totalPaid += paidAmount;
+                                 }
+                             } else {
+                                 // Warning: Pending amount > Total Fee? or No Total Fee found.
+                                 // In this case, we can't calculate 'Paid'. 
+                                 // Maybe treat it as a direct Demand update? Or just warn?
+                                 // User expectation: "I want to upload list as 2000... 3000 saved as paid".
+                                 // If Total is 0, we can't do this.
+                                 console.warn(`Skipping Pending Due Calc for ${entry.studentName} - Head ${d.headName}. Total Fee (${totalFee}) < Pending (${d.amount}) or not found.`);
+                             }
+                         });
+
+                         // REPLACE Demands with Payments for the final Save operation
+                         // We clear demands because we don't want to overwrite the 5000 with 2000.
+                         entry.demands = []; 
+                         entry.totalDemand = 0;
+                         entry.payments.push(...calculatedPayments);
+                     });
+                 }
+            }
+
 
         res.json({
             message: `Processed ${uploadType}: ${processedCount} records.`,
@@ -545,100 +649,93 @@ const saveBulkData = async (req, res) => {
 // @route   GET /api/bulk-fee/template
 const downloadTemplate = async (req, res) => {
     try {
+        const { type } = req.query; // 'DUE' or 'PAYMENT'
         const feeHeads = await FeeHead.find({});
 
         // Define Headers
         const mainHeaders = ['Admission No', 'Pin No', 'Student Name', 'Course', 'Branch', 'Year'];
-        const subHeaders = ['', '', '', '', '', ''];
+        
+        if (type === 'DUE') {
+            // DUES TEMPLATE: Simple Matrix (One column per Fee Head)
+            feeHeads.forEach(head => {
+                // Sanitize head name for header (remove special chars if needed, but keeping it simple is best)
+                mainHeaders.push(head.name);
+            });
+            // No sub-headers needed for Dues in this simple matrix format
+             const ws = xlsx.utils.aoa_to_sheet([mainHeaders]);
+             
+             // Set widths
+             const wscols = [
+                { wch: 15 }, { wch: 12 }, { wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 8 }
+            ];
+            feeHeads.forEach(() => wscols.push({ wch: 15 }));
+            ws['!cols'] = wscols;
 
-        // Add specific merge ranges if we were using a more complex builder, but simple AOA (Array of Arrays) works for data
-        // We will construct the rows
+            const wb = xlsx.utils.book_new();
+            xlsx.utils.book_append_sheet(wb, ws, 'Dues Template');
+            const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+            
+            res.setHeader('Content-Disposition', 'attachment; filename="BulkDuesTemplate.xlsx"');
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            return res.send(buffer);
 
-        // Fee Heads Columns
-        feeHeads.forEach(head => {
-            // For each head, we now have 6 columns (Total removed): Paid, Mode, Date, Ref, Receipt, Remarks
-            mainHeaders.push(head.name, '', '', '', '', '');
-            subHeaders.push('Paid', 'Mode', 'Date', 'Ref', 'Receipt', 'Remarks');
-        });
+        } else {
+            // PAYMENTS TEMPLATE (Legacy/Detailed)
+            const subHeaders = ['', '', '', '', '', ''];
+            
+            // Fee Heads Columns (6 per head)
+            feeHeads.forEach(head => {
+                mainHeaders.push(head.name, '', '', '', '', '');
+                subHeaders.push('Paid', 'Mode', 'Date', 'Ref', 'Receipt', 'Remarks');
+            });
 
-        // Add Global columns (Optional now, but good to keep as defaults)
-        mainHeaders.push('Global Default Mode', 'Global Default Date', 'Global Default Ref No', 'Global Default Receipt No', 'Global Default Remarks');
-        subHeaders.push('', '', '', '', '');
+             // Add Global columns
+            mainHeaders.push('Global Default Mode', 'Global Default Date', 'Global Default Ref No', 'Global Default Receipt No', 'Global Default Remarks');
+            subHeaders.push('', '', '', '', '');
 
-        // Create Workbook
-        const wb = xlsx.utils.book_new();
+            const wb = xlsx.utils.book_new();
+            const wsData = [mainHeaders, subHeaders];
+            const ws = xlsx.utils.aoa_to_sheet(wsData);
 
-        // Create Worksheet from AOA
-        // We want to merge the main headers.
-        // Logic: specific merge objects { s: {r, c}, e: {r, c} }
-        const wsData = [mainHeaders, subHeaders];
-        const ws = xlsx.utils.aoa_to_sheet(wsData);
+            // ... (Existing Merge Logic for Payment Template) ...
+            const merges = [];
+            merges.push({ s: { r: 0, c: 0 }, e: { r: 1, c: 0 } });
+            merges.push({ s: { r: 0, c: 1 }, e: { r: 1, c: 1 } });
+            merges.push({ s: { r: 0, c: 2 }, e: { r: 1, c: 2 } });
+            merges.push({ s: { r: 0, c: 3 }, e: { r: 1, c: 3 } });
+            merges.push({ s: { r: 0, c: 4 }, e: { r: 1, c: 4 } });
+            merges.push({ s: { r: 0, c: 5 }, e: { r: 1, c: 5 } });
 
-        // Calculate Merges
-        const merges = [];
-        // Fixed columns merges (Rows 0-1 are headers, so Row 0 cols 0,1,2,3 should merge down? Or normally Row 0 is just Header 1)
-        // Let's merge Row 0 with Row 1 for the fixed columns (Admission..Year) -> r:0 to r:1
-        // merge: s (start), e (end). c (col), r (row).
+            let colIdx = 6;
+            feeHeads.forEach(() => {
+                merges.push({ s: { r: 0, c: colIdx }, e: { r: 0, c: colIdx + 5 } });
+                colIdx += 6;
+            });
+            merges.push({ s: { r: 0, c: colIdx }, e: { r: 1, c: colIdx } });
+            merges.push({ s: { r: 0, c: colIdx + 1 }, e: { r: 1, c: colIdx + 1 } });
+            merges.push({ s: { r: 0, c: colIdx + 2 }, e: { r: 1, c: colIdx + 2 } });
+            merges.push({ s: { r: 0, c: colIdx + 3 }, e: { r: 1, c: colIdx + 3 } });
+            merges.push({ s: { r: 0, c: colIdx + 4 }, e: { r: 1, c: colIdx + 4 } });
 
-        // Merge "Admission No" (0,0) -> (1,0)
-        merges.push({ s: { r: 0, c: 0 }, e: { r: 1, c: 0 } });
-        // Merge "Pin No" (0,1) -> (1,1)
-        merges.push({ s: { r: 0, c: 1 }, e: { r: 1, c: 1 } });
-        // Merge "Student Name" (0,2) -> (1,2)
-        merges.push({ s: { r: 0, c: 2 }, e: { r: 1, c: 2 } });
-        // Merge "Course" (0,3) -> (1,3)
-        merges.push({ s: { r: 0, c: 3 }, e: { r: 1, c: 3 } });
-        // Merge "Branch" (0,4) -> (1,4)
-        merges.push({ s: { r: 0, c: 4 }, e: { r: 1, c: 4 } });
-        // Merge "Year" (0,5) -> (1,5)
-        merges.push({ s: { r: 0, c: 5 }, e: { r: 1, c: 5 } });
+            ws['!merges'] = merges;
+            
+             // Set column widths
+            const wscols = [
+                { wch: 15 }, { wch: 12 }, { wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 8 }
+            ];
+            feeHeads.forEach(() => {
+                wscols.push({ wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 });
+            });
+            wscols.push({ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 });
+            ws['!cols'] = wscols;
 
-        // Fee Head Merges (Horizontal)
-        // Start col index = 6. Each head takes 6 cols now.
-        let colIdx = 6;
-        feeHeads.forEach(() => {
-            // Merge Row 0 from colIdx to colIdx+5
-            merges.push({ s: { r: 0, c: colIdx }, e: { r: 0, c: colIdx + 5 } });
-            colIdx += 6;
-        });
-
-        // Global Default columns also merge down
-        merges.push({ s: { r: 0, c: colIdx }, e: { r: 1, c: colIdx } }); // Global Default Mode
-        merges.push({ s: { r: 0, c: colIdx + 1 }, e: { r: 1, c: colIdx + 1 } }); // Global Default Date
-        merges.push({ s: { r: 0, c: colIdx + 2 }, e: { r: 1, c: colIdx + 2 } }); // Global Default Ref No
-        merges.push({ s: { r: 0, c: colIdx + 3 }, e: { r: 1, c: colIdx + 3 } }); // Global Default Receipt No
-        merges.push({ s: { r: 0, c: colIdx + 4 }, e: { r: 1, c: colIdx + 4 } }); // Global Default Remarks
-
-
-        // Apply merges
-        ws['!merges'] = merges;
-
-        // Set column widths for better UX
-        const wscols = [
-            { wch: 15 }, // Admission
-            { wch: 12 }, // Pin
-            { wch: 25 }, // Name
-            { wch: 10 }, // Course
-            { wch: 10 }, // Branch
-            { wch: 8 },  // Year
-        ];
-        // Add widths for fee columns
-        feeHeads.forEach(() => {
-            // Paid, Mode, Date, Ref, Rec, Rem
-            wscols.push({ wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 });
-        });
-        // Add widths for global default columns
-        wscols.push({ wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 });
-        ws['!cols'] = wscols;
-
-        xlsx.utils.book_append_sheet(wb, ws, 'Template');
-
-        // Write to buffer
-        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-        res.setHeader('Content-Disposition', 'attachment; filename="BulkFeeUploadTemplate.xlsx"');
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.send(buffer);
+            xlsx.utils.book_append_sheet(wb, ws, 'Payment Template');
+            const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+            
+            res.setHeader('Content-Disposition', 'attachment; filename="BulkPaymentTemplate.xlsx"');
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            return res.send(buffer);
+        }
 
     } catch (error) {
         console.error('Error generating template:', error);
