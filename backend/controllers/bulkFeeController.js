@@ -317,12 +317,12 @@ const processBulkUpload = async (req, res) => {
                      // FETCH FROM MONGOOSE (StudentFee is MongoDB)
                      const existingDemands = await StudentFee.find({
                          studentId: { $in: allAdmNos }
-                     }).select('studentId feeHead amount');
+                     }).select('studentId feeHead amount studentYear');
 
 
-                     const demandMap = {}; // key: studentId-feeHeadId -> amount
+                     const demandMap = {}; // key: studentId-feeHeadId-Year -> amount
                      existingDemands.forEach(d => {
-                         demandMap[`${d.studentId}-${d.feeHead}`] = Number(d.amount);
+                         demandMap[`${d.studentId}-${d.feeHead}-${d.studentYear}`] = Number(d.amount);
                      });
 
                      // Now iterate preview data and CONVERT Demands to Payments based on difference
@@ -344,11 +344,18 @@ const processBulkUpload = async (req, res) => {
                          
                          entry.demands.forEach(d => {
                              // d.amount is the PENDING amount (e.g. 2000)
-                             const key = `${entry.admissionNumber}-${d.headId}`;
+                             // Key MUST include Year now to match specific fee structure
+                             const key = `${entry.admissionNumber}-${d.headId}-${d.year}`;
                              const totalFee = demandMap[key] || 0;
+                             
+                             // console.log(`DEBUG PENDING: Student ${entry.admissionNumber}, Head ${d.headName}, Year ${d.year}`);
+                             // console.log(`- Uploaded Pending (Excel): ${d.amount}`);
+                             // console.log(`- Total Fee (DB): ${totalFee}`);
                              
                              if (totalFee > 0 && totalFee >= d.amount) {
                                  const paidAmount = totalFee - d.amount;
+                                 // console.log(`- Calculated Paid: ${paidAmount}`);
+                                 
                                  if (paidAmount > 0) {
                                      calculatedPayments.push({
                                          headId: d.headId,
@@ -544,8 +551,7 @@ const saveBulkData = async (req, res) => {
 
                     // 2. Insert New Record with Target Amount
                     // FIX: Only insert transaction if amount > 0.
-                    // If amount is 0, we still delete the old record (effectively resetting/clearing it) but don't create a dummy 0 transaction.
-                    if (p.amount > 0) {
+                        if (p.amount > 0) {
                         transactionDocs.push({
                             studentId: finalStudentId,
                             studentName: stud.studentName,
@@ -558,6 +564,7 @@ const saveBulkData = async (req, res) => {
                             receiptNumber: p.receipt || '',
                             remarks: p.remarks || `Bulk Upload - Yr ${sYear}`,
                             studentYear: sYear,
+                            academicYear: stud.batch, // Added academicYear
                             semester: p.semester || 1, // Include Semester!
                             collectedBy: user,
                             collectedByName: 'System Bulk Upload'

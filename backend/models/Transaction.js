@@ -57,6 +57,9 @@ const transactionSchema = mongoose.Schema({
     type: String,
     // unique: true, // Removed to allow multiple transactions to share the same receipt number
   },
+  academicYear: {
+    type: String, // e.g. "2024-2025"
+  },
   collectedBy: {
     type: String, // Username (e.g., 'admin')
   },

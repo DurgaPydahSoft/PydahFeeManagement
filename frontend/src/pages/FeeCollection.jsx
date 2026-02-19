@@ -118,12 +118,8 @@ const FeeCollection = () => {
             });
             setFeeDetails(feesRes.data);
 
-            // Set Default Filter to Student's Current Year
-            if (found.current_year) {
-                setViewFilterYear(found.current_year);
-            } else {
-                setViewFilterYear('ALL');
-            }
+            // Set Default Filter to ALL to show total outstanding (including future/past dues)
+            setViewFilterYear('ALL');
 
             // 3. Fetch History
             const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`);
