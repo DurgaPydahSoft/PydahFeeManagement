@@ -192,7 +192,7 @@ const processBulkUpload = async (req, res) => {
 
             if (!previewDataMap.has(cleanId)) {
                 previewDataMap.set(cleanId, {
-                    id: i,
+                    id: r,
                     displayId: cleanId, 
                     studentName: name, 
                     totalDemand: 0, 
@@ -313,11 +313,12 @@ const processBulkUpload = async (req, res) => {
                  const allAdmNos = previewData.map(d => d.admissionNumber).filter(Boolean);
                  
                  if (allAdmNos.length > 0) {
-                     const [existingDemands] = await db.query(`
-                        SELECT studentId, feeHead, amount 
-                        FROM student_fees 
-                        WHERE studentId IN (?)
-                     `, [allAdmNos]);
+
+                     // FETCH FROM MONGOOSE (StudentFee is MongoDB)
+                     const existingDemands = await StudentFee.find({
+                         studentId: { $in: allAdmNos }
+                     }).select('studentId feeHead amount');
+
 
                      const demandMap = {}; // key: studentId-feeHeadId -> amount
                      existingDemands.forEach(d => {
@@ -357,7 +358,11 @@ const processBulkUpload = async (req, res) => {
                                          amount: paidAmount,
                                          mode: 'Cash', // Default
                                          date: new Date(),
-                                         remarks: 'Auto-generated from Pending Due Upload'
+                                         remarks: 'Auto-generated from Pending Due Upload',
+                                         meta: {
+                                             totalDemand: totalFee,
+                                             pendingAmount: d.amount
+                                         }
                                      });
                                      entry.totalPaid += paidAmount;
                                  }
@@ -374,7 +379,7 @@ const processBulkUpload = async (req, res) => {
                          // REPLACE Demands with Payments for the final Save operation
                          // We clear demands because we don't want to overwrite the 5000 with 2000.
                          entry.demands = []; 
-                         entry.totalDemand = 0;
+
                          entry.payments.push(...calculatedPayments);
                      });
                  }

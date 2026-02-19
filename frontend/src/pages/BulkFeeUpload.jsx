@@ -173,7 +173,8 @@ const BulkFeeUpload = () => {
                     date: p.date,
                     demand: demandVal,
                     paid: p.amount,
-                    remarks: p.remarks
+                    remarks: p.remarks,
+                    meta: p.meta
                 });
             });
         }
@@ -298,7 +299,7 @@ const BulkFeeUpload = () => {
                                         <th className="p-3 font-semibold text-gray-600">Student Name</th>
                                         <th className="p-3 font-semibold text-gray-600">Pin / Admission</th>
                                         <th className="p-3 font-semibold text-gray-600 text-right">
-                                            {uploadType === 'PAYMENT' ? 'Total Paid' : 'Total Demand'}
+                                            {uploadType === 'PAYMENT' ? 'Total Paid' : (isPendingMode ? 'Total Pending Uploaded' : 'Total Demand')}
                                         </th>
                                         <th className="p-3 font-semibold text-gray-600 text-center">Batch Match</th>
                                     </tr>
@@ -331,9 +332,19 @@ const BulkFeeUpload = () => {
                                                                         <th className="px-4 py-2">Head</th>
                                                                         <th className="px-4 py-2">Year</th>
                                                                         <th className="px-4 py-2">Sem</th>
-                                                                        <th className="px-4 py-2">Date</th>
-                                                                        <th className="px-4 py-2 text-right">Demand</th>
-                                                                        <th className="px-4 py-2 text-right">Paid</th>
+                                                                        {uploadType === 'DUE' && isPendingMode ? (
+                                                                            <>
+                                                                                <th className="px-4 py-2 text-right">Total Fee</th>
+                                                                                <th className="px-4 py-2 text-right">Uploaded Due</th>
+                                                                                <th className="px-4 py-2 text-right">Calc. Paid</th>
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <th className="px-4 py-2">Date</th>
+                                                                                <th className="px-4 py-2 text-right">Demand</th>
+                                                                                <th className="px-4 py-2 text-right">Paid</th>
+                                                                            </>
+                                                                        )}
                                                                         <th className="px-4 py-2">Remarks</th>
                                                                     </tr>
                                                                 </thead>
@@ -343,9 +354,22 @@ const BulkFeeUpload = () => {
                                                                             <td className="px-4 py-2 font-medium">{d.headName}</td>
                                                                             <td className="px-4 py-2">{d.year}</td>
                                                                             <td className="px-4 py-2">{d.semester || '-'}</td>
-                                                                            <td className="px-4 py-2 text-xs">{d.date ? new Date(d.date).toLocaleDateString() : '-'}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono">{d.demand > 0 ? d.demand : '-'}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono text-green-700">{d.paid > 0 ? d.paid : '-'}</td>
+
+                                                                            {/* Pending Mode Columns */}
+                                                                            {uploadType === 'DUE' && isPendingMode ? (
+                                                                                <>
+                                                                                    <td className="px-4 py-2 text-right font-mono text-gray-500">₹{d.meta?.totalDemand || '-'}</td>
+                                                                                    <td className="px-4 py-2 text-right font-mono text-orange-600">₹{d.meta?.pendingAmount || '-'}</td>
+                                                                                    <td className="px-4 py-2 text-right font-mono text-green-700 font-bold">₹{d.paid}</td>
+                                                                                </>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <td className="px-4 py-2 text-xs">{d.date ? new Date(d.date).toLocaleDateString() : '-'}</td>
+                                                                                    <td className="px-4 py-2 text-right font-mono">{d.demand > 0 ? d.demand : '-'}</td>
+                                                                                    <td className="px-4 py-2 text-right font-mono text-green-700">{d.paid > 0 ? d.paid : '-'}</td>
+                                                                                </>
+                                                                            )}
+
                                                                             <td className="px-4 py-2 text-xs text-gray-500">{d.remarks}</td>
                                                                         </tr>
                                                                     ))}
