@@ -269,10 +269,10 @@ const FeeConfiguration = () => {
                     // Check semester logic
                     if (appContext.semester) {
                         if (Number(st.semester) === Number(appContext.semester)) {
-                            yearsData[st.studentYear] = st.amount;
+                            yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable };
                         }
                     } else if (!st.semester) {
-                        yearsData[st.studentYear] = st.amount;
+                        yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable };
                     }
                 });
 
@@ -280,10 +280,10 @@ const FeeConfiguration = () => {
                 relevantFees.forEach(f => {
                     if (appContext.semester) {
                         if (Number(f.semester) === Number(appContext.semester)) {
-                            yearsData[f.studentYear] = f.amount;
+                            yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable };
                         }
                     } else if (!f.semester) {
-                        yearsData[f.studentYear] = f.amount;
+                        yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable };
                     }
                 });
 
@@ -292,7 +292,8 @@ const FeeConfiguration = () => {
                     studentName: s.student_name,
                     pinNo: s.pin_no || '-',
                     current_year: sYear,
-                    fees: yearsData, // e.g., { 1: 50000, 2: 50000, ... }
+                    current_year: sYear,
+                    fees: yearsData, // e.g., { 1: { amount: 50000, isScholarshipApplicable: true }, ... }
                 };
             });
 
@@ -338,7 +339,8 @@ const FeeConfiguration = () => {
             const fees = [];
             studentList.forEach(s => {
                 Object.keys(s.fees).forEach(year => {
-                    const amt = s.fees[year];
+                    const feeObj = s.fees[year];
+                    const amt = feeObj?.amount;
                     if (amt !== undefined && amt !== null && amt !== '') {
                         fees.push({
                             studentId: s.studentId,
@@ -350,7 +352,10 @@ const FeeConfiguration = () => {
                             batch: appContext.batch,
                             studentYear: Number(year),
                             semester: appContext.semester,
-                            amount: amt
+                            studentYear: Number(year),
+                            semester: appContext.semester,
+                            amount: amt,
+                            isScholarshipApplicable: feeObj.isScholarshipApplicable // Pass the flag
                         });
                     }
                 });
@@ -771,18 +776,27 @@ const FeeConfiguration = () => {
                                                             {/* Dynamic Year Inputs (All Available) */}
                                                             {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(yearCol => (
                                                                 <td key={yearCol} className="p-2 border-l text-center">
-                                                                    <input
-                                                                        type="number"
-                                                                        className="w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900"
-                                                                        value={s.fees[yearCol] || ''}
-                                                                        placeholder="-"
-                                                                        onChange={(e) => {
-                                                                            const newList = [...studentList];
-                                                                            const newFees = { ...newList[idx].fees, [yearCol]: e.target.value };
-                                                                            newList[idx].fees = newFees;
-                                                                            setStudentList(newList);
-                                                                        }}
-                                                                    />
+                                                                    <div className="relative">
+                                                                        <input
+                                                                            type="number"
+                                                                            className={`w-full p-2 border ${s.fees[yearCol]?.isScholarshipApplicable ? 'border-yellow-400 bg-yellow-50' : 'border-blue-300'} rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900`}
+                                                                            value={s.fees[yearCol]?.amount || ''}
+                                                                            placeholder="-"
+                                                                            onChange={(e) => {
+                                                                                const newList = [...studentList];
+                                                                                const oldFee = newList[idx].fees[yearCol] || {};
+                                                                                const newFees = {
+                                                                                    ...newList[idx].fees,
+                                                                                    [yearCol]: { ...oldFee, amount: e.target.value } // Preserve other props
+                                                                                };
+                                                                                newList[idx].fees = newFees;
+                                                                                setStudentList(newList);
+                                                                            }}
+                                                                        />
+                                                                        {s.fees[yearCol]?.isScholarshipApplicable && (
+                                                                            <span className="absolute top-0 right-0 -mt-2 -mr-1 text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200 shadow-sm" title="Scholarship Eligible">🎓</span>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
                                                             ))}
                                                         </tr>

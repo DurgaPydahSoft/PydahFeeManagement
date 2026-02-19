@@ -43,6 +43,13 @@ const FeeCollection = () => {
     const receiptRef = useRef();
     const searchInputRef = useRef(null);
 
+    // --- PERMISSIONS ---
+    const user = JSON.parse(localStorage.getItem('user'));
+    const isSuperAdmin = user?.role === 'superadmin';
+    const permissions = user?.permissions || [];
+    const canCollectFee = permissions.includes('fee_collection_pay');
+    const canGiveConcession = permissions.includes('fee_collection_concession');
+
     // --- INITIAL DATA LOADING ---
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -293,6 +300,18 @@ const FeeCollection = () => {
     const totalDueAmount = displayedFees.reduce((acc, curr) => acc + curr.dueAmount, 0);
     const globalTotalDue = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
 
+    // Calculate Scholarship Amounts (Global & Current View)
+    // Criteria: isScholarshipApplicable AND (studentScholarStatus is 'eligible', 'yes', or 'true')
+    const isScholarshipEligible = (f) => f.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(f.studentScholarStatus || '').toLowerCase());
+
+    const globalScholarshipAmount = feeDetails.reduce((acc, curr) => {
+        return isScholarshipEligible(curr) ? acc + curr.dueAmount : acc;
+    }, 0);
+
+    const currentViewScholarshipAmount = displayedFees.reduce((acc, curr) => {
+        return isScholarshipEligible(curr) ? acc + curr.dueAmount : acc;
+    }, 0);
+
     // Auto-focus on mount
     useEffect(() => {
         if (searchInputRef.current) {
@@ -447,6 +466,11 @@ const FeeCollection = () => {
                                     <div className="flex flex-col gap-1 text-right shrink-0">
                                         <div className="text-[10px] text-blue-200 uppercase font-bold">Total Due</div>
                                         <div className="text-xl font-bold text-white leading-none">₹{globalTotalDue.toLocaleString()}</div>
+                                        {globalScholarshipAmount > 0 && (
+                                            <div className="text-[10px] text-yellow-300 font-medium mt-1" title="Amount covered by Scholarship">
+                                                (Scholarship: ₹{globalScholarshipAmount.toLocaleString()})
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -517,9 +541,16 @@ const FeeCollection = () => {
                                                                             Partial
                                                                         </span>
                                                                     ) : (
-                                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                                                            Unpaid
-                                                                        </span>
+                                                                        <div className="flex flex-col items-center">
+                                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                                                                Unpaid
+                                                                            </span>
+                                                                            {isScholarshipEligible(fee) && (
+                                                                                <span className="text-[9px] font-bold text-yellow-600 mt-1 whitespace-nowrap">
+                                                                                    (Eligible for Scholarship)
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                     )}
                                                                 </td>
                                                             </tr>
@@ -527,8 +558,17 @@ const FeeCollection = () => {
                                                     })}
                                                     {/* Total Row */}
                                                     <tr className="bg-gray-50/50 border-t border-gray-200">
-                                                        <td className="py-2.5 px-4 text-sm font-bold text-gray-800 text-right uppercase tracking-wide" colSpan="3">Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):</td>
-                                                        <td className="py-2.5 px-4 text-base font-extrabold text-right text-red-600 font-mono">₹{totalDueAmount.toLocaleString()}</td>
+                                                        <td className="py-2.5 px-4 text-sm font-bold text-gray-800 text-right uppercase tracking-wide" colSpan="3">
+                                                            Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):
+                                                        </td>
+                                                        <td className="py-2.5 px-4 text-right">
+                                                            <div className="text-base font-extrabold text-red-600 font-mono">₹{totalDueAmount.toLocaleString()}</div>
+                                                            {currentViewScholarshipAmount > 0 && (
+                                                                <div className="text-[10px] text-yellow-600 font-bold mt-0.5">
+                                                                    (Sch: ₹{currentViewScholarshipAmount.toLocaleString()})
+                                                                </div>
+                                                            )}
+                                                        </td>
                                                         <td></td>
                                                     </tr>
                                                 </>
@@ -598,191 +638,193 @@ const FeeCollection = () => {
                         </div>
 
                         {/* Right Column: Payment Form Only */}
-                        <div className="space-y-3">
-                            {/* Payment Tabs */}
-                            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
-                                <div className="flex border-b border-gray-100">
-                                    <button
-                                        className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50/50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
-                                        onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
-                                    >
-                                        COLLECT FEE
-                                    </button>
-                                    <button
-                                        className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50/50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-400 hover:bg-gray-50'}`}
-                                        onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
-                                    >
-                                        CONCESSION
-                                    </button>
-                                </div>
-
-                                <div className="p-4">
-                                    <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                                        <div>
-                                            <h3 className={`text-base font-bold ${paymentForm.transactionType === 'DEBIT' ? 'text-gray-800' : 'text-purple-800'}`}>
-                                                {paymentForm.transactionType === 'DEBIT' ? 'Payment Details' : 'Concession Details'}
-                                            </h3>
-                                            <p className="text-[11px] text-gray-400 mt-0.5">Add fee heads and amount below</p>
-                                        </div>
+                        {(canCollectFee || canGiveConcession || isSuperAdmin) && (
+                            <div className="space-y-3">
+                                {/* Payment Tabs */}
+                                <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
+                                    <div className="flex border-b border-gray-100">
                                         <button
-                                            type="button"
-                                            onClick={addFeeRow}
-                                            className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
-                                            title="Add Another Fee Head"
+                                            className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50/50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
+                                            onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                            COLLECT FEE
+                                        </button>
+                                        <button
+                                            className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50/50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-400 hover:bg-gray-50'}`}
+                                            onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
+                                        >
+                                            CONCESSION
                                         </button>
                                     </div>
 
-                                    <form onSubmit={handlePrePayment} className="space-y-3">
-
-                                        {/* Dynamic Rows */}
-                                        <div className="space-y-2">
-                                            {feeRows.map((row, index) => (
-                                                <div key={row.id} className="flex gap-2 items-start p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
-                                                    <div className="flex-1">
-                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
-                                                        <select
-                                                            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                                            value={row.feeHeadId}
-                                                            onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
-                                                            required
-                                                        >
-                                                            <option value="">-- Select Fee Head --</option>
-                                                            {displayedFees.map(f => (
-                                                                <option key={f._id} value={f._id}>
-                                                                    [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: ₹{f.dueAmount})
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                    <div className="w-24">
-                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
-                                                        <div className="relative">
-                                                            <span className="absolute left-2 top-1.5 text-gray-400 text-xs">₹</span>
-                                                            <input
-                                                                type="number"
-                                                                className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
-                                                                value={row.amount}
-                                                                onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
-                                                                required
-                                                                placeholder="0"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    {feeRows.length > 1 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => removeFeeRow(row.id)}
-                                                            className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
-                                                        >
-                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ))}
+                                    <div className="p-4">
+                                        <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                                            <div>
+                                                <h3 className={`text-base font-bold ${paymentForm.transactionType === 'DEBIT' ? 'text-gray-800' : 'text-purple-800'}`}>
+                                                    {paymentForm.transactionType === 'DEBIT' ? 'Payment Details' : 'Concession Details'}
+                                                </h3>
+                                                <p className="text-[11px] text-gray-400 mt-0.5">Add fee heads and amount below</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={addFeeRow}
+                                                className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
+                                                title="Add Another Fee Head"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                            </button>
                                         </div>
 
-                                        {/* Total Summary */}
-                                        <div className="flex justify-between items-end py-2 border-t border-dashed border-gray-200 mt-1">
-                                            <span className="text-xs font-medium text-gray-500">Total Amount</span>
-                                            <span className="text-2xl font-extrabold text-gray-800 tracking-tight">₹{totalSelectedAmount.toLocaleString()}</span>
-                                        </div>
+                                        <form onSubmit={handlePrePayment} className="space-y-3">
 
-                                        {/* PAYMENT MODE SELECTION (Only for DEBIT) */}
-                                        {paymentForm.transactionType === 'DEBIT' && (
-                                            <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
-                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
-                                                <div className="grid grid-cols-2 gap-2 mb-3">
-                                                    <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
-                                                        <span className="font-bold text-xs text-gray-700">Cash</span>
-                                                    </label>
-                                                    <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { setPaymentCategory('Bank'); setPaymentForm({ ...paymentForm, paymentMode: 'UPI' }); }} />
-                                                        <span className="font-bold text-xs text-gray-700">Bank / Online</span>
-                                                    </label>
-                                                </div>
-
-                                                {/* Sub-options for Bank */}
-                                                {paymentCategory === 'Bank' && (
-                                                    <div className="space-y-2 animate-fadeIn">
-                                                        {/* Target Account Selection */}
-                                                        <div>
-                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Target Account *</label>
+                                            {/* Dynamic Rows */}
+                                            <div className="space-y-2">
+                                                {feeRows.map((row, index) => (
+                                                    <div key={row.id} className="flex gap-2 items-start p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
+                                                        <div className="flex-1">
+                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
                                                             <select
-                                                                className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
-                                                                value={paymentForm.paymentConfigId}
-                                                                onChange={e => {
-                                                                    const selected = paymentConfigs.find(c => c._id === e.target.value);
-                                                                    setPaymentForm({
-                                                                        ...paymentForm,
-                                                                        paymentConfigId: e.target.value,
-                                                                        // Auto-fill bank name if empty or just helpful
-                                                                        bankName: selected ? selected.bank_name : paymentForm.bankName
-                                                                    });
-                                                                }}
+                                                                className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                                                value={row.feeHeadId}
+                                                                onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
+                                                                required
                                                             >
-                                                                <option value="">-- Select Account --</option>
-                                                                {paymentConfigs.map(c => (
-                                                                    <option key={c._id} value={c._id}>
-                                                                        {c.account_name} ({c.bank_name})
+                                                                <option value="">-- Select Fee Head --</option>
+                                                                {displayedFees.map(f => (
+                                                                    <option key={f._id} value={f._id}>
+                                                                        [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: ₹{f.dueAmount})
                                                                     </option>
                                                                 ))}
                                                             </select>
                                                         </div>
-
-                                                        <div>
-                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Instrument</label>
-                                                            <select className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none" value={paymentForm.paymentMode} onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}>
-                                                                <option value="UPI">UPI (GPay / PhonePe/ etc)</option>
-                                                                <option value="Net Banking">Net Banking</option>
-                                                                <option value="Card">Debit / Credit Card</option>
-                                                                <option value="Cheque">Cheque</option>
-                                                                <option value="DD">Demand Draft (DD)</option>
-                                                            </select>
-                                                        </div>
-                                                        {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (
-                                                            <div>
-                                                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
-                                                                <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                        <div className="w-24">
+                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
+                                                            <div className="relative">
+                                                                <span className="absolute left-2 top-1.5 text-gray-400 text-xs">₹</span>
+                                                                <input
+                                                                    type="number"
+                                                                    className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
+                                                                    value={row.amount}
+                                                                    onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                                    required
+                                                                    placeholder="0"
+                                                                />
                                                             </div>
-                                                        )}
-                                                        {['Cheque', 'DD'].includes(paymentForm.paymentMode) && (
-                                                            <>
-                                                                <div className="grid grid-cols-2 gap-2">
-                                                                    <div>
-                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">No *</label>
-                                                                        <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Date *</label>
-                                                                        <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.instrumentDate || ''} onChange={e => setPaymentForm({ ...paymentForm, instrumentDate: e.target.value })} required />
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Name *</label>
-                                                                    <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="Issuing Bank" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
-                                                                </div>
-                                                            </>
+                                                        </div>
+                                                        {feeRows.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => removeFeeRow(row.id)}
+                                                                className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                            </button>
                                                         )}
                                                     </div>
-                                                )}
+                                                ))}
                                             </div>
-                                        )}
 
-                                        <div className="pt-2">
-                                            <button
-                                                type="submit"
-                                                className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-200' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 shadow-purple-200'}`}
-                                            >
-                                                {paymentForm.transactionType === 'DEBIT' ? 'Confirm Payment' : 'Apply Concession'}
-                                            </button>
-                                        </div>
-                                    </form>
+                                            {/* Total Summary */}
+                                            <div className="flex justify-between items-end py-2 border-t border-dashed border-gray-200 mt-1">
+                                                <span className="text-xs font-medium text-gray-500">Total Amount</span>
+                                                <span className="text-2xl font-extrabold text-gray-800 tracking-tight">₹{totalSelectedAmount.toLocaleString()}</span>
+                                            </div>
+
+                                            {/* PAYMENT MODE SELECTION (Only for DEBIT) */}
+                                            {paymentForm.transactionType === 'DEBIT' && (
+                                                <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
+                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
+                                                    <div className="grid grid-cols-2 gap-2 mb-3">
+                                                        <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                            <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
+                                                            <span className="font-bold text-xs text-gray-700">Cash</span>
+                                                        </label>
+                                                        <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                            <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { setPaymentCategory('Bank'); setPaymentForm({ ...paymentForm, paymentMode: 'UPI' }); }} />
+                                                            <span className="font-bold text-xs text-gray-700">Bank / Online</span>
+                                                        </label>
+                                                    </div>
+
+                                                    {/* Sub-options for Bank */}
+                                                    {paymentCategory === 'Bank' && (
+                                                        <div className="space-y-2 animate-fadeIn">
+                                                            {/* Target Account Selection */}
+                                                            <div>
+                                                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Target Account *</label>
+                                                                <select
+                                                                    className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
+                                                                    value={paymentForm.paymentConfigId}
+                                                                    onChange={e => {
+                                                                        const selected = paymentConfigs.find(c => c._id === e.target.value);
+                                                                        setPaymentForm({
+                                                                            ...paymentForm,
+                                                                            paymentConfigId: e.target.value,
+                                                                            // Auto-fill bank name if empty or just helpful
+                                                                            bankName: selected ? selected.bank_name : paymentForm.bankName
+                                                                        });
+                                                                    }}
+                                                                >
+                                                                    <option value="">-- Select Account --</option>
+                                                                    {paymentConfigs.map(c => (
+                                                                        <option key={c._id} value={c._id}>
+                                                                            {c.account_name} ({c.bank_name})
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+
+                                                            <div>
+                                                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Instrument</label>
+                                                                <select className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none" value={paymentForm.paymentMode} onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}>
+                                                                    <option value="UPI">UPI (GPay / PhonePe/ etc)</option>
+                                                                    <option value="Net Banking">Net Banking</option>
+                                                                    <option value="Card">Debit / Credit Card</option>
+                                                                    <option value="Cheque">Cheque</option>
+                                                                    <option value="DD">Demand Draft (DD)</option>
+                                                                </select>
+                                                            </div>
+                                                            {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (
+                                                                <div>
+                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
+                                                                    <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                </div>
+                                                            )}
+                                                            {['Cheque', 'DD'].includes(paymentForm.paymentMode) && (
+                                                                <>
+                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">No *</label>
+                                                                            <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Date *</label>
+                                                                            <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.instrumentDate || ''} onChange={e => setPaymentForm({ ...paymentForm, instrumentDate: e.target.value })} required />
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Name *</label>
+                                                                        <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="Issuing Bank" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            <div className="pt-2">
+                                                <button
+                                                    type="submit"
+                                                    className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-200' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 shadow-purple-200'}`}
+                                                >
+                                                    {paymentForm.transactionType === 'DEBIT' ? 'Confirm Payment' : 'Apply Concession'}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 )}
 
