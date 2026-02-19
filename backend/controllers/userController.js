@@ -17,7 +17,7 @@ const getUsers = async (req, res) => {
 // @route   POST /api/users
 // @access  Admin
 const createUser = async (req, res) => {
-  const { name, username, password, role, college, employeeId } = req.body;
+  const { name, username, password, role, college, employeeId, permissions } = req.body;
 
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
@@ -25,7 +25,7 @@ const createUser = async (req, res) => {
   }
 
   if (!employeeId && !password) {
-     return res.status(400).json({ message: 'Password is required for local users' });
+    return res.status(400).json({ message: 'Password is required for local users' });
   }
 
   try {
@@ -49,7 +49,8 @@ const createUser = async (req, res) => {
       password: hashedPassword, // Will be undefined for employee-linked users
       role,
       college,
-      employeeId // Link to external employee
+      employeeId, // Link to external employee
+      permissions: permissions || [] // Save permissions if provided
     });
 
     if (user) {
@@ -59,7 +60,8 @@ const createUser = async (req, res) => {
         username: user.username,
         role: user.role,
         college: user.college,
-        employeeId: user.employeeId
+        employeeId: user.employeeId,
+        permissions: user.permissions
       });
     } else {
       res.status(400).json({ message: 'Invalid user data' });
@@ -116,7 +118,7 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const updateUser = async (req, res) => {
-  const { name, username, password, role, college } = req.body;
+  const { name, username, password, role, college, permissions } = req.body;
 
   try {
     const user = await User.findById(req.params.id);
@@ -126,14 +128,19 @@ const updateUser = async (req, res) => {
     }
 
     user.name = name || user.name;
-    
+
     // Only allow changing username if NOT linked to an employee
     if (!user.employeeId) {
-       user.username = username || user.username;
+      user.username = username || user.username;
     }
-    
+
     user.role = role || user.role;
     user.college = college === '' ? '' : (college || user.college); // Allow clearing college
+
+    // Update permissions if provided
+    if (permissions) {
+      user.permissions = permissions;
+    }
 
     // Only allow changing password if NOT linked to an employee
     if (password && !user.employeeId) {
