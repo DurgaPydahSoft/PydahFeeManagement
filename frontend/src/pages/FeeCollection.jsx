@@ -412,19 +412,48 @@ const FeeCollection = () => {
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {filteredStudents.slice(0, 12).map((s) => (
-                                    <div key={s.id || s.admission_number} onClick={() => selectStudent(s)} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:border-blue-500 hover:shadow-md transition group">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <h4 className="font-bold text-blue-900 group-hover:text-blue-700">{s.student_name}</h4>
-                                                <p className="text-sm text-gray-600">{s.course} - {s.branch}</p>
+                                    <div key={s.id || s.admission_number} onClick={() => selectStudent(s)}
+                                        className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:border-blue-400 hover:shadow-lg transition-all duration-300 group relative overflow-hidden flex flex-col gap-3">
+                                        {/* Status Stripe */}
+                                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${s.student_status === 'Active' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+
+                                        <div className="flex justify-between items-start pl-2">
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold text-gray-900 group-hover:text-blue-700 truncate text-lg transition-colors">{s.student_name}</h4>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-blue-100 italic">
+                                                        {s.course}
+                                                    </span>
+                                                    <span className="text-gray-400 text-xs truncate">— {s.branch}</span>
+                                                </div>
                                             </div>
-                                            <span className={`px-2 py-0.5 text-xs rounded-full ${s.student_status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{s.student_status}</span>
+                                            <span className={`px-2 py-1 text-[10px] font-bold rounded-md uppercase tracking-tighter ${s.student_status === 'Active' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}`}>
+                                                {s.student_status}
+                                            </span>
                                         </div>
-                                        <div className="mt-3 grid grid-cols-2 gap-y-1 text-xs text-gray-500">
-                                            <div><span className="font-semibold text-gray-400">Adm No:</span> {s.admission_number}</div>
-                                            <div><span className="font-semibold text-gray-400">Pin:</span> {s.pin_no || '-'}</div>
-                                            <div><span className="font-semibold text-gray-400">Year:</span> {s.current_year} (S{s.current_semester})</div>
-                                            <div><span className="font-semibold text-gray-400">Mob:</span> {s.student_mobile}</div>
+
+                                        <div className="grid grid-cols-2 gap-3 pl-2 mt-2 pt-3 border-t border-gray-50">
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-tight">Admission No</span>
+                                                <span className="text-sm font-medium text-gray-700 font-mono">{s.admission_number}</span>
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-tight">Pin No</span>
+                                                <span className="text-sm font-medium text-gray-700 font-mono">{s.pin_no || '—'}</span>
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-tight">Current Year</span>
+                                                <span className="text-sm font-medium text-gray-700">Year {s.current_year} (S{s.current_semester})</span>
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-tight">Mobile No</span>
+                                                <span className="text-sm font-medium text-gray-700 font-mono">{s.student_mobile}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Subtle selection arrow */}
+                                        <div className="absolute right-4 bottom-4 opacity-0 group-hover:opacity-100 transition-opacity translate-x-2 group-hover:translate-x-0 duration-300">
+                                            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                                         </div>
                                     </div>
                                 ))}
@@ -517,14 +546,20 @@ const FeeCollection = () => {
                             {/* --- YEAR WISE STATS CARDS --- */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fadeIn">
                                 {(() => {
-                                    const yearWiseStats = feeDetails.reduce((acc, curr) => {
+                                    const yearWiseStats = {};
+                                    // Initialize with all years up to current
+                                    for (let i = 1; i <= (student.current_year || 0); i++) {
+                                        yearWiseStats[i] = { total: 0, paid: 0, due: 0, year: i };
+                                    }
+
+                                    // Add years from feeDetails (in case there are dues for FUTURE years or old years not covered)
+                                    feeDetails.forEach(curr => {
                                         const y = curr.studentYear;
-                                        if (!acc[y]) acc[y] = { total: 0, paid: 0, due: 0, year: y };
-                                        acc[y].total += curr.totalAmount;
-                                        acc[y].paid += curr.paidAmount;
-                                        acc[y].due += curr.dueAmount;
-                                        return acc;
-                                    }, {});
+                                        if (!yearWiseStats[y]) yearWiseStats[y] = { total: 0, paid: 0, due: 0, year: y };
+                                        yearWiseStats[y].total += curr.totalAmount;
+                                        yearWiseStats[y].paid += curr.paidAmount;
+                                        yearWiseStats[y].due += curr.dueAmount;
+                                    });
                                     const sortedYearStats = Object.values(yearWiseStats).sort((a, b) => Number(a.year) - Number(b.year));
 
                                     if (sortedYearStats.length === 0) return null;
