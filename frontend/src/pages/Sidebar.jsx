@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import Swal from 'sweetalert2';
 
 const Sidebar = () => {
     const location = useLocation();
@@ -42,6 +43,7 @@ const Sidebar = () => {
         { name: 'Permissions', path: '/permissions', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg> },
         { name: 'User Management', path: '/user-management', icon: icons.Users },
         { name: 'Receipt Settings', path: '/receipt-settings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+        { name: 'User Profile', path: '/user-profile', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
     ];
 
     // Filter Logic:
@@ -49,7 +51,10 @@ const Sidebar = () => {
     // 2. Others see only what's in their permissions array.
     const menuItems = role === 'superadmin'
         ? allMenuItems
-        : allMenuItems.filter(item => permissions.includes(item.path));
+        : allMenuItems.filter(item =>
+            permissions.includes(item.path) ||
+            item.path === '/user-profile'
+        );
 
     return (
         <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-56'}`}>
@@ -109,10 +114,20 @@ const Sidebar = () => {
                     {/* Logout Button */}
                     <button
                         onClick={() => {
-                            if (window.confirm('Are you sure you want to logout?')) {
-                                localStorage.removeItem('user');
-                                window.location.href = '/login';
-                            }
+                            Swal.fire({
+                                title: 'Logout?',
+                                text: "You will be returned to the login screen.",
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonColor: '#d33',
+                                cancelButtonColor: '#3085d6',
+                                confirmButtonText: 'Yes, logout!'
+                            }).then((result) => {
+                                if (result.isConfirmed) {
+                                    localStorage.removeItem('user');
+                                    window.location.href = '/login';
+                                }
+                            })
                         }}
                         className={`text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50 ${isCollapsed ? '' : ''}`}
                         title="Logout"

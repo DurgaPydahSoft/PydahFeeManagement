@@ -142,8 +142,9 @@ const updateUser = async (req, res) => {
       user.permissions = permissions;
     }
 
-    // Only allow changing password if NOT linked to an employee
-    if (password && !user.employeeId) {
+    // Allow changing password for ALL users (including linked ones) 
+    // This allows Superadmins (or users themselves, if we add that later) to set a local override password.
+    if (password) {
       const salt = await bcrypt.genSalt(10);
       user.password = await bcrypt.hash(password, salt);
     }

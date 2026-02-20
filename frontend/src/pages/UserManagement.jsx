@@ -21,6 +21,7 @@ const UserManagement = () => {
 
     // Form State
     const [editingUserId, setEditingUserId] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false); // [NEW] Loading State
     const [formData, setFormData] = useState({
         name: '',
         username: '',
@@ -33,18 +34,23 @@ const UserManagement = () => {
 
     // Employee Search State
     const [searchResults, setSearchResults] = useState([]);
+    const [searchLoading, setSearchLoading] = useState(false); // [NEW] Search Loading State
 
     const handleEmployeeSearch = async (e) => {
         const query = e.target.value;
-        if (query.length > 2) {
+        if (query.length > 0) { // Changed from > 2 to > 0 to search on every char
+            setSearchLoading(true);
             try {
                 const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/employees/search?name=${query}`);
                 setSearchResults(res.data);
             } catch (error) {
                 console.error("Search failed", error);
+            } finally {
+                setSearchLoading(false);
             }
         } else {
             setSearchResults([]);
+            setSearchLoading(false);
         }
     };
 
@@ -126,6 +132,7 @@ const UserManagement = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setMessage('');
+        setIsSubmitting(true);
         try {
             if (editingUserId) {
                 const res = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${editingUserId}`, formData);
@@ -141,6 +148,8 @@ const UserManagement = () => {
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
             setMessage(error.response?.data?.message || 'Error saving user');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -171,6 +180,34 @@ const UserManagement = () => {
             if (editingUserId === id) handleCancelEdit();
         } catch (error) {
             alert('Failed to delete user');
+        }
+    };
+
+    // [NEW] Password Reset Modal State
+    const [resetModal, setResetModal] = useState({ show: false, user: null, newPassword: '' });
+
+    const openResetModal = (user) => {
+        const currentUser = JSON.parse(localStorage.getItem('user'));
+        if (user.employeeId && currentUser?.role !== 'superadmin') {
+            alert("Cannot reset password for Employee-linked users. They must use their Employee DB credentials.");
+            return;
+        }
+        setResetModal({ show: true, user: user, newPassword: '' });
+    };
+
+    const closeResetModal = () => {
+        setResetModal({ show: false, user: null, newPassword: '' });
+    };
+
+    const handleSavePassword = async (e) => {
+        e.preventDefault();
+        try {
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${resetModal.user._id}`, { password: resetModal.newPassword });
+            alert('Password updated successfully!');
+            closeResetModal();
+        } catch (error) {
+            console.error(error);
+            alert('Failed to reset password.');
         }
     };
 
@@ -208,22 +245,37 @@ const UserManagement = () => {
                                         <input
                                             type="text"
                                             className="w-full border p-2 rounded mt-1"
-                                            placeholder="Search employee by name..."
+                                            placeholder="Search employee by Name or ID..."
                                             onChange={handleEmployeeSearch}
                                         />
                                         {/* Search Results Dropdown */}
-                                        {searchResults.length > 0 && (
+                                        {(searchResults.length > 0 || searchLoading) && (
                                             <div className="absolute z-10 w-full bg-white border border-gray-200 mt-1 rounded shadow-lg max-h-60 overflow-y-auto">
-                                                {searchResults.map(emp => (
+                                                {searchLoading && (
+                                                    <div className="p-3 text-center text-gray-500 text-sm flex items-center justify-center gap-2">
+                                                        <svg className="animate-spin h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                        Searching...
+                                                    </div>
+                                                )}
+                                                {!searchLoading && searchResults.map(emp => (
                                                     <div
                                                         key={emp._id}
                                                         className="p-2 hover:bg-blue-50 cursor-pointer border-b last:border-b-0"
                                                         onClick={() => selectEmployee(emp)}
                                                     >
-                                                        <p className="font-bold text-sm text-gray-800">{emp.employee_name}</p>
-                                                        <p className="text-xs text-gray-500">ID: {emp.emp_no} | {emp.designation_id}</p>
+                                                        <p className="font-bold text-sm text-gray-800">
+                                                            {emp.employee_name} <span className="text-gray-500 font-normal">({emp.emp_no})</span>
+                                                        </p>
+                                                        <p className="text-xs text-gray-500">
+                                                            {emp.designation_id?.designation_name || emp.designation_id?.name || 'N/A'} |
+                                                            {emp.division_id?.division_name || emp.division_id?.name || 'N/A'} |
+                                                            {emp.department_id?.department_name || emp.department_id?.name || 'N/A'}
+                                                        </p>
                                                     </div>
                                                 ))}
+                                                {!searchLoading && searchResults.length === 0 && (
+                                                    <div className="p-3 text-center text-gray-500 text-sm">No results found</div>
+                                                )}
                                             </div>
                                         )}
                                     </>
@@ -348,8 +400,14 @@ const UserManagement = () => {
                                 </div>
                             </div>
 
-                            <button className={`w-full text-white font-bold py-2 rounded transition ${editingUserId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                                {editingUserId ? 'Update User' : 'Create User'}
+                            <button
+                                disabled={isSubmitting}
+                                className={`w-full text-white font-bold py-2 rounded transition flex justify-center items-center gap-2 ${editingUserId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                            >
+                                {isSubmitting && (
+                                    <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                )}
+                                {isSubmitting ? 'Saving...' : (editingUserId ? 'Update User' : 'Create User')}
                             </button>
                         </form>
                     </div>
@@ -385,6 +443,9 @@ const UserManagement = () => {
                                                 <td className="p-3 text-gray-500">{user.college || '-'}</td>
                                                 <td className="p-3 text-right">
                                                     <button onClick={() => handleEdit(user)} className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded mr-2">Edit</button>
+                                                    {(!user.employeeId || JSON.parse(localStorage.getItem('user'))?.role === 'superadmin') && (
+                                                        <button onClick={() => openResetModal(user)} className="text-yellow-600 hover:text-yellow-800 font-bold text-xs bg-yellow-50 hover:bg-yellow-100 px-2 py-1 rounded mr-2">Reset Pwd</button>
+                                                    )}
                                                     <button onClick={() => handleDelete(user._id)} className="text-red-500 hover:text-red-700 font-bold text-xs bg-red-50 hover:bg-red-100 px-2 py-1 rounded">Delete</button>
                                                 </td>
                                             </tr>
@@ -397,6 +458,50 @@ const UserManagement = () => {
                     </div>
                 </div>
             </div>
+            {/* Password Reset Modal */}
+            {resetModal.show && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all scale-100">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                            Reset Password
+                        </h2>
+                        <p className="text-sm text-gray-500 mb-6 border-b border-gray-100 pb-4">
+                            Enter a new password for <span className="font-bold text-gray-800 px-1 bg-yellow-50 rounded text-yellow-700">{resetModal.user?.name}</span>.
+                        </p>
+
+                        <form onSubmit={handleSavePassword}>
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                                <input
+                                    type="password"
+                                    className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    value={resetModal.newPassword}
+                                    onChange={(e) => setResetModal({ ...resetModal, newPassword: e.target.value })}
+                                    required
+                                    autoFocus
+                                    placeholder="Enter new password..."
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={closeResetModal}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 transition"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition"
+                                >
+                                    Save Password
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
