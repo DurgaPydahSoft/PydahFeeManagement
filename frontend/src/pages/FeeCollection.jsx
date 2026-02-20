@@ -21,14 +21,25 @@ const FeeCollection = () => {
     // Multi-Select State
     const [feeRows, setFeeRows] = useState([{ id: Date.now(), feeHeadId: '', amount: '' }]);
 
-    const [paymentForm, setPaymentForm] = useState({
-        paymentMode: 'Cash',
-        remarks: '',
-        transactionType: 'DEBIT',
-        bankName: '',
-        instrumentDate: '',
-        referenceNo: '',
-        paymentConfigId: ''
+    const [paymentForm, setPaymentForm] = useState(() => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const isSuperAdmin = user?.role === 'superadmin';
+        const permissions = user?.permissions || [];
+        const canCollectFee = permissions.includes('fee_collection_pay');
+        const canGiveConcession = permissions.includes('fee_collection_concession');
+
+        // Default to CREDIT if only concession is allowed, otherwise DEBIT
+        const defaultType = (canGiveConcession && !canCollectFee && !isSuperAdmin) ? 'CREDIT' : 'DEBIT';
+
+        return {
+            paymentMode: 'Cash',
+            remarks: '',
+            transactionType: defaultType,
+            bankName: '',
+            instrumentDate: '',
+            referenceNo: '',
+            paymentConfigId: ''
+        };
     });
 
     const [paymentCategory, setPaymentCategory] = useState('Cash');
@@ -765,18 +776,22 @@ const FeeCollection = () => {
                                 {/* Payment Tabs */}
                                 <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
                                     <div className="flex border-b border-gray-100">
-                                        <button
-                                            className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50/50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
-                                            onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
-                                        >
-                                            COLLECT FEE
-                                        </button>
-                                        <button
-                                            className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50/50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-400 hover:bg-gray-50'}`}
-                                            onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
-                                        >
-                                            CONCESSION
-                                        </button>
+                                        {(canCollectFee || isSuperAdmin) && (
+                                            <button
+                                                className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50/50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
+                                                onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
+                                            >
+                                                COLLECT FEE
+                                            </button>
+                                        )}
+                                        {(canGiveConcession || isSuperAdmin) && (
+                                            <button
+                                                className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50/50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-400 hover:bg-gray-50'}`}
+                                                onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
+                                            >
+                                                CONCESSION
+                                            </button>
+                                        )}
                                     </div>
 
                                     <div className="p-4">
