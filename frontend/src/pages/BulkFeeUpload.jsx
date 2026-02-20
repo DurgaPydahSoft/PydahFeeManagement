@@ -18,6 +18,7 @@ const BulkFeeUpload = () => {
     const [saving, setSaving] = useState(false);
     const [downloadingTemplate, setDownloadingTemplate] = useState(false);
     const [isPendingMode, setIsPendingMode] = useState(false);
+    const [feeHeads, setFeeHeads] = useState([]); // List of dynamic columns from server
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
@@ -69,12 +70,15 @@ const BulkFeeUpload = () => {
             });
 
             const data = response.data.data;
+            const resHeads = response.data.feeHeads || [];
             if (data.length === 0) {
                 setError('No valid student data found in file.');
                 setPreviewData([]);
+                setFeeHeads([]);
                 setSelectedIds([]);
             } else {
                 setPreviewData(data);
+                setFeeHeads(resHeads);
                 setSelectedIds(data.map((_, i) => i));
                 setMessage(response.data.message || `Successfully parsed ${data.length} records.`);
             }
@@ -119,7 +123,9 @@ const BulkFeeUpload = () => {
 
         try {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/save`, {
-                students: studentsToSave
+                students: studentsToSave,
+                uploadType: uploadType,
+                isPendingMode: isPendingMode
             });
             setMessage(response.data.message);
             setFile(null);
@@ -136,12 +142,10 @@ const BulkFeeUpload = () => {
 
     // Helper to merge demands and payments
     const getUnifiedDetails = (row) => {
-        // Different display logic for PAYMENT vs DUE modes? 
-        // For debugging/preview, showing everything is fine.
         const demandsMap = new Map();
         if (row.demands) {
             row.demands.forEach(d => {
-                const key = `${d.headId}-${d.year}`;
+                const key = `${d.headId}-${d.year}-${d.semester || 1}`;
                 if (!demandsMap.has(key)) {
                     demandsMap.set(key, { ...d, matches: false });
                 } else {
@@ -155,7 +159,7 @@ const BulkFeeUpload = () => {
         const result = [];
         if (row.payments) {
             row.payments.forEach(p => {
-                const key = `${p.headId}-${p.year}`;
+                const key = `${p.headId}-${p.year}-${p.semester || 1}`;
                 let demandVal = 0;
                 if (demandsMap.has(key)) {
                     const d = demandsMap.get(key);
@@ -182,14 +186,16 @@ const BulkFeeUpload = () => {
         demandsMap.forEach((d) => {
             if (!d.matches) {
                 result.push({
+                    headId: d.headId,
                     headName: d.headName,
                     year: d.year,
-                    semester: d.semester, // Display sem from demand
+                    semester: d.semester,
                     mode: '-',
                     date: null,
                     demand: d.amount,
                     paid: 0,
-                    remarks: ''
+                    remarks: '',
+                    meta: d.meta || { pendingAmount: d.amount } // Fallback for display
                 });
             }
         });
@@ -298,6 +304,7 @@ const BulkFeeUpload = () => {
                                         </th>
                                         <th className="p-3 font-semibold text-gray-600">Student Name</th>
                                         <th className="p-3 font-semibold text-gray-600">Pin / Admission</th>
+                                        <th className="p-3 font-semibold text-gray-600">Fee Heads</th>
                                         <th className="p-3 font-semibold text-gray-600 text-right">
                                             {uploadType === 'PAYMENT' ? 'Total Paid' : (isPendingMode ? 'Total Pending Uploaded' : 'Total Demand')}
                                         </th>
@@ -315,6 +322,9 @@ const BulkFeeUpload = () => {
                                                 </td>
                                                 <td className="p-3 font-medium text-gray-800">{row.studentName}</td>
                                                 <td className="p-3 font-mono text-gray-600">{row.pinNumber || row.admissionNumber || row.displayId}</td>
+                                                <td className="p-3 italic text-gray-500 text-xs truncate max-w-[200px]" title={(uploadType === 'PAYMENT' ? row.payments : row.demands)?.map(d => d.headName).join(', ')}>
+                                                    {(uploadType === 'PAYMENT' ? row.payments : row.demands)?.map(d => d.headName).filter((v, i, a) => a.indexOf(v) === i).join(', ') || '-'}
+                                                </td>
                                                 <td className={`p-3 text-right font-bold ${uploadType === 'PAYMENT' ? 'text-green-700' : 'text-orange-700'}`}>
                                                     ₹{(uploadType === 'PAYMENT' ? row.totalPaid : row.totalDemand).toLocaleString()}
                                                 </td>
@@ -324,7 +334,7 @@ const BulkFeeUpload = () => {
                                             </tr>
                                             {expandedRows[index] && (
                                                 <tr className="bg-gray-50">
-                                                    <td colSpan="5" className="p-4 border-b inner-shadow">
+                                                    <td colSpan={6} className="p-4 border-b inner-shadow">
                                                         <div className="bg-white border rounded-md shadow-sm overflow-hidden max-w-4xl mx-auto">
                                                             <table className="w-full text-sm text-left">
                                                                 <thead className="bg-gray-100 text-xs text-gray-500 uppercase border-b">
