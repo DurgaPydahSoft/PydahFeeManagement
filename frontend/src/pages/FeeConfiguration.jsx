@@ -9,6 +9,7 @@ const FeeConfiguration = () => {
     // --- SHARED STATE ---
     const [feeHeads, setFeeHeads] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [categoryMapping, setCategoryMapping] = useState({}); // Mapping of category per college|course|batch
     const [metadata, setMetadata] = useState({});
     const [message, setMessage] = useState('');
 
@@ -52,6 +53,16 @@ const FeeConfiguration = () => {
     const [applicabilityMode, setApplicabilityMode] = useState('individual'); // Consolidated to just individual view
     const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
 
+    // Reset selected categories when primary context changes in Definitions
+    useEffect(() => {
+        setStructForm(prev => ({ ...prev, categories: [] }));
+    }, [structForm.college, structForm.course, structForm.batch]);
+
+    // Reset selected category when primary context changes in Applicability
+    useEffect(() => {
+        setAppContext(prev => ({ ...prev, category: '' }));
+    }, [appContext.college, appContext.course, appContext.batch]);
+
     useEffect(() => {
         fetchFeeHeads();
         fetchStructures();
@@ -61,9 +72,10 @@ const FeeConfiguration = () => {
     const fetchMetadata = async () => {
         try {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
-            setMetadata(response.data.hierarchy || response.data); // Handle both old and new format
+            setMetadata(response.data.hierarchy || response.data);
             if (response.data.batches) setBatches(response.data.batches);
             if (response.data.categories) setCategories(response.data.categories);
+            if (response.data.categoryMapping) setCategoryMapping(response.data.categoryMapping);
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
@@ -529,12 +541,19 @@ const FeeConfiguration = () => {
                                     </div>
                                 </div>
 
-                                {/* Row 3: Categories (Full Width Grid) - Conditional Visibility */}
                                 {structForm.college && structForm.batch && structForm.feeHeadId && structForm.course && structForm.branch && (
                                     <div className="bg-gray-50 p-3 rounded border border-gray-200">
                                         <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
                                         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
-                                            {categories.map(c => (
+                                            {categories.filter(c => {
+                                                const col = String(structForm.college || '').trim().toLowerCase();
+                                                const cou = String(structForm.course || '').trim().toLowerCase();
+                                                const bat = String(structForm.batch || '').trim().toLowerCase();
+                                                const key = `${col}|${cou}|${bat}`;
+
+                                                if (!categoryMapping[key]) return true;
+                                                return categoryMapping[key].includes(c);
+                                            }).map(c => (
                                                 <label key={c} className={`flex items-center gap-2 cursor-pointer p-2 rounded border transition ${structForm.categories.includes(c) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
                                                     <input
                                                         type="checkbox"
@@ -735,9 +754,17 @@ const FeeConfiguration = () => {
                                     {/* 3. Category */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-500">Category</label>
-                                        <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required>
+                                        <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required disabled={!appContext.college || !appContext.course || !appContext.batch}>
                                             <option value="">Select Category</option>
-                                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                            {categories.filter(c => {
+                                                const col = String(appContext.college || '').trim().toLowerCase();
+                                                const cou = String(appContext.course || '').trim().toLowerCase();
+                                                const bat = String(appContext.batch || '').trim().toLowerCase();
+                                                const key = `${col}|${cou}|${bat}`;
+
+                                                if (!categoryMapping[key]) return true;
+                                                return categoryMapping[key].includes(c);
+                                            }).map(c => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
 
