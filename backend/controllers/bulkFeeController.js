@@ -5,6 +5,41 @@ const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
 const Transaction = require('../models/Transaction');
 
+const normalizeId = (id) => {
+    if (!id) return '';
+    // Remove hyphens, slashes, commas, and spaces
+    return String(id).replace(/[-/,\s]/g, '').toLowerCase().trim();
+};
+
+const calculateSimilarity = (s1, s2) => {
+    const longer = s1.length < s2.length ? s2 : s1;
+    const shorter = s1.length < s2.length ? s1 : s2;
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = (s1, s2) => {
+        const costs = [];
+        for (let i = 0; i <= s1.length; i++) {
+            let lastValue = i;
+            for (let j = 0; j <= s2.length; j++) {
+                if (i === 0) costs[j] = j;
+                else {
+                    if (j > 0) {
+                        let newValue = costs[j - 1];
+                        if (s1.charAt(i - 1) !== s2.charAt(j - 1))
+                            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                        costs[j - 1] = lastValue;
+                        lastValue = newValue;
+                    }
+                }
+            }
+            if (i > 0) costs[s2.length] = lastValue;
+        }
+        return costs[s2.length];
+    };
+
+    return (longer.length - editDistance(longer, shorter)) / parseFloat(longer.length);
+};
+
 // @desc Process Excel Upload (Demands & Payments)
 // @route POST /api/bulk-fee/upload
 const processBulkUpload = async (req, res) => {
@@ -81,14 +116,34 @@ const processBulkUpload = async (req, res) => {
         const feeHeadColMap = {};
         if (uploadType === 'DUE') {
             row0.forEach((h, i) => {
+                if (!h) return;
                 const headerText = String(h).toUpperCase().replace(/[^A-Z0-9]/g, '');
+                
+                // 1. Exact/Partial Match with Normalization
+                let matchedHead = null;
                 allFeeHeads.forEach(fh => {
                     const fhName = fh.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
                     if (headerText === fhName || headerText.includes(fhName)) {
                         const isMapped = Object.values(colMap).includes(i);
-                        if (!isMapped) feeHeadColMap[fh.name] = i;
+                        if (!isMapped) matchedHead = fh;
                     }
                 });
+
+                // 2. Fuzzy Match for spelling mistakes
+                if (!matchedHead) {
+                    let bestScore = 0;
+                    allFeeHeads.forEach(fh => {
+                        const score = calculateSimilarity(headerText, fh.name.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                        if (score > 0.8 && score > bestScore) {
+                            bestScore = score;
+                            matchedHead = fh;
+                        }
+                    });
+                }
+
+                if (matchedHead) {
+                    feeHeadColMap[matchedHead.name] = i;
+                }
             });
         }
 
@@ -104,27 +159,35 @@ const processBulkUpload = async (req, res) => {
             if (colMap.ADMISSION !== undefined && row[colMap.ADMISSION]) rawId = row[colMap.ADMISSION];
             if (!rawId && colMap.PIN !== undefined && row[colMap.PIN]) rawId = row[colMap.PIN];
             if (!rawId && colMap.ID !== undefined && row[colMap.ID]) rawId = row[colMap.ID];
-            if (rawId) rawIds.add(String(rawId).trim().toLowerCase());
+            if (rawId) {
+                const normalized = normalizeId(rawId);
+                if (normalized) rawIds.add(normalized);
+            }
         }
 
         // --- PHASE 2: RESOLVE IDs FROM SQL ---
-        const dbMap = {}; // rawId -> canonical student data
+        const dbMap = {}; // normalizedId -> canonical student data
         if (rawIds.size > 0) {
             const uniqueIds = Array.from(rawIds);
+            // Use REPLACE to strip punctuation in SQL for matching
             const [students] = await db.query(`
                 SELECT admission_number, pin_no, student_name, batch, college, course, branch, current_year
                 FROM students 
-                WHERE pin_no IN (?) OR admission_number IN (?)
+                WHERE 
+                    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(pin_no, '-', ''), '/', ''), ',', ''), ' ', '')) IN (?) OR 
+                    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(admission_number, '-', ''), '/', ''), ',', ''), ' ', '')) IN (?)
             `, [uniqueIds, uniqueIds]);
 
             students.forEach(s => {
-                const adm = s.admission_number.trim().toLowerCase();
-                const pin = s.pin_no ? s.pin_no.trim().toLowerCase() : null;
-                dbMap[adm] = s;
-                if (pin) dbMap[pin] = s;
-                uniqueIds.forEach(id => {
-                    if (id === adm || id === pin) dbMap[id] = s;
-                });
+                const normAdm = normalizeId(s.admission_number);
+                const normPin = s.pin_no ? normalizeId(s.pin_no) : null;
+                
+                if (normAdm) dbMap[normAdm] = s;
+                if (normPin) dbMap[normPin] = s;
+                
+                // Also map direct matches just in case
+                dbMap[s.admission_number.toLowerCase()] = s;
+                if (s.pin_no) dbMap[s.pin_no.toLowerCase()] = s;
             });
         }
 
@@ -177,7 +240,7 @@ const processBulkUpload = async (req, res) => {
                 continue;
             }
 
-            const lookupKey = String(rawId).trim().toLowerCase();
+            const lookupKey = normalizeId(rawId);
             const sInfo = dbMap[lookupKey];
             const canonId = sInfo ? sInfo.admission_number : lookupKey.toUpperCase();
             const name = sInfo ? sInfo.student_name : (colMap.NAME !== undefined ? row[colMap.NAME] : 'Unknown');
@@ -246,37 +309,94 @@ const processBulkUpload = async (req, res) => {
         const previewData = Array.from(previewDataMap.values());
 
         // --- PHASE 4: COMPARISON DATA ---
-        if (uploadType === 'DUE') {
-             const allAdmNos = previewData.map(d => d.admissionNumber).filter(Boolean);
-             if (allAdmNos.length > 0) {
-                 const existingDemands = await StudentFee.find({ studentId: { $in: allAdmNos } }).select('studentId feeHead amount studentYear semester');
-                 const sysDemandMap = {};
-                 existingDemands.forEach(d => {
-                     const sem = d.semester || 1;
-                     sysDemandMap[`${d.studentId}-${d.feeHead}-${d.studentYear}-${sem}`] = Number(d.amount);
-                 });
-                 previewData.forEach(entry => {
-                     if (!entry.admissionNumber) return;
-                     const isPendingActive = isPendingMode === 'true';
-                     entry.demands.forEach(d => {
-                         const dSem = d.semester || 1;
-                         const key = `${entry.admissionNumber}-${d.headId}-${d.year}-${dSem}`;
-                         const totalFee = sysDemandMap[key] || 0;
-                         d.allotted = totalFee;
-                         if (isPendingActive && totalFee > 0 && totalFee >= d.amount) {
-                             const paidAmount = totalFee - d.amount;
-                             if (paidAmount > 0) {
-                                 entry.payments.push({
-                                     headId: d.headId, headName: d.headName, year: d.year, semester: d.semester,
-                                     amount: paidAmount, mode: 'Cash', date: new Date(), remarks: 'Auto-generated payment',
-                                     meta: { totalDemand: totalFee, pendingAmount: d.amount }
-                                 });
-                                 entry.totalPaid += paidAmount;
-                             }
-                         }
-                     });
-                 });
-             }
+        // --- PHASE 4: COMPARISON DATA (FETCH CONTEXT FROM SYSTEM) ---
+        const allAdmNos = previewData.map(d => d.admissionNumber).filter(Boolean);
+        if (allAdmNos.length > 0) {
+            // Build an inclusive list of ID variations for MongoDB lookup
+            const queryIds = allAdmNos.reduce((acc, id) => {
+                const norm = normalizeId(id);
+                acc.push(id, id.toLowerCase(), id.toUpperCase(), norm);
+                return acc;
+            }, []);
+            const uniqueQueryIds = [...new Set(queryIds)];
+
+            // Fetch both Demands and Payments for context
+            const [existingDemands, existingPayments] = await Promise.all([
+                StudentFee.find({ studentId: { $in: uniqueQueryIds } }).select('studentId feeHead amount studentYear'),
+                Transaction.find({ studentId: { $in: uniqueQueryIds } }).select('studentId feeHead amount studentYear')
+            ]);
+
+            const sysDemandMap = {}; // Key: normalizedId-feeHead-studentYear
+            const sysPaidMap = {};   // Key: normalizedId-feeHead-studentYear
+            
+            existingDemands.forEach(d => {
+                const normId = normalizeId(d.studentId);
+                const key = `${normId}-${d.feeHead}-${d.studentYear}`;
+                sysDemandMap[key] = (sysDemandMap[key] || 0) + (Number(d.amount) || 0);
+            });
+
+            existingPayments.forEach(t => {
+                const normId = normalizeId(t.studentId);
+                const key = `${normId}-${t.feeHead}-${t.studentYear}`;
+                sysPaidMap[key] = (sysPaidMap[key] || 0) + (Number(t.amount) || 0);
+            });
+
+            previewData.forEach(entry => {
+                if (!entry.admissionNumber) return;
+                const normEntryId = normalizeId(entry.admissionNumber);
+                const isPendingActive = isPendingMode === 'true';
+
+                // If in Payment mode, we don't have entry.demands yet (from Excel). 
+                // We add System Demands as context so UI can show "Total Fee".
+                if (uploadType === 'PAYMENT') {
+                    // Find all system demands for this student
+                    existingDemands.forEach(ed => {
+                       if (normalizeId(ed.studentId) === normEntryId) {
+                           const headObj = allFeeHeads.find(h => String(h._id) === String(ed.feeHead));
+                           const alreadyIn = entry.demands.find(d => d.headId === String(ed.feeHead) && d.year === ed.studentYear);
+                           if (!alreadyIn) {
+                               entry.demands.push({
+                                   headId: String(ed.feeHead),
+                                   headName: headObj ? headObj.name : 'Unknown Fee',
+                                   year: ed.studentYear,
+                                   semester: 1, // Default context
+                                   amount: 0 // Not uploading a demand
+                               });
+                           }
+                       }
+                    });
+                }
+                
+                entry.demands.forEach(d => {
+                    const key = `${normEntryId}-${d.headId}-${d.year}`;
+                    const totalFee = sysDemandMap[key] || 0;
+                    const paidInSys = sysPaidMap[key] || 0;
+                    const sysDue = totalFee - paidInSys;
+
+                    d.allotted = totalFee;
+                    
+                    // Populate meta for UI
+                    d.meta = { 
+                        totalDemand: totalFee, 
+                        totalPaid: paidInSys, 
+                        systemDue: sysDue,
+                        pendingAmount: d.amount 
+                    };
+
+                    // Auto-calc payment logic (only for DUE uploads)
+                    if (uploadType === 'DUE' && isPendingActive && sysDue > d.amount) {
+                        const additionalPayment = sysDue - d.amount;
+                        if (additionalPayment > 0) {
+                            entry.payments.push({
+                                headId: d.headId, headName: d.headName, year: d.year, semester: d.semester,
+                                amount: additionalPayment, mode: 'Cash', date: new Date(), remarks: 'Auto-generated payment',
+                                meta: d.meta
+                            });
+                            entry.totalPaid += additionalPayment;
+                        }
+                    }
+                });
+            });
         }
 
         const activeFeeHeads = new Set();
@@ -318,21 +438,31 @@ const saveBulkData = async (req, res) => {
         const allLinkedIdsMap = {}; // admissionNo -> Set of IDs (Pin, Adm)
 
         if (potentialIds.length > 0) {
-            // Fetch matching students from SQL
-            console.log(`Resolving ${potentialIds.length} IDs from SQL...`);
+            // Fetch matching students from SQL using normalized comparison
+            const normalizedPotentialIds = potentialIds.map(id => normalizeId(id)).filter(Boolean);
+            console.log(`Resolving ${normalizedPotentialIds.length} IDs from SQL...`);
             const [rows] = await db.query(`
                 SELECT admission_number, pin_no
                 FROM students
-                WHERE pin_no IN (?) OR admission_number IN (?)
-            `, [potentialIds, potentialIds]);
+                WHERE 
+                    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(pin_no, '-', ''), '/', ''), ',', ''), ' ', '')) IN (?) OR 
+                    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(admission_number, '-', ''), '/', ''), ',', ''), ' ', '')) IN (?)
+            `, [normalizedPotentialIds, normalizedPotentialIds]);
 
             rows.forEach(r => {
-                const adm = r.admission_number.trim().toLowerCase();
-                const pin = r.pin_no ? r.pin_no.trim().toLowerCase() : null;
+                const normAdm = normalizeId(r.admission_number);
+                const normPin = r.pin_no ? normalizeId(r.pin_no) : null;
 
-                // Map both Pin and Admission to Canonical Admission Number
-                studentMap[adm] = r.admission_number;
-                if (pin) studentMap[pin] = r.admission_number;
+                // Map both Pin and Admission normalized forms to Canonical Admission Number
+                if (normAdm) studentMap[normAdm] = r.admission_number;
+                if (normPin) studentMap[normPin] = r.admission_number;
+                
+                // Map the original displayId if it was already resolved
+                potentialIds.forEach(id => {
+                   if (normalizeId(id) === normAdm || (normPin && normalizeId(id) === normPin)) {
+                       studentMap[id.toLowerCase()] = r.admission_number;
+                   }
+                });
 
                 // Track all linked IDs for thorough purging
                 if (!allLinkedIdsMap[adm]) allLinkedIdsMap[adm] = new Set();
@@ -366,8 +496,9 @@ const saveBulkData = async (req, res) => {
             const rawId = stud.displayId ? String(stud.displayId).trim() : null;
             if (!rawId) return;
 
+            const normId = normalizeId(rawId);
             const lookupKey = rawId.toLowerCase();
-            const finalStudentId = studentMap[lookupKey] || rawId;
+            const finalStudentId = studentMap[normId] || studentMap[lookupKey] || rawId;
 
             if (finalStudentId === rawId && !studentMap[lookupKey]) {
                 unresolvedStudents.push(`${stud.studentName} (${rawId})`);
