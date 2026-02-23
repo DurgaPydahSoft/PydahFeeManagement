@@ -40,6 +40,9 @@ const studentFeeSchema = mongoose.Schema({
   semester: {
     type: Number, // 1 or 2. Optional
   },
+  termNumber: {
+    type: Number, // For identifying specific installments or late fee terms
+  },
   amount: {
     type: Number,
     required: true,

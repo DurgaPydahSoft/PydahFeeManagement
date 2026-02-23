@@ -142,21 +142,31 @@ const processLateFees = async (req, res) => {
 
             if (totalPaid < requiredAmount) {
               const remarks = `Late Fee: ${struct.feeHead.name} - Term ${term.termNumber}${term.dueDescription ? ` (${term.dueDescription})` : ''}`;
-              
-              // Check if already applied
-              const existingLateFee = await StudentFee.findOne({
+
+              // Check if already applied using structureId and termNumber (More robust than checking remarks)
+              let existingLateFee = await StudentFee.findOne({
                 studentId: student.admission_number,
                 feeHead: lateFeeHead._id,
                 studentYear: struct.studentYear,
                 semester: struct.semester,
-                remarks: remarks
+                structureId: struct._id,
+                termNumber: term.termNumber
               });
+              if (!existingLateFee) {
+                existingLateFee = await StudentFee.findOne({
+                  studentId: student.admission_number,
+                  feeHead: lateFeeHead._id,
+                  remarks: remarks // Matches the current description exactly
+                });
+              }
 
               if (!existingLateFee) {
                 await StudentFee.create({
                   studentId: student.admission_number,
                   studentName: student.student_name,
                   feeHead: lateFeeHead._id,
+                  structureId: struct._id,
+                  termNumber: term.termNumber,
                   college: student.college,
                   course: student.course,
                   branch: student.branch,
