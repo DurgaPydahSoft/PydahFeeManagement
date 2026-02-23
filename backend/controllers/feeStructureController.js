@@ -116,10 +116,14 @@ const getStudentFeeDetails = async (req, res) => {
 
   try {
     // 1. Fetch Student Info (to get current batch and year)
-    const [students] = await db.query('SELECT id, current_year, batch, current_semester, scholar_status FROM students WHERE admission_number = ?', [admissionNo]);
+    const [students] = await db.query('SELECT id, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
     const currentYear = student ? Number(student.current_year) : (Number(queryYear) || 1);
     const batch = student ? student.batch : '';
+    const college = student ? student.college : '';
+    const course = student ? student.course : '';
+    const branch = student ? student.branch : '';
+    const category = student ? student.stud_type : 'Regular';
 
     // --- CLUB FEE SYNC START ---
     if (student) {
@@ -183,7 +187,25 @@ const getStudentFeeDetails = async (req, res) => {
     // 3. Fetch all Transactions (Payments)
     const transactions = await Transaction.find({ studentId: admissionNo });
 
-    // 4. Fetch all Fee Heads (to show defaults)
+    // 4. Fetch applicable Fee Structures for term definitions and sync
+    // This allows us to know which heads are currently mapped to this student's context
+    const applicableStructures = await FeeStructure.find({
+      college,
+      course,
+      branch,
+      batch,
+      category,
+      studentYear: { $lte: currentYear }
+    }).lean();
+
+    // Map structures by [headId-year] for quick lookup
+    const structureMap = {};
+    applicableStructures.forEach(fs => {
+      const key = `${fs.feeHead.toString()}-${fs.studentYear}`;
+      structureMap[key] = fs;
+    });
+
+    // 5. Fetch all Fee Heads (for display convenience)
     const feeHeads = await FeeHead.find().sort({ name: 1 });
 
     // 5. Data Structures for aggregation
@@ -213,6 +235,10 @@ const getStudentFeeDetails = async (req, res) => {
       const key = getGroupKey(hId, year, hCode, fee.remarks);
 
       if (!groupedData[key]) {
+        // Find matching structure for terms
+        const structKey = `${hId}-${year}`;
+        const matchedStructure = structureMap[structKey];
+
         groupedData[key] = {
           _id: fee._id, // Keep the actual demand ID if found
           feeHeadId: fee.feeHead ? fee.feeHead._id : null,
@@ -226,38 +252,38 @@ const getStudentFeeDetails = async (req, res) => {
           dueAmount: 0,
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
-          studentScholarStatus: student ? student.scholar_status : null
+          studentScholarStatus: student ? student.scholar_status : null,
+          terms: matchedStructure ? matchedStructure.terms : [] // Attach terms!
         };
       }
       groupedData[key].totalAmount += (fee.amount || 0);
     });
 
-    // B. Inject Default Fee Heads for ALL years up to the student's CURRENT YEAR
-    // This ensures they show up in the dropdown even with 0 demand for any past/current year.
-    feeHeads.forEach(head => {
-      const years = [];
-      for (let y = 1; y <= currentYear; y++) {
-        years.push(String(y));
-      }
+    // B. Inject Default Fee Heads ONLY for years where a FeeStructure exists
+    // This ensures that if a structure is deleted, it doesn't show up as an "empty" due
+    applicableStructures.forEach(fs => {
+      const hId = fs.feeHead.toString();
+      const year = String(fs.studentYear);
+      const head = feeHeads.find(h => h._id.toString() === hId);
+      if (!head) return;
 
-      years.forEach(year => {
-        const key = getGroupKey(head._id.toString(), year);
-        if (!groupedData[key]) {
-          groupedData[key] = {
-            _id: `temp-${head._id}-${year}`,
-            feeHeadId: head._id,
-            feeHeadName: head.name,
-            feeHeadCode: head.code || '',
-            academicYear: batch,
-            studentYear: year,
-            semester: null,
-            totalAmount: 0,
-            paidAmount: 0,
-            dueAmount: 0,
-            isScholarshipApplicable: false // Default templates are not applied, so defaults to false unless we fetch it from FeeStructure (which we don't here effectively without query)
-          };
-        }
-      });
+      const key = getGroupKey(hId, year);
+      if (!groupedData[key]) {
+        groupedData[key] = {
+          _id: `temp-${hId}-${year}`,
+          feeHeadId: hId,
+          feeHeadName: head.name,
+          feeHeadCode: head.code || '',
+          academicYear: batch,
+          studentYear: year,
+          semester: fs.semester || null,
+          totalAmount: 0,
+          paidAmount: 0,
+          dueAmount: 0,
+          isScholarshipApplicable: fs.isScholarshipApplicable || false,
+          terms: fs.terms || []
+        };
+      }
     });
 
     // C. Aggregate Transactions by (Head, Year)
@@ -273,6 +299,9 @@ const getStudentFeeDetails = async (req, res) => {
         // If we have a payment for a head/year that wasn't previously in grouping, add it
         if (!groupedData[key]) {
           const head = feeHeads.find(h => h._id.toString() === hId);
+          const structKey = `${hId}-${year}`;
+          const matchedStructure = structureMap[structKey];
+
           groupedData[key] = {
             _id: `pay-${hId}-${year}`,
             feeHeadId: hId,
@@ -283,7 +312,8 @@ const getStudentFeeDetails = async (req, res) => {
             semester: t.semester || null,
             totalAmount: 0,
             paidAmount: 0,
-            dueAmount: 0
+            dueAmount: 0,
+            terms: matchedStructure ? matchedStructure.terms : []
           };
         }
         groupedData[key].paidAmount += (t.amount || 0);

@@ -343,6 +343,10 @@ const FeeCollection = () => {
         return Number(f.studentYear) === Number(viewFilterYear);
     });
 
+    const maxTerms = useMemo(() => {
+        return Math.max(0, ...displayedFees.map(f => f.terms?.length || 0));
+    }, [displayedFees]);
+
     const totalDueAmount = displayedFees.reduce((acc, curr) => acc + curr.dueAmount, 0);
     const globalTotalDue = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
 
@@ -656,8 +660,12 @@ const FeeCollection = () => {
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center w-10">Select</th>
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider">Fee Head / Year</th>
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Total Fee</th>
+                                                    {/* Dynamic Term Headers */}
+                                                    {[...Array(maxTerms)].map((_, i) => (
+                                                        <th key={i} className="py-3 px-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-right bg-blue-50/30">T{i + 1} Due</th>
+                                                    ))}
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Paid</th>
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Balance</th>
+                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right font-bold">Balance</th>
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center">Status</th>
                                                 </tr>
                                             </thead>
@@ -687,17 +695,42 @@ const FeeCollection = () => {
                                                                         />
                                                                     </td>
                                                                     <td className="py-2 px-4 text-sm font-medium text-gray-700">
-                                                                        <div>
+                                                                        <div className="flex items-center gap-2">
                                                                             {fee.feeHeadName}
                                                                             {fee.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(fee.studentScholarStatus || '').toLowerCase()) && (
-                                                                                <span title="Scholarship Applicable" className="ml-2 text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 font-bold uppercase tracking-wider">
-                                                                                    Scholarship
+                                                                                <span title="Scholarship Applicable" className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 font-bold uppercase tracking-wider">
+                                                                                    Sch
                                                                                 </span>
                                                                             )}
                                                                         </div>
                                                                         <div className="text-[10px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
                                                                     </td>
                                                                     <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">₹{fee.totalAmount.toLocaleString()}</td>
+
+                                                                    {/* Dynamic Term Columns */}
+                                                                    {(() => {
+                                                                        let remainingPaid = fee.paidAmount;
+                                                                        const termCells = [];
+                                                                        for (let i = 0; i < maxTerms; i++) {
+                                                                            const term = fee.terms?.[i];
+                                                                            if (term) {
+                                                                                const termTarget = Math.round((fee.totalAmount * term.percentage) / 100);
+                                                                                const termPaid = Math.min(remainingPaid, termTarget);
+                                                                                const termBalance = termTarget - termPaid;
+                                                                                remainingPaid = Math.max(0, remainingPaid - termPaid);
+
+                                                                                termCells.push(
+                                                                                    <td key={i} className={`py-2 px-4 text-xs text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                                                                                        {termBalance > 0 ? `₹${termBalance.toLocaleString()}` : '—'}
+                                                                                    </td>
+                                                                                );
+                                                                            } else {
+                                                                                termCells.push(<td key={i} className="py-2 px-4 text-right text-gray-200 bg-gray-50/20 text-[10px]">—</td>);
+                                                                            }
+                                                                        }
+                                                                        return termCells;
+                                                                    })()}
+
                                                                     <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">₹{fee.paidAmount.toLocaleString()}</td>
                                                                     <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">₹{fee.dueAmount.toLocaleString()}</td>
                                                                     <td className="py-2 px-4 text-center">
@@ -714,11 +747,6 @@ const FeeCollection = () => {
                                                                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                                                                                     Unpaid
                                                                                 </span>
-                                                                                {isScholarshipEligible(fee) && (
-                                                                                    <span className="text-[9px] font-bold text-yellow-600 mt-1 whitespace-nowrap">
-                                                                                        (Eligible for Scholarship)
-                                                                                    </span>
-                                                                                )}
                                                                             </div>
                                                                         )}
                                                                     </td>
@@ -727,7 +755,7 @@ const FeeCollection = () => {
                                                         })}
                                                         {/* Total Row */}
                                                         <tr className="bg-gray-50/50 border-t border-gray-200">
-                                                            <td className="py-2.5 px-4" colSpan="4">
+                                                            <td className="py-2.5 px-4" colSpan={4 + maxTerms}>
                                                                 <div className="flex justify-between items-center">
                                                                     {/* Left: Stats */}
                                                                     <div className="flex flex-wrap gap-2">
