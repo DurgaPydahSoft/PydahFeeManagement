@@ -12,6 +12,7 @@ const Students = () => {
     const [statusFilter, setStatusFilter] = useState('');
     const [branchFilter, setBranchFilter] = useState('');
     const [courseFilter, setCourseFilter] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
 
     useEffect(() => {
         fetchStudents();
@@ -45,15 +46,24 @@ const Students = () => {
             const matchesStatus = statusFilter ? student.student_status === statusFilter : true;
             const matchesBranch = branchFilter ? student.branch === branchFilter : true;
             const matchesCourse = courseFilter ? student.course === courseFilter : true;
+            const matchesCategory = categoryFilter ? student.stud_type === categoryFilter : true;
 
-            return matchesSearch && matchesStatus && matchesBranch && matchesCourse;
+            return matchesSearch && matchesStatus && matchesBranch && matchesCourse && matchesCategory;
         });
-    }, [students, searchTerm, statusFilter, branchFilter, courseFilter]);
+    }, [students, searchTerm, statusFilter, branchFilter, courseFilter, categoryFilter]);
 
     // Unique values for dropdowns
     const branches = [...new Set(students.map(s => s.branch).filter(Boolean))];
     const courses = [...new Set(students.map(s => s.course).filter(Boolean))];
     const statuses = [...new Set(students.map(s => s.student_status).filter(Boolean))];
+
+    // Dynamic Categories based on Course & Branch
+    const availableCategories = useMemo(() => {
+        let list = students;
+        if (courseFilter) list = list.filter(s => s.course === courseFilter);
+        if (branchFilter) list = list.filter(s => s.branch === branchFilter);
+        return [...new Set(list.map(s => s.stud_type).filter(Boolean))];
+    }, [students, courseFilter, branchFilter]);
 
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
@@ -97,6 +107,16 @@ const Students = () => {
                     </select>
 
                     <select
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                        disabled={!courseFilter || !branchFilter}
+                    >
+                        <option value="">{(!courseFilter || !branchFilter) ? 'Select Course & Branch' : 'All Categories'}</option>
+                        {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+
+                    <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
                         className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
@@ -106,7 +126,7 @@ const Students = () => {
                     </select>
 
                     <button
-                        onClick={() => { setSearchTerm(''); setBranchFilter(''); setStatusFilter(''); setCourseFilter(''); }}
+                        onClick={() => { setSearchTerm(''); setBranchFilter(''); setStatusFilter(''); setCourseFilter(''); setCategoryFilter(''); }}
                         className="text-sm text-red-500 hover:text-red-700 font-medium"
                     >
                         Clear Filters
