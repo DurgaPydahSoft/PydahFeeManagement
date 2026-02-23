@@ -6,16 +6,16 @@ const db = require('../config/sqlDb');
 // but since controller depends on models, and we are just importing a helper, it should be fine.
 // However, to be safe and avoid the previous error, let's ensure we import correctly.
 const { processRemindersBatch } = require('../controllers/reminderController');
+const { processLateFees } = require('../controllers/lateFeeController');
 
 const initScheduler = () => {
-    console.log('Initializing Timely Reminder Scheduler (Offset Based)...');
+    console.log('Initializing Timely Reminder & Late Fee Scheduler...');
 
     // Run every day at 10:00 AM (safe time)
-    // For testing: '*/10 * * * * *' (every 10 seconds) or similar
-    // We'll stick to hourly for now to capture "Today" accurately without being too aggressive
-    cron.schedule('0 * * * *', async () => {
-        console.log('Running Reminder Config Check...');
+    cron.schedule('0 10 * * *', async () => {
+        console.log('Running Daily Automated Tasks...');
         await processReminderConfigs();
+        await processLateFees();
     });
 };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Pencil, Trash2, Send } from 'lucide-react';
+import { Pencil, Trash2, Send, Calendar, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const FeeConfiguration = () => {
@@ -12,6 +12,21 @@ const FeeConfiguration = () => {
     const [categoryMapping, setCategoryMapping] = useState({}); // Mapping of category per college|course|batch
     const [metadata, setMetadata] = useState({});
     const [message, setMessage] = useState('');
+    const [calendarData, setCalendarData] = useState([]);
+    const [isSavingLateFee, setIsSavingLateFee] = useState(false);
+    const [lateFeeForm, setLateFeeForm] = useState({
+        college: '',
+        course: '',
+        branch: '',
+        batch: '',
+        studentYear: '',
+        semester: '',
+        categories: [],
+        feeHead: '',
+        termMappings: [],
+        penaltyType: 'Fixed',
+        penaltyValue: 0
+    });
 
     // --- TAB 1: FEE HEADS ---
     const [headForm, setHeadForm] = useState({ name: '', code: '', description: '' });
@@ -33,7 +48,7 @@ const FeeConfiguration = () => {
 
     // Helper to generate Academic Years (Still useful for some display?)
     const currentYear = new Date().getFullYear();
-    const academicYears = ['ALL', ...Array.from({ length: 9 }, (_, i) => `${currentYear - 4 + i}-${currentYear - 3 + i}`)];
+    const academicYearOptions = ['ALL', ...Array.from({ length: 9 }, (_, i) => `${currentYear - 4 + i}-${currentYear - 3 + i}`)];
 
     const [editingId, setEditingId] = useState(null);
     const [filterCollege, setFilterCollege] = useState('');
@@ -64,11 +79,27 @@ const FeeConfiguration = () => {
         setAppContext(prev => ({ ...prev, category: '' }));
     }, [appContext.college, appContext.course, appContext.batch]);
 
+    // Reset selected categories when primary context changes in Late Fees
+    useEffect(() => {
+        setLateFeeForm(prev => ({ ...prev, categories: [] }));
+    }, [lateFeeForm.college, lateFeeForm.course, lateFeeForm.batch]);
+
     useEffect(() => {
         fetchFeeHeads();
         fetchStructures();
         fetchMetadata();
+        fetchCalendarData();
     }, []);
+
+    const fetchCalendarData = async () => {
+        try {
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/academic-years`);
+            setCalendarData(res.data);
+        } catch (error) {
+            console.error('Error fetching academic years', error);
+        }
+    };
+
 
     const fetchMetadata = async () => {
         try {
@@ -93,6 +124,7 @@ const FeeConfiguration = () => {
             setStructures(response.data);
         } catch (error) { console.error(error); }
     };
+
 
     const activeHeadSubmit = async (e) => {
         e.preventDefault();
@@ -541,6 +573,33 @@ const FeeConfiguration = () => {
     const tableYearsCount = tableMeta ? (tableMeta.total_years || 4) : 4;
     const tableYears = Array.from({ length: tableYearsCount }, (_, i) => i + 1);
 
+    const findCalendarDate = (tm) => {
+        if (!lateFeeForm.batch || !lateFeeForm.course || !calendarData.length) return null;
+        const batchYear = parseInt(lateFeeForm.batch.split('-')[0]);
+        if (isNaN(batchYear)) return null;
+
+        const targetStartYear = batchYear + tm.studentYear - 1;
+        const targetEndYear = targetStartYear + 1;
+        const targetLabel = `${targetStartYear}-${targetEndYear}`;
+
+        const item = calendarData.find(ay =>
+            ay.year_label === targetLabel &&
+            ay.course_name === lateFeeForm.course &&
+            ay.year_number === Number(tm.studentYear) &&
+            (!tm.semester || Number(ay.semester_number) === Number(tm.semester))
+        );
+
+        if (!item) return null;
+        return tm.dueEventType === 'START_DATE' ? item.start_date : item.end_date;
+    };
+
+    const findAYLabel = (studentYear) => {
+        if (!lateFeeForm.batch) return '';
+        const batchYear = parseInt(lateFeeForm.batch.split('-')[0]);
+        if (isNaN(batchYear)) return '';
+        return `${batchYear + studentYear - 1}-${batchYear + studentYear}`;
+    };
+
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
@@ -555,6 +614,7 @@ const FeeConfiguration = () => {
                     <button className={`pb-2 px-4 font-medium transition ${activeTab === 'heads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('heads')}>1. Fee Heads</button>
                     <button className={`pb-2 px-4 font-medium transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('definitions')}>2. Fee Structures (Definitions)</button>
                     <button className={`pb-2 px-4 font-medium transition ${activeTab === 'applicability' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('applicability')}>3. Fee Applicability (Assignment)</button>
+                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('latefees')}>4. Late Fees</button>
                 </div>
 
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
@@ -1049,6 +1109,274 @@ const FeeConfiguration = () => {
                         </div>
                     )
                 }
+
+                {/* --- TAB 4: LATE FEES --- */}
+                {activeTab === 'latefees' && (
+                    <div className="space-y-6">
+                        {/* Selector Section */}
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                            <h2 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg"><Calendar size={18} /></span>
+                                Select Fee Structure to Configure Late Fees
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">College</label>
+                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.college} onChange={e => setLateFeeForm({ ...lateFeeForm, college: e.target.value, course: '', branch: '', feeHead: '' })}>
+                                        <option value="">Select...</option>
+                                        {colleges.map(c => <option key={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Course</label>
+                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.course} onChange={e => setLateFeeForm({ ...lateFeeForm, course: e.target.value, branch: '', feeHead: '' })} disabled={!lateFeeForm.college}>
+                                        <option value="">Select...</option>
+                                        {(lateFeeForm.college ? Object.keys(metadata[lateFeeForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
+                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.batch} onChange={e => setLateFeeForm({ ...lateFeeForm, batch: e.target.value, feeHead: '' })}>
+                                        <option value="">Select...</option>
+                                        {batches.map(b => <option key={b}>{b}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Year</label>
+                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.studentYear} onChange={e => setLateFeeForm({ ...lateFeeForm, studentYear: e.target.value, semester: '', feeHead: '' })}>
+                                        <option value="">Select...</option>
+                                        {(() => {
+                                            const yearsCount = (lateFeeForm.college && lateFeeForm.course) ? metadata[lateFeeForm.college]?.[lateFeeForm.course]?.total_years || 4 : 4;
+                                            return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
+                                                <option key={y} value={y}>Year {y}</option>
+                                            ));
+                                        })()}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Semester</label>
+                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.semester} onChange={e => setLateFeeForm({ ...lateFeeForm, semester: e.target.value, feeHead: '' })}>
+                                        <option value="">Full Year</option>
+                                        <option value="1">Sem 1</option>
+                                        <option value="2">Sem 2</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
+                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.categories[0] || ''} onChange={e => setLateFeeForm({ ...lateFeeForm, categories: [e.target.value], feeHead: '' })}>
+                                        <option value="">Select...</option>
+                                        {(lateFeeForm.college && lateFeeForm.course && lateFeeForm.batch) ? (
+                                            categories.filter(c => {
+                                                const col = String(lateFeeForm.college || '').trim().toLowerCase();
+                                                const cou = String(lateFeeForm.course || '').trim().toLowerCase();
+                                                const bat = String(lateFeeForm.batch || '').trim().toLowerCase();
+                                                const key = `${col}|${cou}|${bat}`;
+
+                                                if (!categoryMapping[key]) return true;
+                                                return categoryMapping[key].includes(c);
+                                            }).map(cat => (
+                                                <option key={cat} value={cat}>{cat}</option>
+                                            ))
+                                        ) : (
+                                            categories.map(cat => <option key={cat} value={cat}>{cat}</option>)
+                                        )}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Fee Head</label>
+                                    <select
+                                        className={`w-full border-2 p-2 rounded-lg text-sm transition-all ${lateFeeForm.feeHead ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}
+                                        value={lateFeeForm.feeHead}
+                                        onChange={e => {
+                                            const hId = e.target.value;
+                                            // Find matching structure
+                                            const struct = structures.find(s =>
+                                                String(s.feeHead._id) === String(hId) &&
+                                                s.college === lateFeeForm.college &&
+                                                s.course === lateFeeForm.course &&
+                                                s.batch === lateFeeForm.batch &&
+                                                Number(s.studentYear) === Number(lateFeeForm.studentYear) &&
+                                                (lateFeeForm.semester ? Number(s.semester) === Number(lateFeeForm.semester) : !s.semester) &&
+                                                s.category === (lateFeeForm.categories[0] || '')
+                                            );
+
+                                            if (struct) {
+                                                setLateFeeForm({
+                                                    ...lateFeeForm,
+                                                    feeHead: hId,
+                                                    termMappings: struct.terms || [],
+                                                    _id: struct._id // Store current structure ID
+                                                });
+                                            } else {
+                                                setLateFeeForm({ ...lateFeeForm, feeHead: hId, termMappings: [], _id: null });
+                                            }
+                                        }}
+                                    >
+                                        <option value="">Select Head...</option>
+                                        {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Term Due Dates Configuration Section */}
+                        {lateFeeForm.feeHead && lateFeeForm.termMappings.length > 0 && (
+                            <div className="bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-xl font-bold text-gray-800">Term Due Dates Configuration</h3>
+                                    <div className="bg-white px-3 py-1.5 rounded-full border border-gray-200 text-[11px] font-bold text-blue-600 shadow-sm">
+                                        Editing: {structures.find(s => s._id === lateFeeForm._id)?.feeHead.name || 'Structure'}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {lateFeeForm.termMappings.map((term, idx) => {
+                                        const sDate = findCalendarDate({ studentYear: lateFeeForm.studentYear, semester: (term.referenceSemester || 1), dueEventType: 'START_DATE' });
+                                        return (
+                                            <div key={idx} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                                                <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <span className="text-sm font-black text-gray-900 uppercase">Term {term.termNumber}</span>
+                                                    <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded border">₹{term.amount.toLocaleString()}</span>
+                                                </div>
+
+                                                <div className="space-y-4">
+                                                    <div>
+                                                        <label className="text-[10px] font-bold text-gray-500 uppercase">Reference Semester</label>
+                                                        <select
+                                                            className="w-full bg-orange-50/30 border border-orange-200 rounded-lg p-2 text-sm font-bold focus:bg-white transition-colors shadow-sm"
+                                                            value={term.referenceSemester || ''}
+                                                            onChange={e => {
+                                                                const newTerms = [...lateFeeForm.termMappings];
+                                                                newTerms[idx].referenceSemester = Number(e.target.value);
+                                                                setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                            }}
+                                                        >
+                                                            <option value="">Select Semester</option>
+                                                            <option value="1">Semester 1</option>
+                                                            <option value="2">Semester 2</option>
+                                                        </select>
+                                                        <p className="text-[9px] text-gray-400 mt-1">Which semester start date to use as reference</p>
+                                                        {!sDate && term.referenceSemester && (
+                                                            <div className="mt-1 text-[9px] text-orange-600 font-bold flex items-center gap-1">
+                                                                <span>⚠️ Semester {term.referenceSemester} not configured in Academic Calendar</span>
+                                                            </div>
+                                                        )}
+                                                        {sDate && (
+                                                            <div className="mt-1 text-[9px] text-blue-600 font-bold flex items-center gap-1">
+                                                                <Calendar size={10} /> Ref Date: {new Date(sDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 gap-1">
+                                                        <label className="text-[10px] font-bold text-gray-500 uppercase">Days from Semester Start</label>
+                                                        <input
+                                                            type="number"
+                                                            className="w-full border border-gray-200 rounded-lg p-2 text-sm font-bold focus:border-blue-300 outline-none transition-all"
+                                                            value={term.dueOffsetDays || 0}
+                                                            onChange={e => {
+                                                                const newTerms = [...lateFeeForm.termMappings];
+                                                                newTerms[idx].dueOffsetDays = Number(e.target.value);
+                                                                setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                            }}
+                                                        />
+                                                        {sDate && (
+                                                            <p className="text-[9px] text-green-600 font-bold mt-1">
+                                                                Due Date: {(() => {
+                                                                    const d = new Date(sDate);
+                                                                    d.setDate(d.getDate() + (term.dueOffsetDays || 0));
+                                                                    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                                                                })()}
+                                                            </p>
+                                                        )}
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="text-[10px] font-bold text-gray-500 uppercase">Description</label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="e.g. Term 1 Due Date"
+                                                            className="w-full border border-gray-200 rounded-lg p-2 text-sm bg-gray-50/50 hover:bg-white focus:bg-white transition-all outline-none"
+                                                            value={term.dueDescription || ''}
+                                                            onChange={e => {
+                                                                const newTerms = [...lateFeeForm.termMappings];
+                                                                newTerms[idx].dueDescription = e.target.value;
+                                                                setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="text-[10px] font-bold text-gray-400 uppercase">Late Fee (₹)</label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                                                            <input
+                                                                type="number"
+                                                                className="w-full border border-gray-200 rounded-lg p-2 pl-7 text-sm font-black text-red-600 bg-red-50/10 focus:bg-white focus:border-red-300 transition-all outline-none"
+                                                                value={term.lateFeeAmount || 0}
+                                                                onChange={e => {
+                                                                    const newTerms = [...lateFeeForm.termMappings];
+                                                                    newTerms[idx].lateFeeAmount = Number(e.target.value);
+                                                                    setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <p className="text-[9px] text-gray-400 mt-1">Fixed amount charged once after due date passes</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="mt-8 flex justify-end gap-3">
+                                    <button
+                                        className="bg-white border border-gray-200 text-gray-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all shadow-sm"
+                                        onClick={() => {
+                                            setLateFeeForm({ ...lateFeeForm, feeHead: '', termMappings: [], _id: null });
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        className="bg-blue-600 text-white px-8 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 group disabled:bg-gray-400 disabled:shadow-none"
+                                        disabled={isSavingLateFee}
+                                        onClick={async () => {
+                                            if (!lateFeeForm._id) return alert("No structure selected");
+                                            setIsSavingLateFee(true);
+                                            try {
+                                                // We update the FeeStructure document
+                                                await axios.put(`${import.meta.env.VITE_API_URL}/api/fee-structures/${lateFeeForm._id}`, {
+                                                    ...structures.find(s => s._id === lateFeeForm._id),
+                                                    terms: lateFeeForm.termMappings
+                                                });
+                                                setMessage("Late Fee Configuration Updated Successfully!");
+                                                fetchStructures();
+                                                setTimeout(() => setMessage(''), 3000);
+                                                // Reset only if needed or keep selected
+                                            } catch (e) { alert("Update failed"); }
+                                            finally { setIsSavingLateFee(false); }
+                                        }}
+                                    >
+                                        {isSavingLateFee ? 'Saving Changes...' : 'Save Configuration'}
+                                        <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {!lateFeeForm.feeHead && (
+                            <div className="bg-white p-20 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-center">
+                                <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4">
+                                    <Calendar size={32} />
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-800">No Structure Selected</h3>
+                                <p className="text-gray-400 text-sm max-w-xs mt-1">Please select a College, Course, Batch and Fee Head to configure its late fee term dates.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div >
         </div >
     );

@@ -47,7 +47,12 @@ const feeStructureSchema = mongoose.Schema({
   terms: [{
     termNumber: { type: Number, required: true },
     percentage: { type: Number, required: true },
-    amount: { type: Number, required: true }
+    amount: { type: Number, required: true },
+    // Late Fee Config (per term)
+    lateFeeAmount: { type: Number, default: 0 },
+    referenceSemester: { type: Number }, // 1 or 2
+    dueOffsetDays: { type: Number, default: 0 },
+    dueDescription: { type: String, default: '' }
   }],
   history: [{
     updatedBy: String,
