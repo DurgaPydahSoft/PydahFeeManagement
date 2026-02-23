@@ -65,7 +65,6 @@ const getStudentMetadata = async (req, res) => {
 
     // Transform into hierarchical structure
     // { "College A": { "Course X": { branches: ["Branch 1"], total_years: 4 } } }
-    const hierarchy = {};
 
     // Also fetch distinct batches and categories (stud_type)
     const [batches] = await db.query(`SELECT DISTINCT batch FROM students WHERE batch IS NOT NULL AND batch != '' ORDER BY batch DESC`);
@@ -74,6 +73,7 @@ const getStudentMetadata = async (req, res) => {
     const [types] = await db.query(`SELECT DISTINCT stud_type FROM students WHERE stud_type IS NOT NULL AND stud_type != '' ORDER BY stud_type`);
     const categoryList = types.map(t => t.stud_type);
 
+    const hierarchy = {};
     rows.forEach(row => {
       if (!hierarchy[row.college]) {
         hierarchy[row.college] = {};
@@ -99,10 +99,36 @@ const getStudentMetadata = async (req, res) => {
       if (r.name && !(r.name in courseYears)) courseYears[r.name] = Math.max(1, Math.min(years, 10));
     });
 
+    // Fetch mapping of Categories per College, Course, Batch
+    const [categoryRows] = await db.query(`
+      SELECT DISTINCT 
+        TRIM(college) as college, 
+        TRIM(course) as course, 
+        TRIM(batch) as batch, 
+        stud_type as category 
+      FROM students 
+      WHERE stud_type IS NOT NULL AND stud_type != '' AND student_status = 'Regular'
+    `);
+    
+    const categoryMapping = {};
+    categoryRows.forEach(row => {
+      // Normalize values for key matching (lowercase and trimmed)
+      const college = String(row.college || '').trim().toLowerCase();
+      const course = String(row.course || '').trim().toLowerCase();
+      const batch = String(row.batch || '').trim().toLowerCase();
+      const key = `${college}|${course}|${batch}`;
+      
+      if (!categoryMapping[key]) categoryMapping[key] = [];
+      if (!categoryMapping[key].includes(row.category)) {
+        categoryMapping[key].push(row.category);
+      }
+    });
+
     res.json({
       hierarchy,
       batches: batchList,
       categories: categoryList,
+      categoryMapping,
       courseYears
     });
   } catch (error) {
