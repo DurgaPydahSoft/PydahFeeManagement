@@ -4,6 +4,7 @@ const db = require('../config/sqlDb');
 const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
 const Transaction = require('../models/Transaction');
+const FeeStructure = require('../models/FeeStructure');
 
 const normalizeId = (id) => {
     if (!id) return '';
@@ -15,7 +16,7 @@ const calculateSimilarity = (s1, s2) => {
     const longer = s1.length < s2.length ? s2 : s1;
     const shorter = s1.length < s2.length ? s1 : s2;
     if (longer.length === 0) return 1.0;
-    
+
     const editDistance = (s1, s2) => {
         const costs = [];
         for (let i = 0; i <= s1.length; i++) {
@@ -53,16 +54,16 @@ const processBulkUpload = async (req, res) => {
 
         // Fetch all Fee Heads
         const allFeeHeads = await FeeHead.find({});
-        
+
         let miscHead = null;
         if (uploadType === 'DUE') {
             miscHead = allFeeHeads.find(h => h.name.toLowerCase().includes('miscellaneous') && h.name.toLowerCase().includes('due'));
             if (!miscHead) {
-                 miscHead = allFeeHeads.find(h => h.name.toLowerCase().includes('miscellaneous') || h.name.toLowerCase().includes('other fees'));
+                miscHead = allFeeHeads.find(h => h.name.toLowerCase().includes('miscellaneous') || h.name.toLowerCase().includes('other fees'));
                 if (!miscHead) {
                     try {
                         miscHead = await FeeHead.create({
-                             name: 'Miscellaneous Due', alias: 'MISC', type: 'General', description: 'Auto-created for Bulk Dues'
+                            name: 'Miscellaneous Due', alias: 'MISC', type: 'General', description: 'Auto-created for Bulk Dues'
                         });
                     } catch (err) {
                         miscHead = await FeeHead.findOne({ name: 'Miscellaneous Due' });
@@ -80,7 +81,7 @@ const processBulkUpload = async (req, res) => {
             return res.status(400).json({ message: 'File is empty or missing headers' });
         }
 
-        const row0 = rawData[0]; 
+        const row0 = rawData[0];
         const colMap = {};
         row0.forEach((h, i) => {
             const originalHead = String(h).toUpperCase().trim();
@@ -97,12 +98,12 @@ const processBulkUpload = async (req, res) => {
                 if (colMap.PIN === undefined) colMap.PIN = i;
             }
             if ((head === 'ID' || head === 'STUDENTID') && colMap.ADMISSION === undefined && !isFeeCol) {
-                 colMap.ADMISSION = i;
+                colMap.ADMISSION = i;
             }
             if ((head.includes('AMOUNT') || head.includes('DUE') || head.includes('PENDING') || head.includes('BAL')) && isFeeCol) {
                 if (colMap.AMOUNT === undefined) colMap.AMOUNT = i;
             }
-            if (head.includes('YEAR')) colMap.YEAR = i; 
+            if (head.includes('YEAR')) colMap.YEAR = i;
             if (head.includes('SEM') || head.includes('SEC') || head.includes('SEMESTER')) colMap.SEM = i;
             if (head.includes('DATE') && head.includes('TRANS')) colMap.DATE = i;
             if (head.includes('MODE') && head.includes('PAY')) colMap.MODE = i;
@@ -111,6 +112,9 @@ const processBulkUpload = async (req, res) => {
             if (head.includes('NAME') && (head.includes('STUDENT') || originalHead.length < 15)) {
                 if (colMap.NAME === undefined) colMap.NAME = i;
             }
+            if (head === 'CATEGORY' || head === 'TYPE' || head === 'STUDENTTYPE' || head === 'STUDTYPE') {
+                if (colMap.CATEGORY === undefined) colMap.CATEGORY = i;
+            }
         });
 
         const feeHeadColMap = {};
@@ -118,7 +122,7 @@ const processBulkUpload = async (req, res) => {
             row0.forEach((h, i) => {
                 if (!h) return;
                 const headerText = String(h).toUpperCase().replace(/[^A-Z0-9]/g, '');
-                
+
                 // 1. Exact/Partial Match with Normalization
                 let matchedHead = null;
                 allFeeHeads.forEach(fh => {
@@ -148,7 +152,7 @@ const processBulkUpload = async (req, res) => {
         }
 
         if (colMap.ADMISSION === undefined && colMap.PIN === undefined && Object.keys(feeHeadColMap).length === 0 && colMap.AMOUNT === undefined) {
-             return res.status(400).json({ message: 'File missing critical columns: Admission No or Pin No. Please check your headers.' });
+            return res.status(400).json({ message: 'File missing critical columns: Admission No or Pin No. Please check your headers.' });
         }
 
         // --- PHASE 1: COLLECT ALL RAW IDs ---
@@ -171,7 +175,7 @@ const processBulkUpload = async (req, res) => {
             const uniqueIds = Array.from(rawIds);
             // Use REPLACE to strip punctuation in SQL for matching
             const [students] = await db.query(`
-                SELECT admission_number, pin_no, student_name, batch, college, course, branch, current_year
+                SELECT admission_number, pin_no, student_name, batch, college, course, branch, current_year, stud_type
                 FROM students 
                 WHERE 
                     LOWER(REPLACE(REPLACE(REPLACE(REPLACE(pin_no, '-', ''), '/', ''), ',', ''), ' ', '')) IN (?) OR 
@@ -181,10 +185,10 @@ const processBulkUpload = async (req, res) => {
             students.forEach(s => {
                 const normAdm = normalizeId(s.admission_number);
                 const normPin = s.pin_no ? normalizeId(s.pin_no) : null;
-                
+
                 if (normAdm) dbMap[normAdm] = s;
                 if (normPin) dbMap[normPin] = s;
-                
+
                 // Also map direct matches just in case
                 dbMap[s.admission_number.toLowerCase()] = s;
                 if (s.pin_no) dbMap[s.pin_no.toLowerCase()] = s;
@@ -192,20 +196,20 @@ const processBulkUpload = async (req, res) => {
         }
 
         const parseYear = (val) => {
-             if (!val) return 1; 
-             const s = String(val).trim();
-             if (s.match(/I$|1/i) && s.length < 3) return 1;
-             if (s.match(/II$|2/i) && s.length < 3) return 2;
-             if (s.match(/III$|3/i) && s.length < 4) return 3;
-             if (s.match(/IV$|4/i) && s.length < 3) return 4;
-             const n = parseInt(s);
-             return !isNaN(n) ? n : 1;
+            if (!val) return 1;
+            const s = String(val).trim();
+            if (s.match(/I$|1/i) && s.length < 3) return 1;
+            if (s.match(/II$|2/i) && s.length < 3) return 2;
+            if (s.match(/III$|3/i) && s.length < 4) return 3;
+            if (s.match(/IV$|4/i) && s.length < 3) return 4;
+            const n = parseInt(s);
+            return !isNaN(n) ? n : 1;
         };
         const parseDate = (xlsDate) => {
-             if (!xlsDate) return new Date();
-             if (typeof xlsDate === 'number') return new Date((xlsDate - 25569) * 86400 * 1000);
-             const attempt = new Date(String(xlsDate).trim());
-             return isNaN(attempt.getTime()) ? new Date() : attempt;
+            if (!xlsDate) return new Date();
+            if (typeof xlsDate === 'number') return new Date((xlsDate - 25569) * 86400 * 1000);
+            const attempt = new Date(String(xlsDate).trim());
+            return isNaN(attempt.getTime()) ? new Date() : attempt;
         };
         const parseSecId = (val) => {
             if (!val) return { year: null, semester: null };
@@ -223,7 +227,7 @@ const processBulkUpload = async (req, res) => {
             return { year: null, semester: null };
         };
 
-        const previewDataMap = new Map(); 
+        const previewDataMap = new Map();
         let processedCount = 0;
         let skippedRows = 0;
 
@@ -244,7 +248,11 @@ const processBulkUpload = async (req, res) => {
             const sInfo = dbMap[lookupKey];
             const canonId = sInfo ? sInfo.admission_number : lookupKey.toUpperCase();
             const name = sInfo ? sInfo.student_name : (colMap.NAME !== undefined ? row[colMap.NAME] : 'Unknown');
-            
+
+            // Excel Category Overrides SQL stud_type
+            let category = colMap.CATEGORY !== undefined ? String(row[colMap.CATEGORY]).trim() : (sInfo ? sInfo.stud_type : 'Regular');
+            if (!category || category === 'undefined') category = (sInfo ? sInfo.stud_type : 'Regular');
+
             let year = colMap.YEAR !== undefined ? parseYear(row[colMap.YEAR]) : 1;
             let semester = 1;
             if (colMap.SEM !== undefined) {
@@ -259,7 +267,7 @@ const processBulkUpload = async (req, res) => {
                     year: year, semester: semester, admissionNumber: sInfo ? sInfo.admission_number : null,
                     pinNumber: sInfo ? sInfo.pin_no : null, college: sInfo ? sInfo.college : 'Unknown',
                     course: sInfo ? sInfo.course : 'Unknown', branch: sInfo ? sInfo.branch : 'Unknown',
-                    batch: sInfo ? sInfo.batch : '2024-2025'
+                    batch: sInfo ? sInfo.batch : '2024-2025', category: category
                 });
             }
             const entry = previewDataMap.get(canonId);
@@ -281,7 +289,7 @@ const processBulkUpload = async (req, res) => {
                     }
                 });
                 if (!matrixFound && defaultAmount > 0) {
-                     entry.demands.push({
+                    entry.demands.push({
                         headId: miscHead ? miscHead._id.toString() : 'UNKNOWN',
                         headName: miscHead ? miscHead.name : 'Miscellaneous Due',
                         year: year, semester: semester, amount: defaultAmount
@@ -328,7 +336,7 @@ const processBulkUpload = async (req, res) => {
 
             const sysDemandMap = {}; // Key: normalizedId-feeHead-studentYear
             const sysPaidMap = {};   // Key: normalizedId-feeHead-studentYear
-            
+
             existingDemands.forEach(d => {
                 const normId = normalizeId(d.studentId);
                 const key = `${normId}-${d.feeHead}-${d.studentYear}`;
@@ -341,6 +349,24 @@ const processBulkUpload = async (req, res) => {
                 sysPaidMap[key] = (sysPaidMap[key] || 0) + (Number(t.amount) || 0);
             });
 
+            // Fetch base FeeStructure as fallback
+            const contexts = previewData.map(e => ({
+                college: e.college, course: e.course, branch: e.branch, batch: e.batch, category: e.category, studentYear: e.year
+            }));
+            const uniqueContexts = contexts.filter((v, i, a) => a.findIndex(t => t.college === v.college && t.course === v.course && t.branch === v.branch && t.batch === v.batch && t.category === v.category && t.studentYear === v.studentYear) === i);
+
+            const baseFeeStructures = await FeeStructure.find({
+                $or: uniqueContexts.map(c => ({
+                    college: c.college, course: c.course, branch: c.branch, batch: c.batch, category: c.category, studentYear: c.studentYear
+                }))
+            });
+
+            const baseFeeMap = {}; // Key: college-course-branch-batch-category-studentYear-feeHead
+            baseFeeStructures.forEach(fs => {
+                const key = `${fs.college}-${fs.course}-${fs.branch}-${fs.batch}-${fs.category}-${fs.studentYear}-${fs.feeHead}`;
+                baseFeeMap[key] = fs.amount;
+            });
+
             previewData.forEach(entry => {
                 if (!entry.admissionNumber) return;
                 const normEntryId = normalizeId(entry.admissionNumber);
@@ -351,36 +377,59 @@ const processBulkUpload = async (req, res) => {
                 if (uploadType === 'PAYMENT') {
                     // Find all system demands for this student
                     existingDemands.forEach(ed => {
-                       if (normalizeId(ed.studentId) === normEntryId) {
-                           const headObj = allFeeHeads.find(h => String(h._id) === String(ed.feeHead));
-                           const alreadyIn = entry.demands.find(d => d.headId === String(ed.feeHead) && d.year === ed.studentYear);
-                           if (!alreadyIn) {
-                               entry.demands.push({
-                                   headId: String(ed.feeHead),
-                                   headName: headObj ? headObj.name : 'Unknown Fee',
-                                   year: ed.studentYear,
-                                   semester: 1, // Default context
-                                   amount: 0 // Not uploading a demand
-                               });
-                           }
-                       }
+                        if (normalizeId(ed.studentId) === normEntryId) {
+                            const headObj = allFeeHeads.find(h => String(h._id) === String(ed.feeHead));
+                            const alreadyIn = entry.demands.find(d => d.headId === String(ed.feeHead) && d.year === ed.studentYear);
+                            if (!alreadyIn) {
+                                entry.demands.push({
+                                    headId: String(ed.feeHead),
+                                    headName: headObj ? headObj.name : 'Unknown Fee',
+                                    year: ed.studentYear,
+                                    semester: 1, // Default context
+                                    amount: 0 // Not uploading a demand
+                                });
+                            }
+                        }
                     });
+
+                    // If NO system demands found, try fallback to base FeeStructure
+                    if (entry.demands.length === 0) {
+                        baseFeeStructures.forEach(fs => {
+                            if (fs.college === entry.college && fs.course === entry.course && fs.branch === entry.branch && fs.batch === entry.batch && fs.category === entry.category && fs.studentYear === entry.year) {
+                                const headObj = allFeeHeads.find(h => String(h._id) === String(fs.feeHead));
+                                entry.demands.push({
+                                    headId: String(fs.feeHead),
+                                    headName: headObj ? headObj.name : 'Base Fee Head',
+                                    year: entry.year,
+                                    semester: 1,
+                                    amount: 0
+                                });
+                            }
+                        });
+                    }
                 }
-                
+
                 entry.demands.forEach(d => {
                     const key = `${normEntryId}-${d.headId}-${d.year}`;
-                    const totalFee = sysDemandMap[key] || 0;
+                    let totalFee = sysDemandMap[key] || 0;
+
+                    // Fallback to base FeeStructure if no allotted demand in SQL
+                    if (totalFee === 0) {
+                        const baseKey = `${entry.college}-${entry.course}-${entry.branch}-${entry.batch}-${entry.category}-${d.year}-${d.headId}`;
+                        totalFee = baseFeeMap[baseKey] || 0;
+                    }
+
                     const paidInSys = sysPaidMap[key] || 0;
                     const sysDue = totalFee - paidInSys;
 
                     d.allotted = totalFee;
-                    
+
                     // Populate meta for UI
-                    d.meta = { 
-                        totalDemand: totalFee, 
-                        totalPaid: paidInSys, 
+                    d.meta = {
+                        totalDemand: totalFee,
+                        totalPaid: paidInSys,
                         systemDue: sysDue,
-                        pendingAmount: d.amount 
+                        pendingAmount: d.amount
                     };
 
                     // Auto-calc payment logic (only for DUE uploads)
@@ -422,7 +471,7 @@ const saveBulkData = async (req, res) => {
     console.log('API: saveBulkData called');
     const { students, isPendingMode } = req.body;
     const user = req.user ? req.user.username : 'system';
-    
+
     const pendingActive = isPendingMode === true || isPendingMode === 'true';
 
     if (!students || !Array.isArray(students) || students.length === 0) {
@@ -456,12 +505,12 @@ const saveBulkData = async (req, res) => {
                 // Map both Pin and Admission normalized forms to Canonical Admission Number
                 if (normAdm) studentMap[normAdm] = r.admission_number;
                 if (normPin) studentMap[normPin] = r.admission_number;
-                
+
                 // Map the original displayId if it was already resolved
                 potentialIds.forEach(id => {
-                   if (normalizeId(id) === normAdm || (normPin && normalizeId(id) === normPin)) {
-                       studentMap[id.toLowerCase()] = r.admission_number;
-                   }
+                    if (normalizeId(id) === normAdm || (normPin && normalizeId(id) === normPin)) {
+                        studentMap[id.toLowerCase()] = r.admission_number;
+                    }
                 });
 
                 // Track all linked IDs for thorough purging
@@ -538,6 +587,7 @@ const saveBulkData = async (req, res) => {
                             course: stud.course,
                             branch: stud.branch,
                             batch: stud.batch,
+                            category: stud.category || 'Regular'
                         });
                     }
                 });
@@ -573,7 +623,7 @@ const saveBulkData = async (req, res) => {
 
                     // 2. Insert New Record with Target Amount
                     // FIX: Only insert transaction if amount > 0.
-                        if (p.amount > 0) {
+                    if (p.amount > 0) {
                         transactionDocs.push({
                             studentId: finalStudentId,
                             studentName: stud.studentName,
@@ -687,7 +737,7 @@ const downloadTemplate = async (req, res) => {
 
         // Define Headers
         const mainHeaders = ['Admission No', 'Pin No', 'Student Name', 'Course', 'Branch', 'Year'];
-        
+
         if (type === 'DUE') {
             // DUES TEMPLATE: Simple Matrix (One column per Fee Head)
             feeHeads.forEach(head => {
@@ -695,10 +745,10 @@ const downloadTemplate = async (req, res) => {
                 mainHeaders.push(head.name);
             });
             // No sub-headers needed for Dues in this simple matrix format
-             const ws = xlsx.utils.aoa_to_sheet([mainHeaders]);
-             
-             // Set widths
-             const wscols = [
+            const ws = xlsx.utils.aoa_to_sheet([mainHeaders]);
+
+            // Set widths
+            const wscols = [
                 { wch: 15 }, { wch: 12 }, { wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 8 }
             ];
             feeHeads.forEach(() => wscols.push({ wch: 15 }));
@@ -707,7 +757,7 @@ const downloadTemplate = async (req, res) => {
             const wb = xlsx.utils.book_new();
             xlsx.utils.book_append_sheet(wb, ws, 'Dues Template');
             const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-            
+
             res.setHeader('Content-Disposition', 'attachment; filename="BulkDuesTemplate.xlsx"');
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
             return res.send(buffer);
@@ -715,14 +765,14 @@ const downloadTemplate = async (req, res) => {
         } else {
             // PAYMENTS TEMPLATE (Legacy/Detailed)
             const subHeaders = ['', '', '', '', '', ''];
-            
+
             // Fee Heads Columns (6 per head)
             feeHeads.forEach(head => {
                 mainHeaders.push(head.name, '', '', '', '', '');
                 subHeaders.push('Paid', 'Mode', 'Date', 'Ref', 'Receipt', 'Remarks');
             });
 
-             // Add Global columns
+            // Add Global columns
             mainHeaders.push('Global Default Mode', 'Global Default Date', 'Global Default Ref No', 'Global Default Receipt No', 'Global Default Remarks');
             subHeaders.push('', '', '', '', '');
 
@@ -751,8 +801,8 @@ const downloadTemplate = async (req, res) => {
             merges.push({ s: { r: 0, c: colIdx + 4 }, e: { r: 1, c: colIdx + 4 } });
 
             ws['!merges'] = merges;
-            
-             // Set column widths
+
+            // Set column widths
             const wscols = [
                 { wch: 15 }, { wch: 12 }, { wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 8 }
             ];
@@ -764,7 +814,7 @@ const downloadTemplate = async (req, res) => {
 
             xlsx.utils.book_append_sheet(wb, ws, 'Payment Template');
             const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-            
+
             res.setHeader('Content-Disposition', 'attachment; filename="BulkPaymentTemplate.xlsx"');
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
             return res.send(buffer);

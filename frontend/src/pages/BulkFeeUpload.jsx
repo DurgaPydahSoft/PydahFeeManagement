@@ -336,6 +336,10 @@ const BulkFeeUpload = () => {
                                                 <tr className="bg-gray-50">
                                                     <td colSpan={6} className="p-4 border-b inner-shadow">
                                                         <div className="bg-white border rounded-md shadow-sm overflow-hidden max-w-4xl mx-auto">
+                                                            <div className="p-3 bg-gray-50 border-b flex justify-between items-center">
+                                                                <span className="text-xs font-bold text-gray-500 uppercase">Student Details</span>
+                                                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">{row.category || 'Regular'}</span>
+                                                            </div>
                                                             <table className="w-full text-sm text-left">
                                                                 <thead className="bg-gray-100 text-xs text-gray-500 uppercase border-b">
                                                                     <tr>
