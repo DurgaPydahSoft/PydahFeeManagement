@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import Sidebar from './Sidebar';
 
@@ -102,8 +102,41 @@ const UserManagement = () => {
     };
 
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
     };
+
+    const prevRoleRef = useRef(formData.role);
+
+    // [NEW] Effect to handle default permissions based on role
+    useEffect(() => {
+        const cashierPermissions = ['/fee-collection', 'fee_collection_pay'];
+
+        if (formData.role === 'cashier') {
+            let currentPermissions = [...(formData.permissions || [])];
+            let changed = false;
+
+            cashierPermissions.forEach(p => {
+                if (!currentPermissions.includes(p)) {
+                    currentPermissions.push(p);
+                    changed = true;
+                }
+            });
+
+            if (changed) {
+                setFormData(prev => ({ ...prev, permissions: currentPermissions }));
+            }
+        } else if (prevRoleRef.current === 'cashier' && formData.role !== 'cashier') {
+            // Transitioning away from cashier - clean up auto-added permissions
+            let currentPermissions = [...(formData.permissions || [])];
+            const updatedPermissions = currentPermissions.filter(p => !cashierPermissions.includes(p));
+
+            if (updatedPermissions.length !== currentPermissions.length) {
+                setFormData(prev => ({ ...prev, permissions: updatedPermissions }));
+            }
+        }
+        prevRoleRef.current = formData.role;
+    }, [formData.role]);
 
     const handlePermissionToggle = (path) => {
         let currentPermissions = formData.permissions || [];
@@ -121,9 +154,12 @@ const UserManagement = () => {
             currentPermissions = [...currentPermissions, path];
 
             // If checking Fee Collection, auto-select both sub-permissions by default
+            // If checking Fee Collection, auto-select both sub-permissions by default (unless cashier)
             if (path === '/fee-collection') {
                 if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
-                if (!currentPermissions.includes('fee_collection_concession')) currentPermissions.push('fee_collection_concession');
+                if (formData.role !== 'cashier' && !currentPermissions.includes('fee_collection_concession')) {
+                    currentPermissions.push('fee_collection_concession');
+                }
             }
         }
         setFormData({ ...formData, permissions: currentPermissions });
@@ -344,6 +380,7 @@ const UserManagement = () => {
                                 <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
                                 <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white">
                                     <option value="office_staff">Office Staff</option>
+                                    <option value="cashier">Cashier</option>
                                     <option value="admin">Admin</option>
                                     <option value="superadmin">Super Admin</option>
                                 </select>
@@ -435,7 +472,8 @@ const UserManagement = () => {
                                                 <td className="p-3">
                                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
                                                         user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-                                                            'bg-gray-100 text-gray-700'
+                                                            user.role === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                                'bg-gray-100 text-gray-700'
                                                         }`}>
                                                         {user.role}
                                                     </span>
