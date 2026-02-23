@@ -346,35 +346,42 @@ const FeeConfiguration = () => {
 
         setLoadingStudents(true);
         try {
-            // 1. Fetch Students (All for the batch)
-            const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`);
+            // 1. Fetch Students (Filtered by Backend)
+            const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`, {
+                params: { college, course, branch, batch }
+            });
 
-            // Filter: Match College, Course, Branch, Batch AND Category (stud_type)
-            const batchStudents = studentsRes.data.filter(s =>
-                s.college === college &&
-                s.course === course &&
-                s.branch === branch &&
-                (String(s.batch) === String(batch)) &&
-                s.stud_type === appContext.category
-            );
+            // Filter: Robust Match Category (stud_type)
+            const targetCat = String(appContext.category || '').trim().toLowerCase();
+            const batchStudents = studentsRes.data.filter(s => {
+                const sCat = String(s.stud_type || '').trim().toLowerCase();
+                return sCat === targetCat;
+            });
 
             // 2. Fetch Existing Fee Records (Real Data)
             let existingFees = [];
             try {
-                // Fetch ALL fees for this batch/feeHead (not just for current year)
                 const feeRes = await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/batch-fees`, {
-                    college, course, branch, batch, feeHeadId
+                    college, course, branch, batch, feeHeadId, category: appContext.category
                 });
                 existingFees = feeRes.data;
             } catch (e) { console.error("Error fetching fee records", e); }
 
-            // Update Applied Status
-            setIsBatchApplied(existingFees.length > 0);
+            // OPTIMIZATION: Create a Lookup Map for existing fees (Student ID -> Array of Fees)
+            const feeMap = new Map();
+            existingFees.forEach(f => {
+                if (!feeMap.has(f.studentId)) feeMap.set(f.studentId, []);
+                feeMap.get(f.studentId).push(f);
+            });
+
+            // Update Applied Status: Check if ANY student in THIS filtered list has fees applied
+            const anyApplied = batchStudents.some(s => feeMap.has(s.admission_number));
+            setIsBatchApplied(anyApplied);
 
             // 3. Prepare List with ALL Years data
             const list = batchStudents.map(s => {
                 const sYear = s.current_year;
-                const relevantFees = existingFees.filter(f => f.studentId === s.admission_number);
+                const relevantFees = feeMap.get(s.admission_number) || [];
 
                 // Build an object with amounts for each student year (1..4)
                 const yearsData = {};
@@ -383,7 +390,7 @@ const FeeConfiguration = () => {
                     st.college === college && st.course === course && st.branch === branch &&
                     String(st.batch) === String(batch) &&
                     st.category === appContext.category && // Match Category
-                    st.feeHead._id === feeHeadId
+                    st.feeHead?._id === feeHeadId
                 ).forEach(st => {
                     // Check semester logic
                     if (appContext.semester) {
@@ -410,7 +417,6 @@ const FeeConfiguration = () => {
                     studentId: s.admission_number,
                     studentName: s.student_name,
                     pinNo: s.pin_no || '-',
-                    current_year: sYear,
                     current_year: sYear,
                     fees: yearsData, // e.g., { 1: { amount: 50000, isScholarshipApplicable: true }, ... }
                 };
@@ -444,6 +450,7 @@ const FeeConfiguration = () => {
                 })
             ));
 
+            await fetchStudentsForApplicability(); // Refresh table and status
             setMessage(`Fees applied successfully for Batch ${row.batch}!`);
             setTimeout(() => setMessage(''), 3000);
 
@@ -473,8 +480,7 @@ const FeeConfiguration = () => {
                             course: appContext.course,
                             branch: appContext.branch,
                             batch: appContext.batch,
-                            studentYear: Number(year),
-                            semester: appContext.semester,
+                            category: appContext.category, // Pass category
                             studentYear: Number(year),
                             semester: appContext.semester,
                             amount: amt,
@@ -485,6 +491,7 @@ const FeeConfiguration = () => {
             });
 
             await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees });
+            await fetchStudentsForApplicability(); // Refresh table and status
             setMessage("Student List fees saved successfully!");
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { alert("Failed to save student fees"); }
@@ -510,13 +517,17 @@ const FeeConfiguration = () => {
         if (structForm.batch && String(s.batch) !== String(structForm.batch)) return false;
 
         return true;
-    }).forEach(s => {
-        const key = `${s.college}|${s.course}|${s.branch}|${s.batch}|${s.category}|${s.feeHead?._id}`;
-        if (!grouped[key]) grouped[key] = { ...s, feeHeadName: s.feeHead?.name, feeHeadId: s.feeHead?._id, feeHeadCode: s.feeHead?.code, years: {}, allIds: [] };
+    }).forEach(st => {
+        const key = `${st.college}|${st.course}|${st.branch}|${st.batch}|${st.category}|${st.feeHead?._id}`;
+        if (!grouped[key]) grouped[key] = { ...st, feeHeadName: st.feeHead?.name, feeHeadId: st.feeHead?._id, feeHeadCode: st.feeHead?.code, years: {}, allIds: [] };
 
         // Initialize year array if missing
-        if (!grouped[key].years[s.studentYear]) grouped[key].years[s.studentYear] = [];
+        if (!grouped[key].years[st.studentYear]) grouped[key].years[st.studentYear] = [];
 
+        grouped[key].years[st.studentYear].push({
+            id: st._id,
+            amount: st.amount,
+            semester: st.semester
         grouped[key].years[s.studentYear].push({
             id: s._id,
             amount: s.amount,
@@ -524,7 +535,7 @@ const FeeConfiguration = () => {
             terms: s.terms // Include terms in the row data
         });
 
-        grouped[key].allIds.push(s._id);
+        grouped[key].allIds.push(st._id);
     });
     const groupedArray = Object.values(grouped);
 
@@ -899,8 +910,8 @@ const FeeConfiguration = () => {
 
                                 <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Filters</h2>
 
-                                {/* Order: College -> Batch -> Category -> Course -> Branch -> Fee Head */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {/* Order: College -> Batch -> Course -> Branch -> Fee Head -> Category */}
+                                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                                     {/* 1. College */}
                                     <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
 
@@ -913,7 +924,16 @@ const FeeConfiguration = () => {
                                         </select>
                                     </div>
 
-                                    {/* 3. Category */}
+                                    {/* 3. Course */}
+                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
+
+                                    {/* 4. Branch */}
+                                    <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
+
+                                    {/* 5. Fee Head */}
+                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
+
+                                    {/* 6. Category */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-500">Category</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required disabled={!appContext.college || !appContext.course || !appContext.batch}>
@@ -929,15 +949,6 @@ const FeeConfiguration = () => {
                                             }).map(c => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
-
-                                    {/* 4. Course */}
-                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
-
-                                    {/* 5. Branch */}
-                                    <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
-
-                                    {/* 6. Fee Head */}
-                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
                                 </div>
 
 

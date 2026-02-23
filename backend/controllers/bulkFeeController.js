@@ -514,13 +514,23 @@ const saveBulkData = async (req, res) => {
                 });
 
                 // Track all linked IDs for thorough purging
+                const adm = r.admission_number.toLowerCase();
+                const pin = r.pin_no ? r.pin_no.toLowerCase() : null;
+
                 if (!allLinkedIdsMap[adm]) allLinkedIdsMap[adm] = new Set();
                 allLinkedIdsMap[adm].add(adm);
+                allLinkedIdsMap[adm].add(normAdm);
+
                 if (pin) {
                     allLinkedIdsMap[adm].add(pin);
+                    allLinkedIdsMap[adm].add(normPin);
                     // Also allow lookup by pin's lower case version
                     allLinkedIdsMap[pin] = allLinkedIdsMap[adm];
                 }
+
+                // Also link normalized version
+                allLinkedIdsMap[normAdm] = allLinkedIdsMap[adm];
+                if (normPin) allLinkedIdsMap[normPin] = allLinkedIdsMap[adm];
             });
             console.log(`Resolved internal map size: ${Object.keys(studentMap).length}`);
         }
@@ -587,7 +597,7 @@ const saveBulkData = async (req, res) => {
                             course: stud.course,
                             branch: stud.branch,
                             batch: stud.batch,
-                            category: stud.category || 'Regular'
+                            stud_type: stud.category || 'Regular'
                         });
                     }
                 });

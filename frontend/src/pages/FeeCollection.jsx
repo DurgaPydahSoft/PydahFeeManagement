@@ -427,11 +427,16 @@ const FeeCollection = () => {
                                         <div className="flex justify-between items-start pl-2">
                                             <div className="flex-1 min-w-0">
                                                 <h4 className="font-bold text-gray-900 group-hover:text-blue-700 truncate text-lg transition-colors">{s.student_name}</h4>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-blue-100 italic">
+                                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shadow-sm">
                                                         {s.course}
                                                     </span>
-                                                    <span className="text-gray-400 text-xs truncate">— {s.branch}</span>
+                                                    <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-blue-200">
+                                                        {s.branch}
+                                                    </span>
+                                                    <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-purple-200">
+                                                        {s.stud_type || 'Regular'}
+                                                    </span>
                                                 </div>
                                             </div>
                                             <span className={`px-2 py-1 text-[10px] font-bold rounded-md uppercase tracking-tighter ${s.student_status === 'Active' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}`}>
@@ -526,7 +531,14 @@ const FeeCollection = () => {
                                         <div className="flex-1 text-center md:text-left min-w-0">
                                             <div className="flex flex-col md:flex-row md:items-baseline md:gap-3">
                                                 <h2 className="text-lg font-bold truncate">{student.student_name}</h2>
-                                                <p className="text-blue-200 text-xs font-medium truncate">{student.course} - {student.branch}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/20">
+                                                        {student.course}
+                                                    </span>
+                                                    <span className="bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/10">
+                                                        {student.branch}
+                                                    </span>
+                                                </div>
                                             </div>
 
                                             <div className="flex flex-wrap justify-center md:justify-start gap-2 text-xs mt-1">
@@ -543,8 +555,8 @@ const FeeCollection = () => {
                                                     <span className="font-bold">{student.current_year} (S{student.current_semester})</span>
                                                 </div>
                                                 <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
-                                                    <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Mob:</span>
-                                                    <span className="font-mono font-bold">{student.student_mobile}</span>
+                                                    <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Type:</span>
+                                                    <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
                                             </div>
                                         </div>

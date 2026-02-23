@@ -50,6 +50,9 @@ const studentFeeSchema = mongoose.Schema({
   isScholarshipApplicable: {
     type: Boolean,
     default: false
+  },
+  stud_type: { // Category/Type from Student Table
+    type: String,
   }
 }, {
   timestamps: true,

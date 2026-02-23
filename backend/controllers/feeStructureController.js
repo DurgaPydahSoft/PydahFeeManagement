@@ -405,7 +405,8 @@ const applyFeeToBatch = async (req, res) => {
               amount: structure.amount,
               structureId: structure._id,
               semester: structure.semester,
-              batch: s.batch, // Store the batch from the student
+              batch: s.batch,
+              stud_type: structure.category,
               isScholarshipApplicable: structure.isScholarshipApplicable || false
             }
           },
@@ -448,7 +449,8 @@ const saveStudentFees = async (req, res) => {
               amount: Number(f.amount),
               semester: f.semester,
               academicYear: f.batch, // Ensure it is saved
-              batch: f.batch, // Also save batch explicitly
+              batch: f.batch,
+              stud_type: f.category,
               isScholarshipApplicable: f.isScholarshipApplicable || false
             }
           },
@@ -515,13 +517,30 @@ const updateFeeStructure = async (req, res) => {
 const deleteFeeStructure = async (req, res) => {
   const { id } = req.params;
   try {
-    const deleted = await FeeStructure.findByIdAndDelete(id);
-    if (!deleted) {
+    const structure = await FeeStructure.findById(id);
+    if (!structure) {
       return res.status(404).json({ message: 'Fee Structure not found' });
     }
-    res.json({ message: 'Fee Structure removed' });
+
+    // Cascading Deletion: Remove StudentFee assignments matching this structure's context
+    // We match by the primary fields that define the structure's applicability
+    const deleteCount = await StudentFee.deleteMany({
+      feeHead: structure.feeHead,
+      college: structure.college,
+      course: structure.course,
+      branch: structure.branch,
+      academicYear: structure.batch, // academicYear stores batch string
+      studentYear: structure.studentYear,
+      semester: structure.semester,
+      stud_type: structure.category
+    });
+
+    console.log(`Cascading Deletion: Removed ${deleteCount.deletedCount} student fee records for structure ${id}`);
+
+    await FeeStructure.findByIdAndDelete(id);
+    res.json({ message: 'Fee Structure and related student assignments removed' });
   } catch (error) {
-    console.error(error);
+    console.error("Error in deleteFeeStructure:", error);
     res.status(500).json({ message: 'Server Error' });
   }
 };
@@ -529,12 +548,20 @@ const deleteFeeStructure = async (req, res) => {
 // @desc    Get Batch Student Fees (for Excel View)
 // @route   POST /api/fee-structures/batch-fees
 const getBatchStudentFees = async (req, res) => {
-  const { college, course, branch, batch, feeHeadId } = req.body;
+  const { college, course, branch, batch, feeHeadId, category } = req.body;
 
   try {
     // Query by Batch (stored in academicYear field of StudentFee for compatibility)
     const query = { college, course, branch, academicYear: batch };
     if (feeHeadId) query.feeHead = feeHeadId;
+    if (category) {
+      query.$or = [
+        { stud_type: category },
+        { stud_type: { $exists: false } },
+        { stud_type: null },
+        { stud_type: '' }
+      ];
+    }
 
     const fees = await StudentFee.find(query);
     res.json(fees);
