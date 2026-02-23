@@ -28,6 +28,7 @@ const FeeConfiguration = () => {
     const [feeType, setFeeType] = useState('Yearly'); // 'Yearly' or 'Semester'
     const [semAmounts, setSemAmounts] = useState({ 1: '', 2: '' }); // For simultaneous creation
     const [bulkAmounts, setBulkAmounts] = useState({}); // For "All Years" creation: { 1: '', 2: '', ... }
+    const [bulkTerms, setBulkTerms] = useState({}); // { "1-Y": { count: 3, data: [{p: 40, a: 0}, {p: 30, a: 0}, {p: 30, a: 0}] } }
     const [isMultiYear, setIsMultiYear] = useState(true); // Default to true (Always All Years)
 
     // Helper to generate Academic Years (Still useful for some display?)
@@ -125,6 +126,75 @@ const FeeConfiguration = () => {
         } catch (error) { alert('Failed to delete'); }
     };
 
+    const handleTermChange = (key, count) => {
+        const total = Number(bulkAmounts[key]) || 0;
+        const newData = Array.from({ length: count }, (_, i) => ({
+            p: i === 0 ? 100 : 0, // Default first term to 100%
+            a: i === 0 ? total : 0
+        }));
+        // If 3 terms, maybe default to 40-30-30 or similar? 
+        if (Number(count) === 3) {
+            newData[0] = { p: 40, a: Math.round(total * 0.4) };
+            newData[1] = { p: 30, a: Math.round(total * 0.3) };
+            newData[2] = { p: 30, a: total - newData[0].a - newData[1].a };
+        } else if (Number(count) > 0) {
+            const equalP = Math.floor(100 / count);
+            let sumA = 0;
+            for (let i = 0; i < count; i++) {
+                const p = (i === count - 1) ? (100 - (equalP * (count - 1))) : equalP;
+                const a = (i === count - 1) ? (total - sumA) : Math.round(total * (p / 100));
+                newData[i] = { p, a };
+                sumA += a;
+            }
+        }
+
+        setBulkTerms({ ...bulkTerms, [key]: { count: Number(count), data: newData } });
+    };
+
+    const updateTermPercentage = (key, index, p) => {
+        const total = Number(bulkAmounts[key]) || 0;
+        setBulkTerms(prev => {
+            const currentTerms = JSON.parse(JSON.stringify(prev[key]));
+            currentTerms.data[index].p = Number(p);
+
+            // Recalc all amounts based on percentages
+            let sumA = 0;
+            currentTerms.data.forEach((t, i) => {
+                if (i === currentTerms.data.length - 1) {
+                    t.a = total - sumA;
+                } else {
+                    t.a = Math.round(total * (t.p / 100));
+                    sumA += t.a;
+                }
+            });
+            return { ...prev, [key]: currentTerms };
+        });
+    };
+
+    const updateAmountAndRecalcTerms = (key, val) => {
+        const total = Number(val) || 0;
+        setBulkAmounts(prev => ({ ...prev, [key]: val }));
+
+        if (bulkTerms[key]) {
+            setBulkTerms(prev => {
+                const currentTerms = JSON.parse(JSON.stringify(prev[key]));
+                let sumA = 0;
+                currentTerms.data.forEach((t, i) => {
+                    if (i === currentTerms.data.length - 1) {
+                        t.a = total - sumA;
+                    } else {
+                        t.a = Math.round(total * (t.p / 100));
+                        sumA += t.a;
+                    }
+                });
+                return { ...prev, [key]: currentTerms };
+            });
+        } else if (val && !isNaN(val)) {
+            // Default to 3 terms as per user request
+            handleTermChange(key, 3);
+        }
+    };
+
     // --- DEFINITIONS LOGIC ---
     const activeStructSubmit = async (e) => {
         e.preventDefault();
@@ -142,24 +212,50 @@ const FeeConfiguration = () => {
                 const requests = [];
                 for (let y = 1; y <= yearsCount; y++) {
                     if (feeType === 'Yearly') {
-                        const amount = bulkAmounts[`${y}-Y`];
+                        const key = `${y}-Y`;
+                        const amount = bulkAmounts[key];
                         if (amount) {
+                            const termsData = bulkTerms[key] ? bulkTerms[key].data.map((t, idx) => ({
+                                termNumber: idx + 1,
+                                percentage: t.p,
+                                amount: t.a
+                            })) : [];
+
                             requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, {
                                 ...structForm,
                                 studentYear: y,
                                 semester: null,
                                 amount: Number(amount),
-                                batch: structForm.batch, // Explicitly ensure batch is sent
-                                categories: structForm.categories, // Send array
-                                isScholarshipApplicable: structForm.isScholarshipApplicable
+                                batch: structForm.batch,
+                                categories: structForm.categories,
+                                isScholarshipApplicable: structForm.isScholarshipApplicable,
+                                terms: termsData
                             }));
                         }
                     } else {
                         // Semester Wise
-                        const s1 = bulkAmounts[`${y}-S1`];
-                        const s2 = bulkAmounts[`${y}-S2`];
-                        if (s1) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 1, amount: Number(s1), batch: structForm.batch, categories: structForm.categories, isScholarshipApplicable: structForm.isScholarshipApplicable }));
-                        if (s2) requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, { ...structForm, studentYear: y, semester: 2, amount: Number(s2), batch: structForm.batch, categories: structForm.categories, isScholarshipApplicable: structForm.isScholarshipApplicable }));
+                        ['S1', 'S2'].forEach((sSuff, sIdx) => {
+                            const key = `${y}-${sSuff}`;
+                            const amount = bulkAmounts[key];
+                            if (amount) {
+                                const termsData = bulkTerms[key] ? bulkTerms[key].data.map((t, tidx) => ({
+                                    termNumber: tidx + 1,
+                                    percentage: t.p,
+                                    amount: t.a
+                                })) : [];
+
+                                requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, {
+                                    ...structForm,
+                                    studentYear: y,
+                                    semester: sIdx + 1,
+                                    amount: Number(amount),
+                                    batch: structForm.batch,
+                                    categories: structForm.categories,
+                                    isScholarshipApplicable: structForm.isScholarshipApplicable,
+                                    terms: termsData
+                                }));
+                            }
+                        });
                     }
                 }
 
@@ -194,21 +290,27 @@ const FeeConfiguration = () => {
             isScholarshipApplicable: row.isScholarshipApplicable || false
         });
 
-        // Populate bulkAmounts for Multi-Year Editing
+        // Populate bulkAmounts and bulkTerms for Multi-Year Editing
         const newBulk = {};
+        const newTerms = {};
         if (row.years) {
             Object.keys(row.years).forEach(y => {
-                const items = row.years[y]; // Array of { semester, amount }
+                const items = row.years[y]; // Array of { semester, amount, terms }
                 items.forEach(item => {
-                    if (item.semester) {
-                        newBulk[`${y}-S${item.semester}`] = item.amount;
-                    } else {
-                        newBulk[`${y}-Y`] = item.amount;
+                    const suffice = item.semester ? `S${item.semester}` : 'Y';
+                    const key = `${y}-${suffice}`;
+                    newBulk[key] = item.amount;
+                    if (item.terms && item.terms.length > 0) {
+                        newTerms[key] = {
+                            count: item.terms.length,
+                            data: item.terms.map(t => ({ p: t.percentage, a: t.amount }))
+                        };
                     }
                 });
             });
         }
         setBulkAmounts(newBulk);
+        setBulkTerms(newTerms);
         setIsMultiYear(true); // Default to Multi-Year edit mode
         setFeeType(Object.keys(newBulk).some(k => k.includes('S')) ? 'Semester' : 'Yearly');
 
@@ -426,6 +528,11 @@ const FeeConfiguration = () => {
             id: st._id,
             amount: st.amount,
             semester: st.semester
+        grouped[key].years[s.studentYear].push({
+            id: s._id,
+            amount: s.amount,
+            semester: s.semester,
+            terms: s.terms // Include terms in the row data
         });
 
         grouped[key].allIds.push(st._id);
@@ -619,14 +726,73 @@ const FeeConfiguration = () => {
                                                 }
 
                                                 return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
-                                                    <div key={y} className="flex items-center gap-2">
-                                                        <span className="w-12 text-xs font-bold text-gray-600">Yr {y}:</span>
+                                                    <div key={y} className="p-3 bg-white border border-gray-100 rounded space-y-2 mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="w-12 text-xs font-bold text-gray-600">Yr {y}:</span>
+                                                            {feeType === 'Yearly' ? (
+                                                                <>
+                                                                    <div className="flex-1 flex gap-2">
+                                                                        <input className="flex-1 border p-1 rounded text-sm" placeholder="Total Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-Y`, e.target.value)} />
+                                                                        <select className="border p-1 rounded text-xs w-24" value={bulkTerms[`${y}-Y`]?.count || ''} onChange={e => handleTermChange(`${y}-Y`, e.target.value)}>
+                                                                            <option value="">Terms</option>
+                                                                            {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} Terms</option>)}
+                                                                        </select>
+                                                                    </div>
+                                                                </>
+                                                            ) : (
+                                                                <div className="grid grid-cols-2 gap-4 flex-1">
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <div className="flex gap-1">
+                                                                            <input className="flex-1 border p-1 rounded text-xs" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S1`, e.target.value)} />
+                                                                            <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S1`]?.count || ''} onChange={e => handleTermChange(`${y}-S1`, e.target.value)}>
+                                                                                <option value="">T</option>
+                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <div className="flex gap-1">
+                                                                            <input className="flex-1 border p-1 rounded text-xs" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S2`, e.target.value)} />
+                                                                            <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S2`]?.count || ''} onChange={e => handleTermChange(`${y}-S2`, e.target.value)}>
+                                                                                <option value="">T</option>
+                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Terms Details Display */}
                                                         {feeType === 'Yearly' ? (
-                                                            <input className="flex-1 border p-1 rounded text-sm" placeholder="Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-Y`]: e.target.value })} />
+                                                            bulkTerms[`${y}-Y`] && (
+                                                                <div className="ml-14 grid grid-cols-3 gap-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                                                    {bulkTerms[`${y}-Y`].data.map((term, idx) => (
+                                                                        <div key={idx} className="flex flex-col">
+                                                                            <label className="text-[10px] text-gray-500 font-bold uppercase">Term {idx + 1} (%)</label>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <input type="number" className="w-full border p-1 rounded text-xs" value={term.p} onChange={e => updateTermPercentage(`${y}-Y`, idx, e.target.value)} />
+                                                                                <span className="text-[10px] text-blue-600 font-bold">₹{term.a}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                    <div className="col-span-3 text-[10px] text-right font-bold text-gray-400">Total: {bulkTerms[`${y}-Y`].data.reduce((acc, t) => acc + t.p, 0)}%</div>
+                                                                </div>
+                                                            )
                                                         ) : (
-                                                            <div className="grid grid-cols-2 gap-2 flex-1">
-                                                                <input className="border p-1 rounded text-sm" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-S1`]: e.target.value })} />
-                                                                <input className="border p-1 rounded text-sm" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => setBulkAmounts({ ...bulkAmounts, [`${y}-S2`]: e.target.value })} />
+                                                            <div className="ml-14 grid grid-cols-2 gap-4">
+                                                                {['S1', 'S2'].map(s => bulkTerms[`${y}-${s}`] && (
+                                                                    <div key={s} className="grid grid-cols-2 gap-1 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                                                        {bulkTerms[`${y}-${s}`].data.map((term, idx) => (
+                                                                            <div key={idx} className="flex flex-col">
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <input type="number" className="w-10 border p-1 rounded text-[10px]" value={term.p} onChange={e => updateTermPercentage(`${y}-${s}`, idx, e.target.value)} />
+                                                                                    <span className="text-[10px] text-blue-600 font-bold whitespace-nowrap">₹{term.a}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         )}
                                                     </div>

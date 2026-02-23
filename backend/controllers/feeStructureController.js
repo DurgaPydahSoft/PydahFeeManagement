@@ -9,7 +9,7 @@ const db = require('../config/sqlDb');
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, terms } = req.body;
   // yearAmounts logic removed for simplifying Semester implementation as per requirement.
 
   try {
@@ -53,7 +53,8 @@ const createFeeStructure = async (req, res) => {
           $set: {
             amount: Number(amount),
             description,
-            isScholarshipApplicable: isScholarshipApplicable || false
+            isScholarshipApplicable: isScholarshipApplicable || false,
+            terms: terms || []
           }
         };
 
@@ -470,7 +471,7 @@ const saveStudentFees = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, terms } = req.body;
   const user = req.user ? req.user.username : 'system';
 
   try {
@@ -498,6 +499,7 @@ const updateFeeStructure = async (req, res) => {
         amount,
         description,
         isScholarshipApplicable,
+        terms: terms || [],
         $push: { history: historyEntry }
       },
       { new: true }
