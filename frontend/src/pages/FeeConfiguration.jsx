@@ -527,12 +527,8 @@ const FeeConfiguration = () => {
         grouped[key].years[st.studentYear].push({
             id: st._id,
             amount: st.amount,
-            semester: st.semester
-        grouped[key].years[s.studentYear].push({
-            id: s._id,
-            amount: s.amount,
-            semester: s.semester,
-            terms: s.terms // Include terms in the row data
+            semester: st.semester,
+            terms: st.terms // Include terms in the row data
         });
 
         grouped[key].allIds.push(st._id);
