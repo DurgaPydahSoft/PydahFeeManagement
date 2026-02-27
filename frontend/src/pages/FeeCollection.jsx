@@ -1046,7 +1046,7 @@ const FeeCollection = () => {
                                                 <div className="pt-2">
                                                     <button
                                                         type="submit"
-                                                        className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-200' : 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 shadow-purple-200'}`}
+                                                        className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-200'}`}
                                                     >
                                                         {paymentForm.transactionType === 'DEBIT' ? 'Confirm Payment' : 'Apply Concession'}
                                                     </button>
