@@ -38,7 +38,7 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#F0F4FA] flex items-center justify-center p-4 font-sans relative overflow-hidden">
+        <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans relative overflow-hidden">
 
             {/* Ambient Background Blobs */}
             <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-200/40 rounded-full blur-3xl pointer-events-none"></div>
@@ -56,7 +56,7 @@ const Login = () => {
             <div className="w-full max-w-[1000px] bg-white rounded-[2rem] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.1)] overflow-hidden grid grid-cols-1 lg:grid-cols-2 min-h-[500px] relative z-10">
 
                 {/* Left Side: Branding & Visuals */}
-                <div className="relative bg-gradient-to-br from-[#4e8dff] to-[#3a7bd5] p-10 flex flex-col justify-center text-white overflow-hidden">
+                <div className="relative bg-blue-600 p-10 flex flex-col justify-center text-white overflow-hidden">
 
                     {/* Decorative Elements */}
                     <div className="absolute top-8 left-8 opacity-30">
@@ -70,12 +70,12 @@ const Login = () => {
                     <div className="absolute top-[15%] left-[60%] w-3 h-3 bg-cyan-300 rounded-full shadow-[0_0_10px_rgba(103,232,249,0.8)]"></div>
                     <div className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full border-[2px] border-white/20 opacity-60"></div>
                     <div className="absolute -bottom-12 -right-12 w-72 h-72 rounded-full border-[2px] border-white/20 opacity-60"></div>
-                    <div className="absolute bottom-[10%] right-[10%] w-16 h-16 rounded-full bg-gradient-to-tr from-blue-400 to-cyan-300 shadow-2xl overflow-hidden after:content-[''] after:absolute after:top-0 after:left-0 after:w-full after:h-full after:bg-gradient-to-b after:from-white/30 after:to-transparent z-10"></div>
+                    <div className="absolute bottom-[10%] right-[10%] w-16 h-16 rounded-full bg-blue-500 shadow-2xl overflow-hidden z-10"></div>
 
                     {/* Branding Content (Pydah Fees like Landing) */}
                     <div className="relative z-20 mt-4">
                         <div className="inline-flex items-center gap-3 mb-6 bg-white/10 backdrop-blur-sm p-3 rounded-xl border border-white/20 w-fit">
-                            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-[#4e8dff] shadow-md">
+                            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-blue-600 shadow-md">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                             </div>
                             <span className="text-xl font-bold tracking-tight">Pydah<span className="text-blue-100">Fees</span></span>
@@ -111,7 +111,7 @@ const Login = () => {
                             <div className="space-y-1.5">
                                 <label className="block text-sm font-semibold text-slate-600 pl-1">Username</label>
                                 <div className="relative group">
-                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-[#4e8dff] transition-colors">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-600 transition-colors">
                                         <User size={18} />
                                     </div>
                                     <input
@@ -120,7 +120,7 @@ const Login = () => {
                                         value={username}
                                         onChange={onChange}
                                         placeholder="Enter your username"
-                                        className="w-full pl-11 pr-4 py-3 bg-[#F5F7FA] border-none rounded-xl focus:ring-2 focus:ring-[#4e8dff]/20 focus:bg-white transition-all text-slate-700 font-medium placeholder-gray-400"
+                                        className="w-full pl-11 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all text-slate-700 font-medium placeholder-gray-400"
                                         required
                                     />
                                 </div>
@@ -129,7 +129,7 @@ const Login = () => {
                             <div className="space-y-1.5">
                                 <label className="block text-sm font-semibold text-slate-600 pl-1">Password</label>
                                 <div className="relative group">
-                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-[#4e8dff] transition-colors">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-600 transition-colors">
                                         <Lock size={18} />
                                     </div>
                                     <input
@@ -138,20 +138,20 @@ const Login = () => {
                                         value={password}
                                         onChange={onChange}
                                         placeholder="••••••••••••"
-                                        className="w-full pl-11 pr-4 py-3 bg-[#F5F7FA] border-none rounded-xl focus:ring-2 focus:ring-[#4e8dff]/20 focus:bg-white transition-all text-slate-700 font-medium placeholder-gray-400"
+                                        className="w-full pl-11 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all text-slate-700 font-medium placeholder-gray-400"
                                         required
                                     />
                                 </div>
                             </div>
 
                             <div className="flex justify-end pt-1">
-                                <a href="#" className="text-sm font-semibold text-[#4e8dff] hover:text-[#3a7bd5] hover:underline">Forgot Password?</a>
+                                <a href="#" className="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline">Forgot Password?</a>
                             </div>
 
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full py-3.5 bg-[#4e8dff] hover:bg-[#3a7bd5] text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:shadow-blue-300 transition-all transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:shadow-blue-300 transition-all transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2"
                             >
                                 {loading ? (
                                     <>
@@ -174,7 +174,7 @@ const Login = () => {
 
                         <div className="text-center">
                             <p className="text-slate-400 text-sm font-medium">
-                                Technical Issues? <span className="text-[#4e8dff] font-bold cursor-pointer hover:underline">Contact Support</span>
+                                Technical Issues? <span className="text-blue-600 font-bold cursor-pointer hover:underline">Contact Support</span>
                             </p>
                         </div>
                     </div>

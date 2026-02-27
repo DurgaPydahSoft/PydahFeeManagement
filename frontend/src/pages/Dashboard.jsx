@@ -81,7 +81,7 @@ const Dashboard = () => {
     ];
 
     return (
-        <div className="flex min-h-screen bg-[#F8FAFC] font-sans text-slate-900 overflow-hidden">
+        <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
             <Sidebar />
 
             <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -89,7 +89,7 @@ const Dashboard = () => {
                     {/* Header - More Compact */}
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-xl font-extrabold text-[#1E293B] tracking-tight">Admin Terminal</h1>
+                            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">Admin Terminal</h1>
                             <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Real-time Operation Metrics</p>
                         </div>
                         <div className="text-[10px] font-black text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-200 uppercase tracking-widest flex items-center gap-2">
@@ -229,7 +229,7 @@ const Dashboard = () => {
                                     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
                                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Active Operator</h3>
                                         <div className="flex items-center gap-3">
-                                            <div className="h-12 w-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 font-black text-xl border-2 border-slate-100 shadow-inner">
+                                            <div className="h-12 w-12 rounded-2xl bg-white flex items-center justify-center text-slate-400 font-black text-xl border-2 border-slate-100 shadow-inner">
                                                 {user?.name?.charAt(0)}
                                             </div>
                                             <div>

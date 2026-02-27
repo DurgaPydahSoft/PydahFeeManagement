@@ -370,7 +370,7 @@ const FeeCollection = () => {
     }, [loading]); // Focus once loading is done
 
     return (
-        <div className="flex min-h-screen bg-gray-50 font-sans">
+        <div className="flex min-h-screen bg-slate-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6 relative flex flex-col">
 
@@ -515,7 +515,7 @@ const FeeCollection = () => {
 
                                 {/* Student Profile Card - Compact Professional Design */}
                                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-4">
-                                    <div className="bg-gradient-to-r from-blue-700 to-blue-900 p-4 text-white flex flex-col md:flex-row items-center md:items-start gap-4">
+                                    <div className="bg-blue-600 p-4 text-white flex flex-col md:flex-row items-center md:items-start gap-4">
                                         {/* Photo */}
                                         <div className="h-14 w-14 rounded-full border-2 border-white/20 shadow-md overflow-hidden shrink-0 bg-white">
                                             {student.student_photo ? (
@@ -546,20 +546,20 @@ const FeeCollection = () => {
                                             </div>
 
                                             <div className="flex flex-wrap justify-center md:justify-start gap-2 text-xs mt-1">
-                                                <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
-                                                    <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Adm:</span>
+                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Adm:</span>
                                                     <span className="font-mono font-bold">{student.admission_number}</span>
                                                 </div>
-                                                <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
-                                                    <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Pin:</span>
+                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Pin:</span>
                                                     <span className="font-mono font-bold">{student.pin_no || '-'}</span>
                                                 </div>
-                                                <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
-                                                    <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Yr:</span>
+                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Yr:</span>
                                                     <span className="font-bold">{student.current_year} (S{student.current_semester})</span>
                                                 </div>
-                                                <div className="bg-white/10 px-2 py-0.5 rounded backdrop-blur-sm border border-white/10 flex items-center">
-                                                    <span className="text-blue-200 mr-1.5 uppercase text-[10px] font-bold">Type:</span>
+                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Type:</span>
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
                                             </div>

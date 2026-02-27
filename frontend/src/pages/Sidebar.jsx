@@ -100,7 +100,7 @@ const Sidebar = () => {
 
                     {/* User Info */}
                     <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-blue-400 flex items-center justify-center text-white font-bold shadow-md shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold shadow-md shrink-0">
                             {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
                         </div>
                         {!isCollapsed && (

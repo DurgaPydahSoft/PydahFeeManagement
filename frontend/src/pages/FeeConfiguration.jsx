@@ -1078,7 +1078,7 @@ const FeeConfiguration = () => {
                                                                     <div className="relative">
                                                                         <input
                                                                             type="number"
-                                                                            className={`w-full p-2 border ${s.fees[yearCol]?.isScholarshipApplicable ? 'border-yellow-400 bg-yellow-50' : 'border-blue-300'} rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900`}
+                                                                            className={`w-full p-2 border ${s.fees[yearCol]?.isScholarshipApplicable ? 'border-yellow-400 bg-yellow-50' : 'border-blue-200'} rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900`}
                                                                             value={s.fees[yearCol]?.amount || ''}
                                                                             placeholder="-"
                                                                             onChange={(e) => {

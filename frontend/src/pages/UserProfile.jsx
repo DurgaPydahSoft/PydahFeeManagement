@@ -52,7 +52,7 @@ const UserProfile = () => {
 
                 {/* Main Profile Card - Large & Centered */}
                 <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-                    <div className="h-32 bg-gradient-to-r from-blue-600 to-indigo-700"></div>
+                    <div className="h-32 bg-gradient-to-r from-blue-600 to-blue-800"></div>
                     <div className="px-8 pb-8 relative">
                         <div className="absolute -top-16 left-8">
                             <div className="w-32 h-32 bg-white rounded-full p-1 shadow-lg">
@@ -156,7 +156,7 @@ const UserProfile = () => {
 
                                 <button
                                     type="submit"
-                                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-lg transform transition active:scale-95"
+                                    className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-3.5 rounded-xl shadow-lg transform transition active:scale-95"
                                 >
                                     Reset Password
                                 </button>

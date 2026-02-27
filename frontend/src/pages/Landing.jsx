@@ -8,9 +8,9 @@ const Landing = () => {
 
             {/* Background Decoration */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-100 rounded-full blur-3xl opacity-30 animate-pulse"></div>
-                <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-200 rounded-full blur-3xl opacity-20"></div>
-                <div className="absolute top-[20%] left-[10%] w-24 h-24 bg-blue-500 rounded-full blur-xl opacity-10"></div>
+                <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-100 rounded-full blur-3xl opacity-30"></div>
+                <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-100 rounded-full blur-3xl opacity-20"></div>
+                <div className="absolute top-[20%] left-[10%] w-24 h-24 bg-blue-600 rounded-full blur-xl opacity-10"></div>
 
                 {/* Tech Grid Pattern */}
                 <div className="absolute inset-0 opacity-[0.03]"
@@ -21,7 +21,7 @@ const Landing = () => {
             {/* Navbar */}
             <nav className="relative z-10 flex justify-between items-center py-5 px-8 md:px-16 backdrop-blur-sm bg-white/70 sticky top-0 border-b border-gray-100">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-700 to-blue-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                     </div>
                     <span className="text-xl font-bold tracking-tight text-slate-900">Pydah<span className="text-blue-600">Fees</span></span>
@@ -44,7 +44,7 @@ const Landing = () => {
 
                         <h1 className="text-4xl md:text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
                             Powering the <br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 animate-gradient-x">
+                            <span className="text-blue-600">
                                 Future of Education
                             </span>
                         </h1>
@@ -82,7 +82,7 @@ const Landing = () => {
 
                     {/* Hero Visual / Placeholder */}
                     <div className="relative">
-                        <div className="absolute inset-0 bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-3xl rotate-2 opacity-10 scale-95 blur-sm"></div>
+                        <div className="absolute inset-0 bg-blue-600 rounded-3xl rotate-2 opacity-10 scale-95 blur-sm"></div>
                         <div className="relative bg-white/80 backdrop-blur-xl border border-white/50 p-2 rounded-3xl shadow-2xl ring-1 ring-gray-900/5">
                             {/* Browser Mockup Header */}
                             <div className="h-10 border-b border-gray-100 flex items-center px-4 gap-2">
@@ -181,7 +181,7 @@ const Landing = () => {
                 <div className="max-w-7xl mx-auto">
                     <div className="mb-20">
                         <h2 className="text-4xl font-bold text-slate-900 mb-6">Engineered for <br /> <span className="text-blue-600">Excellence</span></h2>
-                        <div className="h-1 w-20 bg-gradient-to-r from-blue-600 to-cyan-400 rounded-full"></div>
+                        <div className="h-1 w-20 bg-blue-600 rounded-full"></div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
