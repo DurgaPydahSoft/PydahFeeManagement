@@ -57,7 +57,6 @@ const ReminderConfiguration = () => {
         smsTemplateId: '',
         emailTemplateId: '',
         enableSMS: true,
-        enableSMS: true,
         enableEmail: false
     });
 
