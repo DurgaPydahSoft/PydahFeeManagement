@@ -143,10 +143,10 @@ const getTransactionReports = async (req, res) => {
                     amount: tx.amount,
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
-                    pinNo: collegeMap[sId] ? collegeMap[sId].pin_no : '-', // Note: SQL fetch might not have pin_no yet, we'll fix below
-                    course: tx.course || 'N/A',
-                    branch: tx.branch || 'N/A',
-                    studentYear: tx.studentYear || 'N/A'
+                    pinNo: collegeData ? collegeData.pin_no : '-',
+                    course: collegeData && collegeData.course ? collegeData.course : 'N/A',
+                    branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
+                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A'
                 });
 
                 // Fee Head Breakdown (Count DEBIT amounts usually for "Collection Report")
