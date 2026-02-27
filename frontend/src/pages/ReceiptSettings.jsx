@@ -102,9 +102,69 @@ const ReceiptSettings = () => {
                                         <p className="text-sm text-gray-500">Show college name and address at the top of the receipt.</p>
                                     </div>
                                     <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" checked={settings.showCollegeHeader} onChange={handleToggleHeader} />
+                                        <input type="checkbox" className="sr-only peer" checked={settings.showCollegeHeader !== false} onChange={handleToggleHeader} />
                                         <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                                     </label>
+                                </div>
+
+                                <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <h3 className="font-semibold text-gray-700 mb-2">Paper Size</h3>
+                                        <p className="text-sm text-gray-500 mb-3">Select the physical paper size used for printing.</p>
+                                        <div className="flex space-x-4">
+                                            <label className="flex items-center space-x-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="paperSize"
+                                                    value="A4"
+                                                    checked={!settings.paperSize || settings.paperSize === 'A4'}
+                                                    onChange={() => setSettings({ ...settings, paperSize: 'A4' })}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm font-medium text-gray-700">A4 Size</span>
+                                            </label>
+                                            <label className="flex items-center space-x-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="paperSize"
+                                                    value="A5"
+                                                    checked={settings.paperSize === 'A5'}
+                                                    onChange={() => setSettings({ ...settings, paperSize: 'A5' })}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm font-medium text-gray-700">A5 Size</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <h3 className="font-semibold text-gray-700 mb-2">Copies Per Page</h3>
+                                        <p className="text-sm text-gray-500 mb-3">Number of receipts printed per sheet.</p>
+                                        <div className="flex space-x-4">
+                                            <label className="flex items-center space-x-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="copiesPerPage"
+                                                    value="1"
+                                                    checked={settings.copiesPerPage === 1}
+                                                    onChange={() => setSettings({ ...settings, copiesPerPage: 1 })}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm font-medium text-gray-700">1 Copy</span>
+                                            </label>
+                                            <label className="flex items-center space-x-2 cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="copiesPerPage"
+                                                    value="2"
+                                                    checked={!settings.copiesPerPage || settings.copiesPerPage === 2}
+                                                    onChange={() => setSettings({ ...settings, copiesPerPage: 2 })}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm font-medium text-gray-700">2 Copies</span>
+                                            </label>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

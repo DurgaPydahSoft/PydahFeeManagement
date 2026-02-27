@@ -24,7 +24,7 @@ const getSettings = async (req, res) => {
 // @route   PUT /api/receipt-settings
 // @access  Private (Admin)
 const updateSettings = async (req, res) => {
-  const { showCollegeHeader, maskedFeeHeads, maskName } = req.body;
+  const { showCollegeHeader, maskedFeeHeads, maskName, paperSize, copiesPerPage } = req.body;
   console.log('Update Receipt Settings Body:', req.body);
 
   try {
@@ -36,7 +36,9 @@ const updateSettings = async (req, res) => {
         $set: {
           showCollegeHeader: showCollegeHeader,
           maskedFeeHeads: maskedFeeHeads,
-          maskName: maskName || 'Processing Fee'
+          maskName: maskName || 'Processing Fee',
+          paperSize: paperSize || 'A4',
+          copiesPerPage: copiesPerPage || 2
         }
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }

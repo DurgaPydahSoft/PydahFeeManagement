@@ -19,11 +19,13 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
     const maskedFeeHeads = settings?.maskedFeeHeads || [];
     const maskName = settings?.maskName || 'Processing Fee';
 
+    // Configuration defaults if undefined
+    const copies = settings?.copiesPerPage || 2;
     // Helper component for a single receipt copy
     const ReceiptOneCopy = ({ copyTitle }) => (
         <div style={{
             padding: '20px 40px',
-            height: '48%', // Roughly half page
+            height: copies === 1 ? '95%' : '48%', // Extend to full layout if 1 copy
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
@@ -140,6 +142,19 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
         </div>
     );
 
+    // Configuration defaults if undefined
+    const paperSizeStr = settings?.paperSize || 'A4';
+
+    // Determine layout variables
+    // A5 landcape requires us to just use A5 as the paper size typically, or "A5 landscape". 
+    // Browsers handle @page { size: A5 landscape; } well.
+    const pageCssSize = paperSizeStr === 'A5' ? 'A5 landscape' : 'A4';
+
+    // For container heights
+    // If 1 copy, we want it to take 100vh (full page)
+    // If 2 copies, we want each to take 50vh (half page)
+    const copyHeight = copies === 1 ? '100vh' : '50vh';
+
     return (
         <div ref={ref} style={{
             width: '100%',
@@ -152,29 +167,33 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
         }}>
             <style type="text/css" media="print">
                 {`
-                    @page { size: A4; margin: 0; }
+                    @page { size: ${pageCssSize}; margin: 0; }
                     body { -webkit-print-color-adjust: exact; margin: 0; height: 100vh; }
                 `}
             </style>
 
             {/* Copy 1: Student Copy */}
-            <div style={{ height: '50vh', position: 'relative' }}>
+            <div style={{ height: copyHeight, position: 'relative' }}>
                 <ReceiptOneCopy copyTitle="STUDENT COPY" />
 
-                {/* Dotted Separator Line */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: '20px',
-                    right: '20px',
-                    borderBottom: '2px dashed #ccc'
-                }}></div>
+                {/* Dotted Separator Line (Only show if we have a second copy below) */}
+                {copies === 2 && (
+                    <div style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: '20px',
+                        right: '20px',
+                        borderBottom: '2px dashed #ccc'
+                    }}></div>
+                )}
             </div>
 
-            {/* Copy 2: Office Copy */}
-            <div style={{ height: '50vh', paddingTop: '10px' }}>
-                <ReceiptOneCopy copyTitle="OFFICE COPY" />
-            </div>
+            {/* Copy 2: Office Copy (Only if requested) */}
+            {copies === 2 && (
+                <div style={{ height: copyHeight, paddingTop: '10px' }}>
+                    <ReceiptOneCopy copyTitle="OFFICE COPY" />
+                </div>
+            )}
         </div>
     );
 });

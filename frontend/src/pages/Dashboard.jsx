@@ -32,7 +32,11 @@ const Dashboard = () => {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/dashboard-stats`);
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/dashboard-stats`, {
+                    headers: {
+                        Authorization: `Bearer ${user.token}`
+                    }
+                });
                 setStats(res.data);
             } catch (error) {
                 console.error("Error fetching dashboard stats", error);
@@ -48,7 +52,7 @@ const Dashboard = () => {
     const kpis = [
         {
             label: "Today's Collection",
-            value: `₹${stats?.collections?.today.toLocaleString() || 0}`, 
+            value: `₹${stats?.collections?.today.toLocaleString() || 0}`,
             icon: Calendar,
             color: "border-blue-500",
             iconColor: "text-blue-500"
