@@ -9,8 +9,8 @@ export default defineConfig({
     transformer: 'lightningcss',
     lightningcss: {
       targets: {
-        chrome: 80,
-        safari: 14
+        chrome: 50,
+        safari: 12
       }
     }
   }
