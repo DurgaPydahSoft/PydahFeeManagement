@@ -52,21 +52,21 @@ const Dashboard = () => {
     const kpis = [
         {
             label: "Today's Collection",
-            value: `₹${stats?.collections?.today.toLocaleString() || 0}`,
+            value: `${stats?.collections?.today.toLocaleString() || 0}`,
             icon: Calendar,
             color: "border-blue-500",
             iconColor: "text-blue-500"
         },
         {
             label: "Monthly Collection",
-            value: `₹${stats?.collections?.monthly.toLocaleString() || 0}`,
+            value: `${stats?.collections?.monthly.toLocaleString() || 0}`,
             icon: TrendingUp,
             color: "border-emerald-500",
             iconColor: "text-emerald-500"
         },
         {
             label: "Total Collection",
-            value: `₹${stats?.collections?.total.toLocaleString() || 0}`,
+            value: `${stats?.collections?.total.toLocaleString() || 0}`,
             icon: DollarSign,
             color: "border-indigo-500",
             iconColor: "text-indigo-500"
@@ -147,7 +147,7 @@ const Dashboard = () => {
                                                         {stats?.collegeWise?.map((c, i) => (
                                                             <tr key={i} className="hover:bg-slate-50 transition-colors group">
                                                                 <td className="px-4 py-2 text-slate-600 font-bold max-w-[150px] truncate group-hover:text-indigo-600 text-xs">{c.name}</td>
-                                                                <td className="px-4 py-2 text-right font-black text-slate-800">₹{c.amount.toLocaleString()}</td>
+                                                                <td className="px-4 py-2 text-right font-black text-slate-800">{c.amount.toLocaleString()}</td>
                                                             </tr>
                                                         )) || <tr><td colSpan="2" className="p-4 text-center text-slate-400">No data available</td></tr>}
                                                     </tbody>
@@ -175,7 +175,7 @@ const Dashboard = () => {
                                                         {stats?.courseWise?.map((c, i) => (
                                                             <tr key={i} className="hover:bg-slate-50 transition-colors group">
                                                                 <td className="px-4 py-2 text-slate-600 font-bold truncate max-w-[150px] group-hover:text-emerald-600 text-xs">{c.name}</td>
-                                                                <td className="px-4 py-2 text-right font-black text-slate-800">₹{c.amount.toLocaleString()}</td>
+                                                                <td className="px-4 py-2 text-right font-black text-slate-800">{c.amount.toLocaleString()}</td>
                                                             </tr>
                                                         )) || <tr><td colSpan="2" className="p-4 text-center text-slate-400">No data available</td></tr>}
                                                     </tbody>
@@ -215,7 +215,7 @@ const Dashboard = () => {
                                                                     {tx.paymentMode}
                                                                 </span>
                                                             </td>
-                                                            <td className="px-4 py-2 text-right font-black text-slate-900 text-xs">₹{tx.amount.toLocaleString()}</td>
+                                                            <td className="px-4 py-2 text-right font-black text-slate-900 text-xs">{tx.amount.toLocaleString()}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>

@@ -106,29 +106,29 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
 
                 {/* Cash */}
                 <td className="py-4 px-6 text-right font-medium text-emerald-600">
-                    ₹{Number(row.cashAmount || 0).toLocaleString()}
+                    {Number(row.cashAmount || 0).toLocaleString()}
                 </td>
 
                 {/* Bank */}
                 <td className="py-4 px-6 text-right font-medium text-indigo-600">
-                    ₹{Number(row.bankAmount || 0).toLocaleString()}
+                    {Number(row.bankAmount || 0).toLocaleString()}
                 </td>
 
                 {/* Concession */}
                 <td className="py-4 px-6 text-right font-medium text-purple-600">
-                    ₹{Number(row.creditAmount || 0).toLocaleString()}
+                    {Number(row.creditAmount || 0).toLocaleString()}
                 </td>
 
                 {/* Net Total */}
                 <td className="py-4 px-6 text-right">
                     <span className="text-sm font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                        ₹{Number(netTotal || 0).toLocaleString()}
+                        {Number(netTotal || 0).toLocaleString()}
                     </span>
                 </td>
 
                 {/* Old Total Amount (Hidden or Removed? Keeping for compatibility if needed, but NetTotal is what reflects Collection) */}
                 {/* <td className="py-4 px-6 text-right font-medium text-gray-400 line-through decoration-red-400">
-                    ₹{Number(row.totalAmount || 0).toLocaleString()}
+                    {Number(row.totalAmount || 0).toLocaleString()}
                 </td> */}
 
 
@@ -170,7 +170,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                                     }, {})).map(([name, amount], i) => (
                                         <div key={i} className="flex flex-col p-3 rounded bg-gray-50 border border-gray-100">
                                             <span className="text-[10px] text-gray-500 font-bold uppercase truncate mb-1" title={name}>{name}</span>
-                                            <span className="text-sm font-bold text-gray-800">₹{Number(amount).toLocaleString()}</span>
+                                            <span className="text-sm font-bold text-gray-800">{Number(amount).toLocaleString()}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -226,7 +226,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                                                         </span>
                                                     </td>
                                                     <td className={`px-4 py-2 text-right font-bold ${tx.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-gray-900'}`}>
-                                                        {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                                                        {tx.transactionType === 'CREDIT' ? '-' : ''}{Number(tx.amount).toLocaleString()}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -445,26 +445,26 @@ const Reports = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <StatCard
                                 title="Net Collection"
-                                value={`₹${Number(summary.totalConfirm).toLocaleString()}`}
+                                value={`${Number(summary.totalConfirm).toLocaleString()}`}
                                 color="blue"
                                 icon={TrendingUp}
                             />
                             <StatCard
                                 title="Cash Received"
-                                value={`₹${Number(summary.totalCash || 0).toLocaleString()}`}
+                                value={`${Number(summary.totalCash || 0).toLocaleString()}`}
                                 color="green"
                                 icon={Wallet}
                             />
                             <StatCard
                                 title="Bank Transfers"
-                                value={`₹${Number(summary.totalBank || 0).toLocaleString()}`}
+                                value={`${Number(summary.totalBank || 0).toLocaleString()}`}
                                 color="indigo"
                                 icon={Landmark}
                             />
                             {/* Added Concession Stat */}
                             <StatCard
                                 title="Concessions"
-                                value={`₹${Number(summary.totalCredit || 0).toLocaleString()}`}
+                                value={`${Number(summary.totalCredit || 0).toLocaleString()}`}
                                 color="purple"
                                 icon={CreditCard}
                             />
@@ -598,16 +598,16 @@ const Reports = () => {
                                                 <td className="py-4 px-6 text-right font-bold text-sm text-gray-800">{summary.count}</td>
 
                                                 <td className="py-4 px-6 text-right font-bold text-sm text-emerald-600">
-                                                    ₹{Number(summary.totalCash || 0).toLocaleString()}
+                                                    {Number(summary.totalCash || 0).toLocaleString()}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-bold text-sm text-indigo-600">
-                                                    ₹{Number(summary.totalBank || 0).toLocaleString()}
+                                                    {Number(summary.totalBank || 0).toLocaleString()}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-bold text-sm text-purple-700">
-                                                    ₹{Number(summary.totalCredit || 0).toLocaleString()}
+                                                    {Number(summary.totalCredit || 0).toLocaleString()}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-extrabold text-lg text-blue-900">
-                                                    ₹{Number(summary.totalConfirm).toLocaleString()}
+                                                    {Number(summary.totalConfirm).toLocaleString()}
                                                 </td>
 
                                                 {(activeTab === 'cashier' || activeTab === 'daily') && <td></td>}
