@@ -162,6 +162,49 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
                 </div>
             )}
 
+            {/* 4. Individual Transactions Table (NEW) */}
+            {data.transactions && data.transactions.length > 0 && (
+                <div style={{ marginTop: '20px' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Individual Transactions Breakdown
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th>S.No</th>
+                                <th>Receipt #</th>
+                                <th>Student Name</th>
+                                <th>Pin No</th>
+                                <th>Course/Branch</th>
+                                <th>Year</th>
+                                <th>Type</th>
+                                <th>Mode</th>
+                                <th style={{ textAlign: 'right' }}>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {data.transactions.map((tx, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{tx.receiptNo}</td>
+                                    <td>{tx.studentName}</td>
+                                    <td>{tx.pinNo}</td>
+                                    <td>{tx.course} - {tx.branch}</td>
+                                    <td>{tx.studentYear}</td>
+                                    <td style={{ fontWeight: tx.transactionType === 'CREDIT' ? 'bold' : 'normal', fontStyle: tx.transactionType === 'CREDIT' ? 'italic' : 'normal' }}>
+                                        {tx.transactionType === 'CREDIT' ? 'Concession' : 'Payment'}
+                                    </td>
+                                    <td>{tx.paymentMode}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                        {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
             {/* Footer Signatures */}
             <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                 <div style={{ textAlign: 'center' }}>

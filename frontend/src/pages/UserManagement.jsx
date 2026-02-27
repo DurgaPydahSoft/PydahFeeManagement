@@ -138,32 +138,7 @@ const UserManagement = () => {
         prevRoleRef.current = formData.role;
     }, [formData.role]);
 
-    const handlePermissionToggle = (path) => {
-        let currentPermissions = formData.permissions || [];
 
-        if (currentPermissions.includes(path)) {
-            // Unchecking
-            currentPermissions = currentPermissions.filter(p => p !== path);
-
-            // If unchecking Fee Collection, also remove sub-permissions
-            if (path === '/fee-collection') {
-                currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession');
-            }
-        } else {
-            // Checking
-            currentPermissions = [...currentPermissions, path];
-
-            // If checking Fee Collection, auto-select both sub-permissions by default
-            // If checking Fee Collection, auto-select both sub-permissions by default (unless cashier)
-            if (path === '/fee-collection') {
-                if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
-                if (formData.role !== 'cashier' && !currentPermissions.includes('fee_collection_concession')) {
-                    currentPermissions.push('fee_collection_concession');
-                }
-            }
-        }
-        setFormData({ ...formData, permissions: currentPermissions });
-    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -403,7 +378,35 @@ const UserManagement = () => {
                                                 <input
                                                     type="checkbox"
                                                     checked={(formData.permissions || []).includes(page.path)}
-                                                    onChange={() => handlePermissionToggle(page.path)}
+                                                    onChange={(() => {
+                                                        const handlePermissionToggle = (path) => {
+                                                            let currentPermissions = formData.permissions || [];
+                                                            if (currentPermissions.includes(path)) {
+                                                                currentPermissions = currentPermissions.filter(p => p !== path);
+                                                                if (path === '/fee-collection') {
+                                                                    currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession');
+                                                                }
+                                                                if (path === '/reports') {
+                                                                    currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary');
+                                                                }
+                                                            } else {
+                                                                currentPermissions = [...currentPermissions, path];
+                                                                if (path === '/fee-collection') {
+                                                                    if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
+                                                                    if (formData.role !== 'cashier' && !currentPermissions.includes('fee_collection_concession')) {
+                                                                        currentPermissions.push('fee_collection_concession');
+                                                                    }
+                                                                }
+                                                                if (path === '/reports') {
+                                                                    if (!currentPermissions.includes('reports_daily_collection')) currentPermissions.push('reports_daily_collection');
+                                                                    if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
+                                                                    if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
+                                                                }
+                                                            }
+                                                            setFormData({ ...formData, permissions: currentPermissions });
+                                                        };
+                                                        return () => handlePermissionToggle(page.path);
+                                                    })()}
                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                 />
                                                 <span className="text-sm text-gray-700 font-medium">{page.name}</span>
@@ -416,7 +419,15 @@ const UserManagement = () => {
                                                         <input
                                                             type="checkbox"
                                                             checked={(formData.permissions || []).includes('fee_collection_pay')}
-                                                            onChange={() => handlePermissionToggle('fee_collection_pay')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('fee_collection_pay')) p = p.filter(x => x !== 'fee_collection_pay');
+                                                                    else p = [...p, 'fee_collection_pay'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
                                                             className="rounded text-blue-600 focus:ring-blue-500"
                                                         />
                                                         <span className="text-xs text-gray-600">Enable Fee Collection</span>
@@ -425,10 +436,75 @@ const UserManagement = () => {
                                                         <input
                                                             type="checkbox"
                                                             checked={(formData.permissions || []).includes('fee_collection_concession')}
-                                                            onChange={() => handlePermissionToggle('fee_collection_concession')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('fee_collection_concession')) p = p.filter(x => x !== 'fee_collection_concession');
+                                                                    else p = [...p, 'fee_collection_concession'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
                                                             className="rounded text-blue-600 focus:ring-blue-500"
                                                         />
                                                         <span className="text-xs text-gray-600">Enable Fee Concession</span>
+                                                    </label>
+                                                </div>
+                                            )}
+
+                                            {/* Sub-Permissions for Reports */}
+                                            {page.path === '/reports' && (formData.permissions || []).includes('/reports') && (
+                                                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('reports_daily_collection')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('reports_daily_collection')) p = p.filter(x => x !== 'reports_daily_collection');
+                                                                    else p = [...p, 'reports_daily_collection'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Daily Collection</span>
+                                                    </label>
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('reports_cashier_summary')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('reports_cashier_summary')) p = p.filter(x => x !== 'reports_cashier_summary');
+                                                                    else p = [...p, 'reports_cashier_summary'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Cashier Summary</span>
+                                                    </label>
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('reports_fee_head_summary')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('reports_fee_head_summary')) p = p.filter(x => x !== 'reports_fee_head_summary');
+                                                                    else p = [...p, 'reports_fee_head_summary'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Fee Head Summary</span>
                                                     </label>
                                                 </div>
                                             )}

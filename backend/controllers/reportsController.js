@@ -13,6 +13,11 @@ const getTransactionReports = async (req, res) => {
         // Base matching condition
         const matchStage = {};
 
+        // 🚨 CASHIER PRIVACY: If the user is a cashier, they can only see their own transactions.
+        if (req.user && req.user.role === 'cashier') {
+            matchStage.collectedBy = req.user.username;
+        }
+
         // Date Filter
         if (startDate || endDate) {
             matchStage.createdAt = {};
@@ -72,10 +77,17 @@ const getTransactionReports = async (req, res) => {
             if (studentIds.size > 0) {
                 const ids = Array.from(studentIds).map(id => `'${id}'`).join(',');
                 try {
-                    const [students] = await db.query(`SELECT admission_number, college FROM students WHERE admission_number IN (${ids})`);
+                    const [students] = await db.query(`SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`);
                     students.forEach(s => {
-                        collegeMap[String(s.admission_number).trim()] = s.college || 'Unknown';
-                        collegeMap[String(s.admission_number).trim().toLowerCase()] = s.college || 'Unknown';
+                        const sData = {
+                            college: s.college || 'Unknown',
+                            pin_no: s.pin_no || '-',
+                            course: s.course || 'N/A',
+                            branch: s.branch || 'N/A',
+                            current_year: s.current_year || 'N/A'
+                        };
+                        collegeMap[String(s.admission_number).trim()] = sData;
+                        collegeMap[String(s.admission_number).trim().toLowerCase()] = sData;
                     });
                 } catch (sqlErr) {
                     console.error("SQL Error fetching colleges:", sqlErr);
@@ -89,7 +101,8 @@ const getTransactionReports = async (req, res) => {
             transactions.forEach(tx => {
                 const cashier = tx.collectedByName || 'Unknown';
                 const sId = String(tx.studentId).trim();
-                const college = collegeMap[sId] || collegeMap[sId.toLowerCase()] || 'Unknown'; // Default college if not found
+                const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
+                const college = collegeData ? collegeData.college : 'Unknown';
                 const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
                 const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
                 const amount = tx.amount || 0;
@@ -100,16 +113,14 @@ const getTransactionReports = async (req, res) => {
                 if (!cashierGroups[cashier]) {
                     cashierGroups[cashier] = {
                         _id: cashier,
-                        totalAmount: 0, // collected - concession? Or just sum of all? Usually reports show Collection. Let's use DEBIT as Total Collected.
-                        // Wait, "Total Amount" usually implies Net Collection (Debit). 
-                        // Let's stick to standard: totalAmount = Sum of Debits? 
-                        // Actually, let's track separately.
+                        totalAmount: 0,
                         debitAmount: 0,
                         creditAmount: 0,
                         cashAmount: 0,
                         bankAmount: 0,
                         totalCount: 0,
-                        feeHeadsMap: {}
+                        feeHeadsMap: {},
+                        transactions: [] // <-- Add transactions array
                     };
                 }
 
@@ -124,6 +135,19 @@ const getTransactionReports = async (req, res) => {
                 if (isCredit) {
                     group.creditAmount += amount;
                 }
+
+                // Add this tx to the group's transactions list
+                group.transactions.push({
+                    receiptNo: tx.receiptNumber || '-',
+                    studentName: tx.studentName,
+                    amount: tx.amount,
+                    paymentMode: tx.paymentMode,
+                    transactionType: tx.transactionType,
+                    pinNo: collegeMap[sId] ? collegeMap[sId].pin_no : '-', // Note: SQL fetch might not have pin_no yet, we'll fix below
+                    course: tx.course || 'N/A',
+                    branch: tx.branch || 'N/A',
+                    studentYear: tx.studentYear || 'N/A'
+                });
 
                 // Fee Head Breakdown (Count DEBIT amounts usually for "Collection Report")
                 // If the user wants Concession breakdown, we might need separate tracking.

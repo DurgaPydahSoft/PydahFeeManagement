@@ -304,7 +304,13 @@ const Reports = () => {
             else if (activeTab === 'cashier') groupBy = 'cashier';
             else if (activeTab === 'feeHead') groupBy = 'feeHead';
 
+            const userStr = localStorage.getItem('user');
+            const token = userStr ? JSON.parse(userStr).token : null;
+
             const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/transactions`, {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                },
                 params: { startDate, endDate, groupBy: groupBy === 'daily' ? 'day' : groupBy }
             });
             setData(res.data);
@@ -370,15 +376,33 @@ const Reports = () => {
         XLSX.writeFile(wb, `Report_${activeTab}_${startDate}_to_${endDate}.csv`);
     };
 
-    useEffect(() => {
-        fetchReport();
-    }, [activeTab, startDate, endDate]);
+    const user = JSON.parse(localStorage.getItem('user')) || {};
+    const role = user.role;
+    const permissions = user.permissions || [];
 
-    const tabs = [
-        { id: 'daily', label: 'Daily Collection' },
-        { id: 'cashier', label: 'Cashier Summary' },
-        { id: 'feeHead', label: 'Fee Head Summary' },
+    const allTabs = [
+        { id: 'daily', label: 'Daily Collection', permission: 'reports_daily_collection' },
+        { id: 'cashier', label: 'Cashier Summary', permission: 'reports_cashier_summary' },
+        { id: 'feeHead', label: 'Fee Head Summary', permission: 'reports_fee_head_summary' },
     ];
+
+    const tabs = role === 'superadmin'
+        ? allTabs
+        : allTabs.filter(tab => permissions.includes(tab.permission));
+
+    useEffect(() => {
+        // Automatically switch to the first available tab if the active one isn't permitted
+        if (tabs.length > 0 && !tabs.find(t => t.id === activeTab)) {
+            setActiveTab(tabs[0].id);
+        }
+    }, [tabs, activeTab]);
+
+    useEffect(() => {
+        // Only fetch if tab is valid
+        if (tabs.length > 0 && tabs.find(t => t.id === activeTab)) {
+            fetchReport();
+        }
+    }, [activeTab, startDate, endDate]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
