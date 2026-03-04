@@ -441,6 +441,11 @@ const FeeCollection = () => {
                                                     <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-purple-200">
                                                         {s.stud_type || 'Regular'}
                                                     </span>
+                                                    {s.caste && (
+                                                        <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-orange-200">
+                                                            {s.caste}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                             <span className={`px-2 py-1 text-[10px] font-bold rounded-md uppercase tracking-tighter ${s.student_status === 'Active' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}`}>
@@ -562,6 +567,12 @@ const FeeCollection = () => {
                                                     <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Type:</span>
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
+                                                {student.caste && (
+                                                    <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
+                                                        <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Caste:</span>
+                                                        <span className="font-bold text-orange-300 uppercase">{student.caste}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
