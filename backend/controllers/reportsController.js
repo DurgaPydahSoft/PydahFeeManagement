@@ -146,7 +146,9 @@ const getTransactionReports = async (req, res) => {
                     pinNo: collegeData ? collegeData.pin_no : '-',
                     course: collegeData && collegeData.course ? collegeData.course : 'N/A',
                     branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
-                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A'
+                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
+                    feeHead: fhName,
+                    college: college
                 });
 
                 // Fee Head Breakdown (Count DEBIT amounts usually for "Collection Report")
@@ -167,8 +169,15 @@ const getTransactionReports = async (req, res) => {
                     fhEntry.count++;
 
                     // College Breakdown for this Fee Head
-                    if (!fhEntry.colleges[college]) fhEntry.colleges[college] = 0;
-                    fhEntry.colleges[college] += amount;
+                    if (!fhEntry.colleges[college]) fhEntry.colleges[college] = { total: 0, courses: {} };
+                    if (typeof fhEntry.colleges[college] === 'number') {
+                        // Fallback for safety if somehow initialized as number
+                        fhEntry.colleges[college] = { total: fhEntry.colleges[college], courses: { 'N/A': fhEntry.colleges[college] } };
+                    }
+                    const cName = collegeData && collegeData.course ? collegeData.course : 'N/A';
+                    if (!fhEntry.colleges[college].courses[cName]) fhEntry.colleges[college].courses[cName] = 0;
+                    fhEntry.colleges[college].courses[cName] += amount;
+                    fhEntry.colleges[college].total += amount;
                 }
             });
 

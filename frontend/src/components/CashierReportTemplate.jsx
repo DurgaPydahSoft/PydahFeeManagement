@@ -1,29 +1,58 @@
 import React, { forwardRef } from 'react';
 
-const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
-    // 1. Pivot Data for College-wise Breakdown
-    // Structure: { "College Name": { total: 0, feeHeads: { "Fee Head Name": amount } } }
+const CashierReportTemplate = forwardRef(({ data, dateRange, options = { mode: 'all', showTransactions: true } }, ref) => {
+    // Determine active transactions based on mode selection
+    const rawTransactions = data.transactions || [];
+    const filteredTransactions = rawTransactions.filter(tx => {
+        if (options.mode === 'all') return true;
+        if (options.mode === 'Cash') return tx.paymentMode === 'Cash';
+        if (options.mode === 'Online') return tx.paymentMode !== 'Cash';
+        return true;
+    });
+
+    // Re-calculate Summary Stats if filtered
+    const isFiltered = options.mode !== 'all';
+
+    // Summary Data for display
+    const displayData = {
+        totalCount: filteredTransactions.length,
+        debitAmount: filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        creditAmount: filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        cashAmount: filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        bankAmount: filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+    };
+
+    // 1. Pivot Data for College-wise Breakdown from filtered transactions
     const collegeData = {};
-    const allFeeHeadNames = new Set();
+    const feeHeadTotals = {}; // Aggregated from transactions for Global Summary
 
-    if (data.feeHeads) {
-        data.feeHeads.forEach(fh => {
-            allFeeHeadNames.add(fh.name);
-            if (fh.colleges) {
-                Object.entries(fh.colleges).forEach(([colName, amount]) => {
-                    if (!collegeData[colName]) {
-                        collegeData[colName] = { total: 0, feeHeads: {} };
-                    }
-                    collegeData[colName].feeHeads[fh.name] = amount;
-                    collegeData[colName].total += amount;
-                });
+    filteredTransactions.forEach(tx => {
+        // Track global fee head totals for DEBIT only (consistent with collection report)
+        if (tx.transactionType === 'DEBIT') {
+            const fhName = tx.feeHead || 'Unknown';
+            feeHeadTotals[fhName] = (feeHeadTotals[fhName] || 0) + (tx.amount || 0);
+
+            // College Data
+            const colName = tx.college || 'Unknown';
+            const courseName = tx.course || 'N/A';
+            const amount = tx.amount || 0;
+
+            if (!collegeData[colName]) collegeData[colName] = { total: 0, courses: {} };
+            if (!collegeData[colName].courses[courseName]) {
+                collegeData[colName].courses[courseName] = { total: 0, feeHeads: {} };
             }
-        });
-    }
 
-    // Sort Colleges and Fee Heads for consistent display
+            collegeData[colName].courses[courseName].feeHeads[fhName] = (collegeData[colName].courses[courseName].feeHeads[fhName] || 0) + amount;
+            collegeData[colName].courses[courseName].total += amount;
+            collegeData[colName].total += amount;
+        }
+    });
+
+    // Sort for display
     const sortedColleges = Object.keys(collegeData).sort();
-    const sortedFeeHeads = data.feeHeads ? [...data.feeHeads].sort((a, b) => b.amount - a.amount) : [];
+    const sortedFeeHeads = Object.entries(feeHeadTotals)
+        .map(([name, amount]) => ({ name, amount }))
+        .sort((a, b) => b.amount - a.amount);
 
     return (
         <div ref={ref} className="p-8 font-sans text-black bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
@@ -42,7 +71,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
             {/* Header */}
             <div className="print-header">
                 <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>CASHIER COLLECTION SUMMARY REPORT</p>
+                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>CASHIER COLLECTION SUMMARY REPORT {options.mode !== 'all' && `(${options.mode.toUpperCase()} ONLY)`}</p>
             </div>
 
             {/* Info Row */}
@@ -58,30 +87,57 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
             {/* 1. Overall Summary Section (Compact Grid) */}
             <div style={{ marginBottom: '20px' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                    Transaction Summary
+                    Transaction Summary {options.mode !== 'all' && `[${options.mode}]`}
                 </h3>
                 <table className="print-table">
                     <tbody>
                         <tr>
                             <th style={{ width: '25%' }}>Total Receipts</th>
-                            <td style={{ width: '25%', textAlign: 'right' }}>{data.totalCount}</td>
+                            <td style={{ width: '25%', textAlign: 'right' }}>{displayData.totalCount}</td>
                             <th style={{ width: '25%' }}>Total Collected (Debit)</th>
-                            <td style={{ width: '25%', textAlign: 'right', fontWeight: 'bold' }}>₹{Number(data.debitAmount || 0).toLocaleString()}</td>
+                            <td style={{ width: '25%', textAlign: 'right', fontWeight: 'bold' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
                         </tr>
                         <tr>
-                            <th>Cash Collected</th>
-                            <td style={{ textAlign: 'right' }}>₹{Number(data.cashAmount || 0).toLocaleString()}</td>
-                            <th>Bank Collected</th>
-                            <td style={{ textAlign: 'right' }}>₹{Number(data.bankAmount || 0).toLocaleString()}</td>
+                            {options.mode === 'all' ? (
+                                <>
+                                    <th>Cash Collected</th>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
+                                    <th>Bank Collected</th>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
+                                </>
+                            ) : options.mode === 'Cash' ? (
+                                <>
+                                    <th>Cash Collected</th>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
+                                    <th>Concessions (Credit)</th>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
+                                </>
+                            ) : (
+                                <>
+                                    <th>Bank Collected</th>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
+                                    <th>Concessions (Credit)</th>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
+                                </>
+                            )}
                         </tr>
-                        <tr>
-                            <th>Concessions (Credit)</th>
-                            <td style={{ textAlign: 'right' }}>₹{Number(data.creditAmount || 0).toLocaleString()}</td>
-                            <th style={{ backgroundColor: '#e0e0e0' }}>NET TOTAL</th>
-                            <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', backgroundColor: '#e0e0e0' }}>
-                                ₹{Number(data.totalAmount || data.debitAmount || 0).toLocaleString()}
-                            </td>
-                        </tr>
+                        {options.mode === 'all' ? (
+                            <tr>
+                                <th>Concessions (Credit)</th>
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
+                                <th style={{ backgroundColor: '#e0e0e0' }}>NET TOTAL</th>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', backgroundColor: '#e0e0e0' }}>
+                                    ₹{Number(displayData.debitAmount || 0).toLocaleString()}
+                                </td>
+                            </tr>
+                        ) : (
+                            <tr>
+                                <th style={{ backgroundColor: '#e0e0e0' }}>NET TOTAL [{options.mode.toUpperCase()}]</th>
+                                <td colSpan="3" style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '16px', backgroundColor: '#e0e0e0' }}>
+                                    ₹{Number(displayData.debitAmount || 0).toLocaleString()}
+                                </td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
             </div>
@@ -107,7 +163,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
                         ))}
                         <tr style={{ backgroundColor: '#f0f0f0', fontWeight: 'bold' }}>
                             <td style={{ textAlign: 'right' }}>Total</td>
-                            <td style={{ textAlign: 'right' }}>₹{Number(data.debitAmount || 0).toLocaleString()}</td>
+                            <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -123,10 +179,6 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                         {sortedColleges.map((collegeName, cIdx) => {
                             const colData = collegeData[collegeName];
-                            // Filter fee heads that actually have amount for this college
-                            const activeFeeHeads = Object.entries(colData.feeHeads)
-                                .filter(([_, amt]) => amt > 0)
-                                .sort((a, b) => b[1] - a[1]);
 
                             return (
                                 <div key={cIdx} style={{ breakInside: 'avoid', marginBottom: '15px', border: '1px solid #ddd', padding: '0' }}>
@@ -139,22 +191,44 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
                                         padding: '5px 8px',
                                         marginBottom: '0'
                                     }}>
-                                        <h4 style={{ margin: 0, fontSize: '12px', fontWeight: 'bold', color: '#000', textTransform: 'uppercase' }}>
+                                        <h4 style={{ margin: 0, fontSize: '11px', fontWeight: 'bold', color: '#000', textTransform: 'uppercase' }}>
                                             {collegeName}
                                         </h4>
-                                        <span style={{ fontSize: '12px', fontWeight: 'bold' }}>₹{Number(colData.total).toLocaleString()}</span>
+                                        <span style={{ fontSize: '11px', fontWeight: 'bold' }}>₹{Number(colData.total).toLocaleString()}</span>
                                     </div>
 
-                                    <table className="print-table" style={{ fontSize: '10px', width: '100%', border: 'none' }}>
-                                        <tbody>
-                                            {activeFeeHeads.map(([headName, amt], hIdx) => (
-                                                <tr key={hIdx}>
-                                                    <td style={{ border: 'none', borderBottom: '1px dotted #ccc', padding: '4px 8px' }}>{headName}</td>
-                                                    <td style={{ border: 'none', borderBottom: '1px dotted #ccc', padding: '4px 8px', textAlign: 'right' }}>₹{Number(amt).toLocaleString()}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                    {Object.entries(colData.courses)
+                                        .sort((a, b) => b[1].total - a[1].total)
+                                        .map(([courseName, courseData], crsIdx) => (
+                                            <div key={crsIdx} style={{ borderBottom: '1px solid #eee' }}>
+                                                <div style={{
+                                                    backgroundColor: '#fdfdfd',
+                                                    padding: '2px 8px',
+                                                    fontWeight: 'bold',
+                                                    fontSize: '9px',
+                                                    color: '#555',
+                                                    borderBottom: '1px solid #f0f0f0',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between'
+                                                }}>
+                                                    <span>{courseName}</span>
+                                                    <span>₹{Number(courseData.total).toLocaleString()}</span>
+                                                </div>
+                                                <table className="print-table" style={{ fontSize: '9px', width: '100%', border: 'none' }}>
+                                                    <tbody>
+                                                        {Object.entries(courseData.feeHeads)
+                                                            .filter(([_, amt]) => amt > 0)
+                                                            .sort((a, b) => b[1] - a[1])
+                                                            .map(([headName, amt], hIdx) => (
+                                                                <tr key={hIdx}>
+                                                                    <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 15px', color: '#444' }}>{headName}</td>
+                                                                    <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 8px', textAlign: 'right', width: '80px' }}>₹{Number(amt).toLocaleString()}</td>
+                                                                </tr>
+                                                            ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ))}
                                 </div>
                             );
                         })}
@@ -163,7 +237,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
             )}
 
             {/* 4. Individual Transactions Table (NEW) */}
-            {data.transactions && data.transactions.length > 0 && (
+            {options.showTransactions && filteredTransactions.length > 0 && (
                 <div style={{ marginTop: '20px' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Individual Transactions Breakdown
@@ -183,7 +257,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange }, ref) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {data.transactions.map((tx, idx) => (
+                            {filteredTransactions.map((tx, idx) => (
                                 <tr key={idx} className="compact-row">
                                     <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                                     <td>{tx.receiptNo}</td>

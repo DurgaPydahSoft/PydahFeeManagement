@@ -22,6 +22,29 @@ import {
 import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
 
+// --- Printing Helper for Modal ---
+const PrintTriggerComponent = ({ data, options, dateRange }) => {
+    const printRef = useRef();
+    const handlePrint = useReactToPrint({
+        contentRef: printRef,
+        documentTitle: `Cashier_Report_${data._id}_${Date.now()}`,
+        onAfterPrint: () => {
+            // Optional: Close modal or clear? 
+        }
+    });
+
+    return (
+        <>
+            <button id="hidden-print-trigger" onClick={handlePrint} className="hidden" />
+            <div style={{ display: 'none' }}>
+                <div style={{ display: 'block' }}>
+                    <CashierReportTemplate ref={printRef} data={data} options={options} dateRange={dateRange} />
+                </div>
+            </div>
+        </>
+    );
+};
+
 // --- Components ---
 
 const StatCard = ({ title, value, color, icon: Icon, note }) => {
@@ -47,7 +70,7 @@ const StatCard = ({ title, value, color, icon: Icon, note }) => {
     );
 };
 
-const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) => {
+const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, role, setPrintModalData }) => {
     const printRef = useRef();
     const handlePrint = useReactToPrint({
         contentRef: printRef,
@@ -136,7 +159,14 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange }) 
                 {(activeTab === 'cashier' || activeTab === 'daily') && (
                     <td className="py-4 px-6 text-right">
                         <button
-                            onClick={(e) => { e.stopPropagation(); handlePrint(); }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (activeTab === 'cashier' && role === 'cashier') {
+                                    setPrintModalData({ row, dateRange });
+                                } else {
+                                    handlePrint();
+                                }
+                            }}
                             className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
                             title="Print Report"
                         >
@@ -250,6 +280,8 @@ const Reports = () => {
     const [loading, setLoading] = useState(false);
     const [summary, setSummary] = useState({ totalConfirm: 0, count: 0 });
     const [expandedRows, setExpandedRows] = useState([]);
+    const [printModalData, setPrintModalData] = useState(null);
+    const [printOptions, setPrintOptions] = useState({ mode: 'all', showTransactions: true });
 
     const toggleRow = (idx) => {
         setExpandedRows(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
@@ -439,6 +471,105 @@ const Reports = () => {
                         </div>
                     </header>
 
+                    {/* Print Options Modal */}
+                    {printModalData && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200">
+                                <div className="p-6">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                                            <Printer size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900">Print Options</h3>
+                                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Cashier Summary Report</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-6">
+                                        {/* Payment Mode Selection */}
+                                        <div>
+                                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block mb-3">Include Collections</label>
+                                            <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl border border-gray-200">
+                                                {[
+                                                    { id: 'all', label: 'All Modes', icon: CreditCard },
+                                                    { id: 'Cash', label: 'Cash Only', icon: Wallet },
+                                                    { id: 'Online', label: 'Online Only', icon: Landmark }
+                                                ].map((mode) => (
+                                                    <button
+                                                        key={mode.id}
+                                                        onClick={() => setPrintOptions(prev => ({ ...prev, mode: mode.id }))}
+                                                        className={`
+                                                            flex flex-col items-center justify-center py-3 rounded-lg transition-all duration-200 gap-1.5
+                                                            ${printOptions.mode === mode.id
+                                                                ? 'bg-blue-600 text-white shadow-md scale-105'
+                                                                : 'text-gray-500 hover:bg-white hover:text-blue-600 shadow-sm border border-transparent'}
+                                                        `}
+                                                    >
+                                                        <mode.icon size={18} />
+                                                        <span className="text-[10px] font-bold">{mode.label}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Transactions Breakdown Toggle */}
+                                        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                            <div>
+                                                <p className="text-sm font-bold text-gray-800">Individual Transactions</p>
+                                                <p className="text-[10px] text-gray-500 font-medium">Show row-by-row breakdown in print</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setPrintOptions(prev => ({ ...prev, showTransactions: !prev.showTransactions }))}
+                                                className={`
+                                                    w-12 h-6 rounded-full p-1 transition-colors duration-200
+                                                    ${printOptions.showTransactions ? 'bg-blue-600' : 'bg-gray-300'}
+                                                `}
+                                            >
+                                                <div className={`
+                                                    w-4 h-4 bg-white rounded-full shadow-sm transform transition-transform duration-200
+                                                    ${printOptions.showTransactions ? 'translate-x-6' : 'translate-x-0'}
+                                                `} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+                                    <button
+                                        onClick={() => setPrintModalData(null)}
+                                        className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            // The handlePrint is defined inside ReportRow. 
+                                            // We need a way to trigger it.
+                                            // For simplicity, we can just use a hidden print trigger here or pass it down.
+                                            // Actually, the easiest is to have the template in the modal and useReactToPrint here.
+                                            document.getElementById('hidden-print-trigger').click();
+                                        }}
+                                        className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-900 text-white hover:bg-black transition-all shadow-lg shadow-gray-200 active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                        <Printer size={16} /> Generate Print
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Hidden template for the modal print */}
+                    <div className="hidden">
+                        {printModalData && (
+                            <PrintTriggerComponent
+                                data={printModalData.row}
+                                options={printOptions}
+                                dateRange={printModalData.dateRange}
+                            />
+                        )}
+                    </div>
+
                     <div className="max-w-[1700px] mx-auto space-y-6">
 
                         {/* 1. Stats Cards */}
@@ -585,6 +716,8 @@ const Reports = () => {
                                                     expandedRows={expandedRows}
                                                     toggleRow={toggleRow}
                                                     dateRange={{ start: startDate, end: endDate }}
+                                                    role={role}
+                                                    setPrintModalData={setPrintModalData}
                                                 />
                                             ))
                                         )}
