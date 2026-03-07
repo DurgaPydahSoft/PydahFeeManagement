@@ -39,6 +39,9 @@ const transactionSchema = mongoose.Schema({
   referenceNo: {
     type: String, // Bank RRN (Retrieval Reference Number) or Txn ID from Bank
   },
+  referenceDate: {
+    type: Date, // Date the transfer was actually made by the student/parent
+  },
   gatewayPaymentId: {
     type: String, // Razorpay Payment ID or Gateway Reference
     unique: true,

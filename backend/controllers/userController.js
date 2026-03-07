@@ -17,10 +17,13 @@ const getUsers = async (req, res) => {
 // @route   POST /api/users
 // @access  Admin
 const createUser = async (req, res) => {
+  // console.log('\n[USER CREATION DEBUG] -----------------------------------------');
+  // console.log('[USER CREATION DEBUG] Received Payload:', req.body);
   const { name, username, password, role, college, employeeId, permissions } = req.body;
 
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
+    // console.log('[USER CREATION DEBUG] Validation Failed: Missing required fields');
     return res.status(400).json({ message: 'Please fill all required fields' });
   }
 
@@ -39,9 +42,19 @@ const createUser = async (req, res) => {
 
     // Hash password ONLY if it's a local user
     if (!employeeId && password) {
+      // console.log('[USER CREATION DEBUG] Creating Local User -> Hashing Password');
       const salt = await bcrypt.genSalt(10);
       hashedPassword = await bcrypt.hash(password, salt);
+    } else if (employeeId) {
+      // console.log('[USER CREATION DEBUG] Creating HRMS-Linked User -> Skipping Password Hash');
     }
+
+    /*
+    console.log('[USER CREATION DEBUG] Creating user document mapping...', {
+      employeeId_provided: !!employeeId,
+      password_hashed: !!hashedPassword
+    });
+    */
 
     const user = await User.create({
       name,
@@ -52,6 +65,8 @@ const createUser = async (req, res) => {
       employeeId, // Link to external employee
       permissions: permissions || [] // Save permissions if provided
     });
+
+    // console.log(`[USER CREATION DEBUG] User created successfully: ${user._id}`);
 
     if (user) {
       res.status(201).json({

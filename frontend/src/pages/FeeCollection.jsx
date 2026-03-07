@@ -40,6 +40,7 @@ const FeeCollection = () => {
             bankName: '',
             instrumentDate: '',
             referenceNo: '',
+            referenceDate: '',
             paymentConfigId: ''
         };
     });
@@ -266,6 +267,7 @@ const FeeCollection = () => {
                     commonData.bankName = paymentForm.bankName;
                     commonData.instrumentDate = paymentForm.instrumentDate;
                     commonData.referenceNo = paymentForm.referenceNo;
+                    commonData.referenceDate = paymentForm.referenceDate;
                     commonData.paymentConfigId = paymentForm.paymentConfigId;
                     const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
                     if (selectedConfig) {
@@ -285,10 +287,10 @@ const FeeCollection = () => {
                     studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
                     semester: selectedFee ? selectedFee.semester : commonData.semester,
                     amount: Number(row.amount),
-                    // CRITICAL: Pass the specific Fee Remarks (e.g. "Club Fee: Coding") so backend can match it.
-                    // If user entered a global remark, append it? Or prioritize specific?
-                    // Let's use specific remarks if available (preferred for matching), or default to common.
-                    remarks: (selectedFee && selectedFee.remarks) ? selectedFee.remarks : commonData.remarks
+                    // Combine user remarks with specific fee remarks
+                    remarks: commonData.remarks
+                        ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
+                        : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
                 };
             });
 
@@ -313,7 +315,7 @@ const FeeCollection = () => {
                 ...prev,
                 remarks: '',
                 amount: '',
-                bankName: '', instrumentDate: '', referenceNo: ''
+                bankName: '', instrumentDate: '', referenceNo: '', referenceDate: ''
             }));
 
         } catch (error) {
@@ -1026,9 +1028,15 @@ const FeeCollection = () => {
                                                                     </select>
                                                                 </div>
                                                                 {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (
-                                                                    <div>
-                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
-                                                                        <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
+                                                                            <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1" title="Date the explicit transfer was actually made by the student">Reference Date *</label>
+                                                                            <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceDate || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceDate: e.target.value })} required />
+                                                                        </div>
                                                                     </div>
                                                                 )}
                                                                 {['Cheque', 'DD'].includes(paymentForm.paymentMode) && (
@@ -1053,6 +1061,17 @@ const FeeCollection = () => {
                                                         )}
                                                     </div>
                                                 )}
+
+                                                <div className="mb-3">
+                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Remarks / Notes (Optional)</label>
+                                                    <textarea
+                                                        className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
+                                                        rows="2"
+                                                        placeholder="Add any additional notes here..."
+                                                        value={paymentForm.remarks || ''}
+                                                        onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
+                                                    ></textarea>
+                                                </div>
 
                                                 <div className="pt-2">
                                                     <button
@@ -1201,6 +1220,11 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
             <td className="py-3 px-4 text-xs text-gray-500 whitespace-nowrap">
                 {new Date(transaction.createdAt).toLocaleDateString()}
                 <div className="text-[10px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                {transaction.referenceDate && (
+                    <div className="text-[10px] text-blue-600 mt-1" title="Original Transfer Date">
+                        Ref: {new Date(transaction.referenceDate).toLocaleDateString()}
+                    </div>
+                )}
             </td>
             <td className="py-3 px-4 text-xs font-medium text-gray-800">
                 {transaction.feeHead ? transaction.feeHead.name : 'Unknown Fee'}
@@ -1211,6 +1235,11 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
                 <span className="px-2 py-0.5 rounded text-[10px] border border-gray-200 bg-white text-gray-600">
                     {transaction.paymentMode}
                 </span>
+                {transaction.referenceNo && (
+                    <div className="text-[10px] text-gray-500 mt-1 max-w-[100px] truncate mx-auto" title={`Ref No: ${transaction.referenceNo}`}>
+                        {transaction.referenceNo}
+                    </div>
+                )}
             </td>
             <td className="py-3 px-4 text-center text-xs text-gray-500">
                 {transaction.studentYear ? `Yr ${transaction.studentYear}` : '-'}

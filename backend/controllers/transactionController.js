@@ -19,7 +19,8 @@ const addTransaction = async (req, res) => {
            receiptNumber, // Shared Receipt Number
            paymentMode: item.transactionType === 'CREDIT' && !item.paymentMode ? 'Waiver' : (item.paymentMode || 'Cash'),
            transactionType: item.transactionType || 'DEBIT',
-           remarks: item.remarks // Persistence of remarks is crucial for Club Fee matching
+           remarks: item.remarks, // Persistence of remarks is crucial for Club Fee matching
+           referenceDate: item.referenceDate
        }));
        
        const createdTransactions = await Transaction.insertMany(batch);
@@ -37,7 +38,7 @@ const addTransaction = async (req, res) => {
     }
 
     // SINGLE TRANSACTION (Backward Compatibility)
-    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount } = req.body;
+    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount, referenceDate } = req.body;
 
     // Validation
     if (!studentId || !amount || (transactionType !== 'CREDIT' && !feeHeadId)) {
@@ -64,10 +65,10 @@ const addTransaction = async (req, res) => {
       receiptNumber,
       collectedBy,
       collectedByName,
-      collectedByName,
       bankName: req.body.bankName,
       instrumentDate: req.body.instrumentDate,
       referenceNo: req.body.referenceNo,
+      referenceDate: referenceDate || null,
       paymentConfigId: req.body.paymentConfigId,
       depositedToAccount: req.body.depositedToAccount
     });

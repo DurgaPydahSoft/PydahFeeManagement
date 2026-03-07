@@ -128,7 +128,9 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
                 </table>
                 <div style={{ fontSize: '11px', marginTop: '5px' }}>
                     <strong>Mode:</strong> {items[0].paymentMode}
-                    {items[0].paymentMode !== 'Cash' && ` (${items[0].bankName || ''} - ${items[0].referenceNo || ''})`}
+                    {items[0].paymentMode !== 'Cash' && (
+                        ` (${items[0].bankName || ''} - ${items[0].referenceNo || ''}${items[0].referenceDate ? ` on ${new Date(items[0].referenceDate).toLocaleDateString()}` : ''})`
+                    )}
                 </div>
             </div>
 
