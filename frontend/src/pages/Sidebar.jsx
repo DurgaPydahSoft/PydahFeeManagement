@@ -124,8 +124,15 @@ const Sidebar = () => {
                                 confirmButtonText: 'Yes, logout!'
                             }).then((result) => {
                                 if (result.isConfirmed) {
+                                    const isSSO = localStorage.getItem('isSSO') === 'true';
                                     localStorage.removeItem('user');
-                                    window.location.href = '/login';
+                                    localStorage.removeItem('isSSO');
+
+                                    if (isSSO) {
+                                        window.location.href = import.meta.env.VITE_CRM_FRONTEND_URL || 'http://localhost:5173';
+                                    } else {
+                                        window.location.href = '/';
+                                    }
                                 }
                             })
                         }}

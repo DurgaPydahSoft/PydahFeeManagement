@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { User, Lock, ArrowRight, Loader } from 'lucide-react';
 
@@ -11,8 +11,38 @@ const Login = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
 
     const { username, password } = formData;
+
+    useEffect(() => {
+        const queryParams = new URLSearchParams(location.search);
+        const ssoToken = queryParams.get('token');
+
+        if (ssoToken) {
+            handleSSOLogin(ssoToken);
+        }
+    }, [location]);
+
+    const handleSSOLogin = async (token) => {
+        setLoading(true);
+        setError('');
+        try {
+            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/sso-login`, {
+                encryptedToken: token
+            });
+            if (response.data) {
+                localStorage.setItem('user', JSON.stringify(response.data));
+                localStorage.setItem('isSSO', 'true');
+                navigate('/dashboard');
+            }
+        } catch (err) {
+            setError(err.response?.data?.message || 'SSO Login failed');
+            setLoading(false);
+            // Clean up URL if token is invalid
+            navigate('/login', { replace: true });
+        }
+    };
 
     const onChange = (e) => {
         setFormData((prevState) => ({
@@ -29,6 +59,7 @@ const Login = () => {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/login`, formData);
             if (response.data) {
                 localStorage.setItem('user', JSON.stringify(response.data));
+                localStorage.removeItem('isSSO');
                 navigate('/dashboard');
             }
         } catch (err) {
