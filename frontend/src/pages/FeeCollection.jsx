@@ -717,6 +717,11 @@ const FeeCollection = () => {
                                                                             )}
                                                                         </div>
                                                                         <div className="text-[10px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
+                                                                        {fee.remarks && (
+                                                                            <div className="text-[10px] font-medium text-blue-600 mt-0.5 bg-blue-50/50 px-1.5 py-0.5 rounded border border-blue-100/50 inline-block">
+                                                                                {fee.remarks}
+                                                                            </div>
+                                                                        )}
                                                                     </td>
                                                                     <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">{fee.totalAmount.toLocaleString()}</td>
 
