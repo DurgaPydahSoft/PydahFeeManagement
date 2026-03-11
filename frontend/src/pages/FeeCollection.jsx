@@ -46,6 +46,7 @@ const FeeCollection = () => {
     });
 
     const [paymentCategory, setPaymentCategory] = useState('Cash');
+    const [splitCashAmount, setSplitCashAmount] = useState(''); // Amount for Cash portion in Split mode
     const [transactions, setTransactions] = useState([]);
 
     // Modals
@@ -114,6 +115,15 @@ const FeeCollection = () => {
             );
         });
     }, [allStudents, searchQuery]);
+    
+    // Filter Payment Configs (Bank Accounts) by selected student's Course & College
+    const relevantConfigs = useMemo(() => {
+        if (!student) return [];
+        return paymentConfigs.filter(c => 
+            c.college === student.college && 
+            c.course === student.course
+        );
+    }, [paymentConfigs, student]);
 
 
     // Print Handler
@@ -262,8 +272,10 @@ const FeeCollection = () => {
 
             // Payment Mode Details
             if (paymentForm.transactionType === 'DEBIT') {
-                commonData.paymentMode = paymentForm.paymentMode;
-                if (paymentCategory === 'Bank') {
+                if (paymentCategory === 'Cash') {
+                    commonData.paymentMode = 'Cash';
+                } else if (paymentCategory === 'Bank') {
+                    commonData.paymentMode = paymentForm.paymentMode;
                     commonData.bankName = paymentForm.bankName;
                     commonData.instrumentDate = paymentForm.instrumentDate;
                     commonData.referenceNo = paymentForm.referenceNo;
@@ -273,26 +285,83 @@ const FeeCollection = () => {
                     if (selectedConfig) {
                         commonData.depositedToAccount = selectedConfig.account_name;
                     }
+                } else if (paymentCategory === 'Split') {
+                    // Split logic handled during batch mapping
                 }
             } else {
                 commonData.paymentMode = 'Credit';
             }
 
             // Create Batch Array
-            const batchTransactions = validRows.map(row => {
-                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                return {
-                    ...commonData,
-                    feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
-                    studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
-                    semester: selectedFee ? selectedFee.semester : commonData.semester,
-                    amount: Number(row.amount),
-                    // Combine user remarks with specific fee remarks
-                    remarks: commonData.remarks
-                        ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
-                        : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
-                };
-            });
+            let batchTransactions = [];
+
+            if (paymentCategory === 'Split' && paymentForm.transactionType === 'DEBIT') {
+                const totalCash = Number(splitCashAmount) || 0;
+                const totalBank = totalSelectedAmount - totalCash;
+                
+                if (totalCash <= 0 || totalBank <= 0) {
+                    alert("Please enter a valid split amount. Both Cash and Bank portions must be greater than zero.");
+                    setIsProcessing(false);
+                    return;
+                }
+
+                validRows.forEach(row => {
+                    const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                    const rowTotal = Number(row.amount);
+                    
+                    // Proportional Split
+                    const rowCashAmount = Math.round((rowTotal * (totalCash / totalSelectedAmount)) * 100) / 100;
+                    const rowBankAmount = Math.round((rowTotal - rowCashAmount) * 100) / 100;
+
+                    const baseData = {
+                        ...commonData,
+                        feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
+                        studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
+                        semester: selectedFee ? selectedFee.semester : commonData.semester,
+                        remarks: commonData.remarks
+                            ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
+                            : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
+                    };
+
+                    // 1. Cash Part
+                    batchTransactions.push({
+                        ...baseData,
+                        amount: rowCashAmount,
+                        paymentMode: 'Cash'
+                    });
+
+                    // 2. Bank Part
+                    const bankData = {
+                        ...baseData,
+                        amount: rowBankAmount,
+                        paymentMode: paymentForm.paymentMode,
+                        bankName: paymentForm.bankName,
+                        instrumentDate: paymentForm.instrumentDate,
+                        referenceNo: paymentForm.referenceNo,
+                        referenceDate: paymentForm.referenceDate,
+                        paymentConfigId: paymentForm.paymentConfigId
+                    };
+                    const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                    if (selectedConfig) {
+                        bankData.depositedToAccount = selectedConfig.account_name;
+                    }
+                    batchTransactions.push(bankData);
+                });
+            } else {
+                batchTransactions = validRows.map(row => {
+                    const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                    return {
+                        ...commonData,
+                        feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
+                        studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
+                        semester: selectedFee ? selectedFee.semester : commonData.semester,
+                        amount: Number(row.amount),
+                        remarks: commonData.remarks
+                            ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
+                            : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
+                    };
+                });
+            }
 
             // Send as { transactions: [...] } to match Backend Batch Interface
             const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/transactions`, {
@@ -983,19 +1052,75 @@ const FeeCollection = () => {
                                                 {paymentForm.transactionType === 'DEBIT' && (
                                                     <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
-                                                        <div className="grid grid-cols-2 gap-2 mb-3">
+                                                        <div className="grid grid-cols-3 gap-2 mb-3">
                                                             <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
                                                                 <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
                                                                 <span className="font-bold text-xs text-gray-700">Cash</span>
                                                             </label>
                                                             <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { setPaymentCategory('Bank'); setPaymentForm({ ...paymentForm, paymentMode: 'UPI' }); }} />
-                                                                <span className="font-bold text-xs text-gray-700">Bank / Online</span>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { 
+                                                                    setPaymentCategory('Bank'); 
+                                                                    const newState = { ...paymentForm, paymentMode: 'UPI' };
+                                                                    
+                                                                    // Auto-select if only one config exists for this student's course
+                                                                    if (relevantConfigs.length === 1) {
+                                                                        newState.paymentConfigId = relevantConfigs[0]._id;
+                                                                        newState.bankName = relevantConfigs[0].bank_name;
+                                                                    }
+                                                                    
+                                                                    setPaymentForm(newState);
+                                                                }} />
+                                                                <span className="font-bold text-xs text-gray-700">Bank</span>
+                                                            </label>
+                                                            <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} onChange={() => { 
+                                                                    setPaymentCategory('Split'); 
+                                                                    const newState = { ...paymentForm, paymentMode: 'UPI' };
+                                                                    
+                                                                    // Auto-select if only one config exists
+                                                                    if (relevantConfigs.length === 1) {
+                                                                        newState.paymentConfigId = relevantConfigs[0]._id;
+                                                                        newState.bankName = relevantConfigs[0].bank_name;
+                                                                    }
+                                                                    
+                                                                    setPaymentForm(newState);
+                                                                    setSplitCashAmount(Math.floor(totalSelectedAmount / 2)); // Default to 50/50 split
+                                                                }} />
+                                                                <span className="font-bold text-xs text-gray-700">Split</span>
                                                             </label>
                                                         </div>
 
-                                                        {/* Sub-options for Bank */}
-                                                        {paymentCategory === 'Bank' && (
+                                                        {/* Sub-options for Split / Bank */}
+                                                        {paymentCategory === 'Split' && (
+                                                            <div className="grid grid-cols-2 gap-2 mb-3 bg-blue-50/50 p-2 rounded-lg border border-blue-100">
+                                                                <div>
+                                                                    <label className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block mb-1">Cash Amount</label>
+                                                                    <input 
+                                                                        type="number" 
+                                                                        className="w-full border border-blue-200 p-2 rounded-lg text-xs font-bold bg-white outline-none focus:border-blue-500" 
+                                                                        value={splitCashAmount} 
+                                                                        onChange={e => {
+                                                                            const val = Number(e.target.value);
+                                                                            if (val <= totalSelectedAmount) {
+                                                                                setSplitCashAmount(e.target.value);
+                                                                            }
+                                                                        }}
+                                                                        placeholder="Cash portion"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block mb-1">Bank Amount</label>
+                                                                    <input 
+                                                                        type="number" 
+                                                                        className="w-full border border-blue-200 p-2 rounded-lg text-xs font-bold bg-gray-100 text-gray-500 outline-none" 
+                                                                        value={totalSelectedAmount - (Number(splitCashAmount) || 0)} 
+                                                                        readOnly
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {(paymentCategory === 'Bank' || paymentCategory === 'Split') && (
                                                             <div className="space-y-2 animate-fadeIn">
                                                                 {/* Target Account Selection */}
                                                                 <div>
@@ -1014,11 +1139,14 @@ const FeeCollection = () => {
                                                                         }}
                                                                     >
                                                                         <option value="">-- Select Account --</option>
-                                                                        {paymentConfigs.map(c => (
+                                                                        {relevantConfigs.map(c => (
                                                                             <option key={c._id} value={c._id}>
-                                                                                {c.account_name} ({c.bank_name})
+                                                                                {c.account_name} - {c.account_number} ({c.bank_name})
                                                                             </option>
                                                                         ))}
+                                                                        {relevantConfigs.length === 0 && student && (
+                                                                            <option disabled className="text-red-500">No accounts linked to {student.course}</option>
+                                                                        )}
                                                                     </select>
                                                                 </div>
 

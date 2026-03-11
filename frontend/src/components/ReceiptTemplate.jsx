@@ -127,10 +127,34 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
                     </tbody>
                 </table>
                 <div style={{ fontSize: '11px', marginTop: '5px' }}>
-                    <strong>Mode:</strong> {items[0].paymentMode}
-                    {items[0].paymentMode !== 'Cash' && (
-                        ` (${items[0].bankName || ''} - ${items[0].referenceNo || ''}${items[0].referenceDate ? ` on ${new Date(items[0].referenceDate).toLocaleDateString()}` : ''})`
-                    )}
+                    {(() => {
+                        const modes = [...new Set(items.map(i => i.paymentMode))];
+                        const totalCash = items.filter(i => i.paymentMode === 'Cash').reduce((sum, i) => sum + i.amount, 0);
+                        const totalBank = items.filter(i => i.paymentMode !== 'Cash').reduce((sum, i) => sum + i.amount, 0);
+                        const bankTxn = items.find(i => i.paymentMode !== 'Cash');
+
+                        if (modes.length > 1) {
+                            return (
+                                <>
+                                    <strong>Mode:</strong> Split (Cash: ₹{totalCash.toLocaleString()} / Bank: ₹{totalBank.toLocaleString()})
+                                    {bankTxn && (
+                                        <span style={{ marginLeft: '5px', fontStyle: 'italic' }}>
+                                            ({bankTxn.paymentMode}: {bankTxn.bankName || ''} - {bankTxn.referenceNo || ''})
+                                        </span>
+                                    )}
+                                </>
+                            );
+                        } else {
+                            return (
+                                <>
+                                    <strong>Mode:</strong> {items[0].paymentMode}
+                                    {items[0].paymentMode !== 'Cash' && (
+                                        ` (${items[0].bankName || ''} - ${items[0].referenceNo || ''}${items[0].referenceDate ? ` on ${new Date(items[0].referenceDate).toLocaleDateString()}` : ''})`
+                                    )}
+                                </>
+                            );
+                        }
+                    })()}
                 </div>
             </div>
 
