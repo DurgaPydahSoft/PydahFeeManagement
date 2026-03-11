@@ -11,12 +11,19 @@ const UserManagement = () => {
     const availablePages = [
         { name: 'Dashboard', path: '/dashboard' },
         { name: 'Fee Configuration', path: '/fee-config' },
+        { name: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
+        { name: 'Payment Config', path: '/payment-config' },
+        { name: 'Reminder Config', path: '/reminders' },
         { name: 'Students', path: '/students' },
         { name: 'Fee Collection', path: '/fee-collection' },
-        { name: 'Reports', path: '/reports' },
+        { name: 'Reports & Analytics', path: '/reports' },
         { name: 'Due Reports', path: '/due-reports' },
-        { name: 'Concession Management', path: '/concessions' },
+        { name: 'Concessions', path: '/concessions' },
+        { name: 'Transport Config', path: '/transport-config' },
         { name: 'Hostel Config', path: '/hostel-config' },
+        { name: 'Permissions', path: '/permissions' },
+        { name: 'User Management', path: '/user-management' },
+        { name: 'Receipt Settings', path: '/receipt-settings' },
     ];
 
     // Form State
