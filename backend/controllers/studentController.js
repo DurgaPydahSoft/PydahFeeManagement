@@ -73,6 +73,9 @@ const getStudentMetadata = async (req, res) => {
     const [types] = await db.query(`SELECT DISTINCT stud_type FROM students WHERE stud_type IS NOT NULL AND stud_type != '' ORDER BY stud_type`);
     const categoryList = types.map(t => t.stud_type);
 
+    const [castes] = await db.query(`SELECT DISTINCT caste FROM students WHERE caste IS NOT NULL AND caste != '' ORDER BY caste`);
+    const casteList = castes.map(c => c.caste);
+
     const hierarchy = {};
     rows.forEach(row => {
       if (!hierarchy[row.college]) {
@@ -128,6 +131,7 @@ const getStudentMetadata = async (req, res) => {
       hierarchy,
       batches: batchList,
       categories: categoryList,
+      castes: casteList,
       categoryMapping,
       courseYears
     });

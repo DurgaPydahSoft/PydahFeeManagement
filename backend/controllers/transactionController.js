@@ -11,15 +11,20 @@ const addTransaction = async (req, res) => {
     const random = Math.floor(100 + Math.random() * 900).toString();
     const receiptNumber = `REC${timestamp}${random}`;
 
+    // Sanitize ObjectId fields to handle empty strings from frontend
+    const sanitizeObjectId = (val) => (val && val.trim() !== '' ? val : undefined);
+
     // CHECK IF BATCH (req.body.transactions array exists)
     if (req.body.transactions && Array.isArray(req.body.transactions)) {
        const batch = req.body.transactions.map(item => ({
            ...item,
-           feeHead: item.feeHeadId, // Map frontend 'feeHeadId' to schema 'feeHead'
+           feeHead: sanitizeObjectId(item.feeHeadId),
+           paymentConfigId: sanitizeObjectId(item.paymentConfigId),
+           proceedingId: sanitizeObjectId(item.proceedingId),
            receiptNumber, // Shared Receipt Number
            paymentMode: item.transactionType === 'CREDIT' && !item.paymentMode ? 'Waiver' : (item.paymentMode || 'Cash'),
            transactionType: item.transactionType || 'DEBIT',
-           remarks: item.remarks, // Persistence of remarks is crucial for Club Fee matching
+           remarks: item.remarks,
            referenceDate: item.referenceDate
        }));
        
@@ -28,17 +33,13 @@ const addTransaction = async (req, res) => {
        // Populate feeHead for proper display in response
        const populatedTransactions = await Transaction.find({ _id: { $in: createdTransactions.map(t => t._id) } }).populate('feeHead', 'name');
        
-       // Return the FIRST one for the receipt standard response, or the array
-       // Frontend expects an object to show in Modal. Let's return the first one but with a property indicating it's a batch?
-       // OR return the list. Current frontend Modal expects `lastTransaction` object. 
-       // Let's return the first one, but attach the full list as a property `relatedTransactions`.
        const primary = populatedTransactions[0].toObject();
        primary.relatedTransactions = populatedTransactions; 
        return res.status(201).json(primary);
     }
 
     // SINGLE TRANSACTION (Backward Compatibility)
-    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount, referenceDate } = req.body;
+    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId } = req.body;
 
     // Validation
     if (!studentId || !amount || (transactionType !== 'CREDIT' && !feeHeadId)) {
@@ -54,12 +55,11 @@ const addTransaction = async (req, res) => {
     const transaction = await Transaction.create({
       studentId,
       studentName,
-      feeHead: feeHeadId,
+      feeHead: sanitizeObjectId(feeHeadId),
       amount,
       paymentMode: finalPaymentMode || 'Cash',
       transactionType: transactionType || 'DEBIT',
       remarks,
-      semester,
       semester,
       studentYear,
       receiptNumber,
@@ -69,8 +69,9 @@ const addTransaction = async (req, res) => {
       instrumentDate: req.body.instrumentDate,
       referenceNo: req.body.referenceNo,
       referenceDate: referenceDate || null,
-      paymentConfigId: req.body.paymentConfigId,
-      depositedToAccount: req.body.depositedToAccount
+      paymentConfigId: sanitizeObjectId(paymentConfigId),
+      depositedToAccount: req.body.depositedToAccount,
+      proceedingId: sanitizeObjectId(proceedingId)
     });
 
     res.status(201).json(transaction);

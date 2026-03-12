@@ -41,7 +41,8 @@ const FeeCollection = () => {
             instrumentDate: '',
             referenceNo: '',
             referenceDate: '',
-            paymentConfigId: ''
+            paymentConfigId: '',
+            proceedingId: ''
         };
     });
 
@@ -56,6 +57,9 @@ const FeeCollection = () => {
 
     const [lastTransaction, setLastTransaction] = useState(null);
     const [relatedTransactions, setRelatedTransactions] = useState([]);
+    const [selectedProceeding, setSelectedProceeding] = useState(null);
+    const [availableProceedings, setAvailableProceedings] = useState([]);
+    const [isFetchingProceedings, setIsFetchingProceedings] = useState(false);
     const receiptRef = useRef();
     const searchInputRef = useRef(null);
 
@@ -115,6 +119,35 @@ const FeeCollection = () => {
             );
         });
     }, [allStudents, searchQuery]);
+
+    // Fetch Proceedings for RTF
+    useEffect(() => {
+        const fetchRTFProceedings = async () => {
+            if (paymentCategory === 'Bank' && paymentForm.paymentMode === 'RTF' && student) {
+                setIsFetchingProceedings(true);
+                try {
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/proceedings`, {
+                        params: {
+                            college: student.college,
+                            course: student.course,
+                            batch: student.academic_year, // Map to batch
+                            caste: student.caste
+                        }
+                    });
+                    setAvailableProceedings(res.data);
+                } catch (e) {
+                    console.error("Failed to fetch proceedings", e);
+                } finally {
+                    setIsFetchingProceedings(false);
+                }
+            } else {
+                setAvailableProceedings([]);
+                setPaymentForm(prev => ({ ...prev, proceedingId: '' }));
+                setSelectedProceeding(null);
+            }
+        };
+        fetchRTFProceedings();
+    }, [paymentCategory, paymentForm.paymentMode, student]);
     
     // Filter Payment Configs (Bank Accounts) by selected student's Course & College
     const relevantConfigs = useMemo(() => {
@@ -174,6 +207,8 @@ const FeeCollection = () => {
         setFeeDetails([]); // Clear previous student's fees
         setTransactions([]); // Clear previous student's transactions
         setStudent(selectedStudent);
+        setPaymentForm(prev => ({ ...prev, proceedingId: '' })); // Reset RTF
+        setSelectedProceeding(null);
         await fetchStudentData(selectedStudent);
     };
 
@@ -285,6 +320,9 @@ const FeeCollection = () => {
                     if (selectedConfig) {
                         commonData.depositedToAccount = selectedConfig.account_name;
                     }
+                    if (paymentForm.paymentMode === 'RTF') {
+                        commonData.proceedingId = paymentForm.proceedingId;
+                    }
                 } else if (paymentCategory === 'Split') {
                     // Split logic handled during batch mapping
                 }
@@ -344,6 +382,9 @@ const FeeCollection = () => {
                     const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
                     if (selectedConfig) {
                         bankData.depositedToAccount = selectedConfig.account_name;
+                    }
+                    if (paymentForm.paymentMode === 'RTF') {
+                        bankData.proceedingId = paymentForm.proceedingId;
                     }
                     batchTransactions.push(bankData);
                 });
@@ -578,7 +619,7 @@ const FeeCollection = () => {
                             <div className="relative">
                                 <div className="h-16 w-16 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin"></div>
                                 <div className="absolute inset-0 flex items-center justify-center text-blue-600">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                 </div>
                             </div>
                             <h3 className="text-lg font-bold text-gray-700 mt-4">Loading Student Profile</h3>
@@ -1122,9 +1163,51 @@ const FeeCollection = () => {
 
                                                         {(paymentCategory === 'Bank' || paymentCategory === 'Split') && (
                                                             <div className="space-y-2 animate-fadeIn">
+                                                                {/* Instrument Type Selection */}
+                                                                <div className="grid grid-cols-2 gap-2 mb-2">
+                                                                    <div className="col-span-2">
+                                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 text-center border-b border-gray-200 pb-1">Instrument Details</label>
+                                                                    </div>
+                                                                    <select
+                                                                        className="col-span-2 w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none font-bold"
+                                                                        value={paymentForm.paymentMode}
+                                                                        onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
+                                                                    >
+                                                                        <option value="UPI">UPI / QR Scan</option>
+                                                                        <option value="Net Banking">Net Banking</option>
+                                                                        <option value="Card">Debit / Credit Card</option>
+                                                                        <option value="Cheque">Cheque</option>
+                                                                        <option value="DD">Demand Draft (DD)</option>
+                                                                        <option value="RTF">RTF (Scholarship)</option>
+                                                                    </select>
+                                                                </div>
+
+                                                                {paymentForm.paymentMode === 'RTF' && (
+                                                                    <div className="space-y-2 animate-fadeIn">
+                                                                        <div>
+                                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Proceeding *</label>
+                                                                            <select
+                                                                                className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
+                                                                                value={paymentForm.proceedingId || ''}
+                                                                                onChange={e => setPaymentForm({ ...paymentForm, proceedingId: e.target.value })}
+                                                                                required
+                                                                            >
+                                                                                <option value="">-- Select Proceeding --</option>
+                                                                                {availableProceedings.map(p => (
+                                                                                    <option key={p._id} value={p._id}>
+                                                                                        {p.proceedingNumber} - Rem: ₹{(p.amount - (p.totalUsed || 0)).toLocaleString()} (Total: ₹{p.amount.toLocaleString()})
+                                                                                    </option>
+                                                                                ))}
+                                                                                {isFetchingProceedings && <option disabled>Fetching...</option>}
+                                                                                {!isFetchingProceedings && availableProceedings.length === 0 && <option disabled>No proceedings found</option>}
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
                                                                 {/* Target Account Selection */}
                                                                 <div>
-                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Target Account *</label>
+                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Target Account</label>
                                                                     <select
                                                                         className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
                                                                         value={paymentForm.paymentConfigId}
@@ -1133,7 +1216,6 @@ const FeeCollection = () => {
                                                                             setPaymentForm({
                                                                                 ...paymentForm,
                                                                                 paymentConfigId: e.target.value,
-                                                                                // Auto-fill bank name if empty or just helpful
                                                                                 bankName: selected ? selected.bank_name : paymentForm.bankName
                                                                             });
                                                                         }}
@@ -1147,17 +1229,6 @@ const FeeCollection = () => {
                                                                         {relevantConfigs.length === 0 && student && (
                                                                             <option disabled className="text-red-500">No accounts linked to {student.course}</option>
                                                                         )}
-                                                                    </select>
-                                                                </div>
-
-                                                                <div>
-                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Instrument</label>
-                                                                    <select className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none" value={paymentForm.paymentMode} onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}>
-                                                                        <option value="UPI">UPI (GPay / PhonePe/ etc)</option>
-                                                                        <option value="Net Banking">Net Banking</option>
-                                                                        <option value="Card">Debit / Credit Card</option>
-                                                                        <option value="Cheque">Cheque</option>
-                                                                        <option value="DD">Demand Draft (DD)</option>
                                                                     </select>
                                                                 </div>
                                                                 {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (

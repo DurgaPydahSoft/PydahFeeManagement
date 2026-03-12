@@ -69,10 +69,12 @@ const FeeConfiguration = () => {
     const [applicabilityMode, setApplicabilityMode] = useState('individual'); // Consolidated to just individual view
     const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
 
+    /* 
     // Reset selected categories when primary context changes in Definitions
     useEffect(() => {
         setStructForm(prev => ({ ...prev, categories: [] }));
     }, [structForm.college, structForm.course, structForm.batch]);
+    */
 
     // Reset selected category when primary context changes in Applicability
     useEffect(() => {
@@ -314,7 +316,7 @@ const FeeConfiguration = () => {
             course: row.course,
             branch: row.branch,
             batch: row.batch, // Ensure Batch is selected
-            categories: row.category ? [row.category] : [], // Initialize Categories safely
+            categories: row.category ? [row.category] : (row.categories || []), // Support both singular and array
             academicYear: row.academicYear,
             studentYear: '', // User must select year to refine OR use Multi-Year
             amount: '',
@@ -669,7 +671,7 @@ const FeeConfiguration = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="group">
                                         <label className="text-xs font-bold text-gray-500 block mb-1">College</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '' }); }} required>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '', categories: [] }); }} required>
                                             <option value="">Select College</option>
                                             {colleges.map(c => <option key={c}>{c}</option>)}
                                         </select>
@@ -677,7 +679,7 @@ const FeeConfiguration = () => {
 
                                     <div className="group">
                                         <label className="text-xs font-bold text-gray-500 block mb-1">Batch</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value })} required>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value, categories: [] })} required>
                                             <option value="">Select Batch</option>
                                             {batches.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
@@ -688,7 +690,7 @@ const FeeConfiguration = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="group">
                                         <label className="text-xs font-bold text-gray-500 block mb-1">Course</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '' }); }} required disabled={!structForm.college}>
+                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '', categories: [] }); }} required disabled={!structForm.college}>
                                             <option value="">Select Course</option>
                                             {(structForm.college ? Object.keys(metadata[structForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
                                         </select>

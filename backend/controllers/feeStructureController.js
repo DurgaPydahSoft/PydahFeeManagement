@@ -61,6 +61,26 @@ const createFeeStructure = async (req, res) => {
         const options = { new: true, upsert: true, runValidators: true };
 
         const structure = await FeeStructure.findOneAndUpdate(query, update, options);
+        
+        // Propagation: Update all students who already have this fee applied
+        await StudentFee.updateMany(
+          {
+            feeHead: feeHeadId,
+            college,
+            course,
+            branch,
+            academicYear: batch, // academicYear stores batch string
+            studentYear: sYear,
+            semester: sem,
+            stud_type: cat
+          },
+          {
+            $set: {
+              isScholarshipApplicable: isScholarshipApplicable || false
+            }
+          }
+        );
+
         results.push(structure);
       } catch (err) {
         console.error(`Error saving fee structure for category ${cat}:`, err.message);
@@ -393,6 +413,7 @@ const applyFeeToBatch = async (req, res) => {
 
     // Check if fees are ALREADY applied for this Batch & Structure
     // usage: academicYear stores the batch string
+    /* 
     const existingFees = await StudentFee.findOne({
       feeHead: structure.feeHead,
       academicYear: structure.batch,
@@ -406,6 +427,7 @@ const applyFeeToBatch = async (req, res) => {
     if (existingFees) {
       return res.status(400).json({ message: 'Fee already applied! Use the Excel view to modify individual students.' });
     }
+    */
 
     const operations = students.map(s => {
       return {
@@ -533,6 +555,26 @@ const updateFeeStructure = async (req, res) => {
         $push: { history: historyEntry }
       },
       { new: true }
+    );
+
+    // Propagation: Update all students who already have this fee applied
+    // We match by the EXACT context of the definition BEFORE the update to ensure we target the right students
+    await StudentFee.updateMany(
+      {
+        feeHead: existing.feeHead,
+        college: existing.college,
+        course: existing.course,
+        branch: existing.branch,
+        academicYear: existing.batch, // academicYear stores batch string
+        studentYear: existing.studentYear,
+        semester: existing.semester,
+        stud_type: existing.category
+      },
+      {
+        $set: {
+          isScholarshipApplicable: isScholarshipApplicable || false
+        }
+      }
     );
 
     res.json(updatedStructure);

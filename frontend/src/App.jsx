@@ -16,6 +16,7 @@ import ConcessionManagement from './pages/ConcessionManagement';
 import Permissions from './pages/Permissions';
 import ReceiptSettings from './pages/ReceiptSettings';
 import UserProfile from './pages/UserProfile';
+import Proceedings from './pages/Proceedings';
 
 import Reports from './pages/Reports';
 import DueReports from './pages/DueReports';
@@ -47,6 +48,7 @@ function App() {
         <Route path="/permissions" element={<Permissions />} />
         <Route path="/receipt-settings" element={<ReceiptSettings />} />
         <Route path="/user-profile" element={<UserProfile />} />
+        <Route path="/proceedings" element={<Proceedings />} />
       </Routes>
     </Router>
   );
