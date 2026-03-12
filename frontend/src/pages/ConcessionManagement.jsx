@@ -188,14 +188,15 @@ const ConcessionManagement = () => {
                 formDataObjs.append('image', imageFile);
             }
 
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, formDataObjs, {
+            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, formDataObjs, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem('token')}`,
                     'Content-Type': 'multipart/form-data'
                 }
             });
 
-            alert('Concession Request Submitted Successfully');
+            const createdVoucherId = response.data.data?.[0]?.voucherId || 'N/A';
+            alert(`Concession Request Submitted Successfully! Voucher ID: ${createdVoucherId}`);
             // Reset
             setSelectedStudent(null);
             setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '', college: '', course: '', branch: '', batch: '' });
@@ -508,6 +509,7 @@ const ConcessionManagement = () => {
                                 <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
                                     <tr>
                                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Date</th>
+                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Voucher #</th>
                                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Student</th>
                                         <th className="p-4 text-xs font-bold text-gray-500 uppercase">Fee Head</th>
                                         <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
@@ -527,6 +529,11 @@ const ConcessionManagement = () => {
                                                 onClick={() => openModal(req)}
                                             >
                                                 <td className="p-4 text-sm text-gray-600">{new Date(req.createdAt).toLocaleDateString()}</td>
+                                                <td className="p-4">
+                                                    <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100">
+                                                        #{req.voucherId || '---'}
+                                                    </span>
+                                                </td>
                                                 <td className="p-4">
                                                     <div className="font-bold text-gray-800 text-sm">{req.studentName}</div>
                                                     <div className="text-xs text-gray-500">{req.studentId}</div>
@@ -575,6 +582,10 @@ const ConcessionManagement = () => {
                                         <label className="text-xs text-gray-400 uppercase font-bold">Student</label>
                                         <div className="font-semibold text-gray-800">{selectedRequest.studentName}</div>
                                         <div className="text-xs text-gray-500">{selectedRequest.studentId}</div>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 uppercase font-bold">Voucher #</label>
+                                        <div className="font-mono font-bold text-blue-600">#{selectedRequest.voucherId || '---'}</div>
                                     </div>
                                     <div>
                                         <label className="text-xs text-gray-400 uppercase font-bold">Fee Head</label>

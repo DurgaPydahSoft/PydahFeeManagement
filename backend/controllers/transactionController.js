@@ -21,6 +21,7 @@ const addTransaction = async (req, res) => {
            feeHead: sanitizeObjectId(item.feeHeadId),
            paymentConfigId: sanitizeObjectId(item.paymentConfigId),
            proceedingId: sanitizeObjectId(item.proceedingId),
+           concessionRequestId: sanitizeObjectId(item.concessionRequestId),
            receiptNumber, // Shared Receipt Number
            paymentMode: item.transactionType === 'CREDIT' && !item.paymentMode ? 'Waiver' : (item.paymentMode || 'Cash'),
            transactionType: item.transactionType || 'DEBIT',
@@ -39,7 +40,7 @@ const addTransaction = async (req, res) => {
     }
 
     // SINGLE TRANSACTION (Backward Compatibility)
-    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId } = req.body;
+    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId, concessionRequestId } = req.body;
 
     // Validation
     if (!studentId || !amount || (transactionType !== 'CREDIT' && !feeHeadId)) {
@@ -71,7 +72,8 @@ const addTransaction = async (req, res) => {
       referenceDate: referenceDate || null,
       paymentConfigId: sanitizeObjectId(paymentConfigId),
       depositedToAccount: req.body.depositedToAccount,
-      proceedingId: sanitizeObjectId(proceedingId)
+      proceedingId: sanitizeObjectId(proceedingId),
+      concessionRequestId: sanitizeObjectId(concessionRequestId)
     });
 
     res.status(201).json(transaction);

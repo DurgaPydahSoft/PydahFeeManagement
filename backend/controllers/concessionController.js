@@ -33,22 +33,50 @@ const createConcessionRequest = async (req, res) => {
       imageUrl = await uploadToS3(req.file);
     }
 
-    const requests = students.map(s => ({
-      studentId: s.studentId,
-      studentName: s.studentName,
-      feeHead: feeHeadId,
-      amount: Number(amount),
-      reason,
-      studentYear,
-      semester,
-      college: s.college,
-      course: s.course,
-      branch: s.branch,
-      batch: s.batch,
-      type: students.length > 1 ? 'Bulk' : 'Single',
-      requestedBy,
-      imageUrl // Add image URL
-    }));
+    // Helper to get next voucher ID for a course
+    const getNextVoucherId = async (courseName) => {
+      const lastRequest = await ConcessionRequest.findOne({ course: courseName })
+        .sort({ createdAt: -1 })
+        .select('voucherId');
+      
+      let nextNum = 1;
+      if (lastRequest && lastRequest.voucherId) {
+        nextNum = parseInt(lastRequest.voucherId, 10) + 1;
+      }
+      return nextNum.toString().padStart(3, '0');
+    };
+
+    // Cache next IDs to avoid redundant lookups or racing (simplified for now)
+    const courseNextIds = {};
+
+    const requests = [];
+    for (const s of students) {
+      if (!courseNextIds[s.course]) {
+        courseNextIds[s.course] = await getNextVoucherId(s.course);
+      } else {
+        // Increment for subsequent students in the same bulk request
+        const nextNum = parseInt(courseNextIds[s.course], 10) + 1;
+        courseNextIds[s.course] = nextNum.toString().padStart(3, '0');
+      }
+
+      requests.push({
+        studentId: s.studentId,
+        studentName: s.studentName,
+        feeHead: feeHeadId,
+        voucherId: courseNextIds[s.course],
+        amount: Number(amount),
+        reason,
+        studentYear,
+        semester,
+        college: s.college,
+        course: s.course,
+        branch: s.branch,
+        batch: s.batch,
+        type: students.length > 1 ? 'Bulk' : 'Single',
+        requestedBy,
+        imageUrl
+      });
+    }
 
     const created = await ConcessionRequest.insertMany(requests);
     res.status(201).json({ message: `Created ${created.length} concession requests`, data: created });
@@ -62,24 +90,22 @@ const createConcessionRequest = async (req, res) => {
 // @route   GET /api/concessions
 // @query   status, college, course, branch, batch
 const getConcessionRequests = async (req, res) => {
-  const { status, college, course, branch, batch, search } = req.query;
+  const { status, college, course, branch, batch, search, studentId } = req.query;
   const filter = {};
 
   if (status && status !== 'ALL') filter.status = status;
-  // If status is not provided, default to PENDING? User asked for "Approved requests should also be visible", implies default might be ALL or selectable.
-  // Let's make it strict: if no status param, return ALL? Or stick to PENDING default but allow overriding.
-  // Requirement: "Approved requests should also be visible".
-  // Let's Default to 'PENDING' if nothing sent, but UI will send 'ALL' or specific.
   
   if (college) filter.college = college;
   if (course) filter.course = course;
   if (branch) filter.branch = branch;
   if (batch) filter.batch = batch;
+  if (studentId) filter.studentId = studentId;
 
   if (search) {
       filter.$or = [
           { studentName: { $regex: search, $options: 'i' } },
-          { studentId: { $regex: search, $options: 'i' } }
+          { studentId: { $regex: search, $options: 'i' } },
+          { voucherId: { $regex: search, $options: 'i' } }
       ];
   }
 
@@ -116,43 +142,55 @@ const processConcessionRequest = async (req, res) => {
           request.amount = finalAmount; // Update the request record with the approved amount
       }
 
-      // 1. Create Transaction (Credit)
-      // Generate Receipt Number for Concession (Different series? Or same?)
-      // Use "CON-" prefix for internal tracking? Or standard REC?
-      // Standard REC to show in ledger uniformly is better, or "WAIV" prefix.
-      const timestamp = Date.now().toString().slice(-6);
-      const random = Math.floor(100 + Math.random() * 900).toString();
-      const receiptNumber = `CN${timestamp}${random}`; // CN for Concession
+      // Check for EXISTING linked transaction (created via Fee Collection UI)
+      const existingTxn = await Transaction.findOne({ concessionRequestId: id });
 
-      await Transaction.create({
-        studentId: request.studentId,
-        studentName: request.studentName,
-        feeHead: request.feeHead,
-        amount: finalAmount,
-        paymentMode: 'Waiver', // or 'Concession'
-        transactionType: 'CREDIT',
-        remarks: `Concession Approved: ${request.reason}`,
-        semester: request.semester,
-        studentYear: request.studentYear,
-        receiptNumber,
-        collectedBy: processedBy,
-        collectedByName: req.user ? req.user.name : 'Administrator'
-      });
+      if (existingTxn) {
+        // Update existing transaction
+        existingTxn.amount = finalAmount;
+        existingTxn.remarks = `Concession Approved (Modified): ${request.reason}`;
+        existingTxn.collectedBy = processedBy;
+        await existingTxn.save();
+      } else {
+        // Create Transaction (Credit) - Standard fallback logic
+        const timestamp = Date.now().toString().slice(-6);
+        const random = Math.floor(100 + Math.random() * 900).toString();
+        const receiptNumber = `CN${timestamp}${random}`; // CN for Concession
+
+        await Transaction.create({
+          studentId: request.studentId,
+          studentName: request.studentName,
+          feeHead: request.feeHead,
+          concessionRequestId: request._id, // Link it
+          amount: finalAmount,
+          paymentMode: 'Waiver',
+          transactionType: 'CREDIT',
+          remarks: `Concession Approved: ${request.reason}`,
+          semester: request.semester,
+          studentYear: request.studentYear,
+          receiptNumber,
+          collectedBy: processedBy,
+          collectedByName: req.user ? req.user.name : 'Administrator'
+        });
+      }
 
       // 2. Update Request Status
       request.status = 'APPROVED';
       request.approvedBy = processedBy;
       await request.save();
 
-      res.json({ message: 'Concession Approved and Applied', status: 'APPROVED' });
+      res.json({ message: 'Concession Approved and Synchronized', status: 'APPROVED' });
 
     } else if (action === 'REJECT') {
+      // Delete linked transaction if it exists
+      await Transaction.deleteMany({ concessionRequestId: id });
+
       request.status = 'REJECTED';
       request.approvedBy = processedBy;
       request.rejectionReason = rejectionReason || 'No reason provided';
       await request.save();
 
-      res.json({ message: 'Concession Rejected', status: 'REJECTED' });
+      res.json({ message: 'Concession Rejected and Linked Transactions Removed', status: 'REJECTED' });
 
     } else {
       res.status(400).json({ message: 'Invalid Action' });

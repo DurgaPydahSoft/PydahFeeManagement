@@ -268,6 +268,7 @@ const getStudentFeeDetails = async (req, res) => {
           studentYear: year,
           semester: fee.semester,
           totalAmount: 0,
+          concessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
@@ -298,6 +299,7 @@ const getStudentFeeDetails = async (req, res) => {
           studentYear: year,
           semester: fs.semester || null,
           totalAmount: 0,
+          concessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
           isScholarshipApplicable: fs.isScholarshipApplicable || false,
@@ -308,7 +310,7 @@ const getStudentFeeDetails = async (req, res) => {
 
     // C. Aggregate Transactions by (Head, Year)
     transactions.forEach(t => {
-      if (t.transactionType === 'DEBIT' && t.feeHead) {
+      if (t.feeHead) {
         const hId = t.feeHead.toString();
         const year = String(t.studentYear || 1);
 
@@ -331,26 +333,27 @@ const getStudentFeeDetails = async (req, res) => {
             studentYear: year,
             semester: t.semester || null,
             totalAmount: 0,
+            concessionAmount: 0,
             paidAmount: 0,
             dueAmount: 0,
             terms: matchedStructure ? matchedStructure.terms : []
           };
         }
-        groupedData[key].paidAmount += (t.amount || 0);
-      } else if (t.transactionType === 'CREDIT' || !t.feeHead) {
-        // How to distribute Global Credits/Concessions? 
-        // For now, let's keep the existing FIFO-ish logic for Global Credits but we need to reconcile with grouped view.
-        // Simpler: Just subtract it from the Total Due at the end or apply to Arrears.
-        // For this specific 'Collect Fee' screen, we primarily care about specific head payments.
+        if (t.transactionType === 'DEBIT') {
+          groupedData[key].paidAmount += (t.amount || 0);
+        } else if (t.transactionType === 'CREDIT') {
+          groupedData[key].concessionAmount += (t.amount || 0);
+        }
+      } else {
+        // Global Credits/Concessions (no specific feeHead)
       }
     });
 
     // D. Final Calculation and Global Credit Distribution
-    // This part handles the "fee paid previously have to be deducted from the fee applied" requirement
-    // because groupedData[key].paidAmount includes previous transactions, and .totalAmount is the demand.
-
     let processedResults = Object.values(groupedData).map(item => {
-      item.dueAmount = item.totalAmount - item.paidAmount;
+      // Total Paid is (Direct Paid + Concessions)
+      const totalRelief = item.paidAmount + item.concessionAmount;
+      item.dueAmount = Math.max(0, item.totalAmount - totalRelief);
       return item;
     });
 
@@ -366,7 +369,8 @@ const getStudentFeeDetails = async (req, res) => {
       processedResults.forEach(item => {
         if (item.dueAmount > 0 && globalCreditPool > 0) {
           const allocation = Math.min(item.dueAmount, globalCreditPool);
-          item.paidAmount += allocation;
+          // Distribute to paidAmount (default behavior)
+          item.paidAmount += allocation; 
           item.dueAmount -= allocation;
           globalCreditPool -= allocation;
         }

@@ -76,6 +76,10 @@ const transactionSchema = mongoose.Schema({
   proceedingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Proceeding'
+  },
+  concessionRequestId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ConcessionRequest'
   }
 }, {
   timestamps: true,

@@ -60,6 +60,9 @@ const FeeCollection = () => {
     const [selectedProceeding, setSelectedProceeding] = useState(null);
     const [availableProceedings, setAvailableProceedings] = useState([]);
     const [isFetchingProceedings, setIsFetchingProceedings] = useState(false);
+    const [availableVouchers, setAvailableVouchers] = useState([]);
+    const [isFetchingVouchers, setIsFetchingVouchers] = useState(false);
+
     const receiptRef = useRef();
     const searchInputRef = useRef(null);
 
@@ -148,6 +151,32 @@ const FeeCollection = () => {
         };
         fetchRTFProceedings();
     }, [paymentCategory, paymentForm.paymentMode, student]);
+
+    // Fetch Concession Vouchers
+    useEffect(() => {
+        const fetchConcessionVouchers = async () => {
+            if (student && paymentForm.transactionType === 'CREDIT') {
+                setIsFetchingVouchers(true);
+                try {
+                    // Fetch PENDING concession requests for this student
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                        params: {
+                            studentId: student.admission_number,
+                            status: 'PENDING'
+                        }
+                    });
+                    setAvailableVouchers(res.data);
+                } catch (e) {
+                    console.error("Failed to fetch vouchers", e);
+                } finally {
+                    setIsFetchingVouchers(false);
+                }
+            } else {
+                setAvailableVouchers([]);
+            }
+        };
+        fetchConcessionVouchers();
+    }, [student, paymentForm.transactionType]);
     
     // Filter Payment Configs (Bank Accounts) by selected student's Course & College
     const relevantConfigs = useMemo(() => {
@@ -226,14 +255,49 @@ const FeeCollection = () => {
         const newRows = feeRows.map(row => {
             if (row.id === id) {
                 const updatedRow = { ...row, [field]: value };
-                // Auto-fill amount if feeHeadId changes
+                
+                // --- Handle Fee Head Change ---
                 if (field === 'feeHeadId') {
-                    // Use _id (which is stored in value) to find the correct row
                     const selectedFee = feeDetails.find(f => f._id === value);
-                    if (selectedFee) {
+                    
+                    // If a voucher is already selected, check if it's compatible with the new Fee Head
+                    if (updatedRow.concessionRequestId) {
+                        const currentVoucher = availableVouchers.find(v => v._id === updatedRow.concessionRequestId);
+                        // Compare the voucher's global feeHead ID with the new fee record's global feeHead ID
+                        if (currentVoucher && selectedFee && currentVoucher.feeHead?._id !== selectedFee.feeHeadId) {
+                            updatedRow.concessionRequestId = ''; // Incompatible, reset voucher
+                        }
+                    }
+
+                    // Set Amount: Voucher amount takes priority if still present, otherwise use due amount
+                    if (updatedRow.concessionRequestId) {
+                        const currentVoucher = availableVouchers.find(v => v._id === updatedRow.concessionRequestId);
+                        updatedRow.amount = currentVoucher ? currentVoucher.amount : '';
+                    } else if (selectedFee) {
                         updatedRow.amount = selectedFee.dueAmount > 0 ? selectedFee.dueAmount : '';
                     } else {
                         updatedRow.amount = '';
+                    }
+                }
+
+                // --- Handle Voucher selection ---
+                if (field === 'concessionRequestId') {
+                    const selectedVoucher = availableVouchers.find(v => v._id === value);
+                    if (selectedVoucher) {
+                        // VOUCHER SELECTED: Force voucher amount and try to sync Fee Head
+                        updatedRow.amount = selectedVoucher.amount;
+                        if (selectedVoucher.feeHead?._id) {
+                            const matchingFee = feeDetails.find(f => f.feeHeadId === selectedVoucher.feeHead._id);
+                            if (matchingFee) {
+                                updatedRow.feeHeadId = matchingFee._id;
+                            }
+                        }
+                    } else {
+                        // VOUCHER REMOVED: Restore the standard due amount for the selected Fee Head
+                        const selectedFee = feeDetails.find(f => f._id === updatedRow.feeHeadId);
+                        if (selectedFee) {
+                            updatedRow.amount = selectedFee.dueAmount > 0 ? selectedFee.dueAmount : '';
+                        }
                     }
                 }
                 return updatedRow;
@@ -242,6 +306,7 @@ const FeeCollection = () => {
         });
         setFeeRows(newRows);
     };
+;
 
     const toggleFeeSelection = (fee) => {
         const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
@@ -292,6 +357,17 @@ const FeeCollection = () => {
         setIsProcessing(true);
         try {
             const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+
+            // Validation for CREDIT transactions with vouchers
+            if (paymentForm.transactionType === 'CREDIT') {
+                for (const row of validRows) {
+                    if (!row.concessionRequestId) {
+                        alert('For Concession transactions, each row must be linked to a voucher.');
+                        setIsProcessing(false);
+                        return;
+                    }
+                }
+            }
 
             // Build Common Data
             const commonData = {
@@ -391,7 +467,7 @@ const FeeCollection = () => {
             } else {
                 batchTransactions = validRows.map(row => {
                     const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                    return {
+                    const transaction = {
                         ...commonData,
                         feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
                         studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
@@ -401,6 +477,10 @@ const FeeCollection = () => {
                             ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
                             : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
                     };
+                    if (paymentForm.transactionType === 'CREDIT' && row.concessionRequestId) {
+                        transaction.concessionRequestId = row.concessionRequestId;
+                    }
+                    return transaction;
                 });
             }
 
@@ -788,16 +868,17 @@ const FeeCollection = () => {
                                                         <th key={i} className="py-3 px-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-right bg-blue-50/30">T{i + 1} Due</th>
                                                     ))}
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Paid</th>
+                                                    <th className="py-3 px-4 text-[11px] font-bold text-purple-600 uppercase tracking-wider text-right">Concession</th>
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right font-bold">Balance</th>
                                                     <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center">Status</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-50">
-                                                {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0).length === 0 ? (
-                                                    <tr><td colSpan="6" className="py-6 text-center text-gray-500 italic text-sm">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
+                                                {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0).length === 0 ? (
+                                                    <tr><td colSpan={6 + maxTerms} className="py-6 text-center text-gray-500 italic text-sm">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
                                                 ) : (
                                                     <>
-                                                        {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0).map((fee, idx) => {
+                                                        {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0).map((fee, idx) => {
                                                             const isFullyPaid = fee.dueAmount <= 0;
                                                             const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
                                                             const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
@@ -860,6 +941,7 @@ const FeeCollection = () => {
                                                                     })()}
 
                                                                     <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">{fee.paidAmount.toLocaleString()}</td>
+                                                                    <td className="py-2 px-4 text-sm text-right text-purple-600 font-mono font-medium">{fee.concessionAmount?.toLocaleString() || '0'}</td>
                                                                     <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">{fee.dueAmount.toLocaleString()}</td>
                                                                     <td className="py-2 px-4 text-center">
                                                                         {isFullyPaid ? (
@@ -1039,45 +1121,72 @@ const FeeCollection = () => {
                                                 {/* Dynamic Rows */}
                                                 <div className="space-y-2">
                                                     {feeRows.map((row, index) => (
-                                                        <div key={row.id} className="flex gap-2 items-start p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
-                                                            <div className="flex-1">
-                                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
-                                                                <select
-                                                                    className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                                                    value={row.feeHeadId}
-                                                                    onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
-                                                                    required
-                                                                >
-                                                                    <option value="">-- Select Fee Head --</option>
-                                                                    {displayedFees.map(f => (
-                                                                        <option key={f._id} value={f._id}>
-                                                                            [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
-                                                                        </option>
-                                                                    ))}
-                                                                </select>
-                                                            </div>
-                                                            <div className="w-24">
-                                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
-                                                                <div className="relative">
-                                                                    <span className="absolute left-2 top-1.5 text-gray-400 text-xs"></span>
-                                                                    <input
-                                                                        type="number"
-                                                                        className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
-                                                                        value={row.amount}
-                                                                        onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                        <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
+                                                            <div className="flex gap-2 items-start">
+                                                                <div className="flex-1">
+                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
+                                                                    <select
+                                                                        className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                                                        value={row.feeHeadId}
+                                                                        onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
                                                                         required
-                                                                        placeholder="0"
-                                                                    />
+                                                                    >
+                                                                        <option value="">-- Select Fee Head --</option>
+                                                                        {displayedFees.map(f => (
+                                                                            <option key={f._id} value={f._id}>
+                                                                                [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
                                                                 </div>
+                                                                <div className="w-24">
+                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
+                                                                    <div className="relative">
+                                                                        <span className="absolute left-2 top-1.5 text-gray-400 text-xs"></span>
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
+                                                                            value={row.amount}
+                                                                            onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                                            required
+                                                                            placeholder="0"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                                {feeRows.length > 1 && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => removeFeeRow(row.id)}
+                                                                        className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
+                                                                    >
+                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                    </button>
+                                                                )}
                                                             </div>
-                                                            {feeRows.length > 1 && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => removeFeeRow(row.id)}
-                                                                    className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
-                                                                >
-                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                                </button>
+
+                                                            {/* Voucher Selection for Concession */}
+                                                            {paymentForm.transactionType === 'CREDIT' && availableVouchers.length > 0 && (
+                                                                <div className="animate-fadeIn pb-1">
+                                                                    <label className="block text-[9px] font-bold text-purple-600 uppercase tracking-wider mb-1">Link to Voucher (Optional)</label>
+                                                                    <select
+                                                                        className="w-full border border-purple-200 rounded-lg p-1.5 text-[10px] bg-purple-50/30 focus:border-purple-500 outline-none font-medium"
+                                                                        value={row.concessionRequestId || ''}
+                                                                        onChange={e => updateFeeRow(row.id, 'concessionRequestId', e.target.value)}
+                                                                    >
+                                                                        <option value="">-- No Voucher --</option>
+                                                                        {availableVouchers
+                                                                            .filter(v => {
+                                                                                if (!row.feeHeadId) return true;
+                                                                                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                                                                                return v.feeHead && selectedFee && v.feeHead._id === selectedFee.feeHeadId;
+                                                                            })
+                                                                            .map(v => (
+                                                                                <option key={v._id} value={v._id}>
+                                                                                    #{v.voucherId} - ₹{v.amount} ({v.reason})
+                                                                                </option>
+                                                                            ))}
+                                                                    </select>
+                                                                </div>
                                                             )}
                                                         </div>
                                                     ))}
