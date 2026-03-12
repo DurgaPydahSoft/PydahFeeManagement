@@ -759,6 +759,14 @@ const FeeCollection = () => {
                                                     <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Type:</span>
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
+                                                {student.scholar_status && (
+                                                    <div className={`px-2 py-0.5 rounded flex items-center ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-blue-700'}`}>
+                                                        <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Scholar:</span>
+                                                        <span className={`font-bold uppercase ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'text-yellow-400' : 'text-white'}`}>
+                                                            {student.scholar_status}
+                                                        </span>
+                                                    </div>
+                                                )}
                                                 {student.caste && (
                                                     <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
                                                         <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Caste:</span>
