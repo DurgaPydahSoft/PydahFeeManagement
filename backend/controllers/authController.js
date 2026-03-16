@@ -106,27 +106,29 @@ const loginUser = async (req, res) => {
       }
 
       // ==========================================
-      // Apply UserRole Permissions for HRMS Users
+      // Apply User Permissions for HRMS Users
       // ==========================================
       if (authUser && (authMethod === 'HRMS Employees' || authMethod === 'HRMS Users')) {
-        const UserRole = require('../models/UserRole');
-        
-        // Find existing role mapping for this employee
-        const userRole = await UserRole.findOne({ employeeId: authUser.employeeId });
+        // Look up the user in the Fee Management local User collection
+        let feeUser = await User.findOne({ 
+          $or: [
+            { employeeId: authUser.employeeId },
+            { username: username }
+          ]
+        });
 
-        if (userRole) {
-          authUser.role = userRole.role;
-          authUser.college = userRole.college || '';
-          authUser.permissions = userRole.permissions || [];
+        if (feeUser) {
+          authUser.role = feeUser.role;
+          authUser.college = feeUser.college || '';
+          authUser.permissions = feeUser.permissions || [];
+          authUser._id = feeUser._id; // Use local User ID if it exists
         } else {
-          // Default fallback for HRMS users if no UserRole document exists
+          // Default fallback for HRMS users if no User document exists
           authUser.role = 'office_staff';
           authUser.college = '';
           authUser.permissions = [];
+          authUser._id = authUser.employeeId; // We use their HRMS ID or generated ID for the token signing
         }
-        
-        // We use their HRMS ID or generated ID for the token signing
-        authUser._id = authUser.employeeId; 
       }
     }
 
@@ -251,25 +253,26 @@ const ssoLogin = async (req, res) => {
         }
 
         if (authUser) {
-          const UserRole = require('../models/UserRole');
-          // Check UserRole by both resolved employeeId and initial identifier
-          const userRole = await UserRole.findOne({ 
+          // Check Fee Management local User collection by both resolved employeeId and initial identifier
+          const feeUser = await User.findOne({ 
             $or: [
               { employeeId: authUser.employeeId },
-              { employeeId: identifier }
+              { employeeId: identifier },
+              { username: authUser.username }
             ]
           });
 
-          if (userRole) {
-            authUser.role = userRole.role;
-            authUser.college = userRole.college || '';
-            authUser.permissions = userRole.permissions || [];
+          if (feeUser) {
+            authUser.role = feeUser.role;
+            authUser.college = feeUser.college || '';
+            authUser.permissions = feeUser.permissions || [];
+            authUser._id = feeUser._id;
           } else {
             authUser.role = 'office_staff';
             authUser.college = '';
             authUser.permissions = [];
+            authUser._id = authUser.employeeId;
           }
-          authUser._id = authUser.employeeId;
         }
       }
     }

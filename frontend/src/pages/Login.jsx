@@ -34,6 +34,14 @@ const Login = () => {
             if (response.data) {
                 localStorage.setItem('user', JSON.stringify(response.data));
                 localStorage.setItem('isSSO', 'true');
+                const user = response.data;
+                if (user.role !== 'superadmin' && user.permissions && !user.permissions.includes('/dashboard')) {
+                    const firstPage = user.permissions.find(p => p.startsWith('/'));
+                    if (firstPage) {
+                        navigate(firstPage);
+                        return;
+                    }
+                }
                 navigate('/dashboard');
             }
         } catch (err) {
@@ -60,6 +68,14 @@ const Login = () => {
             if (response.data) {
                 localStorage.setItem('user', JSON.stringify(response.data));
                 localStorage.removeItem('isSSO');
+                const user = response.data;
+                if (user.role !== 'superadmin' && user.permissions && !user.permissions.includes('/dashboard')) {
+                    const firstPage = user.permissions.find(p => p.startsWith('/'));
+                    if (firstPage) {
+                        navigate(firstPage);
+                        return;
+                    }
+                }
                 navigate('/dashboard');
             }
         } catch (err) {
