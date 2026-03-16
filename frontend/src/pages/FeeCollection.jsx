@@ -105,6 +105,7 @@ const FeeCollection = () => {
     const filteredStudents = useMemo(() => {
         if (!searchQuery) return [];
         const query = searchQuery.toLowerCase().trim();
+        const cleanQuery = query.replace(/[^a-z0-9]/g, '');
 
         return allStudents.filter(s => {
             const admNum = s.admission_number ? String(s.admission_number).toLowerCase().trim() : '';
@@ -113,12 +114,19 @@ const FeeCollection = () => {
             const pin = s.pin_no ? String(s.pin_no).toLowerCase().trim() : '';
             const name = s.student_name ? s.student_name.toLowerCase().trim() : '';
 
+            const cleanAdmNum = admNum.replace(/[^a-z0-9]/g, '');
+            const cleanAdmNo = admNo.replace(/[^a-z0-9]/g, '');
+            const cleanPin = pin.replace(/[^a-z0-9]/g, '');
+
             return (
                 admNum.includes(query) ||
                 admNo.includes(query) ||
                 mobile.includes(query) ||
                 pin.includes(query) ||
-                name.includes(query)
+                name.includes(query) ||
+                (cleanQuery.length > 0 && cleanAdmNum.includes(cleanQuery)) ||
+                (cleanQuery.length > 0 && cleanAdmNo.includes(cleanQuery)) ||
+                (cleanQuery.length > 0 && cleanPin.includes(cleanQuery))
             );
         });
     }, [allStudents, searchQuery]);
