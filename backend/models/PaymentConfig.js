@@ -23,7 +23,7 @@ const paymentConfigSchema = mongoose.Schema({
     },
     ifsc_code: {
         type: String,
-        required: true
+        required: false
     },
     upi_id: {
         type: String, // Optional

@@ -43,7 +43,7 @@ const PaymentConfiguration = () => {
         e.preventDefault();
         setMessage('');
 
-        if (!form.college || !form.course || !form.account_name || !form.bank_name || !form.account_number || !form.ifsc_code) {
+        if (!form.college || !form.course || !form.account_name || !form.bank_name || !form.account_number) {
             alert('Please fill all required fields (College and Course are mandatory)');
             return;
         }
@@ -199,10 +199,9 @@ const PaymentConfiguration = () => {
                                         <input
                                             type="text"
                                             className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none font-mono uppercase"
-                                            placeholder="HDFC000..."
+                                            placeholder="HDFC000... (Optional)"
                                             value={form.ifsc_code}
                                             onChange={e => setForm({ ...form, ifsc_code: e.target.value })}
-                                            required
                                         />
                                     </div>
                                 </div>
@@ -322,7 +321,7 @@ const PaymentConfiguration = () => {
                                                     <td className="p-4">
                                                         <div className="font-semibold text-gray-700">{config.bank_name}</div>
                                                         <div className="text-xs text-gray-500 font-mono mt-0.5">{config.account_number}</div>
-                                                        <div className="text-[10px] text-gray-400 font-mono uppercase">IFSC: {config.ifsc_code}</div>
+                                                        {config.ifsc_code && <div className="text-[10px] text-gray-400 font-mono uppercase">IFSC: {config.ifsc_code}</div>}
                                                     </td>
                                                     <td className="p-4">
                                                         <button

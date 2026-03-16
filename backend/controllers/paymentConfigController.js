@@ -19,7 +19,7 @@ const createConfig = async (req, res) => {
     try {
         const { college, course, account_name, bank_name, account_number, ifsc_code, upi_id, razorpay_key_id, razorpay_key_secret } = req.body;
 
-        if (!college || !course || !account_name || !bank_name || !account_number || !ifsc_code) {
+        if (!college || !course || !account_name || !bank_name || !account_number) {
             return res.status(400).json({ message: 'Please add all required fields (including College and Course)' });
         }
 
