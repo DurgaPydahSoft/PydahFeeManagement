@@ -68,6 +68,7 @@ const FeeConfiguration = () => {
     const [isBatchApplied, setIsBatchApplied] = useState(false);
     const [applicabilityMode, setApplicabilityMode] = useState('individual'); // Consolidated to just individual view
     const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
+    const [applicabilitySearchQuery, setApplicabilitySearchQuery] = useState('');
 
     /* 
     // Reset selected categories when primary context changes in Definitions
@@ -1030,9 +1031,8 @@ const FeeConfiguration = () => {
                             {studentList.length > 0 && (
                                 <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
 
-
                                     <div>
-                                        <div className="flex justify-between items-center mb-4">
+                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                                             <div className="flex flex-col">
                                                 <p className="text-sm text-gray-500">Edit fee amounts for all years. {appContext.semester ? `(Semester ${appContext.semester} Only)` : ''}</p>
                                                 {isBatchApplied ? (
@@ -1041,6 +1041,17 @@ const FeeConfiguration = () => {
                                                     <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded w-fit mt-1">⚠ Fees Not Applied (Showing Templates)</span>
                                                 )}
                                             </div>
+                                            
+                                            <div className="flex-1 w-full max-w-md">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search by Admission No, Pin No, or Name..."
+                                                    className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition-shadow text-sm text-gray-700"
+                                                    value={applicabilitySearchQuery}
+                                                    onChange={(e) => setApplicabilitySearchQuery(e.target.value)}
+                                                />
+                                            </div>
+
                                             <button
                                                 onClick={handleSaveStudentFees}
                                                 disabled={isSavingFees}
@@ -1068,7 +1079,13 @@ const FeeConfiguration = () => {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y">
-                                                    {studentList.map((s, idx) => (
+                                                    {studentList.filter(s => {
+                                                        if (!applicabilitySearchQuery) return true;
+                                                        const q = applicabilitySearchQuery.toLowerCase();
+                                                        return (s.studentId && s.studentId.toLowerCase().includes(q)) ||
+                                                               (s.pinNo && s.pinNo.toLowerCase().includes(q)) ||
+                                                               (s.studentName && s.studentName.toLowerCase().includes(q));
+                                                    }).map((s) => (
                                                         <tr key={s.studentId} className="hover:bg-gray-50 border-b">
                                                             <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.studentId}</td>
                                                             <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.pinNo}</td>
@@ -1084,13 +1101,15 @@ const FeeConfiguration = () => {
                                                                             value={s.fees[yearCol]?.amount || ''}
                                                                             placeholder="-"
                                                                             onChange={(e) => {
+                                                                                const actualIdx = studentList.findIndex(item => item.studentId === s.studentId);
+                                                                                if (actualIdx === -1) return;
                                                                                 const newList = [...studentList];
-                                                                                const oldFee = newList[idx].fees[yearCol] || {};
+                                                                                const oldFee = newList[actualIdx].fees[yearCol] || {};
                                                                                 const newFees = {
-                                                                                    ...newList[idx].fees,
+                                                                                    ...newList[actualIdx].fees,
                                                                                     [yearCol]: { ...oldFee, amount: e.target.value } // Preserve other props
                                                                                 };
-                                                                                newList[idx].fees = newFees;
+                                                                                newList[actualIdx].fees = newFees;
                                                                                 setStudentList(newList);
                                                                             }}
                                                                         />
