@@ -95,7 +95,7 @@ const FeeCollection = () => {
                     axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`, {
                         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     }),
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, {
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/settings`, {
                         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     }),
                     axios.get(`${import.meta.env.VITE_API_URL}/api/concession-approvers`, {
@@ -494,6 +494,21 @@ const FeeCollection = () => {
         if (validRows.length === 0) {
             alert('Please select at least one Fee Head and enter a valid amount.');
             return;
+        }
+
+        if (paymentForm.transactionType === 'DEBIT') {
+            if (paymentCategory === 'Cash' && receiptSettings?.enableCashPayment === false) {
+                alert('Cash payments are currently disabled by the administrator.');
+                return;
+            }
+            if (paymentCategory === 'Bank' && receiptSettings?.enableBankPayment === false) {
+                alert('Bank payments are currently disabled by the administrator.');
+                return;
+            }
+            if (paymentCategory === 'Split' && receiptSettings?.enableSplitPayment === false) {
+                alert('Split payments are currently disabled by the administrator.');
+                return;
+            }
         }
 
         if (paymentForm.transactionType === 'CREDIT') {
@@ -1367,12 +1382,12 @@ const FeeCollection = () => {
                                                     <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
                                                         <div className="grid grid-cols-3 gap-2 mb-3">
-                                                            <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableCashPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} disabled={receiptSettings?.enableCashPayment === false} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
                                                                 <span className="font-bold text-xs text-gray-700">Cash</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} onChange={() => { 
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableBankPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} disabled={receiptSettings?.enableBankPayment === false} onChange={() => { 
                                                                     setPaymentCategory('Bank'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
                                                                     
@@ -1386,8 +1401,8 @@ const FeeCollection = () => {
                                                                 }} />
                                                                 <span className="font-bold text-xs text-gray-700">Bank</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 cursor-pointer p-2 rounded-lg border transition-all ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} onChange={() => { 
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableSplitPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={receiptSettings?.enableSplitPayment === false} onChange={() => { 
                                                                     setPaymentCategory('Split'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
                                                                     

@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Sidebar from './Sidebar';
 
-const ReceiptSettings = () => {
+const Settings = () => {
     const [settings, setSettings] = useState({
         showCollegeHeader: true,
+        enableCashPayment: true,
+        enableBankPayment: true,
+        enableSplitPayment: true,
         maskedFeeHeads: [],
         maskName: 'Processing Fee'
     });
@@ -20,7 +23,7 @@ const ReceiptSettings = () => {
     const fetchData = async () => {
         try {
             const [settingsRes, feeHeadsRes] = await Promise.all([
-                axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, {
+                axios.get(`${import.meta.env.VITE_API_URL}/api/settings`, {
                     headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 }),
                 axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`, {
@@ -39,6 +42,23 @@ const ReceiptSettings = () => {
 
     const handleToggleHeader = () => {
         setSettings({ ...settings, showCollegeHeader: !settings.showCollegeHeader });
+    };
+
+    const handleTogglePayment = async (paymentMethod) => {
+        const newValue = !settings[paymentMethod];
+        const updatedSettings = { ...settings, [paymentMethod]: newValue };
+        setSettings(updatedSettings);
+        try {
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/settings`, updatedSettings, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            setMessage(`${paymentMethod.replace('enable', '')} payment ${newValue ? 'enabled' : 'disabled'} successfully`);
+            setTimeout(() => setMessage(''), 2000);
+        } catch (error) {
+            console.error(error);
+            setMessage('Error updating setting');
+            setTimeout(() => setMessage(''), 2000);
+        }
     };
 
     const handleMaskNameChange = (e) => {
@@ -64,7 +84,7 @@ const ReceiptSettings = () => {
         setSaving(true);
         setMessage('');
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, settings, {
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/settings`, settings, {
                 headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setMessage('Settings saved successfully!');
@@ -79,10 +99,10 @@ const ReceiptSettings = () => {
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
-            <div className="flex-1 p-6 md:p-10">
+            <div className="flex-1 p-6 md:p-10 max-w-5xl mx-auto space-y-8">
                 <header className="mb-8">
-                    <h1 className="text-3xl font-bold text-gray-800">Receipt Settings</h1>
-                    <p className="text-gray-500 mt-2">Configure appearance and content of fee receipts.</p>
+                    <h1 className="text-3xl font-bold text-gray-800">Global Settings</h1>
+                    <p className="text-gray-500 mt-2">Configure fee receipts and global system features.</p>
                 </header>
 
                 {loading ? (
@@ -97,9 +117,9 @@ const ReceiptSettings = () => {
                         )}
 
                         {/* General Settings */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
                             <div className="p-6 border-b border-gray-100">
-                                <h2 className="text-lg font-bold text-gray-800">General Appearance</h2>
+                                <h2 className="text-lg font-bold text-gray-800">Receipt Appearance</h2>
                             </div>
                             <div className="p-6 space-y-6">
                                 <div className="flex items-center justify-between">
@@ -175,8 +195,48 @@ const ReceiptSettings = () => {
                             </div>
                         </div>
 
+                        {/* Fee Collection Features */}
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                            <div className="p-6 border-b border-gray-100">
+                                <h2 className="text-lg font-bold text-gray-800">Fee Collection Features</h2>
+                                <p className="text-sm text-gray-500 mt-1">Enable or disable specific payment methods globally.</p>
+                            </div>
+                            <div className="p-6 space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="font-semibold text-gray-700">Cash Payments</h3>
+                                        <p className="text-sm text-gray-500">Allow collection of fees via physical cash.</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" className="sr-only peer" checked={settings.enableCashPayment !== false} onChange={() => handleTogglePayment('enableCashPayment')} />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                                <div className="flex items-center justify-between border-t border-gray-100 pt-6">
+                                    <div>
+                                        <h3 className="font-semibold text-gray-700">Bank Payments</h3>
+                                        <p className="text-sm text-gray-500">Allow collection of fees via bank transfers, DD, or cheques.</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" className="sr-only peer" checked={settings.enableBankPayment !== false} onChange={() => handleTogglePayment('enableBankPayment')} />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                                <div className="flex items-center justify-between border-t border-gray-100 pt-6">
+                                    <div>
+                                        <h3 className="font-semibold text-gray-700">Split Payments</h3>
+                                        <p className="text-sm text-gray-500">Allow splitting a single payment across multiple methods.</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" className="sr-only peer" checked={settings.enableSplitPayment !== false} onChange={() => handleTogglePayment('enableSplitPayment')} />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Masking Settings */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
                             <div className="p-6 border-b border-gray-100">
                                 <h2 className="text-lg font-bold text-gray-800">Mask Fee Heads</h2>
                                 <p className="text-sm text-gray-500 mt-1">Select Fee Heads to hide/rename on the receipt. They will be displayed as the name below.</p>
@@ -231,4 +291,4 @@ const ReceiptSettings = () => {
     );
 };
 
-export default ReceiptSettings;
+export default Settings;

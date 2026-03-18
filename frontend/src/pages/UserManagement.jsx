@@ -23,7 +23,7 @@ const UserManagement = () => {
         { name: 'Hostel Config', path: '/hostel-config' },
         { name: 'Permissions', path: '/permissions' },
         { name: 'User Management', path: '/user-management' },
-        { name: 'Receipt Settings', path: '/receipt-settings' },
+        { name: 'Settings', path: '/settings' },
     ];
 
     // Form State

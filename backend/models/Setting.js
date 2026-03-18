@@ -1,7 +1,19 @@
 const mongoose = require('mongoose');
 
-const receiptSettingSchema = mongoose.Schema({
+const settingSchema = mongoose.Schema({
   showCollegeHeader: {
+    type: Boolean,
+    default: true,
+  },
+  enableCashPayment: {
+    type: Boolean,
+    default: true,
+  },
+  enableBankPayment: {
+    type: Boolean,
+    default: true,
+  },
+  enableSplitPayment: {
     type: Boolean,
     default: true,
   },
@@ -27,4 +39,4 @@ const receiptSettingSchema = mongoose.Schema({
   timestamps: true,
 });
 
-module.exports = mongoose.model('ReceiptSetting', receiptSettingSchema);
+module.exports = mongoose.model('Setting', settingSchema);

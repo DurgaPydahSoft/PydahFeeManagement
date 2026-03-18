@@ -1,15 +1,18 @@
-const ReceiptSetting = require('../models/ReceiptSetting');
+const Setting = require('../models/Setting');
 
-// @desc    Get receipt settings
-// @route   GET /api/receipt-settings
+// @desc    Get settings
+// @route   GET /api/settings
 // @access  Private
 const getSettings = async (req, res) => {
   try {
-    let settings = await ReceiptSetting.findOne();
+    let settings = await Setting.findOne();
     if (!settings) {
       // Return default if not found
       settings = {
         showCollegeHeader: true,
+        enableCashPayment: true,
+        enableBankPayment: true,
+        enableSplitPayment: true,
         maskedFeeHeads: [],
         maskName: 'Processing Fee'
       };
@@ -20,21 +23,33 @@ const getSettings = async (req, res) => {
   }
 };
 
-// @desc    Update receipt settings
-// @route   PUT /api/receipt-settings
+// @desc    Update settings
+// @route   PUT /api/settings
 // @access  Private (Admin)
 const updateSettings = async (req, res) => {
-  const { showCollegeHeader, maskedFeeHeads, maskName, paperSize, copiesPerPage } = req.body;
-  console.log('Update Receipt Settings Body:', req.body);
+  const { 
+    showCollegeHeader, 
+    enableCashPayment,
+    enableBankPayment,
+    enableSplitPayment,
+    maskedFeeHeads, 
+    maskName, 
+    paperSize, 
+    copiesPerPage 
+  } = req.body;
+  console.log('Update Settings Body:', req.body);
 
   try {
     // Upsert: Find the first document and update it, or create if none exists.
     // simple findOneAndUpdate with empty filter works for singleton logic if we only ever access it this way.
-    const settings = await ReceiptSetting.findOneAndUpdate(
+    const settings = await Setting.findOneAndUpdate(
       {},
       {
         $set: {
           showCollegeHeader: showCollegeHeader,
+          enableCashPayment: enableCashPayment,
+          enableBankPayment: enableBankPayment,
+          enableSplitPayment: enableSplitPayment,
           maskedFeeHeads: maskedFeeHeads,
           maskName: maskName || 'Processing Fee',
           paperSize: paperSize || 'A4',
