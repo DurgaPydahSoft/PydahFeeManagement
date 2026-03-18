@@ -4,7 +4,7 @@ import { Search, Upload, X, Check, Save } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const ConcessionManagement = () => {
-    const [activeTab, setActiveTab] = useState('request'); // 'request' or 'approvals'
+    const [activeTab, setActiveTab] = useState('request'); // 'request', 'approvals', 'approvers'
     const [user, setUser] = useState(null);
 
     const searchInputRef = React.useRef(null);
@@ -60,6 +60,11 @@ const ConcessionManagement = () => {
     const [courseList, setCourseList] = useState([]);
     const [branchList, setBranchList] = useState([]);
     const [batchList, setBatchList] = useState([]);
+    
+    // Approver Management State
+    const [approvers, setApprovers] = useState([]);
+    const [newApprover, setNewApprover] = useState({ name: '', designation: '' });
+    const [isApproverLoading, setIsApproverLoading] = useState(false);
 
     useEffect(() => {
         const u = JSON.parse(localStorage.getItem('user'));
@@ -69,6 +74,9 @@ const ConcessionManagement = () => {
         if (activeTab === 'approvals') {
             fetchPendingRequests();
         }
+        if (activeTab === 'approvers') {
+            fetchApprovers();
+        }
     }, [activeTab]);
 
     // Search Logic (Debounced)
@@ -77,7 +85,9 @@ const ConcessionManagement = () => {
             if (activeTab === 'request' && searchTerm.length >= 3) {
                 setIsSearching(true);
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`);
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    });
                     setSearchResults(res.data);
                 } catch (error) { console.error(error); }
                 setIsSearching(false);
@@ -105,7 +115,9 @@ const ConcessionManagement = () => {
 
     const fetchMetadata = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setMetadata(res.data);
             setCollegeList(Object.keys(res.data.hierarchy || {}));
             setBatchList(res.data.batches || []);
@@ -134,7 +146,9 @@ const ConcessionManagement = () => {
 
     const fetchFeeHeads = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setFeeHeads(res.data);
         } catch (e) { console.error(e); }
     };
@@ -157,6 +171,49 @@ const ConcessionManagement = () => {
             });
             setPendingRequests(res.data);
         } catch (e) { console.error(e); }
+    };
+
+    // Approver CRUD
+    const fetchApprovers = async () => {
+        try {
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concession-approvers/all`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            setApprovers(res.data);
+        } catch (e) { console.error(e); }
+    };
+
+    const handleAddApprover = async (e) => {
+        e.preventDefault();
+        if (!newApprover.name || !newApprover.designation) return alert('Please fill all fields');
+        setIsApproverLoading(true);
+        try {
+            await axios.post(`${import.meta.env.VITE_API_URL}/api/concession-approvers`, newApprover, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            setNewApprover({ name: '', designation: '' });
+            fetchApprovers();
+        } catch (e) { alert('Failed to add'); }
+        setIsApproverLoading(false);
+    };
+
+    const toggleApprover = async (id) => {
+        try {
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/concession-approvers/${id}/toggle`, {}, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            fetchApprovers();
+        } catch (e) { alert('Failed to toggle'); }
+    };
+
+    const deleteApprover = async (id) => {
+        if (!window.confirm('Are you sure?')) return;
+        try {
+            await axios.delete(`${import.meta.env.VITE_API_URL}/api/concession-approvers/${id}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            fetchApprovers();
+        } catch (e) { alert('Failed to delete'); }
     };
 
     const handleSubmitRequest = async (e) => {
@@ -268,7 +325,7 @@ const ConcessionManagement = () => {
                         >
                             Request
                         </button>
-                        {isSuperAdmin && (
+                        {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && (
                             <button
                                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'approvals' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                                 onClick={() => setActiveTab('approvals')}
@@ -279,6 +336,14 @@ const ConcessionManagement = () => {
                                         {pendingRequests.length}
                                     </span>
                                 )}
+                            </button>
+                        )}
+                        {(isSuperAdmin || (user?.permissions || []).includes('concession_approvers')) && (
+                            <button
+                                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'approvers' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => setActiveTab('approvers')}
+                            >
+                                Approvers
                             </button>
                         )}
                     </div>
@@ -564,6 +629,107 @@ const ConcessionManagement = () => {
                     </div>
                 )}
 
+                {/* Content Area - Approvers Tab */}
+                {activeTab === 'approvers' && (
+                    <div className="flex-1 p-6 flex flex-col overflow-hidden gap-6">
+                        <div className="grid grid-cols-3 gap-6 flex-1 overflow-hidden">
+                            {/* Left: Add Form */}
+                            <div className="bg-white border rounded-xl shadow-sm p-6 flex flex-col">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Add Permission Giver</h3>
+                                <form onSubmit={handleAddApprover} className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Full Name</label>
+                                        <input 
+                                            type="text" 
+                                            className="w-full border p-2 rounded-lg text-sm"
+                                            value={newApprover.name}
+                                            onChange={e => setNewApprover({...newApprover, name: e.target.value})}
+                                            placeholder="e.g. Dr. Ramesh Babu"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Designation</label>
+                                        <select 
+                                            className="w-full border p-2 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                                            value={newApprover.designation}
+                                            onChange={e => setNewApprover({...newApprover, designation: e.target.value})}
+                                        >
+                                            <option value="">-- Select Designation --</option>
+                                            <option value="Principal">Principal</option>
+                                            <option value="Dean">Dean</option>
+                                            <option value="Vice Principal">Vice Principal</option>
+                                            <option value="Manager">Manager</option>
+                                            <option value="Academic Director">Academic Director</option>
+                                        </select>
+                                    </div>
+                                    <button 
+                                        type="submit"
+                                        disabled={isApproverLoading}
+                                        className="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                                    >
+                                        Add Approver
+                                    </button>
+                                </form>
+                                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100 text-xs text-blue-700 leading-relaxed italic">
+                                    These people will appear in the "Concession Given By" dropdown on the Fee Collection page for cashiers.
+                                </div>
+                            </div>
+
+                            {/* Center/Right: List */}
+                            <div className="col-span-2 bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col">
+                                <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                                    <h3 className="font-bold text-gray-700">Managed Approvers</h3>
+                                    <span className="text-xs text-gray-400 font-medium">{approvers.length} Total</span>
+                                </div>
+                                <div className="flex-1 overflow-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 sticky top-0">
+                                            <tr>
+                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase">Name</th>
+                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase">Designation</th>
+                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
+                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {approvers.map(a => (
+                                                <tr key={a._id} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="p-4 font-bold text-gray-800 text-sm">{a.name}</td>
+                                                    <td className="p-4 text-sm text-gray-600">{a.designation}</td>
+                                                    <td className="p-4">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${a.isActive ? 'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>
+                                                            {a.isActive ? 'Active' : 'Inactive'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-right space-x-2">
+                                                        <button 
+                                                            onClick={() => toggleApprover(a._id)}
+                                                            className={`text-xs font-bold px-3 py-1 rounded border transition ${a.isActive ? 'border-orange-200 text-orange-600 hover:bg-orange-50':'border-green-200 text-green-600 hover:bg-green-50'}`}
+                                                        >
+                                                            {a.isActive ? 'Disable' : 'Enable'}
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => deleteApprover(a._id)}
+                                                            className="text-xs font-bold px-3 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 transition"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {approvers.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="4" className="p-10 text-center text-gray-400 italic">No approvers added yet.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* MODAL (Reused logic) */}
                 {selectedRequest && (
                     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -595,6 +761,15 @@ const ConcessionManagement = () => {
                                         <label className="text-xs text-gray-400 uppercase font-bold">Amount Requested</label>
                                         <div className="font-bold text-blue-600 text-lg">₹{selectedRequest.amount.toLocaleString()}</div>
                                     </div>
+                                    {selectedRequest.concessionGivenBy && (
+                                        <div className="col-span-2 pt-2 border-t border-gray-100">
+                                            <label className="text-xs text-gray-400 uppercase font-bold">Concession Authorized By</label>
+                                            <div className="font-bold text-purple-700 flex items-center gap-1">
+                                                <div className="bg-purple-100 p-1 rounded-full"><Save size={12} /></div>
+                                                {selectedRequest.concessionGivenBy}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div>
@@ -623,7 +798,7 @@ const ConcessionManagement = () => {
                                 )}
 
                                 {/* Approval Sections */}
-                                {isSuperAdmin && selectedRequest.status === 'PENDING' && (
+                                {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && selectedRequest.status === 'PENDING' && (
                                     <div className="pt-4 border-t space-y-3">
                                         <div>
                                             <label className="block text-sm font-bold text-gray-700 mb-1">Approved Amount</label>
@@ -648,7 +823,7 @@ const ConcessionManagement = () => {
                             </div>
 
                             <div className="mt-4 pt-4 border-t shrink-0 flex gap-3">
-                                {isSuperAdmin && selectedRequest.status === 'PENDING' ? (
+                                {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && selectedRequest.status === 'PENDING' ? (
                                     <>
                                         <button
                                             onClick={() => handleApprovalAction('APPROVE')}

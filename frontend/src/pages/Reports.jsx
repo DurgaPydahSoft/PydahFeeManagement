@@ -341,7 +341,7 @@ const Reports = () => {
 
             const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/transactions`, {
                 headers: {
-                    Authorization: `Bearer ${token}`
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
                 },
                 params: { startDate, endDate, groupBy: groupBy === 'daily' ? 'day' : groupBy }
             });

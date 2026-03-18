@@ -34,7 +34,7 @@ const Dashboard = () => {
             try {
                 const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/dashboard-stats`, {
                     headers: {
-                        Authorization: `Bearer ${user.token}`
+                        Authorization: `Bearer ${localStorage.getItem('token')}`
                     }
                 });
                 setStats(res.data);

@@ -25,7 +25,9 @@ const Students = () => {
             const isSuperAdmin = user?.role === 'superadmin';
             const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
 
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`);
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setStudents(response.data);
             setLoading(false);
         } catch (err) {

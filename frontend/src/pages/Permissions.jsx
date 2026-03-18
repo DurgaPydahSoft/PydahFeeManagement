@@ -18,7 +18,9 @@ const Permissions = () => {
             if (searchTerm.length >= 3) {
                 setIsSearching(true);
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`);
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    });
                     setSearchResults(res.data);
                 } catch (error) { console.error(error); }
                 setIsSearching(false);
@@ -42,7 +44,9 @@ const Permissions = () => {
 
     const fetchPermissions = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/permissions`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/permissions`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setPermissions(res.data);
         } catch (error) { console.error(error); }
     };
@@ -69,7 +73,9 @@ const Permissions = () => {
 
         setLoading(true);
         try {
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/permissions`, form);
+            await axios.post(`${import.meta.env.VITE_API_URL}/api/permissions`, form, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             alert('Permission Granted Successfully');
             setForm({ studentId: '', grantedBy: 'Principal', remarks: '', validUpto: '' });
             setFetchedName('');

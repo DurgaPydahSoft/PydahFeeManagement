@@ -33,6 +33,7 @@ const Login = () => {
             });
             if (response.data) {
                 localStorage.setItem('user', JSON.stringify(response.data));
+                localStorage.setItem('token', response.data.token); // [NEW] Store token separately
                 localStorage.setItem('isSSO', 'true');
                 const user = response.data;
                 if (user.role !== 'superadmin' && user.permissions && !user.permissions.includes('/dashboard')) {
@@ -67,6 +68,7 @@ const Login = () => {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/login`, formData);
             if (response.data) {
                 localStorage.setItem('user', JSON.stringify(response.data));
+                localStorage.setItem('token', response.data.token); // [NEW] Store token separately
                 localStorage.removeItem('isSSO');
                 const user = response.data;
                 if (user.role !== 'superadmin' && user.permissions && !user.permissions.includes('/dashboard')) {

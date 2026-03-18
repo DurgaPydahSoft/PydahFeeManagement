@@ -37,7 +37,9 @@ const DueReports = () => {
     useEffect(() => {
         const fetchMetadata = async () => {
             try {
-                const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
+                const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 const meta = response.data.hierarchy || response.data;
                 const batchList = response.data.batches || [];
                 setMetadata(meta);
@@ -86,7 +88,8 @@ const DueReports = () => {
         setCurrentPage(1); // Reset page on new fetch
         try {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/dues`, {
-                params: { ...filters, search: searchTerm }
+                params: { ...filters, search: searchTerm },
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setReportData(response.data);
         } catch (error) {

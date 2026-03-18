@@ -81,7 +81,9 @@ const HostelConfiguration = () => {
     setLoadingHostels(true);
     setError('');
     try {
-      const res = await axios.get(`${API_URL}/api/hostels`);
+      const res = await axios.get(`${API_URL}/api/hostels`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
       setHostels(res.data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch hostels. Is MONGO_HOSTEL_URI set?');
@@ -96,7 +98,9 @@ const HostelConfiguration = () => {
   }, []);
 
   useEffect(() => {
-    axios.get(`${API_URL}/api/students/metadata`).then((r) => setMetadata(r.data || {})).catch(() => setMetadata({}));
+    axios.get(`${API_URL}/api/students/metadata`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    }).then((r) => setMetadata(r.data || {})).catch(() => setMetadata({}));
   }, []);
 
   // When on Hostel details tab, fetch categories and rooms for each hostel
@@ -107,8 +111,13 @@ const HostelConfiguration = () => {
     const promises = hostels.map(async (h) => {
       try {
         const [catRes, roomRes] = await Promise.all([
-          axios.get(`${API_URL}/api/hostels/${h._id}/categories`),
-          axios.get(`${API_URL}/api/hostels/rooms`, { params: { hostelId: h._id } })
+          axios.get(`${API_URL}/api/hostels/${h._id}/categories`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          }),
+          axios.get(`${API_URL}/api/hostels/rooms`, { 
+            params: { hostelId: h._id },
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          })
         ]);
         details[h._id] = { categories: catRes.data, rooms: roomRes.data };
       } catch {
@@ -126,7 +135,10 @@ const HostelConfiguration = () => {
       const params = {};
       if (feeStructureFilterHostel) params.hostelId = feeStructureFilterHostel;
       if (feeStructureFilterYear) params.academicYear = feeStructureFilterYear;
-      const res = await axios.get(`${API_URL}/api/hostels/fee-structures`, { params });
+      const res = await axios.get(`${API_URL}/api/hostels/fee-structures`, { 
+        params,
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
       setHostelFeeStructures(res.data);
     } catch {
       setHostelFeeStructures([]);
@@ -139,13 +151,17 @@ const HostelConfiguration = () => {
 
   useEffect(() => {
     if (feeStructureForm.hostelId) {
-      axios.get(`${API_URL}/api/hostels/${feeStructureForm.hostelId}/categories`).then((r) => setCategoriesForFeeStructure(r.data)).catch(() => setCategoriesForFeeStructure([]));
+      axios.get(`${API_URL}/api/hostels/${feeStructureForm.hostelId}/categories`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      }).then((r) => setCategoriesForFeeStructure(r.data)).catch(() => setCategoriesForFeeStructure([]));
     } else setCategoriesForFeeStructure([]);
   }, [feeStructureForm.hostelId]);
 
   useEffect(() => {
     if (feeStructureFilterHostel) {
-      axios.get(`${API_URL}/api/hostels/${feeStructureFilterHostel}/categories`).then((r) => setCategoriesForFeeTable(r.data)).catch(() => setCategoriesForFeeTable([]));
+      axios.get(`${API_URL}/api/hostels/${feeStructureFilterHostel}/categories`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      }).then((r) => setCategoriesForFeeTable(r.data)).catch(() => setCategoriesForFeeTable([]));
     } else setCategoriesForFeeTable([]);
   }, [feeStructureFilterHostel]);
 
@@ -218,6 +234,8 @@ const HostelConfiguration = () => {
           studentYear,
           categoryAmounts,
           description: feeStructureForm.description || ''
+        }, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
       }
       fetchHostelFeeStructures();
@@ -233,7 +251,8 @@ const HostelConfiguration = () => {
     if (!window.confirm(`Delete all fee structures for ${academicYear} / ${course} / Year ${studentYear ?? ''}?`)) return;
     try {
       await axios.delete(`${API_URL}/api/hostels/fee-structures/by-row`, {
-        data: { academicYear, hostelId: effectiveHostelId, course: (course || '').trim(), studentYear: studentYear != null ? Number(studentYear) : undefined }
+        data: { academicYear, hostelId: effectiveHostelId, course: (course || '').trim(), studentYear: studentYear != null ? Number(studentYear) : undefined },
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       fetchHostelFeeStructures();
     } catch (err) {
@@ -254,7 +273,9 @@ const HostelConfiguration = () => {
     if (!applySearch.trim()) return;
     setApplyLoading(true);
     try {
-      const res = await axios.get(`${API_URL}/api/students`);
+      const res = await axios.get(`${API_URL}/api/students`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
       const term = applySearch.toLowerCase();
       const matches = res.data.filter((s) =>
         (s.admission_number && String(s.admission_number).toLowerCase().includes(term)) ||
@@ -285,6 +306,8 @@ const HostelConfiguration = () => {
       const res = await axios.post(`${API_URL}/api/hostels/fee-structures/apply`, {
         hostelFeeStructureId: applyStructure._id,
         studentIds: applySelectedIds
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       alert(res.data.message || `Applied to ${res.data.applied} student(s)`);
       setIsApplyModalOpen(false);

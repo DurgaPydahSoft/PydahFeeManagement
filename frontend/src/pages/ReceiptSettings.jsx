@@ -20,8 +20,12 @@ const ReceiptSettings = () => {
     const fetchData = async () => {
         try {
             const [settingsRes, feeHeadsRes] = await Promise.all([
-                axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`),
-                axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`)
+                axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                }),
+                axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                })
             ]);
             setSettings(settingsRes.data);
             setFeeHeads(feeHeadsRes.data);
@@ -60,7 +64,9 @@ const ReceiptSettings = () => {
         setSaving(true);
         setMessage('');
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, settings);
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, settings, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setMessage('Settings saved successfully!');
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {

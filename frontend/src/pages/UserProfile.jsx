@@ -27,7 +27,9 @@ const UserProfile = () => {
         }
 
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${user._id}`, { password });
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${user._id}`, { password }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setMessage("Password updated successfully!");
             setPassword('');
             setConfirmPassword('');

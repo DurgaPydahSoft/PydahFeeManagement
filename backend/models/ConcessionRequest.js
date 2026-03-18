@@ -57,6 +57,9 @@ const concessionRequestSchema = mongoose.Schema({
   },
   rejectionReason: {
     type: String,
+  },
+  concessionGivenBy: {
+    type: String, // Name of the permission giver
   }
 }, {
   timestamps: true,

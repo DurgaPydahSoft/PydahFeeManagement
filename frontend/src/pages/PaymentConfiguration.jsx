@@ -27,14 +27,18 @@ const PaymentConfiguration = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setMetadata(response.data);
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
     const fetchConfigs = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`);
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setConfigs(response.data);
         } catch (error) { console.error('Error fetching configs', error); }
     };
@@ -51,12 +55,16 @@ const PaymentConfiguration = () => {
         try {
             if (editingId) {
                 // Update
-                const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/payment-config/${editingId}`, form);
+                const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/payment-config/${editingId}`, form, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 setConfigs(configs.map(c => c._id === editingId ? response.data : c));
                 setMessage('Account updated successfully!');
             } else {
                 // Create
-                const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/payment-config`, form);
+                const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/payment-config`, form, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 setConfigs([response.data, ...configs]);
                 setMessage('Account added successfully!');
             }
@@ -88,7 +96,9 @@ const PaymentConfiguration = () => {
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure needed to de-activate this account?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/payment-config/${id}`);
+            await axios.delete(`${import.meta.env.VITE_API_URL}/api/payment-config/${id}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             // Optimistic update: set is_active to false locally
             setConfigs(configs.map(c => c._id === id ? { ...c, is_active: false } : c));
         } catch (error) {
@@ -99,7 +109,9 @@ const PaymentConfiguration = () => {
 
     const handleToggle = async (id) => {
         try {
-            const response = await axios.patch(`${import.meta.env.VITE_API_URL}/api/payment-config/${id}/toggle`);
+            const response = await axios.patch(`${import.meta.env.VITE_API_URL}/api/payment-config/${id}/toggle`, {}, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setConfigs(configs.map(c => c._id === id ? response.data : c));
         } catch (error) {
             console.error(error);

@@ -105,7 +105,9 @@ const ReminderConfiguration = () => {
     const fetchAcademicYears = async () => {
         setIsFetchingCalendar(true);
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/academic-years`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/academic-years`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setAcademicYears(res.data);
         } catch (error) {
             console.error(error);
@@ -116,7 +118,9 @@ const ReminderConfiguration = () => {
 
     const fetchTemplates = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/templates`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/templates`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setTemplates(res.data);
         } catch (error) {
             console.error(error);
@@ -125,7 +129,9 @@ const ReminderConfiguration = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             const meta = response.data.hierarchy || response.data;
             const batchList = response.data.batches || [];
             setMetadata(meta);
@@ -147,6 +153,8 @@ const ReminderConfiguration = () => {
                 _id: editingTemplate?._id,
                 type: activeTab,
                 ...formData
+            }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             fetchTemplates();
             resetForm();
@@ -161,7 +169,9 @@ const ReminderConfiguration = () => {
     const handleDelete = async (id) => {
         if (!window.confirm("Are you sure?")) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/templates/${id}`);
+            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/templates/${id}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             fetchTemplates();
         } catch (error) {
             console.error(error);
@@ -211,7 +221,10 @@ const ReminderConfiguration = () => {
         if (!filters.college) return alert("Please select a college at least.");
         setIsFetching(true);
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`, { params: filters });
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`, { 
+                params: filters,
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setStudents(res.data);
             setSelectedStudents([]); // Reset selection
         } catch (error) {
@@ -286,6 +299,8 @@ const ReminderConfiguration = () => {
                     email: r.student_email,
                     phone: r.student_mobile
                 }))
+            }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             alert('Reminders Sent Successfully!');
             setSelectedStudents([]);
@@ -301,7 +316,9 @@ const ReminderConfiguration = () => {
     // --- TIMELY HANDLERS ---
     const fetchConfigs = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/config`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/config`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setConfigs(res.data);
         } catch (error) {
             console.error('Failed to fetch configs', error);
@@ -330,11 +347,15 @@ const ReminderConfiguration = () => {
             };
 
             if (editingConfigId) {
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/reminders/config/${editingConfigId}`, payload);
+                await axios.put(`${import.meta.env.VITE_API_URL}/api/reminders/config/${editingConfigId}`, payload, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 alert('Rule Updated Successfully!');
                 setEditingConfigId(null);
             } else {
-                await axios.post(`${import.meta.env.VITE_API_URL}/api/reminders/config`, payload);
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/reminders/config`, payload, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 alert('Rule Saved Successfully!');
             }
 
@@ -367,7 +388,9 @@ const ReminderConfiguration = () => {
     const handleDeleteConfig = async (id) => {
         if (!window.confirm("Delete this rule?")) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/config/${id}`);
+            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/config/${id}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             fetchConfigs();
         } catch (error) {
             console.error("Failed to delete", error);

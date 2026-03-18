@@ -3,10 +3,37 @@ const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const { uploadToS3 } = require('../utils/s3Upload');
 
+// Helper to get next voucher ID for a course
+const getNextVoucherId = async (courseName) => {
+  const lastRequest = await ConcessionRequest.findOne({ course: courseName })
+    .sort({ createdAt: -1 })
+    .select('voucherId');
+  
+  let nextNum = 1;
+  if (lastRequest && lastRequest.voucherId) {
+    nextNum = parseInt(lastRequest.voucherId, 10) + 1;
+  }
+  return nextNum.toString().padStart(3, '0');
+};
+
+// @desc    Get Next Voucher ID Preview
+// @route   GET /api/concessions/next-voucher-id
+const getNextVoucherIdPreview = async (req, res) => {
+  const { course } = req.query;
+  if (!course) return res.status(400).json({ message: 'Course is required' });
+
+  try {
+    const nextId = await getNextVoucherId(course);
+    res.json({ nextVoucherId: nextId });
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
 // @desc    Create a Concession Request
 // @route   POST /api/concessions
 const createConcessionRequest = async (req, res) => {
-  let { students, feeHeadId, amount, reason, studentYear, semester } = req.body;
+  let { students, feeHeadId, amount, reason, studentYear, semester, concessionGivenBy } = req.body;
   
   // Parse students if it comes as a string (FormData)
   if (typeof students === 'string') {
@@ -17,7 +44,7 @@ const createConcessionRequest = async (req, res) => {
     }
   }
 
-  const requestedBy = req.user ? req.user.username : 'system';
+  const requestedBy = req.user ? (req.user.name || req.user.username) : 'system';
 
   if (!students || !Array.isArray(students) || students.length === 0) {
     return res.status(400).json({ message: 'No students selected' });
@@ -32,19 +59,6 @@ const createConcessionRequest = async (req, res) => {
     if (req.file) {
       imageUrl = await uploadToS3(req.file);
     }
-
-    // Helper to get next voucher ID for a course
-    const getNextVoucherId = async (courseName) => {
-      const lastRequest = await ConcessionRequest.findOne({ course: courseName })
-        .sort({ createdAt: -1 })
-        .select('voucherId');
-      
-      let nextNum = 1;
-      if (lastRequest && lastRequest.voucherId) {
-        nextNum = parseInt(lastRequest.voucherId, 10) + 1;
-      }
-      return nextNum.toString().padStart(3, '0');
-    };
 
     // Cache next IDs to avoid redundant lookups or racing (simplified for now)
     const courseNextIds = {};
@@ -74,7 +88,8 @@ const createConcessionRequest = async (req, res) => {
         batch: s.batch,
         type: students.length > 1 ? 'Bulk' : 'Single',
         requestedBy,
-        imageUrl
+        imageUrl,
+        concessionGivenBy // [NEW]
       });
     }
 
@@ -124,7 +139,7 @@ const getConcessionRequests = async (req, res) => {
 const processConcessionRequest = async (req, res) => {
   const { id } = req.params;
   const { action, rejectionReason, approvedAmount } = req.body; // action: 'APPROVE' or 'REJECT'
-  const processedBy = req.user ? req.user.username : 'admin';
+  const processedBy = req.user ? (req.user.name || req.user.username) : 'admin';
 
   try {
     const request = await ConcessionRequest.findById(id);
@@ -157,53 +172,50 @@ const processConcessionRequest = async (req, res) => {
         const random = Math.floor(100 + Math.random() * 900).toString();
         const receiptNumber = `CN${timestamp}${random}`; // CN for Concession
 
-        await Transaction.create({
+        const newTransaction = new Transaction({
           studentId: request.studentId,
           studentName: request.studentName,
           feeHead: request.feeHead,
-          concessionRequestId: request._id, // Link it
           amount: finalAmount,
-          paymentMode: 'Waiver',
           transactionType: 'CREDIT',
-          remarks: `Concession Approved: ${request.reason}`,
-          semester: request.semester,
-          studentYear: request.studentYear,
+          paymentMode: 'Credit',
           receiptNumber,
+          paymentDate: new Date(),
+          remarks: `Concession: ${request.reason}`,
           collectedBy: processedBy,
-          collectedByName: req.user ? req.user.name : 'Administrator'
+          collectedByName: req.user ? req.user.name : 'Administrator',
+          academicYear: request.batch,
+          studentYear: request.studentYear,
+          college: request.college,
+          course: request.course,
+          branch: request.branch,
+          concessionRequestId: request._id
         });
+        await newTransaction.save();
       }
-
-      // 2. Update Request Status
+      
       request.status = 'APPROVED';
-      request.approvedBy = processedBy;
+      request.processedBy = processedBy;
+      request.processedAt = new Date();
       await request.save();
 
-      res.json({ message: 'Concession Approved and Synchronized', status: 'APPROVED' });
-
-    } else if (action === 'REJECT') {
-      // Delete linked transaction if it exists
-      await Transaction.deleteMany({ concessionRequestId: id });
-
-      request.status = 'REJECTED';
-      request.approvedBy = processedBy;
-      request.rejectionReason = rejectionReason || 'No reason provided';
-      await request.save();
-
-      res.json({ message: 'Concession Rejected and Linked Transactions Removed', status: 'REJECTED' });
-
+      res.json({ message: 'Request approved successfully', data: request });
     } else {
-      res.status(400).json({ message: 'Invalid Action' });
+      request.status = 'REJECTED';
+      request.rejectionReason = rejectionReason;
+      request.processedBy = processedBy;
+      request.processedAt = new Date();
+      await request.save();
+      res.json({ message: 'Request rejected successfully', data: request });
     }
-
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server Error' });
+    res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
 
-module.exports = {
-  createConcessionRequest,
-  getConcessionRequests,
-  processConcessionRequest
+module.exports = { 
+  createConcessionRequest, 
+  getConcessionRequests, 
+  processConcessionRequest,
+  getNextVoucherIdPreview
 };

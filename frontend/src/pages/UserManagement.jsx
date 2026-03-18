@@ -48,7 +48,9 @@ const UserManagement = () => {
         if (query.length > 0) { // Changed from > 2 to > 0 to search on every char
             setSearchLoading(true);
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/employees/search?name=${query}`);
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/employees/search?name=${query}`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 setSearchResults(res.data);
             } catch (error) {
                 console.error("Search failed", error);
@@ -89,7 +91,9 @@ const UserManagement = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`);
+            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             // response.data = { hierarchy: { 'College': ... }, batches: [...] }
             if (response.data && response.data.hierarchy) {
                 setColleges(Object.keys(response.data.hierarchy));
@@ -99,7 +103,9 @@ const UserManagement = () => {
 
     const fetchUsers = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/users`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/users`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setUsers(res.data);
             setLoading(false);
         } catch (error) {
@@ -153,12 +159,16 @@ const UserManagement = () => {
         setIsSubmitting(true);
         try {
             if (editingUserId) {
-                const res = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${editingUserId}`, formData);
+                const res = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${editingUserId}`, formData, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 setUsers(users.map(u => u._id === editingUserId ? res.data : u));
                 setMessage('User updated successfully!');
                 setEditingUserId(null);
             } else {
-                const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/users`, formData);
+                const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/users`, formData, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
@@ -193,7 +203,9 @@ const UserManagement = () => {
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this user?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/users/${id}`);
+            await axios.delete(`${import.meta.env.VITE_API_URL}/api/users/${id}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setUsers(users.filter(u => u._id !== id));
             if (editingUserId === id) handleCancelEdit();
         } catch (error) {
@@ -220,7 +232,9 @@ const UserManagement = () => {
     const handleSavePassword = async (e) => {
         e.preventDefault();
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${resetModal.user._id}`, { password: resetModal.newPassword });
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${resetModal.user._id}`, { password: resetModal.newPassword }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             alert('Password updated successfully!');
             closeResetModal();
         } catch (error) {
@@ -409,6 +423,12 @@ const UserManagement = () => {
                                                                     if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
                                                                     if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
                                                                 }
+                                                                if (path === '/concessions') {
+                                                                    if (!currentPermissions.includes('concession_approvals')) currentPermissions.push('concession_approvals');
+                                                                    if (formData.role !== 'cashier' && !currentPermissions.includes('concession_approvers')) {
+                                                                        currentPermissions.push('concession_approvers');
+                                                                    }
+                                                                }
                                                             }
                                                             setFormData({ ...formData, permissions: currentPermissions });
                                                         };
@@ -455,6 +475,46 @@ const UserManagement = () => {
                                                             className="rounded text-blue-600 focus:ring-blue-500"
                                                         />
                                                         <span className="text-xs text-gray-600">Enable Fee Concession</span>
+                                                    </label>
+                                                </div>
+                                            )}
+
+                                            {/* Sub-Permissions for Concessions */}
+                                            {page.path === '/concessions' && (formData.permissions || []).includes('/concessions') && (
+                                                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('concession_approvals')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('concession_approvals')) p = p.filter(x => x !== 'concession_approvals');
+                                                                    else p = [...p, 'concession_approvals'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Enable Approvals</span>
+                                                    </label>
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('concession_approvers')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('concession_approvers')) p = p.filter(x => x !== 'concession_approvers');
+                                                                    else p = [...p, 'concession_approvers'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Manage Approvers</span>
                                                     </label>
                                                 </div>
                                             )}

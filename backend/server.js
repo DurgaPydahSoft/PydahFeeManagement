@@ -50,6 +50,7 @@ app.use('/api/employees', require('./routes/employeeRoutes')); // [NEW]
 app.use('/api/receipt-settings', require('./routes/receiptSettingRoutes')); // [NEW]
 app.use('/api/late-fees', require('./routes/lateFeeRoutes'));
 app.use('/api/proceedings', require('./routes/proceedingRoutes'));
+app.use('/api/concession-approvers', require('./routes/approverRoutes')); // [NEW]
 
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });

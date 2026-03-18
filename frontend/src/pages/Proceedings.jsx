@@ -35,9 +35,15 @@ const Proceedings = () => {
         setLoading(true);
         try {
             const [procRes, metaRes, configRes] = await Promise.all([
-                axios.get(`${import.meta.env.VITE_API_URL}/api/proceedings`),
-                axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`),
-                axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`)
+                axios.get(`${import.meta.env.VITE_API_URL}/api/proceedings`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                }),
+                axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                }),
+                axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                })
             ]);
             setProceedings(procRes.data);
             setMetadata(metaRes.data);
@@ -62,10 +68,14 @@ const Proceedings = () => {
         e.preventDefault();
         try {
             if (isEditing) {
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/proceedings/${formData._id}`, formData);
+                await axios.put(`${import.meta.env.VITE_API_URL}/api/proceedings/${formData._id}`, formData, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 Swal.fire('Success', 'Proceeding updated successfully', 'success');
             } else {
-                await axios.post(`${import.meta.env.VITE_API_URL}/api/proceedings`, formData);
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/proceedings`, formData, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 Swal.fire('Success', 'Proceeding created successfully', 'success');
             }
             setShowModal(false);
@@ -100,7 +110,9 @@ const Proceedings = () => {
 
         if (result.isConfirmed) {
             try {
-                await axios.delete(`${import.meta.env.VITE_API_URL}/api/proceedings/${id}`);
+                await axios.delete(`${import.meta.env.VITE_API_URL}/api/proceedings/${id}`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
                 Swal.fire('Deleted!', 'Proceeding has been deleted.', 'success');
                 fetchInitialData();
             } catch (error) {
@@ -141,7 +153,9 @@ const Proceedings = () => {
 
         setExpandedRows(prev => ({ ...prev, [id]: { loading: true, data: [], totalUsed: 0 } }));
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/proceedings/${id}/summary`);
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/proceedings/${id}/summary`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setExpandedRows(prev => ({
                 ...prev,
                 [id]: { loading: false, data: res.data.transactions, totalUsed: res.data.totalUsed }

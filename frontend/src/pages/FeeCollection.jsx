@@ -62,6 +62,12 @@ const FeeCollection = () => {
     const [isFetchingProceedings, setIsFetchingProceedings] = useState(false);
     const [availableVouchers, setAvailableVouchers] = useState([]);
     const [isFetchingVouchers, setIsFetchingVouchers] = useState(false);
+    const [activeApprovers, setActiveApprovers] = useState([]);
+    const [isRaisingConcession, setIsRaisingConcession] = useState(false);
+    const [nextVoucherId, setNextVoucherId] = useState('');
+    const [concessionHistory, setConcessionHistory] = useState([]);
+    const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+
 
     const receiptRef = useRef();
     const searchInputRef = useRef(null);
@@ -82,15 +88,25 @@ const FeeCollection = () => {
                 const isSuperAdmin = user?.role === 'superadmin';
                 const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
 
-                const [studentsRes, configsRes, settingsRes] = await Promise.all([
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`),
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`),
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`)
+                const [studentsRes, configsRes, settingsRes, approversRes] = await Promise.all([
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    }),
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    }),
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/receipt-settings`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    }),
+                    axios.get(`${import.meta.env.VITE_API_URL}/api/concession-approvers`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    })
                 ]);
 
                 setAllStudents(studentsRes.data);
                 setPaymentConfigs(configsRes.data.filter(c => c.is_active));
                 setReceiptSettings(settingsRes.data);
+                setActiveApprovers(approversRes.data);
             } catch (e) {
                 console.error("Error fetching initial data", e);
                 setError("Failed to load data. Please refresh.");
@@ -143,7 +159,8 @@ const FeeCollection = () => {
                             course: student.course,
                             batch: student.academic_year, // Map to batch
                             caste: student.caste
-                        }
+                        },
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                     setAvailableProceedings(res.data);
                 } catch (e) {
@@ -171,7 +188,8 @@ const FeeCollection = () => {
                         params: {
                             studentId: student.admission_number,
                             status: 'PENDING'
-                        }
+                        },
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                     setAvailableVouchers(res.data);
                 } catch (e) {
@@ -183,8 +201,123 @@ const FeeCollection = () => {
                 setAvailableVouchers([]);
             }
         };
+
+        const fetchConcessionHistory = async () => {
+            if (student) {
+                setIsFetchingHistory(true);
+                try {
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                        params: { studentId: student.admission_number },
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    });
+                    setConcessionHistory(res.data);
+                } catch (e) {
+                    console.error("Failed to fetch history", e);
+                } finally {
+                    setIsFetchingHistory(false);
+                }
+            } else {
+                setConcessionHistory([]);
+            }
+        };
+
+        const fetchNextVoucherId = async () => {
+            if (student && student.course) {
+                try {
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions/next-voucher-id`, {
+                        params: { course: student.course },
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    });
+                    setNextVoucherId(res.data.nextVoucherId);
+                } catch (e) {
+                    console.error("Failed to fetch next voucher id", e);
+                }
+            } else {
+                setNextVoucherId('');
+            }
+        };
+
         fetchConcessionVouchers();
+        fetchConcessionHistory();
+        fetchNextVoucherId();
     }, [student, paymentForm.transactionType]);
+    
+    const handleBatchRaiseConcession = async () => {
+        const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+        
+        // Final Validation
+        for (const row of validRows) {
+            if (!row.concessionGivenBy) {
+                const feeName = feeDetails.find(f => f._id === row.feeHeadId)?.feeHead?.name || 'Selected Fee';
+                alert(`Please select "Concession Given By" for ${feeName}`);
+                return;
+            }
+        }
+
+
+        setIsRaisingConcession(true);
+        try {
+            // Process all rows
+            const promises = validRows.map(async (row) => {
+                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                const payload = {
+                    students: [{
+                        studentId: student.admission_number,
+                        studentName: student.student_name,
+                        college: student.college,
+                        course: student.course,
+                        branch: student.branch,
+                        batch: student.batch
+                    }],
+                    feeHeadId: selectedFee.feeHeadId,
+                    amount: row.amount,
+                    reason: paymentForm.remarks || 'Concession requested at billing',
+                    studentYear: selectedFee.studentYear,
+                    semester: selectedFee.semester,
+                    concessionGivenBy: row.concessionGivenBy
+                };
+
+                return axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, payload, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                });
+            });
+
+            const results = await Promise.all(promises);
+            const voucherIds = results.map(r => r.data.data?.[0]?.voucherId).filter(Boolean);
+            
+            alert(`Successfully raised ${results.length} Concession Request(s)! \nVoucher IDs: ${voucherIds.join(', ')}.\nThey will appear in the History once approved.`);
+            
+            // Refresh counts and tables
+            const [vouchersRes, historyRes, nextIdRes] = await Promise.all([
+                axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                    params: { studentId: student.admission_number, status: 'PENDING' },
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                }),
+                axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                    params: { studentId: student.admission_number },
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                }),
+                axios.get(`${import.meta.env.VITE_API_URL}/api/concessions/next-voucher-id`, {
+                    params: { course: student.course },
+                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                })
+            ]);
+            setAvailableVouchers(vouchersRes.data);
+            setConcessionHistory(historyRes.data);
+            setNextVoucherId(nextIdRes.data.nextVoucherId);
+
+            // Reset Rows
+            setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '', concessionGivenBy: '', concessionReason: '' }]);
+            
+        } catch (error) {
+            console.error(error);
+            alert('Failed to raise one or more requests. Please check your data.');
+        } finally {
+            setIsRaisingConcession(false);
+        }
+    };
+;
+
     
     // Filter Payment Configs (Bank Accounts) by selected student's Course & College
     const relevantConfigs = useMemo(() => {
@@ -208,7 +341,9 @@ const FeeCollection = () => {
         setIsDashLoading(true);
         try {
             // 1. Fetch Full Student Details (including Photo)
-            const fullStudentRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/${selectedStudent.admission_number}`);
+            const fullStudentRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/${selectedStudent.admission_number}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             const found = fullStudentRes.data;
 
             const college = found.college;
@@ -217,7 +352,8 @@ const FeeCollection = () => {
             const studentYear = found.current_year;
             // 2. Fetch Fee Details (Fetch ALL Years)
             const feesRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures/student/${found.admission_number}`, {
-                params: { college, course, branch, studentYear }
+                params: { college, course, branch, studentYear },
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setFeeDetails(feesRes.data);
 
@@ -225,7 +361,9 @@ const FeeCollection = () => {
             setViewFilterYear(String(found.current_year));
 
             // 3. Fetch History
-            const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`);
+            const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
             setTransactions(histRes.data);
 
             // Update student object in case it changed (though unlikely for same ID)
@@ -251,7 +389,7 @@ const FeeCollection = () => {
 
     // --- Dynamic Row Handlers ---
     const addFeeRow = () => {
-        setFeeRows([...feeRows, { id: Date.now(), feeHeadId: '', amount: '' }]);
+        setFeeRows([...feeRows, { id: Date.now(), feeHeadId: '', amount: '', concessionReason: '' }]);
     };
 
     const removeFeeRow = (id) => {
@@ -334,7 +472,8 @@ const FeeCollection = () => {
             const newRow = {
                 id: Date.now(),
                 feeHeadId: fee._id,
-                amount: fee.dueAmount > 0 ? fee.dueAmount : ''
+                amount: fee.dueAmount > 0 ? fee.dueAmount : '',
+                concessionReason: ''
             };
 
             if (firstRowEmpty) {
@@ -357,8 +496,13 @@ const FeeCollection = () => {
             return;
         }
 
-        setShowConfirmModal(true);
+        if (paymentForm.transactionType === 'CREDIT') {
+            handleBatchRaiseConcession();
+        } else {
+            setShowConfirmModal(true);
+        }
     };
+;
 
     // Step 2: Actual Submission
     const confirmAndPay = async () => {
@@ -495,6 +639,8 @@ const FeeCollection = () => {
             // Send as { transactions: [...] } to match Backend Batch Interface
             const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/transactions`, {
                 transactions: batchTransactions
+            }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
 
             // Success!!
@@ -734,10 +880,8 @@ const FeeCollection = () => {
                                                     {student.student_name?.charAt(0)}
                                                 </div>
                                             )}
-                                        </div>
-
-                                        {/* Info */}
-                                        <div className="flex-1 text-center md:text-left min-w-0">
+                                        </div>                                        {/* Info & Tags (Combined for flex-1) */}
+                                        <div className="flex-1">
                                             <div className="flex flex-col md:flex-row md:items-baseline md:gap-3">
                                                 <h2 className="text-lg font-bold truncate">{student.student_name}</h2>
                                                 <div className="flex items-center gap-2">
@@ -784,7 +928,7 @@ const FeeCollection = () => {
                                             </div>
                                         </div>
 
-                                        {/* Quick Actions / Status */}
+                                        {/* Status / Balance - Reverted to simpler original style for right-alignment */}
                                         <div className="flex flex-col gap-1 text-right shrink-0">
                                             <div className="text-[10px] text-blue-200 uppercase font-bold">Total Due</div>
                                             <div className="text-xl font-bold text-white leading-none">{globalTotalDue.toLocaleString()}</div>
@@ -1180,28 +1324,32 @@ const FeeCollection = () => {
                                                                 )}
                                                             </div>
 
-                                                            {/* Voucher Selection for Concession */}
-                                                            {paymentForm.transactionType === 'CREDIT' && availableVouchers.length > 0 && (
-                                                                <div className="animate-fadeIn pb-1">
-                                                                    <label className="block text-[9px] font-bold text-purple-600 uppercase tracking-wider mb-1">Link to Voucher (Optional)</label>
-                                                                    <select
-                                                                        className="w-full border border-purple-200 rounded-lg p-1.5 text-[10px] bg-purple-50/30 focus:border-purple-500 outline-none font-medium"
-                                                                        value={row.concessionRequestId || ''}
-                                                                        onChange={e => updateFeeRow(row.id, 'concessionRequestId', e.target.value)}
-                                                                    >
-                                                                        <option value="">-- No Voucher --</option>
-                                                                        {availableVouchers
-                                                                            .filter(v => {
-                                                                                if (!row.feeHeadId) return true;
-                                                                                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                                                                                return v.feeHead && selectedFee && v.feeHead._id === selectedFee.feeHeadId;
-                                                                            })
-                                                                            .map(v => (
-                                                                                <option key={v._id} value={v._id}>
-                                                                                    #{v.voucherId} - ₹{v.amount} ({v.reason})
-                                                                                </option>
-                                                                            ))}
-                                                                    </select>
+                                                            {/* Raise New Request Section */}
+                                                            {paymentForm.transactionType === 'CREDIT' && (
+                                                                <div className="mt-2 pt-2 border-t border-purple-100 flex flex-col gap-2">
+                                                                    <div className="flex justify-between items-center px-1">
+                                                                        <span className="text-[10px] font-bold text-purple-600 uppercase tracking-tight">Raise Concession Request</span>
+                                                                        {nextVoucherId && (
+                                                                            <span className="text-[10px] font-mono font-bold bg-purple-50 text-purple-600 px-2 py-0.5 rounded border border-purple-100">
+                                                                                Next Voucher: #{nextVoucherId}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex gap-2 p-1">
+                                                                        <div className="flex-1">
+                                                                            <label className="block text-[8px] font-bold text-gray-400 uppercase mb-0.5">Concession Given By</label>
+                                                                            <select 
+                                                                                className="w-full border border-gray-200 rounded p-1.5 text-[10px] bg-white outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400/20 trasition-all"
+                                                                                value={row.concessionGivenBy || ''}
+                                                                                onChange={e => updateFeeRow(row.id, 'concessionGivenBy', e.target.value)}
+                                                                            >
+                                                                                <option value="">-- Select --</option>
+                                                                                {activeApprovers.map(a => (
+                                                                                    <option key={a._id} value={a.name}>{a.name} ({a.designation})</option>
+                                                                                ))}
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1392,11 +1540,13 @@ const FeeCollection = () => {
                                                 )}
 
                                                 <div className="mb-3">
-                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Remarks / Notes (Optional)</label>
+                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                                        {paymentForm.transactionType === 'CREDIT' ? 'Reason / Justification (Optional)' : 'Remarks / Notes (Optional)'}
+                                                    </label>
                                                     <textarea
                                                         className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
                                                         rows="2"
-                                                        placeholder="Add any additional notes here..."
+                                                        placeholder={paymentForm.transactionType === 'CREDIT' ? "Add common reason for selected concessions..." : "Add any additional notes here..."}
                                                         value={paymentForm.remarks || ''}
                                                         onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
                                                     ></textarea>
@@ -1405,11 +1555,62 @@ const FeeCollection = () => {
                                                 <div className="pt-2">
                                                     <button
                                                         type="submit"
-                                                        className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-200'}`}
+                                                        disabled={isRaisingConcession || isProcessing}
+                                                        className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-200'} disabled:opacity-50`}
                                                     >
-                                                        {paymentForm.transactionType === 'DEBIT' ? 'Confirm Payment' : 'Apply Concession'}
+                                                        {paymentForm.transactionType === 'DEBIT' ? (isProcessing ? 'Processing...' : 'Confirm Payment') : (isRaisingConcession ? 'Raising...' : 'Raise Concession')}
                                                     </button>
                                                 </div>
+
+                                                {/* Concession History List - Moved here after the main button */}
+                                                {paymentForm.transactionType === 'CREDIT' && (
+                                                    <div className="mt-8 pt-6 border-t border-purple-100">
+                                                        <div className="flex justify-between items-center mb-4 px-1">
+                                                            <h3 className="text-sm font-extrabold text-purple-700 uppercase tracking-widest flex items-center gap-2">
+                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                                                Recent Concessions
+                                                            </h3>
+                                                            {isFetchingHistory && <span className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></span>}
+                                                        </div>
+                                                        <div className="overflow-hidden border border-purple-100 rounded-2xl bg-white shadow-sm">
+                                                            <table className="w-full text-left text-xs">
+                                                                <thead className="bg-purple-50 text-purple-700 border-b border-purple-100">
+                                                                    <tr>
+                                                                        <th className="p-3 font-bold uppercase tracking-wider">Date</th>
+                                                                        <th className="p-3 font-bold uppercase tracking-wider">Fee Category</th>
+                                                                        <th className="p-3 font-bold uppercase tracking-wider">Amount</th>
+                                                                        <th className="p-3 font-bold uppercase tracking-wider text-right">Status</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-purple-50">
+                                                                    {concessionHistory.length === 0 ? (
+                                                                        <tr><td colSpan="4" className="p-8 text-center text-gray-400 italic font-medium">No prior concession records found.</td></tr>
+                                                                    ) : (
+                                                                        concessionHistory.slice(0, 10).map(h => (
+                                                                            <tr key={h._id} className="hover:bg-purple-50/30 transition-colors">
+                                                                                <td className="p-3 text-gray-500 font-medium">{new Date(h.createdAt).toLocaleDateString()}</td>
+                                                                                <td className="p-3 font-bold text-gray-800">{h.feeHead?.name || 'N/A'}</td>
+                                                                                <td className="p-3 font-extrabold text-purple-600">₹{h.amount.toLocaleString()}</td>
+                                                                                <td className="p-3 text-right">
+                                                                                    <div className="flex flex-col items-end">
+                                                                                        <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] shadow-sm ${
+                                                                                            h.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                                                                                            h.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
+                                                                                            'bg-yellow-100 text-yellow-700'
+                                                                                        }`}>
+                                                                                            {h.status}
+                                                                                        </span>
+                                                                                        <span className="text-[8px] text-gray-400 mt-1 font-medium">by {h.requestedBy || 'System'}</span>
+                                                                                    </div>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </form>
                                         </div>
                                     </div>

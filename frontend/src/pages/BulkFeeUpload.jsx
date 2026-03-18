@@ -35,6 +35,7 @@ const BulkFeeUpload = () => {
             const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/bulk-fee/template`, {
                 params: { type: uploadType },
                 responseType: 'blob',
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
@@ -66,7 +67,10 @@ const BulkFeeUpload = () => {
 
         try {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/upload`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: { 
+                    'Content-Type': 'multipart/form-data',
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
             });
 
             const data = response.data.data;
@@ -126,6 +130,8 @@ const BulkFeeUpload = () => {
                 students: studentsToSave,
                 uploadType: uploadType,
                 isPendingMode: isPendingMode
+            }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setMessage(response.data.message);
             setFile(null);

@@ -127,6 +127,7 @@ const Sidebar = () => {
                                 if (result.isConfirmed) {
                                     const isSSO = localStorage.getItem('isSSO') === 'true';
                                     localStorage.removeItem('user');
+                                    localStorage.removeItem('token'); // [NEW] Clear token separately
                                     localStorage.removeItem('isSSO');
 
                                     if (isSSO) {
