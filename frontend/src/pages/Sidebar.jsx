@@ -26,39 +26,55 @@ const Sidebar = () => {
     const role = user.role;
     const permissions = user.permissions || [];
 
-    // Define all available menu items
+    // Define all available menu items grouped by section
     const allMenuItems = [
-        { name: 'Dashboard', path: '/dashboard', icon: icons.Dashboard },
-        { name: 'Fee Configuration', path: '/fee-config', icon: icons.Config },
-        { name: 'Bulk Fee Upload', path: '/bulk-fee-upload', icon: icons.BulkUpload },
-        { name: 'Payment Config', path: '/payment-config', icon: icons.PaymentConfig },
-        { name: 'Reminder Config', path: '/reminders', icon: icons.Reminders },
-        { name: 'Students', path: '/students', icon: icons.Students },
-        { name: 'Fee Collection', path: '/fee-collection', icon: icons.Collection },
-        { name: 'Reports & Analytics', path: '/reports', icon: icons.Reports },
-        { name: 'Due Reports', path: '/due-reports', icon: icons.DueReports },
-        { name: 'Concessions', path: '/concessions', icon: icons.Concession },
-        { name: 'Transport Config', path: '/transport-config', icon: icons.Transport },
-        { name: 'Hostel Config', path: '/hostel-config', icon: icons.Hostel },
-        { name: 'Permissions', path: '/permissions', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg> },
-        { name: 'User Management', path: '/user-management', icon: icons.Users },
-        { name: 'Receipt Settings', path: '/receipt-settings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-        { name: 'Proceedings', path: '/proceedings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l5 5v9a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3v5h5" /></svg> },
-        { name: 'User Profile', path: '/user-profile', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
+        // Overview
+        { section: 'Overview', name: 'Dashboard', path: '/dashboard', icon: icons.Dashboard },
+        { section: 'Overview', name: 'Students', path: '/students', icon: icons.Students },
+
+        // Fee Operations
+        { section: 'Fee Operations', name: 'Fee Collection', path: '/fee-collection', icon: icons.Collection },
+        { section: 'Fee Operations', name: 'Concessions', path: '/concessions', icon: icons.Concession },
+        { section: 'Fee Operations', name: 'Bulk Fee Upload', path: '/bulk-fee-upload', icon: icons.BulkUpload },
+        { section: 'Fee Operations', name: 'Proceedings', path: '/proceedings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l5 5v9a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3v5h5" /></svg> },
+
+        // Reports
+        { section: 'Reports', name: 'Reports & Analytics', path: '/reports', icon: icons.Reports },
+        { section: 'Reports', name: 'Due Reports', path: '/due-reports', icon: icons.DueReports },
+
+        // Configuration
+        { section: 'Configuration', name: 'Fee Configuration', path: '/fee-config', icon: icons.Config },
+        { section: 'Configuration', name: 'Payment Config', path: '/payment-config', icon: icons.PaymentConfig },
+        { section: 'Configuration', name: 'Receipt Settings', path: '/receipt-settings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+        { section: 'Configuration', name: 'Reminder Config', path: '/reminders', icon: icons.Reminders },
+        { section: 'Configuration', name: 'Transport Config', path: '/transport-config', icon: icons.Transport },
+        { section: 'Configuration', name: 'Hostel Config', path: '/hostel-config', icon: icons.Hostel },
+
+        // Administration
+        { section: 'Administration', name: 'User Management', path: '/user-management', icon: icons.Users },
+        { section: 'Administration', name: 'Permissions', path: '/permissions', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg> },
+        { section: 'Administration', name: 'User Profile', path: '/user-profile', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
     ];
 
     // Filter Logic:
     // 1. Super Admin sees everything.
     // 2. Others see only what's in their permissions array.
-    const menuItems = role === 'superadmin'
+    const visibleMenuItems = role === 'superadmin'
         ? allMenuItems
         : allMenuItems.filter(item =>
             permissions.includes(item.path) ||
             item.path === '/user-profile'
         );
 
+    // Group items by section
+    const groupedItems = visibleMenuItems.reduce((acc, item) => {
+        if (!acc[item.section]) acc[item.section] = [];
+        acc[item.section].push(item);
+        return acc;
+    }, {});
+
     return (
-        <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-56'}`}>
+        <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
             <div className={`p-4 border-b border-gray-200 flex items-center shrink-0 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                 <div
                     className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : ''}`}
@@ -68,32 +84,46 @@ const Sidebar = () => {
                     <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm transition-transform hover:scale-105">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                     </div>
-                    {!isCollapsed && <h2 className="text-lg font-bold text-black tracking-tight">Pydah Fees</h2>}
+                    {!isCollapsed && <h2 className="text-lg font-bold text-gray-900 tracking-tight">Pydah Fees</h2>}
                 </div>
 
                 {!isCollapsed && (
                     <button
                         onClick={() => setIsCollapsed(!isCollapsed)}
-                        className="p-1.5 rounded-md hover:bg-gray-100 text-black hover:text-black transition-colors"
+                        className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
                     </button>
                 )}
             </div>
-            <nav className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
-                {menuItems.map((item, index) => (
-                    <Link
-                        key={index}
-                        to={item.path}
-                        className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition duration-200 ${location.pathname === item.path
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-black hover:bg-gray-50 hover:text-black'
-                            } ${isCollapsed ? 'justify-center' : ''}`}
-                        title={isCollapsed ? item.name : ''}
-                    >
-                        <span className="text-xl">{item.icon}</span>
-                        {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.name}</span>}
-                    </Link>
+            
+            <nav className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+                {Object.entries(groupedItems).map(([section, items], sGroupIdx) => (
+                    <div key={section} className="space-y-1">
+                        {!isCollapsed ? (
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-3 pt-2">
+                                {section}
+                            </div>
+                        ) : (
+                            sGroupIdx > 0 && <div className="h-0 border-b border-gray-100 my-2 mx-4"></div>
+                        )}
+                        <div className="space-y-1">
+                            {items.map((item, index) => (
+                                <Link
+                                    key={index}
+                                    to={item.path}
+                                    className={`flex items-center px-4 py-2.5 rounded-lg text-sm font-medium transition duration-200 ${location.pathname === item.path
+                                        ? 'bg-blue-50 text-blue-700'
+                                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                        } ${isCollapsed ? 'justify-center' : ''}`}
+                                    title={isCollapsed ? item.name : ''}
+                                >
+                                    <span className={`text-xl shrink-0 ${location.pathname === item.path ? 'text-blue-600' : 'text-gray-400'}`}>{item.icon}</span>
+                                    {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.name}</span>}
+                                </Link>
+                            ))}
+                        </div>
+                    </div>
                 ))}
             </nav>
             <div className="p-4 border-t border-gray-200 shrink-0">
