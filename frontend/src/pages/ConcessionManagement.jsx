@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Upload, X, Check, Save } from 'lucide-react';
+import { Search, Upload, X, Check, Save, Calendar, Filter } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const ConcessionManagement = () => {
@@ -66,6 +66,17 @@ const ConcessionManagement = () => {
     const [newApprover, setNewApprover] = useState({ name: '', designation: '' });
     const [isApproverLoading, setIsApproverLoading] = useState(false);
 
+    // Reports State
+    const [reportFilters, setReportFilters] = useState({
+        startDate: new Date(new Date().setDate(1)).toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0],
+        concessionGivenBy: '',
+        college: '',
+        status: 'APPROVED'
+    });
+    const [reportData, setReportData] = useState([]);
+    const [isReportLoading, setIsReportLoading] = useState(false);
+
     useEffect(() => {
         const u = JSON.parse(localStorage.getItem('user'));
         setUser(u);
@@ -74,10 +85,32 @@ const ConcessionManagement = () => {
         if (activeTab === 'approvals') {
             fetchPendingRequests();
         }
-        if (activeTab === 'approvers') {
+        if (activeTab === 'approvers' || activeTab === 'reports') {
             fetchApprovers();
         }
     }, [activeTab]);
+
+    useEffect(() => {
+        if (activeTab === 'reports') {
+            fetchReports();
+        }
+    }, [activeTab, reportFilters]);
+
+    const fetchReports = async () => {
+        setIsReportLoading(true);
+        try {
+            const params = new URLSearchParams(reportFilters);
+            Object.keys(reportFilters).forEach(key => {
+                if (!reportFilters[key] && key !== 'status') params.delete(key);
+            });
+
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions?${params.toString()}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            setReportData(res.data);
+        } catch (e) { console.error(e); }
+        setIsReportLoading(false);
+    };
 
     // Search Logic (Debounced)
     useEffect(() => {
@@ -346,12 +379,20 @@ const ConcessionManagement = () => {
                                 Approvers
                             </button>
                         )}
+                        {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && (
+                            <button
+                                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'reports' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                onClick={() => setActiveTab('reports')}
+                            >
+                                Reports
+                            </button>
+                        )}
                     </div>
                 </header>
 
                 {/* Content Area - Request Tab */}
                 {activeTab === 'request' && (
-                    <div className="flex-1 flex overflow-hidden p-6 gap-6">
+                    <div className="flex-1 overflow-hidden p-6 flex gap-6 max-w-[1700px] mx-auto w-full">
                         {/* LEFT COLUMN: Student Context & Search */}
                         <div className="w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                             <div className="p-4 border-b bg-gray-50">
@@ -536,105 +577,133 @@ const ConcessionManagement = () => {
 
                 {/* Content Area - Approvals Tab */}
                 {activeTab === 'approvals' && (
-                    <div className="flex-1 p-6 overflow-hidden flex flex-col">
-                        {/* Filters Toolbar */}
-                        <div className="p-4 border rounded-t-xl bg-white flex flex-wrap gap-3 items-center shadow-sm">
-                            <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
-                                value={filters.status}
-                                onChange={e => setFilters({ ...filters, status: e.target.value })}
-                            >
-                                <option value="PENDING">Status: Pending</option>
-                                <option value="APPROVED">Status: Approved</option>
-                                <option value="REJECTED">Status: Rejected</option>
-                                <option value="ALL">Status: All</option>
-                            </select>
+                    <div className="flex-1 p-6 overflow-hidden flex flex-col max-w-[1700px] mx-auto w-full">
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-full">
+                            {/* Filters Toolbar */}
+                            <div className="p-4 border-b border-gray-100 bg-white flex flex-col md:flex-row justify-between gap-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <select
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            value={filters.status}
+                                            onChange={e => setFilters({ ...filters, status: e.target.value })}
+                                        >
+                                            <option value="PENDING">Status: Pending</option>
+                                            <option value="APPROVED">Status: Approved</option>
+                                            <option value="REJECTED">Status: Rejected</option>
+                                            <option value="ALL">Status: All</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <select
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            value={filters.college}
+                                            onChange={e => setFilters({ ...filters, college: e.target.value, course: '', branch: '' })}
+                                        >
+                                            <option value="">All Colleges</option>
+                                            {collegeList.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 w-full sm:w-auto">
+                                        <input
+                                            type="text"
+                                            placeholder="Search by student name..."
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 outline-none w-full min-w-[200px]"
+                                            value={filters.search}
+                                            onChange={e => setFilters({ ...filters, search: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={fetchPendingRequests}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-gray-800 text-white hover:bg-gray-900 transition shadow-sm"
+                                    >
+                                        <Filter size={14} /> Refresh
+                                    </button>
+                                </div>
+                            </div>
 
-                            <select
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 min-w-[140px] bg-gray-50"
-                                value={filters.college}
-                                onChange={e => setFilters({ ...filters, college: e.target.value, course: '', branch: '' })}
-                            >
-                                <option value="">All Colleges</option>
-                                {collegeList.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-
-                            <input
-                                type="text"
-                                placeholder="Search by student name..."
-                                className="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 flex-1 min-w-[200px] bg-gray-50"
-                                value={filters.search}
-                                onChange={e => setFilters({ ...filters, search: e.target.value })}
-                            />
-                        </div>
-
-                        {/* Table */}
-                        <div className="flex-1 bg-white border-x border-b border-gray-200 rounded-b-xl overflow-auto shadow-sm">
-                            <table className="w-full text-left whitespace-nowrap">
-                                <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
-                                    <tr>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Date</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Voucher #</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Student</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Fee Head</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Amount</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">Reason</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase">By</th>
-                                        <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {pendingRequests.length === 0 ? (
-                                        <tr><td colSpan="7" className="p-10 text-center text-gray-400 italic">No concession requests found for current filters.</td></tr>
-                                    ) : (
-                                        pendingRequests.map(req => (
-                                            <tr
-                                                key={req._id}
-                                                className="hover:bg-blue-50 cursor-pointer transition-colors"
-                                                onClick={() => openModal(req)}
-                                            >
-                                                <td className="p-4 text-sm text-gray-600">{new Date(req.createdAt).toLocaleDateString()}</td>
-                                                <td className="p-4">
-                                                    <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100">
-                                                        #{req.voucherId || '---'}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4">
-                                                    <div className="font-bold text-gray-800 text-sm">{req.studentName}</div>
-                                                    <div className="text-xs text-gray-500">{req.studentId}</div>
-                                                </td>
-                                                <td className="p-4 text-sm text-gray-600">
-                                                    {req.feeHead?.name}
-                                                    <div className="text-[10px] text-gray-400">Yr {req.studentYear}</div>
-                                                </td>
-                                                <td className="p-4 text-sm font-semibold text-gray-800 text-right">
-                                                    ₹{req.amount.toLocaleString()}
-                                                </td>
-                                                <td className="p-4 text-sm text-gray-600 max-w-[200px] truncate">{req.reason}</td>
-                                                <td className="p-4 text-sm text-gray-500">{req.requestedBy}</td>
-                                                <td className="p-4 text-right">
-                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
-                                                        req.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                                                            'bg-yellow-100 text-yellow-700'
-                                                        }`}>
-                                                        {req.status}
-                                                    </span>
+                            {/* Table */}
+                            <div className="flex-1 overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-gray-50/80 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-500 font-bold sticky top-0 z-10">
+                                        <tr>
+                                            <th className="py-4 px-6">Date</th>
+                                            <th className="py-4 px-6">Voucher #</th>
+                                            <th className="py-4 px-6">Student</th>
+                                            <th className="py-4 px-6">Fee Head</th>
+                                            <th className="py-4 px-6 text-right">Amount</th>
+                                            <th className="py-4 px-6">Reason</th>
+                                            <th className="py-4 px-6">By</th>
+                                            <th className="py-4 px-6 text-right">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white">
+                                        {pendingRequests.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="8" className="py-32 text-center pointer-events-none">
+                                                    <div className="flex flex-col items-center justify-center gap-4 opacity-50">
+                                                        <div className="bg-gray-100 p-4 rounded-full">
+                                                            <Search size={32} className="text-gray-400" />
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <p className="text-gray-900 font-bold text-lg">No concession requests found.</p>
+                                                            <p className="text-gray-500 text-sm">Try adjusting your filters.</p>
+                                                        </div>
+                                                    </div>
                                                 </td>
                                             </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
+                                        ) : (
+                                            pendingRequests.map(req => (
+                                                <tr
+                                                    key={req._id}
+                                                    className="hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 cursor-pointer"
+                                                    onClick={() => openModal(req)}
+                                                >
+                                                    <td className="py-4 px-6 text-sm text-gray-600">{new Date(req.createdAt).toLocaleDateString()}</td>
+                                                    <td className="py-4 px-6">
+                                                        <span className="font-mono text-xs font-bold text-gray-800">
+                                                            #{req.voucherId || '---'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-4 px-6">
+                                                        <div className="font-bold text-gray-800 text-sm">{req.studentName}</div>
+                                                        <div className="text-xs text-gray-500 font-mono">{req.studentId}</div>
+                                                    </td>
+                                                    <td className="py-4 px-6 text-sm text-gray-600">
+                                                        {req.feeHead?.name}
+                                                        <div className="text-[10px] text-gray-400">Yr {req.studentYear}</div>
+                                                    </td>
+                                                    <td className="py-4 px-6 text-sm font-semibold text-gray-800 text-right">
+                                                        ₹{req.amount.toLocaleString()}
+                                                    </td>
+                                                    <td className="py-4 px-6 text-sm text-gray-600 max-w-[200px] truncate">{req.reason}</td>
+                                                    <td className="py-4 px-6 text-sm font-medium text-purple-700">{req.requestedBy}</td>
+                                                    <td className="py-4 px-6 text-right">
+                                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                                                            req.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
+                                                                'bg-yellow-100 text-yellow-700'
+                                                            }`}>
+                                                            {req.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}
 
                 {/* Content Area - Approvers Tab */}
                 {activeTab === 'approvers' && (
-                    <div className="flex-1 p-6 flex flex-col overflow-hidden gap-6">
-                        <div className="grid grid-cols-3 gap-6 flex-1 overflow-hidden">
+                    <div className="flex-1 p-6 overflow-hidden flex flex-col max-w-[1700px] mx-auto w-full">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 overflow-hidden h-full">
                             {/* Left: Add Form */}
-                            <div className="bg-white border rounded-xl shadow-sm p-6 flex flex-col">
+                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col h-fit">
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">Add Permission Giver</h3>
                                 <form onSubmit={handleAddApprover} className="space-y-4">
                                     <div>
@@ -650,7 +719,7 @@ const ConcessionManagement = () => {
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Designation</label>
                                         <select 
-                                            className="w-full border p-2 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full border p-2 rounded-lg text-sm bg-white outline-none focus:ring-1 focus:ring-blue-500"
                                             value={newApprover.designation}
                                             onChange={e => setNewApprover({...newApprover, designation: e.target.value})}
                                         >
@@ -676,32 +745,32 @@ const ConcessionManagement = () => {
                             </div>
 
                             {/* Center/Right: List */}
-                            <div className="col-span-2 bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col">
-                                <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                                    <h3 className="font-bold text-gray-700">Managed Approvers</h3>
-                                    <span className="text-xs text-gray-400 font-medium">{approvers.length} Total</span>
+                            <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-full">
+                                <div className="p-4 border-b border-gray-100 bg-white flex justify-between items-center">
+                                    <h3 className="font-bold text-gray-700 text-sm">Managed Approvers</h3>
+                                    <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-full">{approvers.length} Total</span>
                                 </div>
-                                <div className="flex-1 overflow-auto">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-gray-50 sticky top-0">
+                                <div className="flex-1 overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead className="bg-gray-50/80 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-500 font-bold sticky top-0 z-10">
                                             <tr>
-                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase">Name</th>
-                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase">Designation</th>
-                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
-                                                <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
+                                                <th className="py-4 px-6">Name</th>
+                                                <th className="py-4 px-6">Designation</th>
+                                                <th className="py-4 px-6">Status</th>
+                                                <th className="py-4 px-6 text-right">Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y">
+                                        <tbody className="bg-white">
                                             {approvers.map(a => (
-                                                <tr key={a._id} className="hover:bg-gray-50 transition-colors">
-                                                    <td className="p-4 font-bold text-gray-800 text-sm">{a.name}</td>
-                                                    <td className="p-4 text-sm text-gray-600">{a.designation}</td>
-                                                    <td className="p-4">
+                                                <tr key={a._id} className="hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
+                                                    <td className="py-4 px-6 font-bold text-gray-800 text-sm">{a.name}</td>
+                                                    <td className="py-4 px-6 text-sm text-gray-600">{a.designation}</td>
+                                                    <td className="py-4 px-6">
                                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${a.isActive ? 'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>
                                                             {a.isActive ? 'Active' : 'Inactive'}
                                                         </span>
                                                     </td>
-                                                    <td className="p-4 text-right space-x-2">
+                                                    <td className="py-4 px-6 text-right space-x-2">
                                                         <button 
                                                             onClick={() => toggleApprover(a._id)}
                                                             className={`text-xs font-bold px-3 py-1 rounded border transition ${a.isActive ? 'border-orange-200 text-orange-600 hover:bg-orange-50':'border-green-200 text-green-600 hover:bg-green-50'}`}
@@ -719,12 +788,176 @@ const ConcessionManagement = () => {
                                             ))}
                                             {approvers.length === 0 && (
                                                 <tr>
-                                                    <td colSpan="4" className="p-10 text-center text-gray-400 italic">No approvers added yet.</td>
+                                                    <td colSpan="4" className="py-32 text-center text-gray-400 italic pointer-events-none">
+                                                        <div className="flex flex-col items-center justify-center gap-4 opacity-50">
+                                                            <div className="bg-gray-100 p-4 rounded-full">
+                                                                <Search size={32} className="text-gray-400" />
+                                                            </div>
+                                                            <div className="text-center">
+                                                                <p className="text-gray-900 font-bold text-lg">No approvers added yet.</p>
+                                                            </div>
+                                                        </div>
+                                                    </td>
                                                 </tr>
                                             )}
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Content Area - Reports Tab */}
+                {activeTab === 'reports' && (
+                    <div className="flex-1 p-6 overflow-hidden flex flex-col max-w-[1700px] mx-auto w-full">
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-full">
+                            {/* Toolbar (Filters) */}
+                            <div className="p-4 border-b border-gray-100 bg-white flex flex-col md:flex-row justify-between gap-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <Calendar size={14} className="text-gray-400" />
+                                        <input
+                                            type="date"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-32 outline-none"
+                                            value={reportFilters.startDate}
+                                            onChange={e => setReportFilters({ ...reportFilters, startDate: e.target.value })}
+                                        />
+                                        <span className="text-gray-300 mx-1">to</span>
+                                        <input
+                                            type="date"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-32 outline-none"
+                                            value={reportFilters.endDate}
+                                            onChange={e => setReportFilters({ ...reportFilters, endDate: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <select
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            value={reportFilters.concessionGivenBy}
+                                            onChange={e => setReportFilters({ ...reportFilters, concessionGivenBy: e.target.value })}
+                                        >
+                                            <option value="">All Approvers</option>
+                                            {approvers.map(a => <option key={a._id} value={a.name}>{a.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <select
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            value={reportFilters.college}
+                                            onChange={e => setReportFilters({ ...reportFilters, college: e.target.value })}
+                                        >
+                                            <option value="">All Colleges</option>
+                                            {collegeList.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <select
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer outline-none"
+                                            value={reportFilters.status}
+                                            onChange={e => setReportFilters({ ...reportFilters, status: e.target.value })}
+                                        >
+                                            <option value="ALL">All Statuses</option>
+                                            <option value="APPROVED">Approved</option>
+                                            <option value="PENDING">Pending</option>
+                                            <option value="REJECTED">Rejected</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={fetchReports}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-gray-800 text-white hover:bg-gray-900 transition shadow-sm"
+                                    >
+                                        <Filter size={14} /> Refresh
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Reports Table */}
+                            <div className="flex-1 overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-gray-50/80 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-500 font-bold sticky top-0 z-10">
+                                        <tr>
+                                            <th className="py-4 px-6">Date</th>
+                                            <th className="py-4 px-6">Voucher #</th>
+                                            <th className="py-4 px-6">Student</th>
+                                            <th className="py-4 px-6">Fee Head</th>
+                                            <th className="py-4 px-6 text-right">Amount</th>
+                                            <th className="py-4 px-6">Approver</th>
+                                            <th className="py-4 px-6 text-right">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white">
+                                        {isReportLoading ? (
+                                            <tr>
+                                                <td colSpan="7" className="py-32 text-center pointer-events-none">
+                                                    <div className="flex flex-col items-center justify-center gap-4">
+                                                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                                        <p className="text-gray-400 font-medium animate-pulse">Loading reports...</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : reportData.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="7" className="py-32 text-center pointer-events-none">
+                                                    <div className="flex flex-col items-center justify-center gap-4 opacity-50">
+                                                        <div className="bg-gray-100 p-4 rounded-full">
+                                                            <Search size={32} className="text-gray-400" />
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <p className="text-gray-900 font-bold text-lg">No reports found.</p>
+                                                            <p className="text-gray-500 text-sm">Try adjusting your filters.</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            reportData.map(req => (
+                                                <tr key={req._id} className="hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
+                                                    <td className="py-4 px-6 text-sm text-gray-600">{new Date(req.createdAt).toLocaleDateString()}</td>
+                                                    <td className="py-4 px-6">
+                                                        <span className="font-mono text-xs font-bold text-gray-800">
+                                                            #{req.voucherId || '---'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-4 px-6">
+                                                        <div className="font-bold text-gray-800 text-sm">{req.studentName}</div>
+                                                        <div className="text-xs text-gray-500 font-mono">{req.studentId}</div>
+                                                    </td>
+                                                    <td className="py-4 px-6 text-sm text-gray-600">
+                                                        {req.feeHead?.name}
+                                                    </td>
+                                                    <td className="py-4 px-6 text-sm font-semibold text-gray-800 text-right">
+                                                        ₹{req.amount.toLocaleString()}
+                                                    </td>
+                                                    <td className="py-4 px-6 text-sm font-medium text-purple-700">
+                                                        {req.concessionGivenBy || '---'}
+                                                    </td>
+                                                    <td className="py-4 px-6 text-right">
+                                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                                                            req.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
+                                                                'bg-yellow-100 text-yellow-700'
+                                                            }`}>
+                                                            {req.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                    {!isReportLoading && reportData.length > 0 && (
+                                        <tfoot className="bg-gray-50 border-t border-gray-200">
+                                            <tr>
+                                                <td colSpan="4" className="py-4 px-6 text-right font-bold text-gray-800 text-xs uppercase tracking-wide">GRAND TOTAL</td>
+                                                <td className="py-4 px-6 text-right font-extrabold text-lg text-blue-900">
+                                                    ₹{reportData.reduce((sum, item) => sum + item.amount, 0).toLocaleString()}
+                                                </td>
+                                                <td colSpan="2" className="py-4 px-6"></td>
+                                            </tr>
+                                        </tfoot>
+                                    )}
+                                </table>
                             </div>
                         </div>
                     </div>
