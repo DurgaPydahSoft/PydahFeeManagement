@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer } from 'lucide-react';
+import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useReactToPrint } from 'react-to-print';
 import ConcessionReportPrint from '../components/ConcessionReportPrint';
@@ -56,6 +56,7 @@ const ConcessionManagement = () => {
     const [modalAmount, setModalAmount] = useState('');
     const [rejectionReason, setRejectionReason] = useState('');
     const [bulkAmounts, setBulkAmounts] = useState({}); // {requestId: amount}
+
 
     const reportPrintRef = React.useRef();
     const handlePrint = useReactToPrint({
@@ -184,6 +185,41 @@ const ConcessionManagement = () => {
         } catch (e) { console.error(e); }
     };
 
+    const openEditModal = (req) => {
+        setEditingRequest(req);
+        setEditAmount(req.amount);
+        setEditReason(req.reason);
+        setEditConcessionGivenBy(req.concessionGivenBy || '');
+        setIsEditModalOpen(true);
+    };
+
+    const handleEditSubmit = async () => {
+        if (!editAmount || isNaN(editAmount) || Number(editAmount) <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+
+        setEditLoading(true);
+        try {
+            await axios.put(`${import.meta.env.VITE_API_URL}/api/concessions/modify-approved/${editingRequest._id}`, {
+                amount: Number(editAmount),
+                reason: editReason,
+                concessionGivenBy: editConcessionGivenBy
+            }, {
+                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            setIsEditModalOpen(false);
+            fetchReports(); // Refresh report data
+            alert('Concession updated successfully');
+        } catch (e) {
+            console.error(e);
+            alert(e.response?.data?.message || 'Update failed');
+        } finally {
+            setEditLoading(false);
+        }
+    };
+
     const fetchFilteredStudents = async () => {
         if (!formData.college) return alert('Please select a college at least');
         setIsFetchingStudents(true);
@@ -285,7 +321,7 @@ const ConcessionManagement = () => {
                         course: req.course,
                         branch: req.branch,
                         batch: req.batch,
-                        feeHead: req.feeHead,
+                        feeHeads: [], // Track unique fee heads
                         reason: req.reason,
                         requests: [],
                         totalAmount: 0
@@ -294,6 +330,11 @@ const ConcessionManagement = () => {
                 }
                 voucherMap[vId].requests.push(req);
                 voucherMap[vId].totalAmount += req.amount;
+                
+                // Track unique fee heads in the group
+                if (req.feeHead && !voucherMap[vId].feeHeads.some(h => h._id === req.feeHead._id)) {
+                    voucherMap[vId].feeHeads.push(req.feeHead);
+                }
             });
 
             setPendingRequests(grouped);
@@ -426,8 +467,20 @@ const ConcessionManagement = () => {
 
         setApprovalLoading(true);
         try {
-            if (selectedRequest.isBulk) {
-                // Bulk Process
+            if (selectedRequest.requests[0].status === 'APPROVED' && action === 'APPROVE') {
+                // MODIFICATION logic for already approved requests
+                const promises = selectedRequest.requests.map(r => {
+                    const newAmount = selectedRequest.isBulk ? bulkAmounts[r._id] : modalAmount;
+                    return axios.put(`${import.meta.env.VITE_API_URL}/api/concessions/modify-approved/${r._id}`, {
+                        amount: Number(newAmount),
+                        reason: r.reason // Keep existing reason or you could add a way to edit it
+                    }, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                    });
+                });
+                await Promise.all(promises);
+            } else if (selectedRequest.isBulk) {
+                // Bulk Process (Regular Approval)
                 const requestsPayload = selectedRequest.requests.map(r => ({
                     id: r._id,
                     approvedAmount: action === 'APPROVE' ? bulkAmounts[r._id] : r.amount
@@ -441,7 +494,7 @@ const ConcessionManagement = () => {
                     headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 });
             } else {
-                // Single Process
+                // Single Process (Regular Approval)
                 const payload = { action };
                 if (action === 'APPROVE') {
                     payload.approvedAmount = modalAmount;
@@ -932,9 +985,18 @@ const ConcessionManagement = () => {
                                                         </div>
                                                     </td>
                                                     <td className="py-4 px-6">
-                                                        <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-100 uppercase tracking-tight">
-                                                            {group.feeHead?.name}
-                                                        </span>
+                                                        {group.feeHeads.length > 1 ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-100 uppercase tracking-tight w-fit">
+                                                                    Mixed Heads ({group.feeHeads.length})
+                                                                </span>
+                                                                <span className="text-[9px] text-gray-400 font-medium italic">Multiple components</span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-100 uppercase tracking-tight">
+                                                                {group.feeHeads[0]?.name || 'N/A'}
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td className="py-4 px-6">
                                                         <div className="text-right">
@@ -943,12 +1005,12 @@ const ConcessionManagement = () => {
                                                         </div>
                                                     </td>
                                                     <td className="py-4 px-6 text-right">
-                                                        <button
-                                                            onClick={() => openModal(group)}
-                                                            className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition shadow-sm active:scale-95"
-                                                        >
-                                                            Review
-                                                        </button>
+                                                            <button
+                                                                onClick={() => openModal(group)}
+                                                                className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition shadow-sm active:scale-95 ${filters.status === 'APPROVED' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                                            >
+                                                                {filters.status === 'APPROVED' ? 'Modify' : 'Review'}
+                                                            </button>
                                                     </td>
                                                 </tr>
                                             ))
@@ -1263,7 +1325,7 @@ const ConcessionManagement = () => {
                                                         </div>
                                                     </td>
                                                     <td className="py-4 px-6 text-right">
-                                                        <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${req.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                        <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-gray-100 ${req.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                                                             req.status === 'REJECTED' ? 'bg-red-50 text-red-700 border-red-200' :
                                                                 'bg-amber-50 text-amber-700 border-amber-200'
                                                             }`}>
@@ -1301,10 +1363,10 @@ const ConcessionManagement = () => {
                             <div className="flex justify-between items-start mb-4 shrink-0">
                                 <div>
                                     <h2 className="text-xl font-bold text-gray-800">
-                                        {selectedRequest.isBulk ? 'Bulk Concession Review' : 'Request Details'}
+                                        {selectedRequest.requests[0].status === 'APPROVED' ? 'Modify Approved' : selectedRequest.isBulk ? 'Bulk Concession Review' : 'Request Details'}
                                     </h2>
                                     <p className="text-xs text-gray-500">
-                                        {selectedRequest.isBulk ? `Processing requests for ${selectedRequest.requests.length} students` : 'Review concession application'}
+                                        {selectedRequest.requests[0].status === 'APPROVED' ? 'Adjust concession amounts for finalized request' : selectedRequest.isBulk ? `Processing requests for ${selectedRequest.requests.length} students` : 'Review concession application'}
                                     </p>
                                 </div>
                                 <button onClick={closeModal} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-full transition"><X size={16} className="text-gray-600" /></button>
@@ -1351,8 +1413,9 @@ const ConcessionManagement = () => {
                                                 <thead className="bg-gray-100 uppercase text-[9px] font-black tracking-wider text-gray-500">
                                                     <tr>
                                                         <th className="p-3">Student Name / PIN</th>
+                                                        <th className="p-3">Fee Component</th>
                                                         <th className="p-3">Requested</th>
-                                                        <th className="p-3">Approved Amount</th>
+                                                        <th className="p-3 text-right">Approved Amount</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y">
@@ -1362,11 +1425,14 @@ const ConcessionManagement = () => {
                                                                 <div className="font-bold text-gray-800">{r.studentName}</div>
                                                                 <div className="text-[10px] text-gray-400 font-mono uppercase">{r.studentPin || r.studentId}</div>
                                                             </td>
+                                                            <td className="p-3 text-[10px] font-bold text-gray-500 uppercase tracking-tight">
+                                                                {r.feeHead?.name || 'General'}
+                                                            </td>
                                                             <td className="p-3 font-bold text-gray-600">₹{r.amount.toLocaleString()}</td>
-                                                            <td className="p-3">
+                                                            <td className="p-3 text-right">
                                                                 <input
                                                                     type="number"
-                                                                    className="w-24 border border-gray-200 p-1.5 rounded font-bold text-blue-600 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                    className="w-24 border border-gray-200 p-1.5 rounded font-bold text-blue-600 focus:ring-1 focus:ring-blue-500 outline-none text-right"
                                                                     value={bulkAmounts[r._id] || ''}
                                                                     onChange={e => setBulkAmounts({...bulkAmounts, [r._id]: e.target.value})}
                                                                 />
@@ -1376,9 +1442,9 @@ const ConcessionManagement = () => {
                                                 </tbody>
                                                 <tfoot className="bg-gray-50 font-bold border-t">
                                                     <tr>
-                                                        <td className="p-3">Grand Total</td>
+                                                        <td className="p-3" colSpan="2">Grand Total</td>
                                                         <td className="p-3">₹{selectedRequest.totalAmount.toLocaleString()}</td>
-                                                        <td className="p-3 text-blue-600">
+                                                        <td className="p-3 text-blue-600 text-right">
                                                             ₹{Object.values(bulkAmounts).reduce((sum, val) => sum + (Number(val) || 0), 0).toLocaleString()}
                                                         </td>
                                                     </tr>
@@ -1435,23 +1501,36 @@ const ConcessionManagement = () => {
                             </div>
 
                             <div className="mt-4 pt-4 border-t shrink-0 flex gap-3">
-                                {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && selectedRequest.requests[0].status === 'PENDING' ? (
-                                    <>
+                                {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) ? (
+                                    selectedRequest.requests[0].status === 'PENDING' ? (
+                                        <>
+                                            <button
+                                                onClick={() => handleApprovalAction('APPROVE')}
+                                                className="flex-1 bg-green-600 text-white font-bold py-2.5 rounded-lg hover:bg-green-700 shadow-sm transition flex justify-center items-center gap-2"
+                                                disabled={approvalLoading}
+                                            >
+                                                <Check size={18} /> Approve
+                                            </button>
+                                            <button
+                                                onClick={() => handleApprovalAction('REJECT')}
+                                                className="flex-1 bg-white border border-red-200 text-red-600 font-bold py-2.5 rounded-lg hover:bg-red-50 transition"
+                                                disabled={approvalLoading}
+                                            >
+                                                Reject
+                                            </button>
+                                        </>
+                                    ) : selectedRequest.requests[0].status === 'APPROVED' ? (
                                         <button
                                             onClick={() => handleApprovalAction('APPROVE')}
-                                            className="flex-1 bg-green-600 text-white font-bold py-2.5 rounded-lg hover:bg-green-700 shadow-sm transition flex justify-center items-center gap-2"
+                                            className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition flex justify-center items-center gap-2 active:scale-95"
                                             disabled={approvalLoading}
                                         >
-                                            <Check size={18} /> Approve
+                                            {approvalLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Save size={18} />}
+                                            Update Approved Concession
                                         </button>
-                                        <button
-                                            onClick={() => handleApprovalAction('REJECT')}
-                                            className="flex-1 bg-white border border-red-200 text-red-600 font-bold py-2.5 rounded-lg hover:bg-red-50 transition"
-                                            disabled={approvalLoading}
-                                        >
-                                            Reject
-                                        </button>
-                                    </>
+                                    ) : (
+                                        <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-bold py-2.5 rounded-lg hover:bg-gray-200">Close</button>
+                                    )
                                 ) : (
                                     <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-bold py-2.5 rounded-lg hover:bg-gray-200">Close</button>
                                 )}

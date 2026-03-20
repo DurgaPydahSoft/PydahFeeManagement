@@ -253,10 +253,57 @@ const processBulkConcessionRequests = async (req, res) => {
     }
 };
 
+// @desc    Modify Approved Concession
+// @route   PUT /api/concessions/modify-approved/:id
+const modifyApprovedConcession = async (req, res) => {
+    const { id } = req.params;
+    const { amount, reason, concessionGivenBy } = req.body;
+    const processedBy = req.user ? (req.user.name || req.user.username) : 'admin';
+
+    try {
+        const request = await ConcessionRequest.findById(id);
+        if (!request) return res.status(404).json({ message: 'Request not found' });
+
+        if (request.status !== 'APPROVED') {
+            return res.status(400).json({ message: 'Only approved requests can be modified here' });
+        }
+
+        // Update Request fields
+        if (amount !== undefined) request.amount = Number(amount);
+        if (reason) request.reason = reason;
+        if (concessionGivenBy) request.concessionGivenBy = concessionGivenBy;
+        request.lastModifiedBy = processedBy;
+        request.lastModifiedAt = new Date();
+
+        await request.save();
+
+        // Find and update associated Transaction
+        const transaction = await Transaction.findOne({ concessionRequestId: id });
+        if (transaction) {
+            if (amount !== undefined) transaction.amount = Number(amount);
+            if (reason) transaction.remarks = `Concession Approved (Modified): ${reason}`;
+            // Ensure student metadata is sync'd
+            transaction.studentName = request.studentName;
+            transaction.studentYear = request.studentYear;
+            await transaction.save();
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Approved concession and related transaction updated successfully',
+            data: request 
+        });
+    } catch (error) {
+        console.error('Modification Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     createConcessionRequest,
     getConcessionRequests,
     processConcessionRequest,
     processBulkConcessionRequests,
-    getNextVoucherIdPreview
+    getNextVoucherIdPreview,
+    modifyApprovedConcession
 };
