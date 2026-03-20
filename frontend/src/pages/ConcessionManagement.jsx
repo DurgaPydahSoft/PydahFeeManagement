@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users } from 'lucide-react';
+import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer } from 'lucide-react';
 import Sidebar from './Sidebar';
+import { useReactToPrint } from 'react-to-print';
+import ConcessionReportPrint from '../components/ConcessionReportPrint';
 
 const ConcessionManagement = () => {
     const [activeTab, setActiveTab] = useState('request'); // 'request', 'approvals', 'approvers'
@@ -54,6 +56,12 @@ const ConcessionManagement = () => {
     const [modalAmount, setModalAmount] = useState('');
     const [rejectionReason, setRejectionReason] = useState('');
     const [bulkAmounts, setBulkAmounts] = useState({}); // {requestId: amount}
+
+    const reportPrintRef = React.useRef();
+    const handlePrint = useReactToPrint({
+        contentRef: reportPrintRef,
+        documentTitle: 'Concession_Fee_Advice_Report',
+    });
 
     // Metadata for filters
     const [metadata, setMetadata] = useState({ hierarchy: {}, batches: [] });
@@ -864,7 +872,7 @@ const ConcessionManagement = () => {
                                     onClick={fetchPendingRequests}
                                     className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-blue-600 text-white hover:bg-blue-700 transition shadow-md active:scale-95"
                                 >
-                                    <Filter size={14} /> Refetch List
+                                    <Filter size={14} /> Filter Approvals
                                 </button>
                             </div>
 
@@ -1174,12 +1182,23 @@ const ConcessionManagement = () => {
                                         </select>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={fetchReports}
-                                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-gray-800 text-white hover:bg-black transition shadow-md active:scale-95"
-                                >
-                                    <Filter size={14} /> Update Report
-                                </button>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={fetchReports}
+                                        className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-gray-800 text-white hover:bg-black transition shadow-md active:scale-95"
+                                    >
+                                        <Filter size={14} /> Update Report
+                                    </button>
+                                    
+                                    {reportData.length > 0 && (
+                                        <button
+                                            onClick={handlePrint}
+                                            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-md active:scale-95"
+                                        >
+                                            <Printer size={14} /> Print Advice
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Reports Table */}
@@ -1440,6 +1459,10 @@ const ConcessionManagement = () => {
                         </div>
                     </div>
                 )}
+                {/* Hidden Print Component */}
+                <div style={{ display: 'none' }}>
+                    <ConcessionReportPrint ref={reportPrintRef} data={reportData} filters={reportFilters} />
+                </div>
             </div>
         </div>
     );
