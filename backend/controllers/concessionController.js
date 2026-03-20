@@ -60,28 +60,25 @@ const createConcessionRequest = async (req, res) => {
       imageUrl = await uploadToS3(req.file);
     }
 
-    // Cache next IDs to avoid redundant lookups or racing (simplified for now)
-    const courseNextIds = {};
+    // Generate a single voucher ID for the entire bulk request based on the first student's course
+    let sharedVoucherId = null;
+    if (students.length > 0) {
+      const firstCourse = students[0].course;
+      sharedVoucherId = await getNextVoucherId(firstCourse);
+    }
 
     const requests = [];
     for (const s of students) {
-      if (!courseNextIds[s.course]) {
-        courseNextIds[s.course] = await getNextVoucherId(s.course);
-      } else {
-        // Increment for subsequent students in the same bulk request
-        const nextNum = parseInt(courseNextIds[s.course], 10) + 1;
-        courseNextIds[s.course] = nextNum.toString().padStart(3, '0');
-      }
-
       requests.push({
         studentId: s.studentId,
         studentName: s.studentName,
         feeHead: feeHeadId,
-        voucherId: courseNextIds[s.course],
+        voucherId: sharedVoucherId,
         amount: Number(amount),
         reason,
         studentYear,
         semester,
+        studentPin: s.studentPin, // [NEW]
         college: s.college,
         course: s.course,
         branch: s.branch,
@@ -149,86 +146,117 @@ const getConcessionRequests = async (req, res) => {
 
 // @desc    Process Request (Approve/Reject)
 // @route   PUT /api/concessions/:id/process
-const processConcessionRequest = async (req, res) => {
-  const { id } = req.params;
-  const { action, rejectionReason, approvedAmount } = req.body; // action: 'APPROVE' or 'REJECT'
-  const processedBy = req.user ? (req.user.name || req.user.username) : 'admin';
-
-  try {
+// Helper function for processing a single concession request (internal use)
+const processSingleRequestLogic = async (id, { action, rejectionReason, approvedAmount }, processedBy, reqUser) => {
     const request = await ConcessionRequest.findById(id);
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!request) throw new Error(`Request ${id} not found`);
 
     if (request.status !== 'PENDING') {
-      return res.status(400).json({ message: 'Request is already processed' });
+        throw new Error(`Request ${id} is already processed`);
     }
 
     if (action === 'APPROVE') {
-      // Allow Admin to update amount during approval
-      let finalAmount = request.amount;
-      if (approvedAmount !== undefined && approvedAmount !== null) {
-          finalAmount = Number(approvedAmount);
-          request.amount = finalAmount; // Update the request record with the approved amount
-      }
+        let finalAmount = request.amount;
+        if (approvedAmount !== undefined && approvedAmount !== null) {
+            finalAmount = Number(approvedAmount);
+            request.amount = finalAmount;
+        }
 
-      // Check for EXISTING linked transaction (created via Fee Collection UI)
-      const existingTxn = await Transaction.findOne({ concessionRequestId: id });
+        const existingTxn = await Transaction.findOne({ concessionRequestId: id });
 
-      if (existingTxn) {
-        // Update existing transaction
-        existingTxn.amount = finalAmount;
-        existingTxn.remarks = `Concession Approved (Modified): ${request.reason}`;
-        existingTxn.collectedBy = processedBy;
-        await existingTxn.save();
-      } else {
-        // Create Transaction (Credit) - Standard fallback logic
-        const timestamp = Date.now().toString().slice(-6);
-        const random = Math.floor(100 + Math.random() * 900).toString();
-        const receiptNumber = `CN${timestamp}${random}`; // CN for Concession
+        if (existingTxn) {
+            existingTxn.amount = finalAmount;
+            existingTxn.remarks = `Concession Approved (Modified): ${request.reason}`;
+            existingTxn.collectedBy = processedBy;
+            await existingTxn.save();
+        } else {
+            const timestamp = Date.now().toString().slice(-6);
+            const random = Math.floor(100 + Math.random() * 900).toString();
+            const receiptNumber = `CN${timestamp}${random}`;
 
-        const newTransaction = new Transaction({
-          studentId: request.studentId,
-          studentName: request.studentName,
-          feeHead: request.feeHead,
-          amount: finalAmount,
-          transactionType: 'CREDIT',
-          paymentMode: 'Credit',
-          receiptNumber,
-          paymentDate: new Date(),
-          remarks: `Concession: ${request.reason}`,
-          collectedBy: processedBy,
-          collectedByName: req.user ? req.user.name : 'Administrator',
-          academicYear: request.batch,
-          studentYear: request.studentYear,
-          college: request.college,
-          course: request.course,
-          branch: request.branch,
-          concessionRequestId: request._id
-        });
-        await newTransaction.save();
-      }
-      
-      request.status = 'APPROVED';
-      request.processedBy = processedBy;
-      request.processedAt = new Date();
-      await request.save();
+            const newTransaction = new Transaction({
+                studentId: request.studentId,
+                studentName: request.studentName,
+                feeHead: request.feeHead,
+                amount: finalAmount,
+                transactionType: 'CREDIT',
+                paymentMode: 'Credit',
+                receiptNumber,
+                paymentDate: new Date(),
+                remarks: `Concession: ${request.reason}`,
+                collectedBy: processedBy,
+                collectedByName: reqUser ? reqUser.name : 'Administrator',
+                academicYear: request.batch,
+                studentYear: request.studentYear,
+                college: request.college,
+                course: request.course,
+                branch: request.branch,
+                concessionRequestId: request._id
+            });
+            await newTransaction.save();
+        }
 
-      res.json({ message: 'Request approved successfully', data: request });
+        request.status = 'APPROVED';
+        request.processedBy = processedBy;
+        request.processedAt = new Date();
+        await request.save();
+        return request;
     } else {
-      request.status = 'REJECTED';
-      request.rejectionReason = rejectionReason;
-      request.processedBy = processedBy;
-      request.processedAt = new Date();
-      await request.save();
-      res.json({ message: 'Request rejected successfully', data: request });
+        request.status = 'REJECTED';
+        request.rejectionReason = rejectionReason;
+        request.processedBy = processedBy;
+        request.processedAt = new Date();
+        await request.save();
+        return request;
     }
-  } catch (error) {
-    res.status(500).json({ message: 'Server Error', error: error.message });
-  }
 };
 
-module.exports = { 
-  createConcessionRequest, 
-  getConcessionRequests, 
-  processConcessionRequest,
-  getNextVoucherIdPreview
+// @desc    Process a single Concession Request
+// @route   PUT /api/concessions/:id/process
+const processConcessionRequest = async (req, res) => {
+    const { id } = req.params;
+    const processedBy = req.user ? (req.user.name || req.user.username) : 'admin';
+
+    try {
+        const result = await processSingleRequestLogic(id, req.body, processedBy, req.user);
+        res.json({ message: 'Request processed successfully', data: result });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+// @desc    Process multiple Concession Requests (Bulk)
+// @route   PUT /api/concessions/bulk-process
+const processBulkConcessionRequests = async (req, res) => {
+    const { requests, action, rejectionReason } = req.body; // requests: [{ id, approvedAmount }]
+    const processedBy = req.user ? (req.user.name || req.user.username) : 'admin';
+
+    if (!requests || !Array.isArray(requests)) {
+        return res.status(400).json({ message: 'Invalid requests data' });
+    }
+
+    try {
+        const results = [];
+        for (const item of requests) {
+            const resData = await processSingleRequestLogic(
+                item.id,
+                { action, rejectionReason, approvedAmount: item.approvedAmount },
+                processedBy,
+                req.user
+            );
+            results.push(resData);
+        }
+        res.json({ message: `Successfully processed ${results.length} requests`, data: results });
+    } catch (error) {
+        console.error("Bulk processing error:", error);
+        res.status(500).json({ message: 'Bulk processing failed', error: error.message });
+    }
+};
+
+module.exports = {
+    createConcessionRequest,
+    getConcessionRequests,
+    processConcessionRequest,
+    processBulkConcessionRequests,
+    getNextVoucherIdPreview
 };

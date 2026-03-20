@@ -8,6 +8,9 @@ const concessionRequestSchema = mongoose.Schema({
   studentName: {
     type: String,
   },
+  studentPin: {
+    type: String,
+  },
   voucherId: {
     type: String, // Sequential number per course (e.g., 001)
   },
