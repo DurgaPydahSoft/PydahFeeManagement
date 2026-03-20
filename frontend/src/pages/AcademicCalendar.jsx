@@ -22,11 +22,44 @@ const AcademicCalendar = () => {
     const [editingId, setEditingId] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
+    
+    // Permission Check
+    const user = JSON.parse(localStorage.getItem('user')) || {};
+    const permissions = user.permissions || [];
+    const role = user.role;
+    const hasPermission = role === 'superadmin' || permissions.includes('/academic-calendar');
 
     useEffect(() => {
-        fetchAcademicYears();
-        fetchMetadata();
-    }, []);
+        if (hasPermission) {
+            fetchAcademicYears();
+            fetchMetadata();
+        }
+    }, [hasPermission]);
+
+    if (!hasPermission) {
+        return (
+            <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+                <Sidebar />
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-red-100 max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
+                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <AlertCircle size={40} className="text-red-500" />
+                        </div>
+                        <h2 className="text-2xl font-black text-slate-800 mb-2">Access Denied</h2>
+                        <p className="text-slate-500 font-medium leading-relaxed">
+                            You don't have the required permissions to view or manage the Academic Calendar. Please contact your administrator.
+                        </p>
+                        <button 
+                            onClick={() => window.history.back()}
+                            className="mt-8 w-full py-3 px-6 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 transition-all shadow-lg shadow-slate-200"
+                        >
+                            Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const fetchAcademicYears = async () => {
         setIsFetchingCalendar(true);

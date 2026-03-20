@@ -14,6 +14,7 @@ const UserManagement = () => {
         { name: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
         { name: 'Payment Config', path: '/payment-config' },
         { name: 'Reminder Config', path: '/reminders' },
+        { name: 'Academic Calendar', path: '/academic-calendar' },
         { name: 'Students', path: '/students' },
         { name: 'Fee Collection', path: '/fee-collection' },
         { name: 'Reports & Analytics', path: '/reports' },
