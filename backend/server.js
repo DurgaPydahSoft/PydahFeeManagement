@@ -43,6 +43,7 @@ app.use('/api/transport', require('./routes/transportRoutes'));
 app.use('/api/hostels', require('./routes/hostelRoutes'));
 app.use('/api/payment-config', require('./routes/paymentConfigRoutes'));
 app.use('/api/reminders', require('./routes/reminderRoutes'));
+app.use('/api/academic-calendar', require('./routes/academicCalendarRoutes'));
 app.use('/api/bulk-fee', require('./routes/bulkFeeRoutes'));
 app.use('/api/concessions', require('./routes/concessionRoutes'));
 app.use('/api/permissions', require('./routes/permissionRoutes'));

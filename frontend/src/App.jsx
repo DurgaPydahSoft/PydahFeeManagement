@@ -11,6 +11,7 @@ import TransportConfiguration from './pages/TransportConfiguration';
 import HostelConfiguration from './pages/HostelConfiguration';
 import PaymentConfiguration from './pages/PaymentConfiguration';
 import ReminderConfiguration from './pages/ReminderConfiguration';
+import AcademicCalendar from './pages/AcademicCalendar';
 import BulkFeeUpload from './pages/BulkFeeUpload';
 import ConcessionManagement from './pages/ConcessionManagement';
 import Permissions from './pages/Permissions';
@@ -40,7 +41,7 @@ function App() {
         <Route path="/hostel-config" element={<HostelConfiguration />} />
         <Route path="/payment-config" element={<PaymentConfiguration />} />
         <Route path="/reminders" element={<ReminderConfiguration />} />
-        <Route path="/reminders" element={<ReminderConfiguration />} />
+        <Route path="/academic-calendar" element={<AcademicCalendar />} />
         <Route path="/bulk-fee-upload" element={<BulkFeeUpload />} />
         <Route path="/concessions" element={<ConcessionManagement />} />
         <Route path="/concessions" element={<ConcessionManagement />} />

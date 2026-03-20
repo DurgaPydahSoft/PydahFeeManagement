@@ -5,14 +5,12 @@ const {
     saveTemplate, 
     deleteTemplate, 
     sendReminders, 
-    getAcademicYears,
     createConfig,
     getConfigs,
     deleteConfig
 } = require('../controllers/reminderController');
 
 router.get('/templates', getTemplates);
-router.get('/academic-years', getAcademicYears);
 router.post('/templates', saveTemplate);
 router.delete('/templates/:id', deleteTemplate);
 
