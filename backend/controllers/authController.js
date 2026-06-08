@@ -10,6 +10,32 @@ const generateToken = (id) => {
   });
 };
 
+const FEE_ACCESS_DENIED = 'User not authorized for Fee Management system';
+
+const findFeeManagementUser = async ({ username, employeeId, identifier }) => {
+  const orConditions = [];
+  if (employeeId) orConditions.push({ employeeId });
+  if (username) orConditions.push({ username });
+  if (identifier) {
+    orConditions.push({ employeeId: identifier });
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+      orConditions.push({ _id: identifier });
+    }
+  }
+  if (orConditions.length === 0) return null;
+  return User.findOne({ $or: orConditions });
+};
+
+const applyFeeManagementProfile = (authUser, feeUser) => ({
+  _id: feeUser._id,
+  name: authUser.name || feeUser.name,
+  username: feeUser.username,
+  role: feeUser.role,
+  college: feeUser.college || '',
+  permissions: feeUser.permissions || [],
+  employeeId: feeUser.employeeId,
+});
+
 // @desc    Authenticate a user
 // @route   POST /api/auth/login
 // @access  Public
@@ -105,30 +131,19 @@ const loginUser = async (req, res) => {
         }
       }
 
-      // ==========================================
-      // Apply User Permissions for HRMS Users
-      // ==========================================
+      // HRMS credentials are valid only when a Fee Management User record exists
       if (authUser && (authMethod === 'HRMS Employees' || authMethod === 'HRMS Users')) {
-        // Look up the user in the Fee Management local User collection
-        let feeUser = await User.findOne({ 
-          $or: [
-            { employeeId: authUser.employeeId },
-            { username: username }
-          ]
+        const feeUser = await findFeeManagementUser({
+          username,
+          employeeId: authUser.employeeId,
         });
 
-        if (feeUser) {
-          authUser.role = feeUser.role;
-          authUser.college = feeUser.college || '';
-          authUser.permissions = feeUser.permissions || [];
-          authUser._id = feeUser._id; // Use local User ID if it exists
-        } else {
-          // Default fallback for HRMS users if no User document exists
-          authUser.role = 'office_staff';
-          authUser.college = '';
-          authUser.permissions = [];
-          authUser._id = authUser.employeeId; // We use their HRMS ID or generated ID for the token signing
+        if (!feeUser) {
+          console.log(`[AUTH LOG] FAILURE: HRMS user ${username} has no Fee Management profile`);
+          return res.status(401).json({ message: FEE_ACCESS_DENIED });
         }
+
+        authUser = applyFeeManagementProfile(authUser, feeUser);
       }
     }
 
@@ -253,26 +268,18 @@ const ssoLogin = async (req, res) => {
         }
 
         if (authUser) {
-          // Check Fee Management local User collection by both resolved employeeId and initial identifier
-          const feeUser = await User.findOne({ 
-            $or: [
-              { employeeId: authUser.employeeId },
-              { employeeId: identifier },
-              { username: authUser.username }
-            ]
+          const feeUser = await findFeeManagementUser({
+            username: authUser.username,
+            employeeId: authUser.employeeId,
+            identifier,
           });
 
-          if (feeUser) {
-            authUser.role = feeUser.role;
-            authUser.college = feeUser.college || '';
-            authUser.permissions = feeUser.permissions || [];
-            authUser._id = feeUser._id;
-          } else {
-            authUser.role = 'office_staff';
-            authUser.college = '';
-            authUser.permissions = [];
-            authUser._id = authUser.employeeId;
+          if (!feeUser) {
+            console.log(`[AUTH LOG] SSO FAILURE: HRMS user ${identifier} has no Fee Management profile`);
+            return res.status(401).json({ message: FEE_ACCESS_DENIED });
           }
+
+          authUser = applyFeeManagementProfile(authUser, feeUser);
         }
       }
     }

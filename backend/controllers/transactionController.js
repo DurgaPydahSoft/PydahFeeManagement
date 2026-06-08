@@ -1,5 +1,10 @@
 const Transaction = require('../models/Transaction');
 
+const getCollectorFromRequest = (req) => ({
+  collectedBy: req.user?.username || 'Unknown',
+  collectedByName: req.user?.name || 'Unknown',
+});
+
 // @desc    Add a Payment Transaction
 // @route   POST /api/transactions
 // @desc    Add a Payment Transaction (Single or Batch)
@@ -16,6 +21,7 @@ const addTransaction = async (req, res) => {
 
     // CHECK IF BATCH (req.body.transactions array exists)
     if (req.body.transactions && Array.isArray(req.body.transactions)) {
+       const collector = getCollectorFromRequest(req);
        const batch = req.body.transactions.map(item => ({
            ...item,
            feeHead: sanitizeObjectId(item.feeHeadId),
@@ -26,7 +32,9 @@ const addTransaction = async (req, res) => {
            paymentMode: item.transactionType === 'CREDIT' && !item.paymentMode ? 'Waiver' : (item.paymentMode || 'Cash'),
            transactionType: item.transactionType || 'DEBIT',
            remarks: item.remarks,
-           referenceDate: item.referenceDate
+           referenceDate: item.referenceDate,
+           collectedBy: collector.collectedBy,
+           collectedByName: collector.collectedByName,
        }));
        
        const createdTransactions = await Transaction.insertMany(batch);
@@ -40,7 +48,8 @@ const addTransaction = async (req, res) => {
     }
 
     // SINGLE TRANSACTION (Backward Compatibility)
-    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, collectedBy, collectedByName, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId, concessionRequestId } = req.body;
+    const { studentId, studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId, concessionRequestId } = req.body;
+    const { collectedBy, collectedByName } = getCollectorFromRequest(req);
 
     // Validation
     if (!studentId || !amount || (transactionType !== 'CREDIT' && !feeHeadId)) {

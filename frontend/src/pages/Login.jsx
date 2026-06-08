@@ -3,6 +3,16 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { User, Lock, ArrowRight, Loader } from 'lucide-react';
 
+const getPostLoginRoute = (user) => {
+    if (!user) return null;
+    if (user.role === 'superadmin') return '/dashboard';
+
+    const routePermissions = (user.permissions || []).filter((p) => p.startsWith('/'));
+    if (routePermissions.length === 0) return null;
+    if (routePermissions.includes('/dashboard')) return '/dashboard';
+    return routePermissions[0];
+};
+
 const Login = () => {
     const [formData, setFormData] = useState({
         username: '',
@@ -32,18 +42,17 @@ const Login = () => {
                 encryptedToken: token
             });
             if (response.data) {
-                localStorage.setItem('user', JSON.stringify(response.data));
-                localStorage.setItem('token', response.data.token); // [NEW] Store token separately
-                localStorage.setItem('isSSO', 'true');
                 const user = response.data;
-                if (user.role !== 'superadmin' && user.permissions && !user.permissions.includes('/dashboard')) {
-                    const firstPage = user.permissions.find(p => p.startsWith('/'));
-                    if (firstPage) {
-                        navigate(firstPage);
-                        return;
-                    }
+                const destination = getPostLoginRoute(user);
+                if (!destination) {
+                    setError('You are not authorized for Fee Management. Contact your administrator.');
+                    setLoading(false);
+                    return;
                 }
-                navigate('/dashboard');
+                localStorage.setItem('user', JSON.stringify(user));
+                localStorage.setItem('token', user.token);
+                localStorage.setItem('isSSO', 'true');
+                navigate(destination);
             }
         } catch (err) {
             setError(err.response?.data?.message || 'SSO Login failed');
@@ -67,18 +76,17 @@ const Login = () => {
         try {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/login`, formData);
             if (response.data) {
-                localStorage.setItem('user', JSON.stringify(response.data));
-                localStorage.setItem('token', response.data.token); // [NEW] Store token separately
-                localStorage.removeItem('isSSO');
                 const user = response.data;
-                if (user.role !== 'superadmin' && user.permissions && !user.permissions.includes('/dashboard')) {
-                    const firstPage = user.permissions.find(p => p.startsWith('/'));
-                    if (firstPage) {
-                        navigate(firstPage);
-                        return;
-                    }
+                const destination = getPostLoginRoute(user);
+                if (!destination) {
+                    setError('You are not authorized for Fee Management. Contact your administrator.');
+                    setLoading(false);
+                    return;
                 }
-                navigate('/dashboard');
+                localStorage.setItem('user', JSON.stringify(user));
+                localStorage.setItem('token', user.token);
+                localStorage.removeItem('isSSO');
+                navigate(destination);
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Login failed');

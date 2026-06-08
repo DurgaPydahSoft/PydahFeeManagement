@@ -8,16 +8,15 @@ const {
   getNextVoucherIdPreview,
   modifyApprovedConcession
 } = require('../controllers/concessionController');
-const { protect } = require('../middleware/authMiddleware');
 
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post('/', protect, upload.single('image'), createConcessionRequest);
-router.get('/', protect, getConcessionRequests);
-router.get('/next-voucher-id', protect, getNextVoucherIdPreview);
-router.put('/bulk-process', protect, processBulkConcessionRequests);
-router.put('/modify-approved/:id', protect, modifyApprovedConcession);
-router.put('/:id/process', protect, processConcessionRequest);
+router.post('/', upload.single('image'), createConcessionRequest);
+router.get('/', getConcessionRequests);
+router.get('/next-voucher-id', getNextVoucherIdPreview);
+router.put('/bulk-process', processBulkConcessionRequests);
+router.put('/modify-approved/:id', modifyApprovedConcession);
+router.put('/:id/process', processConcessionRequest);
 
 module.exports = router;
