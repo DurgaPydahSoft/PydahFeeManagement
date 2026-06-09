@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import { Upload, FileUp, Save, CheckSquare, Square, Download, CreditCard, Banknote } from 'lucide-react';
 import Sidebar from './Sidebar';
 
@@ -32,10 +32,9 @@ const BulkFeeUpload = () => {
     const handleDownloadTemplate = async () => {
         setDownloadingTemplate(true);
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/bulk-fee/template`, {
+            const response = await api.get(`/bulk-fee/template`, {
                 params: { type: uploadType },
                 responseType: 'blob',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
@@ -66,12 +65,7 @@ const BulkFeeUpload = () => {
         formData.append('isPendingMode', isPendingMode);
 
         try {
-            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/upload`, formData, {
-                headers: { 
-                    'Content-Type': 'multipart/form-data',
-                    Authorization: `Bearer ${localStorage.getItem('token')}`
-                }
-            });
+            const response = await api.post(`/bulk-fee/upload`, formData);
 
             const data = response.data.data;
             const resHeads = response.data.feeHeads || [];
@@ -126,12 +120,10 @@ const BulkFeeUpload = () => {
         const studentsToSave = selectedIds.map(index => previewData[index]);
 
         try {
-            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/bulk-fee/save`, {
+            const response = await api.post(`/bulk-fee/save`, {
                 students: studentsToSave,
                 uploadType: uploadType,
                 isPendingMode: isPendingMode
-            }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setMessage(response.data.message);
             setFile(null);

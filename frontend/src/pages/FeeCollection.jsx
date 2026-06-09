@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
 import Sidebar from './Sidebar';
 import ReceiptTemplate from '../components/ReceiptTemplate';
@@ -89,18 +89,10 @@ const FeeCollection = () => {
                 const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
 
                 const [studentsRes, configsRes, settingsRes, approversRes] = await Promise.all([
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    }),
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    }),
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/settings`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    }),
-                    axios.get(`${import.meta.env.VITE_API_URL}/api/concession-approvers`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    })
+                    api.get(`/students${collegeParam}`),
+                    api.get(`/payment-config`),
+                    api.get(`/settings`),
+                    api.get(`/concession-approvers`)
                 ]);
 
                 setAllStudents(studentsRes.data);
@@ -153,14 +145,13 @@ const FeeCollection = () => {
             if (paymentCategory === 'Bank' && paymentForm.paymentMode === 'RTF' && student) {
                 setIsFetchingProceedings(true);
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/proceedings`, {
+                    const res = await api.get(`/proceedings`, {
                         params: {
                             college: student.college,
                             course: student.course,
                             batch: student.academic_year, // Map to batch
                             caste: student.caste
                         },
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                     setAvailableProceedings(res.data);
                 } catch (e) {
@@ -184,12 +175,11 @@ const FeeCollection = () => {
                 setIsFetchingVouchers(true);
                 try {
                     // Fetch PENDING concession requests for this student
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                    const res = await api.get(`/concessions`, {
                         params: {
                             studentId: student.admission_number,
                             status: 'PENDING'
                         },
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                     setAvailableVouchers(res.data);
                 } catch (e) {
@@ -206,9 +196,8 @@ const FeeCollection = () => {
             if (student) {
                 setIsFetchingHistory(true);
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                    const res = await api.get(`/concessions`, {
                         params: { studentId: student.admission_number },
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                     setConcessionHistory(res.data);
                 } catch (e) {
@@ -224,9 +213,8 @@ const FeeCollection = () => {
         const fetchNextVoucherId = async () => {
             if (student && student.course) {
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions/next-voucher-id`, {
+                    const res = await api.get(`/concessions/next-voucher-id`, {
                         params: { course: student.course },
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                     setNextVoucherId(res.data.nextVoucherId);
                 } catch (e) {
@@ -277,9 +265,7 @@ const FeeCollection = () => {
                     concessionGivenBy: row.concessionGivenBy
                 };
 
-                return axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, payload, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                return api.post(`/concessions`, payload);
             });
 
             const results = await Promise.all(promises);
@@ -289,17 +275,14 @@ const FeeCollection = () => {
             
             // Refresh counts and tables
             const [vouchersRes, historyRes, nextIdRes] = await Promise.all([
-                axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                api.get(`/concessions`, {
                     params: { studentId: student.admission_number, status: 'PENDING' },
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 }),
-                axios.get(`${import.meta.env.VITE_API_URL}/api/concessions`, {
+                api.get(`/concessions`, {
                     params: { studentId: student.admission_number },
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 }),
-                axios.get(`${import.meta.env.VITE_API_URL}/api/concessions/next-voucher-id`, {
+                api.get(`/concessions/next-voucher-id`, {
                     params: { course: student.course },
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 })
             ]);
             setAvailableVouchers(vouchersRes.data);
@@ -341,9 +324,7 @@ const FeeCollection = () => {
         setIsDashLoading(true);
         try {
             // 1. Fetch Full Student Details (including Photo)
-            const fullStudentRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/${selectedStudent.admission_number}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const fullStudentRes = await api.get(`/students/${selectedStudent.admission_number}`);
             const found = fullStudentRes.data;
 
             const college = found.college;
@@ -351,9 +332,8 @@ const FeeCollection = () => {
             const branch = found.branch;
             const studentYear = found.current_year;
             // 2. Fetch Fee Details (Fetch ALL Years)
-            const feesRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures/student/${found.admission_number}`, {
+            const feesRes = await api.get(`/fee-structures/student/${found.admission_number}`, {
                 params: { college, course, branch, studentYear },
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setFeeDetails(feesRes.data);
 
@@ -361,9 +341,7 @@ const FeeCollection = () => {
             setViewFilterYear(String(found.current_year));
 
             // 3. Fetch History
-            const histRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/transactions/student/${found.admission_number}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const histRes = await api.get(`/transactions/student/${found.admission_number}`);
             setTransactions(histRes.data);
 
             // Update student object in case it changed (though unlikely for same ID)
@@ -652,10 +630,8 @@ const FeeCollection = () => {
             }
 
             // Send as { transactions: [...] } to match Backend Batch Interface
-            const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/transactions`, {
+            const res = await api.post(`/transactions`, {
                 transactions: batchTransactions
-            }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
 
             // Success!!
@@ -1152,7 +1128,7 @@ const FeeCollection = () => {
                                                                                     acc[y] += curr.dueAmount;
                                                                                 }
                                                                                 return acc;
-                                                                            }, {});
+                                                                            });
 
                                                                             const sortedYears = Object.keys(yearBreakdown).sort((a, b) => Number(a) - Number(b));
 

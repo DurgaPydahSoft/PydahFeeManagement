@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import Sidebar from './Sidebar';
 
 const UserProfile = () => {
@@ -27,9 +27,7 @@ const UserProfile = () => {
         }
 
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${user._id}`, { password }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.put(`/users/${user._id}`, { password });
             setMessage("Password updated successfully!");
             setPassword('');
             setConfirmPassword('');

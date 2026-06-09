@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import { Plus, Edit2, Trash2, MapPin, X, User, Bus } from 'lucide-react';
 import Sidebar from './Sidebar';
 
@@ -23,14 +23,10 @@ const TransportConfiguration = () => {
     // Stage Form Data
     const [stageForm, setStageForm] = useState({ stageCode: '', stageName: '', stopOrder: '', amount: '' });
 
-    const API_URL = import.meta.env.VITE_API_URL;
-
     // --- Data Fetching ---
     const fetchRoutes = async () => {
         try {
-            const res = await axios.get(`${API_URL}/api/transport/routes`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/transport/routes`);
             setRoutes(res.data);
         } catch (error) {
             console.error(error);
@@ -41,9 +37,7 @@ const TransportConfiguration = () => {
     const fetchStages = async (routeId) => {
         if (!routeId) return;
         try {
-            const res = await axios.get(`${API_URL}/api/transport/stages/${routeId}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/transport/stages/${routeId}`);
             setStages(res.data);
         } catch (error) {
             console.error(error);
@@ -68,13 +62,9 @@ const TransportConfiguration = () => {
         e.preventDefault();
         try {
             if (currentRoute) {
-                await axios.put(`${API_URL}/api/transport/routes/${currentRoute._id}`, routeForm, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.put(`/transport/routes/${currentRoute._id}`, routeForm);
             } else {
-                await axios.post(`${API_URL}/api/transport/routes`, routeForm, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.post(`/transport/routes`, routeForm);
             }
             fetchRoutes();
             closeRouteModal();
@@ -86,9 +76,7 @@ const TransportConfiguration = () => {
     const handleDeleteRoute = async (id) => {
         if (!window.confirm('Delete this route? This will also delete all associated stages.')) return;
         try {
-            await axios.delete(`${API_URL}/api/transport/routes/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/transport/routes/${id}`);
             fetchRoutes();
             if (selectedRouteId === id) {
                 setSelectedRouteId('');
@@ -105,13 +93,9 @@ const TransportConfiguration = () => {
         try {
             const payload = { ...stageForm, routeId: selectedRouteId };
             if (currentStage) {
-                await axios.put(`${API_URL}/api/transport/stages/${currentStage._id}`, stageForm, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.put(`/transport/stages/${currentStage._id}`, stageForm);
             } else {
-                await axios.post(`${API_URL}/api/transport/stages`, payload, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.post(`/transport/stages`, payload);
             }
             fetchStages(selectedRouteId);
             closeStageModal();
@@ -123,9 +107,7 @@ const TransportConfiguration = () => {
     const handleDeleteStage = async (id) => {
         if (!window.confirm('Delete this stage?')) return;
         try {
-            await axios.delete(`${API_URL}/api/transport/stages/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/transport/stages/${id}`);
             fetchStages(selectedRouteId);
         } catch (error) {
             alert('Failed to delete stage');
@@ -182,9 +164,7 @@ const TransportConfiguration = () => {
         setFoundStudents([]);
 
         try {
-            const res = await axios.get(`${API_URL}/api/students`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/students`);
             // Client-side filter for now
             const matches = res.data.filter(s =>
                 s.admission_number === allocationSearch ||
@@ -214,9 +194,7 @@ const TransportConfiguration = () => {
         setAllocationLoading(true);
         // Fetch existing allocations
         try {
-            const res = await axios.get(`${API_URL}/api/transport/allocation/${student.admission_number}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/transport/allocation/${student.admission_number}`);
             setExistingAllocations(res.data || []);
         } catch (error) {
             console.error(error);
@@ -232,9 +210,7 @@ const TransportConfiguration = () => {
             // We can just call the API directly to avoid messing with the main tab state
             const loadStages = async () => {
                 try {
-                    const res = await axios.get(`${API_URL}/api/transport/stages/${assignRouteId}`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    });
+                    const res = await api.get(`/transport/stages/${assignRouteId}`);
                     setAssignStagesList(res.data);
                 } catch (e) { console.error(e); }
             };
@@ -251,14 +227,12 @@ const TransportConfiguration = () => {
         }
 
         try {
-            await axios.post(`${API_URL}/api/transport/allocation`, {
+            await api.post(`/transport/allocation`, {
                 studentId: allocationStudent.admission_number,
                 routeId: assignRouteId,
                 stageId: assignStageId,
                 academicYear: assignAcademicYear,
                 amount: assignAmount // Send custom amount
-            }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             alert('Transport Fee Assigned Successfully!');
             // Refresh allocations
@@ -594,7 +568,7 @@ const TransportConfiguration = () => {
 
                 {/* --- ASSIGNED LIST TAB --- */}
                 {activeTab === 'list' && (
-                    <TransportListTab API_URL={API_URL} />
+                    <TransportListTab />
                 )}
 
                 {/* --- MODALS --- */}
@@ -670,7 +644,7 @@ const TransportConfiguration = () => {
 };
 
 // Sub-component for List
-const TransportListTab = ({ API_URL }) => {
+const TransportListTab = () => {
     const [list, setList] = useState([]);
     const [loading, setLoading] = useState(false);
     const [filterYear, setFilterYear] = useState('');
@@ -682,9 +656,7 @@ const TransportListTab = ({ API_URL }) => {
     const fetchList = async () => {
         setLoading(true);
         try {
-            const res = await axios.get(`${API_URL}/api/transport/allocations`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/transport/allocations`);
             setList(res.data);
         } catch (error) {
             console.error(error);

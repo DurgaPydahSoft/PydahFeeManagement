@@ -73,7 +73,7 @@ const Sidebar = () => {
         if (!acc[item.section]) acc[item.section] = [];
         acc[item.section].push(item);
         return acc;
-    }, {});
+    });
 
     return (
         <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>

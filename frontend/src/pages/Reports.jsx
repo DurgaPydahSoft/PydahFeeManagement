@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
-import axios from 'axios';
+import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
 import * as XLSX from 'xlsx';
 import {
@@ -197,7 +197,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     {Object.entries(row.feeHeads.reduce((acc, curr) => {
                                         acc[curr.name] = (acc[curr.name] || 0) + curr.amount;
                                         return acc;
-                                    }, {})).map(([name, amount], i) => (
+                                    })).map(([name, amount], i) => (
                                         <div key={i} className="flex flex-col p-3 rounded bg-gray-50 border border-gray-100">
                                             <span className="text-[10px] text-gray-500 font-bold uppercase truncate mb-1" title={name}>{name}</span>
                                             <span className="text-sm font-bold text-gray-800">{Number(amount).toLocaleString()}</span>
@@ -336,13 +336,7 @@ const Reports = () => {
             else if (activeTab === 'cashier') groupBy = 'cashier';
             else if (activeTab === 'feeHead') groupBy = 'feeHead';
 
-            const userStr = localStorage.getItem('user');
-            const token = userStr ? JSON.parse(userStr).token : null;
-
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/transactions`, {
-                headers: {
-                    Authorization: `Bearer ${localStorage.getItem('token')}`
-                },
+            const res = await api.get(`/reports/transactions`, {
                 params: { startDate, endDate, groupBy: groupBy === 'daily' ? 'day' : groupBy }
             });
             setData(res.data);

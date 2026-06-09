@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
-import axios from 'axios';
+import api from '../lib/api';
 import { Filter, Download, ArrowRight, DollarSign, Search, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -37,9 +37,7 @@ const DueReports = () => {
     useEffect(() => {
         const fetchMetadata = async () => {
             try {
-                const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const response = await api.get(`/students/metadata`);
                 const meta = response.data.hierarchy || response.data;
                 const batchList = response.data.batches || [];
                 setMetadata(meta);
@@ -87,9 +85,8 @@ const DueReports = () => {
         setHasSearched(true);
         setCurrentPage(1); // Reset page on new fetch
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/dues`, {
+            const response = await api.get(`/reports/dues`, {
                 params: { ...filters, search: searchTerm },
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setReportData(response.data);
         } catch (error) {

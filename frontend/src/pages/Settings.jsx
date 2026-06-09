@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import Sidebar from './Sidebar';
 
 const Settings = () => {
@@ -23,12 +23,8 @@ const Settings = () => {
     const fetchData = async () => {
         try {
             const [settingsRes, feeHeadsRes] = await Promise.all([
-                axios.get(`${import.meta.env.VITE_API_URL}/api/settings`, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                }),
-                axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                })
+                api.get(`/settings`),
+                api.get(`/fee-heads`)
             ]);
             setSettings(settingsRes.data);
             setFeeHeads(feeHeadsRes.data);
@@ -49,9 +45,7 @@ const Settings = () => {
         const updatedSettings = { ...settings, [paymentMethod]: newValue };
         setSettings(updatedSettings);
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/settings`, updatedSettings, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.put(`/settings`, updatedSettings);
             setMessage(`${paymentMethod.replace('enable', '')} payment ${newValue ? 'enabled' : 'disabled'} successfully`);
             setTimeout(() => setMessage(''), 2000);
         } catch (error) {
@@ -84,9 +78,7 @@ const Settings = () => {
         setSaving(true);
         setMessage('');
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/settings`, settings, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.put(`/settings`, settings);
             setMessage('Settings saved successfully!');
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {

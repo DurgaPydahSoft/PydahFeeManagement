@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import { Pencil, Trash2, Plus, CreditCard, Building2, Eye, EyeOff } from 'lucide-react';
 import Sidebar from './Sidebar';
 
@@ -27,18 +27,14 @@ const PaymentConfiguration = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/students/metadata`);
             setMetadata(response.data);
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
     const fetchConfigs = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/payment-config`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/payment-config`);
             setConfigs(response.data);
         } catch (error) { console.error('Error fetching configs', error); }
     };
@@ -55,16 +51,12 @@ const PaymentConfiguration = () => {
         try {
             if (editingId) {
                 // Update
-                const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/payment-config/${editingId}`, form, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const response = await api.put(`/payment-config/${editingId}`, form);
                 setConfigs(configs.map(c => c._id === editingId ? response.data : c));
                 setMessage('Account updated successfully!');
             } else {
                 // Create
-                const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/payment-config`, form, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const response = await api.post(`/payment-config`, form);
                 setConfigs([response.data, ...configs]);
                 setMessage('Account added successfully!');
             }
@@ -96,9 +88,7 @@ const PaymentConfiguration = () => {
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure needed to de-activate this account?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/payment-config/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/payment-config/${id}`);
             // Optimistic update: set is_active to false locally
             setConfigs(configs.map(c => c._id === id ? { ...c, is_active: false } : c));
         } catch (error) {
@@ -109,9 +99,7 @@ const PaymentConfiguration = () => {
 
     const handleToggle = async (id) => {
         try {
-            const response = await axios.patch(`${import.meta.env.VITE_API_URL}/api/payment-config/${id}/toggle`, {}, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.patch(`/payment-config/${id}/toggle`);
             setConfigs(configs.map(c => c._id === id ? response.data : c));
         } catch (error) {
             console.error(error);

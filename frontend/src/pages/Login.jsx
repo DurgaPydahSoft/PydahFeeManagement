@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import api from '../lib/api';
 import { User, Lock, ArrowRight, Loader } from 'lucide-react';
 
 const getPostLoginRoute = (user) => {
@@ -38,7 +38,7 @@ const Login = () => {
         setLoading(true);
         setError('');
         try {
-            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/sso-login`, {
+            const response = await api.post(`/auth/sso-login`, {
                 encryptedToken: token
             });
             if (response.data) {
@@ -74,7 +74,7 @@ const Login = () => {
         setError('');
         setLoading(true);
         try {
-            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/login`, formData);
+            const response = await api.post(`/auth/login`, formData);
             if (response.data) {
                 const user = response.data;
                 const destination = getPostLoginRoute(user);

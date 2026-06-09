@@ -7,7 +7,7 @@ const ConcessionReportPrint = forwardRef(({ data, filters }, ref) => {
         if (!acc[approver]) acc[approver] = [];
         acc[approver].push(item);
         return acc;
-    }, {});
+    });
 
     const totalConcession = data.reduce((sum, item) => sum + item.amount, 0);
 

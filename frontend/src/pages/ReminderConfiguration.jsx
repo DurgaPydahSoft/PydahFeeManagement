@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
-import axios from 'axios';
+import api from '../lib/api';
 import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity } from 'lucide-react';
 
 const ReminderConfiguration = () => {
@@ -105,9 +105,7 @@ const ReminderConfiguration = () => {
     const fetchAcademicYears = async () => {
         setIsFetchingCalendar(true);
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/academic-calendar/academic-years`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/academic-calendar/academic-years`);
             setAcademicYears(res.data);
         } catch (error) {
             console.error(error);
@@ -118,9 +116,7 @@ const ReminderConfiguration = () => {
 
     const fetchTemplates = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/templates`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/reminders/templates`);
             setTemplates(res.data);
         } catch (error) {
             console.error(error);
@@ -129,9 +125,7 @@ const ReminderConfiguration = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/students/metadata`);
             const meta = response.data.hierarchy || response.data;
             const batchList = response.data.batches || [];
             setMetadata(meta);
@@ -149,12 +143,10 @@ const ReminderConfiguration = () => {
 
         setIsSaving(true);
         try {
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/reminders/templates`, {
+            await api.post(`/reminders/templates`, {
                 _id: editingTemplate?._id,
                 type: activeTab,
                 ...formData
-            }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             fetchTemplates();
             resetForm();
@@ -169,9 +161,7 @@ const ReminderConfiguration = () => {
     const handleDelete = async (id) => {
         if (!window.confirm("Are you sure?")) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/templates/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/reminders/templates/${id}`);
             fetchTemplates();
         } catch (error) {
             console.error(error);
@@ -221,9 +211,8 @@ const ReminderConfiguration = () => {
         if (!filters.college) return alert("Please select a college at least.");
         setIsFetching(true);
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`, { 
+            const res = await api.get(`/students`, { 
                 params: filters,
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             setStudents(res.data);
             setSelectedStudents([]); // Reset selection
@@ -292,15 +281,13 @@ const ReminderConfiguration = () => {
 
         setIsSending(true);
         try {
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/reminders/send`, {
+            await api.post(`/reminders/send`, {
                 templateId: sendTemplateId,
                 recipients: recipients.map(r => ({
                     admission_number: r.admission_number,
                     email: r.student_email,
                     phone: r.student_mobile
                 }))
-            }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             alert('Reminders Sent Successfully!');
             setSelectedStudents([]);
@@ -316,9 +303,7 @@ const ReminderConfiguration = () => {
     // --- TIMELY HANDLERS ---
     const fetchConfigs = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/config`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/reminders/config`);
             setConfigs(res.data);
         } catch (error) {
             console.error('Failed to fetch configs', error);
@@ -347,15 +332,11 @@ const ReminderConfiguration = () => {
             };
 
             if (editingConfigId) {
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/reminders/config/${editingConfigId}`, payload, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.put(`/reminders/config/${editingConfigId}`, payload);
                 alert('Rule Updated Successfully!');
                 setEditingConfigId(null);
             } else {
-                await axios.post(`${import.meta.env.VITE_API_URL}/api/reminders/config`, payload, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.post(`/reminders/config`, payload);
                 alert('Rule Saved Successfully!');
             }
 
@@ -388,9 +369,7 @@ const ReminderConfiguration = () => {
     const handleDeleteConfig = async (id) => {
         if (!window.confirm("Delete this rule?")) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/reminders/config/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/reminders/config/${id}`);
             fetchConfigs();
         } catch (error) {
             console.error("Failed to delete", error);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import Sidebar from './Sidebar';
 
 const Students = () => {
@@ -25,9 +25,7 @@ const Students = () => {
             const isSuperAdmin = user?.role === 'superadmin';
             const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
 
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students${collegeParam}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/students${collegeParam}`);
             setStudents(response.data);
             setLoading(false);
         } catch (err) {

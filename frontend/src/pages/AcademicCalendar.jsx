@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
-import axios from 'axios';
+import api from '../lib/api';
 import { Calendar, Loader2, Activity, Plus, Pencil, Trash2, X, AlertCircle } from 'lucide-react';
 
 const AcademicCalendar = () => {
@@ -64,9 +64,7 @@ const AcademicCalendar = () => {
     const fetchAcademicYears = async () => {
         setIsFetchingCalendar(true);
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/academic-calendar/academic-years`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/academic-calendar/academic-years`);
             setAcademicYears(res.data);
         } catch (error) {
             console.error(error);
@@ -77,9 +75,7 @@ const AcademicCalendar = () => {
 
     const fetchMetadata = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/academic-calendar/metadata`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/academic-calendar/metadata`);
             setMetadata(res.data);
         } catch (error) {
             console.error('Error fetching metadata:', error);
@@ -127,13 +123,11 @@ const AcademicCalendar = () => {
         setError('');
         try {
             const url = editingId 
-                ? `${import.meta.env.VITE_API_URL}/api/academic-calendar/academic-years/${editingId}`
-                : `${import.meta.env.VITE_API_URL}/api/academic-calendar/academic-years`;
+                ? `/academic-calendar/academic-years/${editingId}`
+                : `/academic-calendar/academic-years`;
             const method = editingId ? 'put' : 'post';
 
-            await axios[method](url, formData, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api[method](url, formData);
 
             setIsModalOpen(false);
             fetchAcademicYears();
@@ -148,9 +142,7 @@ const AcademicCalendar = () => {
         if (!window.confirm('Are you sure you want to delete this entry?')) return;
 
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/academic-calendar/academic-years/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/academic-calendar/academic-years/${id}`);
             fetchAcademicYears();
         } catch (err) {
             alert('Error deleting entry.');

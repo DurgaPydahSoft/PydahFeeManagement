@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import Sidebar from './Sidebar';
 
 const Permissions = () => {
@@ -18,9 +18,7 @@ const Permissions = () => {
             if (searchTerm.length >= 3) {
                 setIsSearching(true);
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    });
+                    const res = await api.get(`/students/search?q=${searchTerm}`);
                     setSearchResults(res.data);
                 } catch (error) { console.error(error); }
                 setIsSearching(false);
@@ -44,9 +42,7 @@ const Permissions = () => {
 
     const fetchPermissions = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/permissions`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/permissions`);
             setPermissions(res.data);
         } catch (error) { console.error(error); }
     };
@@ -73,9 +69,7 @@ const Permissions = () => {
 
         setLoading(true);
         try {
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/permissions`, form, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.post(`/permissions`, form);
             alert('Permission Granted Successfully');
             setForm({ studentId: '', grantedBy: 'Principal', remarks: '', validUpto: '' });
             setFetchedName('');

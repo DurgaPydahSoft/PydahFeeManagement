@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import Sidebar from './Sidebar';
 
 const UserManagement = () => {
@@ -49,9 +49,7 @@ const UserManagement = () => {
         if (query.length > 0) { // Changed from > 2 to > 0 to search on every char
             setSearchLoading(true);
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/employees/search?name=${query}`, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const res = await api.get(`/employees/search?name=${query}`);
                 setSearchResults(res.data);
             } catch (error) {
                 console.error("Search failed", error);
@@ -92,9 +90,7 @@ const UserManagement = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/students/metadata`);
             // response.data = { hierarchy: { 'College': ... }, batches: [...] }
             if (response.data && response.data.hierarchy) {
                 setColleges(Object.keys(response.data.hierarchy));
@@ -104,9 +100,7 @@ const UserManagement = () => {
 
     const fetchUsers = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/users`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/users`);
             setUsers(res.data);
             setLoading(false);
         } catch (error) {
@@ -160,16 +154,12 @@ const UserManagement = () => {
         setIsSubmitting(true);
         try {
             if (editingUserId) {
-                const res = await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${editingUserId}`, formData, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const res = await api.put(`/users/${editingUserId}`, formData);
                 setUsers(users.map(u => u._id === editingUserId ? res.data : u));
                 setMessage('User updated successfully!');
                 setEditingUserId(null);
             } else {
-                const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/users`, formData, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const res = await api.post(`/users`, formData);
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
@@ -204,9 +194,7 @@ const UserManagement = () => {
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this user?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/users/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/users/${id}`);
             setUsers(users.filter(u => u._id !== id));
             if (editingUserId === id) handleCancelEdit();
         } catch (error) {
@@ -233,9 +221,7 @@ const UserManagement = () => {
     const handleSavePassword = async (e) => {
         e.preventDefault();
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/users/${resetModal.user._id}`, { password: resetModal.newPassword }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.put(`/users/${resetModal.user._id}`, { password: resetModal.newPassword });
             alert('Password updated successfully!');
             closeResetModal();
         } catch (error) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useReactToPrint } from 'react-to-print';
@@ -121,9 +121,7 @@ const ConcessionManagement = () => {
                 if (!reportFilters[key] && key !== 'status') params.delete(key);
             });
 
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions?${params.toString()}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/concessions?${params.toString()}`);
             setReportData(res.data);
         } catch (e) { console.error(e); }
         setIsReportLoading(false);
@@ -135,9 +133,7 @@ const ConcessionManagement = () => {
             if (activeTab === 'request' && searchTerm.length >= 3) {
                 setIsSearching(true);
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/search?q=${searchTerm}`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    });
+                    const res = await api.get(`/students/search?q=${searchTerm}`);
                     setSearchResults(res.data);
                 } catch (error) { console.error(error); }
                 setIsSearching(false);
@@ -176,9 +172,7 @@ const ConcessionManagement = () => {
 
     const fetchMetadata = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/students/metadata`);
             setMetadata(res.data);
             setCollegeList(Object.keys(res.data.hierarchy || {}));
             setBatchList(res.data.batches || []);
@@ -201,12 +195,10 @@ const ConcessionManagement = () => {
 
         setEditLoading(true);
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/concessions/modify-approved/${editingRequest._id}`, {
+            await api.put(`/concessions/modify-approved/${editingRequest._id}`, {
                 amount: Number(editAmount),
                 reason: editReason,
                 concessionGivenBy: editConcessionGivenBy
-            }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
             
             setIsEditModalOpen(false);
@@ -230,9 +222,7 @@ const ConcessionManagement = () => {
             if (formData.branch) params.append('branch', formData.branch);
             if (formData.batch) params.append('batch', formData.batch);
 
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/students?${params.toString()}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/students?${params.toString()}`);
             setFilteredStudents(res.data);
             // Optionally clear existing selections if filters majorly change, 
             // but user might want to select from different filters sequentially.
@@ -281,9 +271,7 @@ const ConcessionManagement = () => {
 
     const fetchFeeHeads = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/fee-heads`);
             setFeeHeads(res.data);
         } catch (e) { console.error(e); }
     };
@@ -302,9 +290,7 @@ const ConcessionManagement = () => {
                 if (!filters[key] && key !== 'status') params.delete(key);
             });
 
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concessions?${params.toString()}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/concessions?${params.toString()}`);
 
             // Group requests by voucherId for bulk display
             const grouped = [];
@@ -348,9 +334,7 @@ const ConcessionManagement = () => {
     // Approver CRUD
     const fetchApprovers = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/concession-approvers/all`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/concession-approvers/all`);
             setApprovers(res.data);
         } catch (e) { console.error(e); }
     };
@@ -360,9 +344,7 @@ const ConcessionManagement = () => {
         if (!newApprover.name || !newApprover.designation) return alert('Please fill all fields');
         setIsApproverLoading(true);
         try {
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/concession-approvers`, newApprover, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.post(`/concession-approvers`, newApprover);
             setNewApprover({ name: '', designation: '' });
             fetchApprovers();
         } catch (e) { alert('Failed to add'); }
@@ -371,9 +353,7 @@ const ConcessionManagement = () => {
 
     const toggleApprover = async (id) => {
         try {
-            await axios.put(`${import.meta.env.VITE_API_URL}/api/concession-approvers/${id}/toggle`, {}, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.put(`/concession-approvers/${id}/toggle`);
             fetchApprovers();
         } catch (e) { alert('Failed to toggle'); }
     };
@@ -381,9 +361,7 @@ const ConcessionManagement = () => {
     const deleteApprover = async (id) => {
         if (!window.confirm('Are you sure?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/concession-approvers/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/concession-approvers/${id}`);
             fetchApprovers();
         } catch (e) { alert('Failed to delete'); }
     };
@@ -422,12 +400,7 @@ const ConcessionManagement = () => {
                 formDataObjs.append('image', imageFile);
             }
 
-            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/concessions`, formDataObjs, {
-                headers: {
-                    Authorization: `Bearer ${localStorage.getItem('token')}`,
-                    'Content-Type': 'multipart/form-data'
-                }
-            });
+            const response = await api.post(`/concessions`, formDataObjs);
 
             const createdVoucherId = response.data.data?.[0]?.voucherId || 'N/A';
             alert(`Concession Request Submitted Successfully! Voucher ID: ${createdVoucherId}`);
@@ -471,11 +444,9 @@ const ConcessionManagement = () => {
                 // MODIFICATION logic for already approved requests
                 const promises = selectedRequest.requests.map(r => {
                     const newAmount = selectedRequest.isBulk ? bulkAmounts[r._id] : modalAmount;
-                    return axios.put(`${import.meta.env.VITE_API_URL}/api/concessions/modify-approved/${r._id}`, {
+                    return api.put(`/concessions/modify-approved/${r._id}`, {
                         amount: Number(newAmount),
                         reason: r.reason // Keep existing reason or you could add a way to edit it
-                    }, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                     });
                 });
                 await Promise.all(promises);
@@ -486,12 +457,10 @@ const ConcessionManagement = () => {
                     approvedAmount: action === 'APPROVE' ? bulkAmounts[r._id] : r.amount
                 }));
 
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/concessions/bulk-process`, {
+                await api.put(`/concessions/bulk-process`, {
                     requests: requestsPayload,
                     action,
                     rejectionReason
-                }, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 });
             } else {
                 // Single Process (Regular Approval)
@@ -502,9 +471,7 @@ const ConcessionManagement = () => {
                     payload.rejectionReason = rejectionReason;
                 }
 
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/concessions/${selectedRequest.requests[0]._id}/process`, payload, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.put(`/concessions/${selectedRequest.requests[0]._id}/process`, payload);
             }
 
             closeModal();

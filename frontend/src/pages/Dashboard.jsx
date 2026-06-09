@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import axios from 'axios';
+import api from '../lib/api';
 import {
     Users,
     TrendingUp,
@@ -32,11 +32,7 @@ const Dashboard = () => {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reports/dashboard-stats`, {
-                    headers: {
-                        Authorization: `Bearer ${localStorage.getItem('token')}`
-                    }
-                });
+                const res = await api.get(`/reports/dashboard-stats`);
                 setStats(res.data);
             } catch (error) {
                 console.error("Error fetching dashboard stats", error);

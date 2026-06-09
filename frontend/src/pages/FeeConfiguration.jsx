@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 import { Pencil, Trash2, Send, Calendar, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import Sidebar from './Sidebar';
 
@@ -96,9 +96,7 @@ const FeeConfiguration = () => {
 
     const fetchCalendarData = async () => {
         try {
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/reminders/academic-years`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const res = await api.get(`/reminders/academic-years`);
             setCalendarData(res.data);
         } catch (error) {
             console.error('Error fetching academic years', error);
@@ -108,9 +106,7 @@ const FeeConfiguration = () => {
 
     const fetchMetadata = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/students/metadata`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/students/metadata`);
             setMetadata(response.data.hierarchy || response.data);
             if (response.data.batches) setBatches(response.data.batches);
             if (response.data.categories) setCategories(response.data.categories);
@@ -120,18 +116,14 @@ const FeeConfiguration = () => {
 
     const fetchFeeHeads = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-heads`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/fee-heads`);
             setFeeHeads(response.data);
         } catch (error) { console.error(error); }
     };
 
     const fetchStructures = async () => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/fee-structures`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            const response = await api.get(`/fee-structures`);
             setStructures(response.data);
         } catch (error) { console.error(error); }
     };
@@ -142,15 +134,11 @@ const FeeConfiguration = () => {
         setMessage('');
         try {
             if (editHeadId) {
-                const response = await axios.put(`${import.meta.env.VITE_API_URL}/api/fee-heads/${editHeadId}`, headForm, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const response = await api.put(`/fee-heads/${editHeadId}`, headForm);
                 setFeeHeads(feeHeads.map(h => h._id === editHeadId ? response.data : h));
                 setMessage('Fee Head updated successfully!');
             } else {
-                const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-heads`, headForm, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                const response = await api.post(`/fee-heads`, headForm);
                 setFeeHeads([response.data, ...feeHeads]);
                 setMessage('Fee Head added successfully!');
             }
@@ -168,9 +156,7 @@ const FeeConfiguration = () => {
     const deleteHead = async (id) => {
         if (!window.confirm('Delete this Fee Head?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/fee-heads/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/fee-heads/${id}`);
             setFeeHeads(feeHeads.filter(h => h._id !== id));
         } catch (error) { alert('Failed to delete'); }
     };
@@ -252,9 +238,7 @@ const FeeConfiguration = () => {
         try {
             if (editingId) {
                 // Update existing
-                await axios.put(`${import.meta.env.VITE_API_URL}/api/fee-structures/${editingId}`, structForm, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.put(`/fee-structures/${editingId}`, structForm);
             } else {
                 // Determine Years to Process from Metadata
                 const selectedMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
@@ -272,7 +256,7 @@ const FeeConfiguration = () => {
                                 amount: t.a
                             })) : [];
 
-                            requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, {
+                            requests.push(api.post(`/fee-structures`, {
                                 ...structForm,
                                 studentYear: y,
                                 semester: null,
@@ -281,8 +265,6 @@ const FeeConfiguration = () => {
                                 categories: structForm.categories,
                                 isScholarshipApplicable: structForm.isScholarshipApplicable,
                                 terms: termsData
-                            }, {
-                                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                             }));
                         }
                     } else {
@@ -297,7 +279,7 @@ const FeeConfiguration = () => {
                                     amount: t.a
                                 })) : [];
 
-                                requests.push(axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures`, {
+                                requests.push(api.post(`/fee-structures`, {
                                     ...structForm,
                                     studentYear: y,
                                     semester: sIdx + 1,
@@ -306,8 +288,6 @@ const FeeConfiguration = () => {
                                     categories: structForm.categories,
                                     isScholarshipApplicable: structForm.isScholarshipApplicable,
                                     terms: termsData
-                                }, {
-                                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                                 }));
                             }
                         });
@@ -377,9 +357,7 @@ const FeeConfiguration = () => {
     const deleteStruct = async (id) => {
         if (!window.confirm('Delete this Fee Structure?')) return;
         try {
-            await axios.delete(`${import.meta.env.VITE_API_URL}/api/fee-structures/${id}`, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.delete(`/fee-structures/${id}`);
             setStructures(structures.filter(s => s._id !== id));
         } catch (error) { alert('Failed to delete structure'); }
     };
@@ -404,9 +382,8 @@ const FeeConfiguration = () => {
         setLoadingStudents(true);
         try {
             // 1. Fetch Students (Filtered by Backend)
-            const studentsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/students`, {
+            const studentsRes = await api.get(`/students`, {
                 params: { college, course, branch, batch },
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
             });
 
             // Filter: Robust Match Category (stud_type)
@@ -419,10 +396,8 @@ const FeeConfiguration = () => {
             // 2. Fetch Existing Fee Records (Real Data)
             let existingFees = [];
             try {
-                const feeRes = await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/batch-fees`, {
+                const feeRes = await api.post(`/fee-structures/batch-fees`, {
                     college, course, branch, batch, feeHeadId, category: appContext.category
-                }, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 });
                 existingFees = feeRes.data;
             } catch (e) { console.error("Error fetching fee records", e); }
@@ -504,11 +479,9 @@ const FeeConfiguration = () => {
 
             // Execute all apply requests
             await Promise.all(idsToProcess.map(id =>
-                axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/apply-batch`, {
+                api.post(`/fee-structures/apply-batch`, {
                     structureId: id,
                     batch: row.batch
-                }, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 })
             ));
 
@@ -552,9 +525,7 @@ const FeeConfiguration = () => {
                 });
             });
 
-            await axios.post(`${import.meta.env.VITE_API_URL}/api/fee-structures/save-student-fees`, { fees }, {
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
+            await api.post(`/fee-structures/save-student-fees`, { fees });
             await fetchStudentsForApplicability(); // Refresh table and status
             setMessage("Student List fees saved successfully!");
             setTimeout(() => setMessage(''), 3000);
@@ -968,9 +939,7 @@ const FeeConfiguration = () => {
                                                         onClick={async () => {
                                                             if (!window.confirm(`Delete ALL definitions for ${row.course}?`)) return;
                                                             try {
-                                                                await Promise.all(row.allIds.map(id => axios.delete(`${import.meta.env.VITE_API_URL}/api/fee-structures/${id}`, {
-                                                                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                                                                })));
+                                                                await Promise.all(row.allIds.map(id => api.delete(`/fee-structures/${id}`)));
                                                                 fetchStructures();
                                                             } catch (e) { alert('Delete failed'); }
                                                         }}
@@ -1399,11 +1368,9 @@ const FeeConfiguration = () => {
                                             setIsSavingLateFee(true);
                                             try {
                                                 // We update the FeeStructure document
-                                                await axios.put(`${import.meta.env.VITE_API_URL}/api/fee-structures/${lateFeeForm._id}`, {
+                                                await api.put(`/fee-structures/${lateFeeForm._id}`, {
                                                     ...structures.find(s => s._id === lateFeeForm._id),
                                                     terms: lateFeeForm.termMappings
-                                                }, {
-                                                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                                                 });
                                                 setMessage("Late Fee Configuration Updated Successfully!");
                                                 fetchStructures();
