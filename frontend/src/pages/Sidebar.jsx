@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
+import { getStoredUser } from '../lib/auth';
 
 const Sidebar = () => {
     const location = useLocation();
@@ -23,9 +24,9 @@ const Sidebar = () => {
         Calendar: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
     };
 
-    const user = JSON.parse(localStorage.getItem('user')) || {};
+    const user = getStoredUser() || {};
     const role = user.role;
-    const permissions = user.permissions || [];
+    const permissions = Array.isArray(user.permissions) ? user.permissions : [];
 
     // Define all available menu items grouped by section
     const allMenuItems = [
@@ -61,19 +62,20 @@ const Sidebar = () => {
     // Filter Logic:
     // 1. Super Admin sees everything.
     // 2. Others see only what's in their permissions array.
-    const visibleMenuItems = role === 'superadmin'
+    const visibleMenuItems = role === 'superadmin' || role === 'admin'
         ? allMenuItems
         : allMenuItems.filter(item =>
             permissions.includes(item.path) ||
             item.path === '/user-profile'
         );
 
-    // Group items by section
+    // Group items by section (must pass {} — without it, reduce uses the first menu item as acc)
     const groupedItems = visibleMenuItems.reduce((acc, item) => {
-        if (!acc[item.section]) acc[item.section] = [];
-        acc[item.section].push(item);
+        const section = item?.section || 'Other';
+        if (!Array.isArray(acc[section])) acc[section] = [];
+        acc[section].push(item);
         return acc;
-    });
+    }, {});
 
     return (
         <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
@@ -110,7 +112,7 @@ const Sidebar = () => {
                             sGroupIdx > 0 && <div className="h-0 border-b border-gray-100 my-2 mx-4"></div>
                         )}
                         <div className="space-y-1">
-                            {items.map((item, index) => (
+                            {(Array.isArray(items) ? items : []).map((item, index) => (
                                 <Link
                                     key={index}
                                     to={item.path}
@@ -159,7 +161,7 @@ const Sidebar = () => {
                                 if (result.isConfirmed) {
                                     const isSSO = localStorage.getItem('isSSO') === 'true';
                                     localStorage.removeItem('user');
-                                    localStorage.removeItem('token'); // [NEW] Clear token separately
+                                    localStorage.removeItem('token');
                                     localStorage.removeItem('isSSO');
 
                                     if (isSSO) {

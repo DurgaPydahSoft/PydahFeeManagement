@@ -136,11 +136,16 @@ const authorize = (req, res, next) => {
     return res.status(401).json({ message: 'Not authorized' });
   }
 
-  if (user.role === 'superadmin') {
+  if (user.role === 'superadmin' || user.role === 'admin') {
     return next();
   }
 
   const path = req.originalUrl.split('?')[0];
+
+  // Dashboard overview is the default landing page for all authenticated staff
+  if (path.startsWith('/api/reports/dashboard-stats')) {
+    return next();
+  }
 
   if (path.startsWith('/api/transactions')) {
     if (checkTransactionAccess(req, user)) {

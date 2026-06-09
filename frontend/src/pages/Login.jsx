@@ -1,17 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import api from '../lib/api';
-import { User, Lock, ArrowRight, Loader } from 'lucide-react';
-
-const getPostLoginRoute = (user) => {
-    if (!user) return null;
-    if (user.role === 'superadmin') return '/dashboard';
-
-    const routePermissions = (user.permissions || []).filter((p) => p.startsWith('/'));
-    if (routePermissions.length === 0) return null;
-    if (routePermissions.includes('/dashboard')) return '/dashboard';
-    return routePermissions[0];
-};
+import { getPostLoginRoute, persistAuthSession, isAuthenticated, getStoredUser } from '../lib/auth';
+import { User, Lock, Loader } from 'lucide-react';
 
 const Login = () => {
     const [formData, setFormData] = useState({
@@ -25,6 +16,16 @@ const Login = () => {
 
     const { username, password } = formData;
 
+    // Already logged in — skip login screen (unless handling SSO token in URL)
+    useEffect(() => {
+        const ssoToken = new URLSearchParams(location.search).get('token');
+        if (ssoToken) return;
+
+        if (isAuthenticated()) {
+            navigate(getPostLoginRoute(getStoredUser()), { replace: true });
+        }
+    }, [location.search, navigate]);
+
     useEffect(() => {
         const queryParams = new URLSearchParams(location.search);
         const ssoToken = queryParams.get('token');
@@ -32,7 +33,17 @@ const Login = () => {
         if (ssoToken) {
             handleSSOLogin(ssoToken);
         }
-    }, [location]);
+    }, [location.search]);
+
+    const completeLogin = (user, { isSSO = false } = {}) => {
+        if (!persistAuthSession(user, { isSSO })) {
+            setError('Login succeeded but session could not be saved. Please try again.');
+            setLoading(false);
+            return;
+        }
+        setLoading(false);
+        navigate(getPostLoginRoute(user), { replace: true });
+    };
 
     const handleSSOLogin = async (token) => {
         setLoading(true);
@@ -42,22 +53,11 @@ const Login = () => {
                 encryptedToken: token
             });
             if (response.data) {
-                const user = response.data;
-                const destination = getPostLoginRoute(user);
-                if (!destination) {
-                    setError('You are not authorized for Fee Management. Contact your administrator.');
-                    setLoading(false);
-                    return;
-                }
-                localStorage.setItem('user', JSON.stringify(user));
-                localStorage.setItem('token', user.token);
-                localStorage.setItem('isSSO', 'true');
-                navigate(destination);
+                completeLogin(response.data, { isSSO: true });
             }
         } catch (err) {
             setError(err.response?.data?.message || 'SSO Login failed');
             setLoading(false);
-            // Clean up URL if token is invalid
             navigate('/login', { replace: true });
         }
     };
@@ -76,17 +76,7 @@ const Login = () => {
         try {
             const response = await api.post(`/auth/login`, formData);
             if (response.data) {
-                const user = response.data;
-                const destination = getPostLoginRoute(user);
-                if (!destination) {
-                    setError('You are not authorized for Fee Management. Contact your administrator.');
-                    setLoading(false);
-                    return;
-                }
-                localStorage.setItem('user', JSON.stringify(user));
-                localStorage.setItem('token', user.token);
-                localStorage.removeItem('isSSO');
-                navigate(destination);
+                completeLogin(response.data);
             }
         } catch (err) {
             setError(err.response?.data?.message || 'Login failed');

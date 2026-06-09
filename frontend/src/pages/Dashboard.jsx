@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
+import { getStoredUser, isAuthenticated } from '../lib/auth';
 import {
     Users,
     TrendingUp,
@@ -21,11 +22,10 @@ const Dashboard = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const loggedInUser = localStorage.getItem('user');
-        if (loggedInUser) {
-            setUser(JSON.parse(loggedInUser));
+        if (isAuthenticated()) {
+            setUser(getStoredUser());
         } else {
-            navigate('/login');
+            navigate('/login', { replace: true });
         }
     }, [navigate]);
 
