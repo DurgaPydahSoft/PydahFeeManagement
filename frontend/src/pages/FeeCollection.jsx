@@ -4,6 +4,8 @@ import { useReactToPrint } from 'react-to-print';
 import Sidebar from './Sidebar';
 import ReceiptTemplate from '../components/ReceiptTemplate';
 
+const fmtAmount = (value) => Number(value ?? 0).toLocaleString();
+
 const FeeCollection = () => {
     // --- SEARCH & DATA STATE ---
     const [allStudents, setAllStudents] = useState([]); // Store ALL students
@@ -684,19 +686,19 @@ const FeeCollection = () => {
         return Math.max(0, ...displayedFees.map(f => f.terms?.length || 0));
     }, [displayedFees]);
 
-    const totalDueAmount = displayedFees.reduce((acc, curr) => acc + curr.dueAmount, 0);
-    const globalTotalDue = feeDetails.reduce((acc, curr) => acc + curr.dueAmount, 0);
+    const totalDueAmount = displayedFees.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
+    const globalTotalDue = feeDetails.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
 
     // Calculate Scholarship Amounts (Global & Current View)
     // Criteria: isScholarshipApplicable AND (studentScholarStatus is 'eligible', 'yes', or 'true')
     const isScholarshipEligible = (f) => f.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(f.studentScholarStatus || '').toLowerCase());
 
     const globalScholarshipAmount = feeDetails.reduce((acc, curr) => {
-        return isScholarshipEligible(curr) ? acc + curr.dueAmount : acc;
+        return isScholarshipEligible(curr) ? acc + Number(curr.dueAmount || 0) : acc;
     }, 0);
 
     const currentViewScholarshipAmount = displayedFees.reduce((acc, curr) => {
-        return isScholarshipEligible(curr) ? acc + curr.dueAmount : acc;
+        return isScholarshipEligible(curr) ? acc + Number(curr.dueAmount || 0) : acc;
     }, 0);
 
     // Auto-focus on mount
@@ -922,10 +924,10 @@ const FeeCollection = () => {
                                         {/* Status / Balance - Reverted to simpler original style for right-alignment */}
                                         <div className="flex flex-col gap-1 text-right shrink-0">
                                             <div className="text-[10px] text-blue-200 uppercase font-bold">Total Due</div>
-                                            <div className="text-xl font-bold text-white leading-none">{globalTotalDue.toLocaleString()}</div>
+                                            <div className="text-xl font-bold text-white leading-none">{fmtAmount(globalTotalDue)}</div>
                                             {globalScholarshipAmount > 0 && (
                                                 <div className="text-[10px] text-yellow-300 font-medium mt-1" title="Amount covered by Scholarship">
-                                                    (Scholarship: {globalScholarshipAmount.toLocaleString()})
+                                                    (Scholarship: {fmtAmount(globalScholarshipAmount)})
                                                 </div>
                                             )}
                                         </div>
@@ -945,9 +947,9 @@ const FeeCollection = () => {
                                         feeDetails.forEach(curr => {
                                             const y = curr.studentYear;
                                             if (!yearWiseStats[y]) yearWiseStats[y] = { total: 0, paid: 0, due: 0, year: y };
-                                            yearWiseStats[y].total += curr.totalAmount;
-                                            yearWiseStats[y].paid += curr.paidAmount;
-                                            yearWiseStats[y].due += curr.dueAmount;
+                                            yearWiseStats[y].total += Number(curr.totalAmount || 0);
+                                            yearWiseStats[y].paid += Number(curr.paidAmount || 0);
+                                            yearWiseStats[y].due += Number(curr.dueAmount || 0);
                                         });
                                         const sortedYearStats = Object.values(yearWiseStats).sort((a, b) => Number(a.year) - Number(b.year));
 
@@ -974,11 +976,11 @@ const FeeCollection = () => {
                                                 <div className="space-y-1 relative z-10">
                                                     <div className="flex justify-between items-end">
                                                         <span className="text-[10px] font-semibold text-gray-400 uppercase">Balance</span>
-                                                        <span className={`text-lg font-extrabold font-mono leading-none ${stat.due > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stat.due.toLocaleString()}</span>
+                                                        <span className={`text-lg font-extrabold font-mono leading-none ${stat.due > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmtAmount(stat.due)}</span>
                                                     </div>
                                                     <div className="flex justify-between items-center text-[10px] text-gray-400 pt-1">
-                                                        <span>Total: {stat.total.toLocaleString()}</span>
-                                                        <span>Paid: <span className="text-gray-600 font-medium">{stat.paid.toLocaleString()}</span></span>
+                                                        <span>Total: {fmtAmount(stat.total)}</span>
+                                                        <span>Paid: <span className="text-gray-600 font-medium">{fmtAmount(stat.paid)}</span></span>
                                                     </div>
 
 
@@ -1065,7 +1067,7 @@ const FeeCollection = () => {
                                                                             </div>
                                                                         )}
                                                                     </td>
-                                                                    <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">{fee.totalAmount.toLocaleString()}</td>
+                                                                    <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">{fmtAmount(fee.totalAmount)}</td>
 
                                                                     {/* Dynamic Term Columns */}
                                                                     {(() => {
@@ -1074,14 +1076,14 @@ const FeeCollection = () => {
                                                                         for (let i = 0; i < maxTerms; i++) {
                                                                             const term = fee.terms?.[i];
                                                                             if (term) {
-                                                                                const termTarget = Math.round((fee.totalAmount * term.percentage) / 100);
+                                                                                const termTarget = Math.round((Number(fee.totalAmount || 0) * term.percentage) / 100);
                                                                                 const termPaid = Math.min(remainingPaid, termTarget);
                                                                                 const termBalance = termTarget - termPaid;
                                                                                 remainingPaid = Math.max(0, remainingPaid - termPaid);
 
                                                                                 termCells.push(
                                                                                     <td key={i} className={`py-2 px-4 text-xs text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                                                                                        {termBalance > 0 ? `${termBalance.toLocaleString()}` : '—'}
+                                                                                        {termBalance > 0 ? fmtAmount(termBalance) : '—'}
                                                                                     </td>
                                                                                 );
                                                                             } else {
@@ -1091,9 +1093,9 @@ const FeeCollection = () => {
                                                                         return termCells;
                                                                     })()}
 
-                                                                    <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">{fee.paidAmount.toLocaleString()}</td>
-                                                                    <td className="py-2 px-4 text-sm text-right text-purple-600 font-mono font-medium">{fee.concessionAmount?.toLocaleString() || '0'}</td>
-                                                                    <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">{fee.dueAmount.toLocaleString()}</td>
+                                                                    <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">{fmtAmount(fee.paidAmount)}</td>
+                                                                    <td className="py-2 px-4 text-sm text-right text-purple-600 font-mono font-medium">{fmtAmount(fee.concessionAmount)}</td>
+                                                                    <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">{fmtAmount(fee.dueAmount)}</td>
                                                                     <td className="py-2 px-4 text-center">
                                                                         {isFullyPaid ? (
                                                                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
@@ -1122,13 +1124,13 @@ const FeeCollection = () => {
                                                                     <div className="flex flex-wrap gap-2">
                                                                         {(() => {
                                                                             const yearBreakdown = displayedFees.reduce((acc, curr) => {
-                                                                                if (curr.dueAmount > 0) {
+                                                                                if (Number(curr.dueAmount || 0) > 0) {
                                                                                     const y = curr.studentYear;
                                                                                     if (!acc[y]) acc[y] = 0;
-                                                                                    acc[y] += curr.dueAmount;
+                                                                                    acc[y] += Number(curr.dueAmount || 0);
                                                                                 }
                                                                                 return acc;
-                                                                            });
+                                                                            }, {});
 
                                                                             const sortedYears = Object.keys(yearBreakdown).sort((a, b) => Number(a) - Number(b));
 
@@ -1137,7 +1139,7 @@ const FeeCollection = () => {
                                                                             return sortedYears.map(yr => (
                                                                                 <div key={yr} className="flex items-center text-xs bg-white border border-gray-200 px-2 py-0.5 rounded-full shadow-sm">
                                                                                     <span className="text-gray-500 font-bold mr-1">Yr {yr}:</span>
-                                                                                    <span className="font-mono font-medium text-red-600">{yearBreakdown[yr].toLocaleString()}</span>
+                                                                                    <span className="font-mono font-medium text-red-600">{fmtAmount(yearBreakdown[yr])}</span>
                                                                                 </div>
                                                                             ));
                                                                         })()}
@@ -1150,10 +1152,10 @@ const FeeCollection = () => {
                                                                 </div>
                                                             </td>
                                                             <td className="py-2.5 px-4 text-right">
-                                                                <div className="text-base font-extrabold text-red-600 font-mono">{totalDueAmount.toLocaleString()}</div>
+                                                                <div className="text-base font-extrabold text-red-600 font-mono">{fmtAmount(totalDueAmount)}</div>
                                                                 {currentViewScholarshipAmount > 0 && (
                                                                     <div className="text-[10px] text-yellow-600 font-bold mt-0.5">
-                                                                        (Sch: {currentViewScholarshipAmount.toLocaleString()})
+                                                                        (Sch: {fmtAmount(currentViewScholarshipAmount)})
                                                                     </div>
                                                                 )}
                                                             </td>
@@ -1350,7 +1352,7 @@ const FeeCollection = () => {
                                                 {/* Total Summary */}
                                                 <div className="flex justify-between items-end py-2 border-t border-dashed border-gray-200 mt-1">
                                                     <span className="text-xs font-medium text-gray-500">Total Amount</span>
-                                                    <span className="text-2xl font-extrabold text-gray-800 tracking-tight">{totalSelectedAmount.toLocaleString()}</span>
+                                                    <span className="text-2xl font-extrabold text-gray-800 tracking-tight">{fmtAmount(totalSelectedAmount)}</span>
                                                 </div>
 
                                                 {/* PAYMENT MODE SELECTION (Only for DEBIT) */}
@@ -1459,7 +1461,7 @@ const FeeCollection = () => {
                                                                                 <option value="">-- Select Proceeding --</option>
                                                                                 {availableProceedings.map(p => (
                                                                                     <option key={p._id} value={p._id}>
-                                                                                        {p.proceedingNumber} - Rem: ₹{(p.amount - (p.totalUsed || 0)).toLocaleString()} (Total: ₹{p.amount.toLocaleString()})
+                                                                                        {p.proceedingNumber} - Rem: ₹{fmtAmount(p.amount - (p.totalUsed || 0))} (Total: ₹{fmtAmount(p.amount)})
                                                                                     </option>
                                                                                 ))}
                                                                                 {isFetchingProceedings && <option disabled>Fetching...</option>}
@@ -1581,7 +1583,7 @@ const FeeCollection = () => {
                                                                             <tr key={h._id} className="hover:bg-purple-50/30 transition-colors">
                                                                                 <td className="p-3 text-gray-500 font-medium">{new Date(h.createdAt).toLocaleDateString()}</td>
                                                                                 <td className="p-3 font-bold text-gray-800">{h.feeHead?.name || 'N/A'}</td>
-                                                                                <td className="p-3 font-extrabold text-purple-600">₹{h.amount.toLocaleString()}</td>
+                                                                                <td className="p-3 font-extrabold text-purple-600">₹{fmtAmount(h.amount)}</td>
                                                                                 <td className="p-3 text-right">
                                                                                     <div className="flex flex-col items-end">
                                                                                         <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] shadow-sm ${
@@ -1623,7 +1625,7 @@ const FeeCollection = () => {
                             <div className="p-6">
                                 <div className="text-center mb-6">
                                     <div className="text-sm text-gray-500 uppercase tracking-wider font-bold mb-1">Total Amount</div>
-                                    <div className={`text-4xl font-extrabold ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-600' : 'text-purple-600'}`}>{totalSelectedAmount.toLocaleString()}</div>
+                                    <div className={`text-4xl font-extrabold ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-600' : 'text-purple-600'}`}>{fmtAmount(totalSelectedAmount)}</div>
                                 </div>
                                 <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm">
                                     <div className="flex justify-between">
@@ -1766,7 +1768,7 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
                 {transaction.studentYear ? `Yr ${transaction.studentYear}` : '-'}
             </td>
             <td className={`py-3 px-4 text-xs font-bold text-right font-mono ${transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
-                {transaction.transactionType === 'CREDIT' ? '-' : '+'}{transaction.amount.toLocaleString()}
+                {transaction.transactionType === 'CREDIT' ? '-' : '+'}{fmtAmount(transaction.amount)}
             </td>
             <td className="py-3 px-4 text-xs text-gray-500 max-w-[150px] truncate" title={transaction.remarks}>
                 {transaction.remarks || '-'}

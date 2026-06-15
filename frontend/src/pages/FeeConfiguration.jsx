@@ -96,7 +96,7 @@ const FeeConfiguration = () => {
 
     const fetchCalendarData = async () => {
         try {
-            const res = await api.get(`/reminders/academic-years`);
+            const res = await api.get(`/academic-calendar/academic-years`);
             setCalendarData(res.data);
         } catch (error) {
             console.error('Error fetching academic years', error);
