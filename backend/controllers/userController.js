@@ -19,7 +19,7 @@ const getUsers = async (req, res) => {
 const createUser = async (req, res) => {
   // console.log('\n[USER CREATION DEBUG] -----------------------------------------');
   // console.log('[USER CREATION DEBUG] Received Payload:', req.body);
-  const { name, username, password, role, college, employeeId, permissions } = req.body;
+  const { name, username, password, role, college, colleges, courses, employeeId, permissions } = req.body;
 
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
@@ -61,7 +61,9 @@ const createUser = async (req, res) => {
       username,
       password: hashedPassword, // Will be undefined for employee-linked users
       role,
-      college,
+      college: (colleges && colleges.length > 0) ? colleges[0] : (college || ''),
+      colleges: colleges || [],
+      courses: courses || [],
       employeeId, // Link to external employee
       permissions: permissions || [] // Save permissions if provided
     });
@@ -75,6 +77,8 @@ const createUser = async (req, res) => {
         username: user.username,
         role: user.role,
         college: user.college,
+        colleges: user.colleges,
+        courses: user.courses,
         employeeId: user.employeeId,
         permissions: user.permissions
       });
@@ -125,6 +129,8 @@ const updateUserPermissions = async (req, res) => {
       username: user.username,
       role: user.role,
       college: user.college,
+      colleges: user.colleges,
+      courses: user.courses,
       permissions: user.permissions
     });
   } catch (error) {
@@ -133,7 +139,7 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const updateUser = async (req, res) => {
-  const { name, username, password, role, college, permissions } = req.body;
+  const { name, username, password, role, college, colleges, courses, permissions } = req.body;
 
   try {
     const user = await User.findById(req.params.id);
@@ -150,7 +156,17 @@ const updateUser = async (req, res) => {
     }
 
     user.role = role || user.role;
-    user.college = college === '' ? '' : (college || user.college); // Allow clearing college
+    
+    if (colleges) {
+      user.colleges = colleges;
+      user.college = colleges.length > 0 ? colleges[0] : '';
+    } else {
+      user.college = college === '' ? '' : (college || user.college); // Allow clearing college
+    }
+
+    if (courses) {
+      user.courses = courses;
+    }
 
     // Update permissions if provided
     if (permissions) {
@@ -172,6 +188,8 @@ const updateUser = async (req, res) => {
       username: updatedUser.username,
       role: updatedUser.role,
       college: updatedUser.college,
+      colleges: updatedUser.colleges,
+      courses: updatedUser.courses,
       permissions: updatedUser.permissions
     });
   } catch (error) {

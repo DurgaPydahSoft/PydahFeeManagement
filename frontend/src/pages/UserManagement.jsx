@@ -1,52 +1,57 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
+import { Edit2, Trash2, Key } from 'lucide-react';
+
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
     const [colleges, setColleges] = useState([]);
-
-    const availablePages = [
-        { name: 'Dashboard', path: '/dashboard' },
-        { name: 'Fee Configuration', path: '/fee-config' },
-        { name: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
-        { name: 'Payment Config', path: '/payment-config' },
-        { name: 'Reminder Config', path: '/reminders' },
-        { name: 'Academic Calendar', path: '/academic-calendar' },
-        { name: 'Students', path: '/students' },
-        { name: 'Fee Collection', path: '/fee-collection' },
-        { name: 'Reports & Analytics', path: '/reports' },
-        { name: 'Due Reports', path: '/due-reports' },
-        { name: 'Concessions', path: '/concessions' },
-        { name: 'Transport Config', path: '/transport-config' },
-        { name: 'Hostel Config', path: '/hostel-config' },
-        { name: 'Permissions', path: '/permissions' },
-        { name: 'User Management', path: '/user-management' },
-        { name: 'Settings', path: '/settings' },
-    ];
-
-    // Form State
+    const [hierarchy, setHierarchy] = useState({});
+    const [searchResults, setSearchResults] = useState([]);
+    const [searchLoading, setSearchLoading] = useState(false);
     const [editingUserId, setEditingUserId] = useState(null);
-    const [isSubmitting, setIsSubmitting] = useState(false); // [NEW] Loading State
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const currentUser = JSON.parse(localStorage.getItem('user')) || {};
+    const isSuperAdminUser = currentUser.role === 'superadmin';
+
     const [formData, setFormData] = useState({
         name: '',
         username: '',
         password: '',
         role: 'office_staff',
-        college: '',
-        employeeId: null, // [NEW] Link to employee
-        permissions: []
+        colleges: [],
+        courses: [],
+        permissions: [],
+        employeeId: null
     });
 
-    // Employee Search State
-    const [searchResults, setSearchResults] = useState([]);
-    const [searchLoading, setSearchLoading] = useState(false); // [NEW] Search Loading State
+    const availablePages = [
+        { name: 'Dashboard', path: '/dashboard' },
+        { name: 'Students', path: '/students' },
+        { name: 'Fee Collection', path: '/fee-collection' },
+        { name: 'Concessions', path: '/concessions' },
+        { name: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
+        { name: 'Proceedings', path: '/proceedings' },
+        { name: 'Reports & Analytics', path: '/reports' },
+        { name: 'Due Reports', path: '/due-reports' },
+        { name: 'Fee Configuration', path: '/fee-config' },
+        { name: 'Payment Config', path: '/payment-config' },
+        { name: 'Settings', path: '/settings' },
+        { name: 'Reminder Config', path: '/reminders' },
+        { name: 'Academic Calendar', path: '/academic-calendar' },
+        { name: 'Transport Config', path: '/transport-config' },
+        { name: 'Hostel Config', path: '/hostel-config' },
+        { name: 'User Management', path: '/user-management' },
+        { name: 'Permissions', path: '/permissions' }
+    ];
 
     const handleEmployeeSearch = async (e) => {
         const query = e.target.value;
-        if (query.length > 0) { // Changed from > 2 to > 0 to search on every char
+        if (query.trim().length >= 2) {
             setSearchLoading(true);
             try {
                 const res = await api.get(`/employees/search?name=${query}`);
@@ -91,9 +96,9 @@ const UserManagement = () => {
     const fetchMetadata = async () => {
         try {
             const response = await api.get(`/students/metadata`);
-            // response.data = { hierarchy: { 'College': ... }, batches: [...] }
             if (response.data && response.data.hierarchy) {
                 setColleges(Object.keys(response.data.hierarchy));
+                setHierarchy(response.data.hierarchy);
             }
         } catch (error) { console.error('Error fetching metadata', error); }
     };
@@ -114,9 +119,66 @@ const UserManagement = () => {
         setFormData({ ...formData, [name]: value });
     };
 
+    const handleCollegeToggle = (collegeName) => {
+        const currentColleges = formData.colleges || [];
+        const currentCourses = formData.courses || [];
+        let updatedColleges;
+        let updatedCourses = [...currentCourses];
+
+        if (currentColleges.includes(collegeName)) {
+            updatedColleges = currentColleges.filter(c => c !== collegeName);
+            updatedCourses = currentCourses.filter(c => !c.startsWith(`${collegeName}|`));
+        } else {
+            updatedColleges = [...currentColleges, collegeName];
+        }
+
+        setFormData({
+            ...formData,
+            colleges: updatedColleges,
+            courses: updatedCourses
+        });
+    };
+
+    const handleCourseToggle = (collegeName, courseName) => {
+        const courseKey = `${collegeName}|${courseName}`;
+        const currentCourses = formData.courses || [];
+        let updatedCourses;
+
+        if (currentCourses.includes(courseKey)) {
+            updatedCourses = currentCourses.filter(c => c !== courseKey);
+        } else {
+            updatedCourses = [...currentCourses, courseKey];
+        }
+
+        setFormData({
+            ...formData,
+            courses: updatedCourses
+        });
+    };
+
+    const handleSelectAllCourses = (collegeName) => {
+        const coursesOfCollege = Object.keys(hierarchy[collegeName] || {});
+        const currentCourses = formData.courses || [];
+        const otherCourses = currentCourses.filter(c => !c.startsWith(`${collegeName}|`));
+        const newCourses = coursesOfCollege.map(c => `${collegeName}|${c}`);
+        setFormData({
+            ...formData,
+            courses: [...otherCourses, ...newCourses]
+        });
+    };
+
+    const handleClearAllCourses = (collegeName) => {
+        const currentCourses = formData.courses || [];
+        const updatedCourses = currentCourses.filter(c => !c.startsWith(`${collegeName}|`));
+        setFormData({
+            ...formData,
+            courses: updatedCourses
+        });
+    };
+
     const prevRoleRef = useRef(formData.role);
 
-    // [NEW] Effect to handle default permissions based on role
+    // Effect to handle default permissions based on role
     useEffect(() => {
         const cashierPermissions = ['/fee-collection', 'fee_collection_pay'];
 
@@ -146,8 +208,6 @@ const UserManagement = () => {
         prevRoleRef.current = formData.role;
     }, [formData.role]);
 
-
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         setMessage('');
@@ -163,7 +223,7 @@ const UserManagement = () => {
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
-            setFormData({ name: '', username: '', password: '', role: 'office_staff', college: '', permissions: [] });
+            setFormData({ name: '', username: '', password: '', role: 'office_staff', colleges: [], courses: [], permissions: [], employeeId: null });
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
             setMessage(error.response?.data?.message || 'Error saving user');
@@ -179,6 +239,8 @@ const UserManagement = () => {
             password: '', // Don't prefill password
             role: user.role,
             college: user.college || '',
+            colleges: user.colleges || [],
+            courses: user.courses || [],
             employeeId: user.employeeId || null,
             permissions: user.permissions || []
         });
@@ -187,7 +249,7 @@ const UserManagement = () => {
     };
 
     const handleCancelEdit = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', college: '', employeeId: null, permissions: [] });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', colleges: [], courses: [], employeeId: null, permissions: [] });
         setEditingUserId(null);
     };
 
@@ -202,7 +264,7 @@ const UserManagement = () => {
         }
     };
 
-    // [NEW] Password Reset Modal State
+    // Password Reset Modal State
     const [resetModal, setResetModal] = useState({ show: false, user: null, newPassword: '' });
 
     const openResetModal = (user) => {
@@ -243,7 +305,8 @@ const UserManagement = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Create/Edit User Form */}
-                    <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 h-fit">
+                    {isSuperAdminUser && (
+                        <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 h-fit transition-all duration-300 ${editingUserId ? 'lg:col-span-2' : 'lg:col-span-1'}`}>
                         <div className="flex justify-between items-center mb-3 border-b pb-2">
                             <h2 className="font-bold text-gray-800">{editingUserId ? 'Edit User' : 'Create New User'}</h2>
                             {editingUserId && (
@@ -368,14 +431,76 @@ const UserManagement = () => {
                                     <option value="superadmin">Super Admin</option>
                                 </select>
                             </div>
+
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">College (Optional)</label>
-                                <select name="college" value={formData.college} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white">
-                                    <option value="">-- Select College --</option>
-                                    {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                                <p className="text-xs text-gray-400 mt-1">Leave empty for Super Admin</p>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">College & Course Scope</label>
+                                <div className="space-y-4 border p-3 rounded bg-gray-50 max-h-80 overflow-y-auto">
+                                    {colleges.length === 0 ? (
+                                        <p className="text-xs text-gray-500">No colleges loaded from metadata.</p>
+                                    ) : (
+                                        colleges.map(collegeName => {
+                                            const isChecked = (formData.colleges || []).includes(collegeName);
+                                            const collegeCourses = hierarchy[collegeName] ? Object.keys(hierarchy[collegeName]) : [];
+                                            return (
+                                                <div key={collegeName} className="border-b last:border-b-0 pb-3 last:pb-0">
+                                                    <label className="flex items-center space-x-2 cursor-pointer p-1 rounded hover:bg-gray-100">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={() => handleCollegeToggle(collegeName)}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-sm font-bold text-gray-800">{collegeName}</span>
+                                                    </label>
+
+                                                    {isChecked && collegeCourses.length > 0 && (
+                                                        <div className="ml-6 mt-2 p-2 bg-white rounded border border-gray-200 space-y-2">
+                                                            <div className="flex items-center justify-between border-b pb-1 mb-1">
+                                                                <span className="text-xs font-semibold text-gray-500">Courses:</span>
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleSelectAllCourses(collegeName)}
+                                                                        className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline font-bold"
+                                                                    >
+                                                                        Select All
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleClearAllCourses(collegeName)}
+                                                                        className="text-[10px] text-red-600 hover:text-red-800 hover:underline font-bold"
+                                                                    >
+                                                                        Clear
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-1.5">
+                                                                {collegeCourses.map(courseName => {
+                                                                    const courseKey = `${collegeName}|${courseName}`;
+                                                                    const isCourseChecked = (formData.courses || []).includes(courseKey);
+                                                                    return (
+                                                                        <label key={courseName} className="flex items-center space-x-1.5 cursor-pointer p-0.5 rounded hover:bg-gray-50">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isCourseChecked}
+                                                                                onChange={() => handleCourseToggle(collegeName, courseName)}
+                                                                                className="rounded text-blue-500 focus:ring-blue-400 w-3.5 h-3.5"
+                                                                            />
+                                                                            <span className="text-xs text-gray-600 font-medium">{courseName}</span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-400 mt-1">Leave empty (no colleges selected) to allow access to all colleges (e.g. Super Admin).</p>
                             </div>
+
                             {/* Permission Checkboxes */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Permissions</label>
@@ -578,9 +703,10 @@ const UserManagement = () => {
                             </button>
                         </form>
                     </div>
+                    )}
 
                     {/* User List */}
-                    <div className="lg:col-span-2 bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+                    <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-300 ${!isSuperAdminUser ? 'lg:col-span-3' : (editingUserId ? 'lg:col-span-1' : 'lg:col-span-2')}`}>
                         <h2 className="font-bold text-gray-800 mb-3">Existing Users</h2>
                         {loading ? <p>Loading...</p> : (
                             <div className="overflow-x-auto">
@@ -588,34 +714,77 @@ const UserManagement = () => {
                                     <thead className="bg-gray-50 border-b">
                                         <tr>
                                             <th className="p-3 font-semibold text-gray-600">Name</th>
-                                            <th className="p-3 font-semibold text-gray-600">Username</th>
-                                            <th className="p-3 font-semibold text-gray-600">Role</th>
-                                            <th className="p-3 font-semibold text-gray-600">College</th>
-                                            <th className="p-3 font-semibold text-right">Action</th>
+                                            {!editingUserId && (
+                                                <>
+                                                    <th className="p-3 font-semibold text-gray-600">Username</th>
+                                                    <th className="p-3 font-semibold text-gray-600">Role</th>
+                                                    <th className="p-3 font-semibold text-gray-600">College Scope</th>
+                                                </>
+                                            )}
+                                            {isSuperAdminUser && <th className="p-3 font-semibold text-right">Action</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {users.map(user => (
                                             <tr key={user._id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-medium text-gray-900">{user.name}</td>
-                                                <td className="p-3 text-gray-500 font-mono">{user.username}</td>
-                                                <td className="p-3">
-                                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
-                                                        user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-                                                            user.role === 'cashier' ? 'bg-green-100 text-green-700' :
-                                                                'bg-gray-100 text-gray-700'
-                                                        }`}>
-                                                        {user.role}
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 text-gray-500">{user.college || '-'}</td>
-                                                <td className="p-3 text-right">
-                                                    <button onClick={() => handleEdit(user)} className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded mr-2">Edit</button>
-                                                    {(!user.employeeId || JSON.parse(localStorage.getItem('user'))?.role === 'superadmin') && (
-                                                        <button onClick={() => openResetModal(user)} className="text-yellow-600 hover:text-yellow-800 font-bold text-xs bg-yellow-50 hover:bg-yellow-100 px-2 py-1 rounded mr-2">Reset Pwd</button>
-                                                    )}
-                                                    <button onClick={() => handleDelete(user._id)} className="text-red-500 hover:text-red-700 font-bold text-xs bg-red-50 hover:bg-red-100 px-2 py-1 rounded">Delete</button>
-                                                </td>
+                                                {!editingUserId && (
+                                                    <>
+                                                        <td className="p-3 text-gray-500 font-mono">{user.username}</td>
+                                                        <td className="p-3">
+                                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                                                user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                                                                    user.role === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                                        'bg-gray-100 text-gray-700'
+                                                                }`}>
+                                                                {user.role}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-3 text-gray-500">
+                                                            {user.colleges && user.colleges.length > 0 ? (
+                                                                <div className="space-y-1">
+                                                                    <div className="font-semibold text-xs text-gray-700">
+                                                                        {user.colleges.join(', ')}
+                                                                    </div>
+                                                                    {user.courses && user.courses.length > 0 && (
+                                                                        <div className="text-[10px] text-gray-400 max-w-xs truncate" title={user.courses.map(c => c.split('|')[1]).join(', ')}>
+                                                                            Courses: {user.courses.map(c => c.split('|')[1]).join(', ')}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                user.college || 'All Colleges'
+                                                            )}
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {isSuperAdminUser && (
+                                                    <td className="p-3 text-right whitespace-nowrap">
+                                                        <button
+                                                            onClick={() => handleEdit(user)}
+                                                            className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded mr-1.5 transition shadow-sm"
+                                                            title="Edit User"
+                                                        >
+                                                            <Edit2 size={14} className="stroke-[2.5]" />
+                                                        </button>
+                                                        {(!user.employeeId || currentUser?.role === 'superadmin') && (
+                                                            <button
+                                                                onClick={() => openResetModal(user)}
+                                                                className="inline-flex items-center justify-center text-yellow-600 hover:text-yellow-800 bg-yellow-50 hover:bg-yellow-100 p-1.5 rounded mr-1.5 transition shadow-sm"
+                                                                title="Reset Password"
+                                                            >
+                                                                <Key size={14} className="stroke-[2.5]" />
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handleDelete(user._id)}
+                                                            className="inline-flex items-center justify-center text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition shadow-sm"
+                                                            title="Delete User"
+                                                        >
+                                                            <Trash2 size={14} className="stroke-[2.5]" />
+                                                        </button>
+                                                    </td>
+                                                )}
                                             </tr>
                                         ))}
                                     </tbody>

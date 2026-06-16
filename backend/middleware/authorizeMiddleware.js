@@ -17,7 +17,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/users',
-    superadminOnly: true,
+    permissions: ['/user-management'],
   },
   {
     prefix: '/api/employees',
@@ -25,7 +25,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/fee-heads',
-    permissions: ['/fee-config'],
+    permissions: ['/fee-config', '/fee-collection'],
   },
   {
     prefix: '/api/fee-structures',
@@ -136,11 +136,25 @@ const authorize = (req, res, next) => {
     return res.status(401).json({ message: 'Not authorized' });
   }
 
+  const path = req.originalUrl.split('?')[0];
+
+  // Restrict User Management changes (POST/PUT/DELETE) strictly to superadmin
+  if (path.startsWith('/api/users')) {
+    if (req.method === 'GET') {
+      if (user.role === 'superadmin' || user.role === 'admin' || hasPermission(user, ['/user-management'])) {
+        return next();
+      }
+    } else {
+      if (user.role === 'superadmin') {
+        return next();
+      }
+    }
+    return res.status(403).json({ message: 'Forbidden: User Management changes require superadmin privileges' });
+  }
+
   if (user.role === 'superadmin' || user.role === 'admin') {
     return next();
   }
-
-  const path = req.originalUrl.split('?')[0];
 
   // Dashboard overview is the default landing page for all authenticated staff
   if (path.startsWith('/api/reports/dashboard-stats')) {

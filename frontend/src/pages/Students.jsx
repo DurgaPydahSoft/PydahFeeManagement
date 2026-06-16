@@ -21,11 +21,24 @@ const Students = () => {
     const fetchStudents = async () => {
         try {
             const user = JSON.parse(localStorage.getItem('user'));
-            // Super Admin sees all; others see scoped
             const isSuperAdmin = user?.role === 'superadmin';
-            const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
+            
+            let queryParams = [];
+            if (!isSuperAdmin) {
+                if (user?.colleges && user.colleges.length > 0) {
+                    queryParams.push(`college=${encodeURIComponent(user.colleges.join(','))}`);
+                } else if (user?.college) {
+                    queryParams.push(`college=${encodeURIComponent(user.college)}`);
+                }
+                
+                if (user?.courses && user.courses.length > 0) {
+                    const courseNames = [...new Set(user.courses.map(c => c.split('|')[1]))];
+                    queryParams.push(`course=${encodeURIComponent(courseNames.join(','))}`);
+                }
+            }
+            const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
 
-            const response = await api.get(`/students${collegeParam}`);
+            const response = await api.get(`/students${queryString}`);
             setStudents(response.data);
             setLoading(false);
         } catch (err) {

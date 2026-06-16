@@ -18,12 +18,18 @@ const getStudents = async (req, res) => {
 
     const params = [];
     if (college) {
-      query += ` AND college = ?`;
-      params.push(college);
+      const collegeList = college.split(',').map(c => c.trim()).filter(Boolean);
+      if (collegeList.length > 0) {
+        query += ` AND college IN (${collegeList.map(() => '?').join(',')})`;
+        params.push(...collegeList);
+      }
     }
     if (course) {
-      query += ` AND course = ?`;
-      params.push(course);
+      const courseList = course.split(',').map(c => c.trim()).filter(Boolean);
+      if (courseList.length > 0) {
+        query += ` AND course IN (${courseList.map(() => '?').join(',')})`;
+        params.push(...courseList);
+      }
     }
     if (branch) {
       query += ` AND branch = ?`;

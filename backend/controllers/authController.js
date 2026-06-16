@@ -32,6 +32,8 @@ const applyFeeManagementProfile = (authUser, feeUser) => ({
   username: feeUser.username,
   role: feeUser.role,
   college: feeUser.college || '',
+  colleges: feeUser.colleges || [],
+  courses: feeUser.courses || [],
   permissions: feeUser.permissions || [],
   employeeId: feeUser.employeeId,
 });
@@ -64,6 +66,8 @@ const loginUser = async (req, res) => {
           username: localUser.username,
           role: localUser.role,
           college: localUser.college, // Specific to Fee Management 
+          colleges: localUser.colleges || [],
+          courses: localUser.courses || [],
           permissions: localUser.permissions,
           employeeId: localUser.employeeId
         };
@@ -159,6 +163,8 @@ const loginUser = async (req, res) => {
         username: authUser.username,
         role: authUser.role,
         college: authUser.college,
+        colleges: authUser.colleges || [],
+        courses: authUser.courses || [],
         permissions: authUser.permissions,
         token: generateToken(authUser._id),
       });
@@ -216,6 +222,8 @@ const ssoLogin = async (req, res) => {
         username: localUser.username,
         role: localUser.role,
         college: localUser.college,
+        colleges: localUser.colleges || [],
+        courses: localUser.courses || [],
         permissions: localUser.permissions,
         employeeId: localUser.employeeId
       };
@@ -292,6 +300,8 @@ const ssoLogin = async (req, res) => {
         username: authUser.username,
         role: authUser.role,
         college: authUser.college,
+        colleges: authUser.colleges || [],
+        courses: authUser.courses || [],
         permissions: authUser.permissions,
         token: generateToken(authUser._id),
       });

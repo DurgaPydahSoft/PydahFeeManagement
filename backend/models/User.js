@@ -26,6 +26,14 @@ const userSchema = mongoose.Schema({
   college: {
     type: String, // College name for role-based scoping
   },
+  colleges: {
+    type: [String],
+    default: []
+  },
+  courses: {
+    type: [String],
+    default: []
+  },
   permissions: {
     type: [String], // Array of allowed paths (e.g., ['/dashboard', '/students'])
     default: [],
