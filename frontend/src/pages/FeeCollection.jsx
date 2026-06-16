@@ -21,6 +21,7 @@ const FeeCollection = () => {
     const [paymentConfigs, setPaymentConfigs] = useState([]);
     const [receiptSettings, setReceiptSettings] = useState(null);
     const [viewFilterYear, setViewFilterYear] = useState('ALL');
+    const [globalFeeHeads, setGlobalFeeHeads] = useState([]);
 
     // Multi-Select State
     const [feeRows, setFeeRows] = useState([{ id: Date.now(), feeHeadId: '', amount: '' }]);
@@ -90,17 +91,19 @@ const FeeCollection = () => {
                 const isSuperAdmin = user?.role === 'superadmin';
                 const collegeParam = (!isSuperAdmin && user?.college) ? `?college=${encodeURIComponent(user.college)}` : '';
 
-                const [studentsRes, configsRes, settingsRes, approversRes] = await Promise.all([
+                const [studentsRes, configsRes, settingsRes, approversRes, feeHeadsRes] = await Promise.all([
                     api.get(`/students${collegeParam}`),
                     api.get(`/payment-config`),
                     api.get(`/settings`),
-                    api.get(`/concession-approvers`)
+                    api.get(`/concession-approvers`),
+                    api.get(`/fee-heads`)
                 ]);
 
                 setAllStudents(studentsRes.data);
                 setPaymentConfigs(configsRes.data.filter(c => c.is_active));
                 setReceiptSettings(settingsRes.data);
                 setActiveApprovers(approversRes.data);
+                setGlobalFeeHeads(feeHeadsRes.data);
             } catch (e) {
                 console.error("Error fetching initial data", e);
                 setError("Failed to load data. Please refresh.");
@@ -238,7 +241,9 @@ const FeeCollection = () => {
         // Final Validation
         for (const row of validRows) {
             if (!row.concessionGivenBy) {
-                const feeName = feeDetails.find(f => f._id === row.feeHeadId)?.feeHead?.name || 'Selected Fee';
+                const feeName = feeDetails.find(f => f._id === row.feeHeadId)?.feeHead?.name 
+                    || globalFeeHeads.find(h => h._id === row.feeHeadId)?.name 
+                    || 'Selected Fee';
                 alert(`Please select "Concession Given By" for ${feeName}`);
                 return;
             }
@@ -259,11 +264,11 @@ const FeeCollection = () => {
                         branch: student.branch,
                         batch: student.batch
                     }],
-                    feeHeadId: selectedFee.feeHeadId,
+                    feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
                     amount: row.amount,
                     reason: paymentForm.remarks || 'Concession requested at billing',
-                    studentYear: selectedFee.studentYear,
-                    semester: selectedFee.semester,
+                    studentYear: selectedFee ? selectedFee.studentYear : student.current_year,
+                    semester: selectedFee ? selectedFee.semester : student.current_semester,
                     concessionGivenBy: row.concessionGivenBy
                 };
 
@@ -1285,11 +1290,19 @@ const FeeCollection = () => {
                                                                         required
                                                                     >
                                                                         <option value="">-- Select Fee Head --</option>
-                                                                        {displayedFees.map(f => (
-                                                                            <option key={f._id} value={f._id}>
-                                                                                [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
-                                                                            </option>
-                                                                        ))}
+                                                                        {displayedFees.length > 0 ? (
+                                                                            displayedFees.map(f => (
+                                                                                <option key={f._id} value={f._id}>
+                                                                                    [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
+                                                                                </option>
+                                                                            ))
+                                                                        ) : (
+                                                                            globalFeeHeads.map(h => (
+                                                                                <option key={h._id} value={h._id}>
+                                                                                    {h.name} {h.code ? `(${h.code})` : ''}
+                                                                                </option>
+                                                                            ))
+                                                                        )}
                                                                     </select>
                                                                 </div>
                                                                 <div className="w-24">

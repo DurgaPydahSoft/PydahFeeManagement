@@ -1,13 +1,13 @@
 import React, { forwardRef } from 'react';
 
-const ConcessionReportPrint = forwardRef(({ data, filters }, ref) => {
+const ConcessionReportPrint = forwardRef(({ data = [], filters = {} }, ref) => {
     // Grouping data by approver (concessionGivenBy)
     const groupedData = data.reduce((acc, item) => {
         const approver = item.concessionGivenBy || 'System/Admin';
         if (!acc[approver]) acc[approver] = [];
         acc[approver].push(item);
         return acc;
-    });
+    }, {});
 
     const totalConcession = data.reduce((sum, item) => sum + item.amount, 0);
 
