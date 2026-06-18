@@ -515,6 +515,25 @@ const getDueReports = async (req, res) => {
         }
 
         // 5. Finalize Data Structure
+        const reportData = Object.values(studentMap).map(student => {
+            student.dueAmount = Math.max(0, student.totalFee - student.paidAmount);
+
+            // Convert feeDetails map to array expected by frontend
+            student.feeDetailsArray = Object.keys(student.feeDetails).map(fid => {
+                const detail = student.feeDetails[fid];
+                const total = detail.total || 0;
+                const paid = detail.paid || 0;
+                return {
+                    headName: feeHeadNameMap[fid] || 'Unknown',
+                    total: total,
+                    paid: paid,
+                    due: Math.max(0, total - paid)
+                };
+            });
+
+            return student;
+        });
+
         res.json(reportData);
 
     } catch (error) {

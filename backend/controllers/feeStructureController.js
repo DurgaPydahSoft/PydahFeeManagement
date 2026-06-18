@@ -4,6 +4,54 @@ const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const db = require('../config/sqlDb');
 
+// Helper to automatically apply a fee structure to all students in the batch
+const applyFeeStructureToBatchInternal = async (structure) => {
+  if (!structure) return;
+  try {
+    const [students] = await db.query(`
+      SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
+      FROM students 
+      WHERE college = ? AND course = ? AND branch = ? AND batch = ? AND stud_type = ?
+    `, [structure.college, structure.course, structure.branch, structure.batch, structure.category]);
+
+    if (students.length === 0) return;
+
+    const operations = students.map(s => {
+      return {
+        updateOne: {
+          filter: {
+            studentId: s.admission_number,
+            feeHead: structure.feeHead,
+            academicYear: structure.batch,
+            studentYear: structure.studentYear,
+            semester: structure.semester
+          },
+          update: {
+            $set: {
+              studentName: s.student_name,
+              college: s.college,
+              course: s.course,
+              branch: s.branch,
+              amount: structure.amount,
+              structureId: structure._id,
+              semester: structure.semester,
+              batch: s.batch,
+              stud_type: structure.category,
+              isScholarshipApplicable: structure.isScholarshipApplicable || false
+            }
+          },
+          upsert: true
+        }
+      };
+    });
+
+    await StudentFee.bulkWrite(operations);
+  } catch (error) {
+    console.error('Error in applyFeeStructureToBatchInternal:', error);
+  }
+};
+
+
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 // @desc    Create/Update Fee Structure (Single or Bulk)
@@ -81,6 +129,7 @@ const createFeeStructure = async (req, res) => {
           }
         );
 
+        await applyFeeStructureToBatchInternal(structure);
         results.push(structure);
       } catch (err) {
         console.error(`Error saving fee structure for category ${cat}:`, err.message);
@@ -201,13 +250,7 @@ const getStudentFeeDetails = async (req, res) => {
     }
     // --- CLUB FEE SYNC END ---
 
-    // 2. Fetch all Demands (StudentFee)
-    const studentFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code');
-
-    // 3. Fetch all Transactions (Payments)
-    const transactions = await Transaction.find({ studentId: admissionNo });
-
-    // 4. Fetch applicable Fee Structures for term definitions and sync
+    // 2. Fetch applicable Fee Structures for term definitions and sync
     // This allows us to know which heads are currently mapped to this student's context
     const applicableStructures = await FeeStructure.find({
       college,
@@ -217,6 +260,50 @@ const getStudentFeeDetails = async (req, res) => {
       category,
       studentYear: { $lte: currentYear }
     }).lean();
+
+    // --- JUST-IN-TIME (JIT) FEE STRUCTURE SYNC ---
+    if (student) {
+      try {
+        for (const fs of applicableStructures) {
+          const existingFee = await StudentFee.findOne({
+            studentId: admissionNo,
+            feeHead: fs.feeHead,
+            academicYear: fs.batch,
+            studentYear: fs.studentYear,
+            semester: fs.semester || null,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+          });
+
+          if (!existingFee) {
+            console.log(`JIT Sync: Creating StudentFee demand for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear}`);
+            await StudentFee.create({
+              studentId: admissionNo,
+              studentName: student.student_name,
+              feeHead: fs.feeHead,
+              structureId: fs._id,
+              college: student.college,
+              course: student.course,
+              branch: student.branch,
+              academicYear: fs.batch,
+              studentYear: fs.studentYear,
+              semester: fs.semester || null,
+              amount: fs.amount,
+              batch: student.batch,
+              stud_type: fs.category,
+              isScholarshipApplicable: fs.isScholarshipApplicable || false
+            });
+          }
+        }
+      } catch (jitError) {
+        console.error('JIT Sync Error:', jitError);
+      }
+    }
+
+    // 3. Fetch all Demands (StudentFee) - including any that were just synced
+    const studentFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code');
+
+    // 4. Fetch all Transactions (Payments)
+    const transactions = await Transaction.find({ studentId: admissionNo });
 
     // Map structures by [headId-year] for quick lookup
     const structureMap = {};
@@ -581,6 +668,7 @@ const updateFeeStructure = async (req, res) => {
       }
     );
 
+    await applyFeeStructureToBatchInternal(updatedStructure);
     res.json(updatedStructure);
   } catch (error) {
     console.error(error);
