@@ -37,7 +37,7 @@ const Sidebar = () => {
 
         // Fee Operations
         { section: 'Fee Operations', name: 'Fee Collection', path: '/fee-collection', icon: icons.Collection },
-        { section: 'Fee Operations', name: 'Concessions', path: '/overall-concessions', icon: icons.Concession },
+        { section: 'Fee Operations', name: 'Concessions (7th File)', path: '/overall-concessions', icon: icons.Concession },
         { section: 'Fee Operations', name: 'Concessions Approval', path: '/concessions', icon: icons.ConcessionApproval },
         { section: 'Fee Operations', name: 'Bulk Fee Upload', path: '/bulk-fee-upload', icon: icons.BulkUpload },
         { section: 'Fee Operations', name: 'Proceedings', path: '/proceedings', icon: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l5 5v9a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3v5h5" /></svg> },
