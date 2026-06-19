@@ -281,8 +281,7 @@ const getStudentFeeDetails = async (req, res) => {
       course,
       branch,
       batch,
-      category,
-      studentYear: { $lte: currentYear }
+      category
     }).lean();
 
     // --- JUST-IN-TIME (JIT) FEE STRUCTURE SYNC ---
