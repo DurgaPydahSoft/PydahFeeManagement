@@ -250,7 +250,7 @@ const FeeCollection = () => {
     }, [student, paymentForm.transactionType]);
     
     const handleBatchRaiseConcession = async () => {
-        const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+        const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
         
         // Final Validation
         for (const row of validRows) {
@@ -414,12 +414,10 @@ const FeeCollection = () => {
                         }
                     }
 
-                    // Set Amount: Voucher amount takes priority if still present, otherwise use due amount
+                    // Set Amount: Voucher amount takes priority if still present, otherwise leave empty
                     if (updatedRow.concessionRequestId) {
                         const currentVoucher = availableVouchers.find(v => v._id === updatedRow.concessionRequestId);
                         updatedRow.amount = currentVoucher ? currentVoucher.amount : '';
-                    } else if (selectedFee) {
-                        updatedRow.amount = selectedFee.dueAmount > 0 ? selectedFee.dueAmount : '';
                     } else {
                         updatedRow.amount = '';
                     }
@@ -438,11 +436,8 @@ const FeeCollection = () => {
                             }
                         }
                     } else {
-                        // VOUCHER REMOVED: Restore the standard due amount for the selected Fee Head
-                        const selectedFee = feeDetails.find(f => f._id === updatedRow.feeHeadId);
-                        if (selectedFee) {
-                            updatedRow.amount = selectedFee.dueAmount > 0 ? selectedFee.dueAmount : '';
-                        }
+                        // VOUCHER REMOVED: Clear the amount
+                        updatedRow.amount = '';
                     }
                 }
                 return updatedRow;
@@ -471,7 +466,7 @@ const FeeCollection = () => {
             const newRow = {
                 id: Date.now(),
                 feeHeadId: fee._id,
-                amount: fee.dueAmount > 0 ? fee.dueAmount : '',
+                amount: '',
                 concessionReason: ''
             };
 
@@ -489,9 +484,9 @@ const FeeCollection = () => {
         e.preventDefault();
 
         // Validation
-        const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+        const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
         if (validRows.length === 0) {
-            alert('Please select at least one Fee Head and enter a valid amount.');
+            alert('Please select at least one Fee Head and enter a valid amount (0 is accepted).');
             return;
         }
 
@@ -522,7 +517,7 @@ const FeeCollection = () => {
     const confirmAndPay = async () => {
         setIsProcessing(true);
         try {
-            const validRows = feeRows.filter(r => r.feeHeadId && Number(r.amount) > 0);
+            const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
 
             // Validation for CREDIT transactions with vouchers
             if (paymentForm.transactionType === 'CREDIT') {
@@ -1671,7 +1666,7 @@ const FeeCollection = () => {
                                     )}
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">Verification:</span>
-                                        <span className="font-bold text-gray-800">{feeRows.filter(r => r.amount > 0).length} Fee Heads</span>
+                                        <span className="font-bold text-gray-800">{feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).length} Fee Heads</span>
                                     </div>
                                 </div>
 
