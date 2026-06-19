@@ -51,6 +51,7 @@ const FeeConfiguration = () => {
     const academicYearOptions = ['ALL', ...Array.from({ length: 9 }, (_, i) => `${currentYear - 4 + i}-${currentYear - 3 + i}`)];
 
     const [editingId, setEditingId] = useState(null);
+    const [isEditingContext, setIsEditingContext] = useState(false);
     const [filterCollege, setFilterCollege] = useState('');
     const [filterCourse, setFilterCourse] = useState('');
 
@@ -304,6 +305,7 @@ const FeeConfiguration = () => {
             setSemAmounts({ 1: '', 2: '' });
             setBulkAmounts({});
             setEditingId(null);
+            setIsEditingContext(false);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { setMessage(error.response?.data?.message || 'Error saving structure'); }
         finally { setIsSavingDefinition(false); }
@@ -350,8 +352,29 @@ const FeeConfiguration = () => {
         setFeeType(Object.keys(newBulk).some(k => k.includes('S')) ? 'Semester' : 'Yearly');
 
         setEditingId(null);
+        setIsEditingContext(true);
         window.scrollTo(0, 0);
         setMessage('Context loaded. Use "All Years" to edit multiple years at once.');
+    };
+
+    const handleCancelEditContext = () => {
+        setStructForm({
+            feeHeadId: '',
+            college: '',
+            course: '',
+            branch: '',
+            batch: '',
+            categories: [],
+            academicYear: '',
+            studentYear: '',
+            amount: '',
+            semester: '',
+            isScholarshipApplicable: false
+        });
+        setBulkAmounts({});
+        setBulkTerms({});
+        setIsEditingContext(false);
+        setMessage('');
     };
 
     const deleteStruct = async (id) => {
@@ -661,10 +684,23 @@ const FeeConfiguration = () => {
 
                 {/* --- TAB 2: DEFINITIONS --- */}
                 {activeTab === 'definitions' && (
-                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 transition-all duration-500 ease-in-out">
                         {/* Edit Form (Simplified for brevity, logic same as before) */}
-                        <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 h-fit">
-                            <div className="flex justify-between mb-3"><h2 className="font-semibold text-gray-800">{editingId ? 'Edit' : 'Define Standard Fees'}</h2>{editingId && <button onClick={() => setEditingId(null)} className="text-xs bg-gray-200 px-2 rounded">Cancel</button>}</div>
+                        <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-100 h-fit transition-all duration-500 ease-in-out ${(editingId || isEditingContext) ? 'lg:col-span-2' : 'lg:col-span-1'}`}>
+                            <div className="flex justify-between mb-3">
+                                <h2 className="font-semibold text-gray-800">
+                                    {(editingId || isEditingContext) ? 'Edit Standard Fees' : 'Define Standard Fees'}
+                                </h2>
+                                {(editingId || isEditingContext) && (
+                                    <button 
+                                        type="button" 
+                                        onClick={editingId ? () => setEditingId(null) : handleCancelEditContext} 
+                                        className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded transition font-medium"
+                                    >
+                                        Cancel
+                                    </button>
+                                )}
+                            </div>
                             <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
                                 {/* Context Selection */}
 
@@ -717,7 +753,7 @@ const FeeConfiguration = () => {
                                 {structForm.college && structForm.batch && structForm.feeHeadId && structForm.course && structForm.branch && (
                                     <div className="bg-gray-50 p-3 rounded border border-gray-200">
                                         <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                             {categories.filter(c => {
                                                 const col = String(structForm.college || '').trim().toLowerCase();
                                                 const cou = String(structForm.course || '').trim().toLowerCase();
@@ -875,15 +911,15 @@ const FeeConfiguration = () => {
                         </div>
 
                         {/* Matrix Table */}
-                        <div className="xl:col-span-2 bg-white p-5 rounded-lg shadow-sm overflow-x-auto">
+                        <div className={`bg-white p-5 rounded-lg shadow-sm overflow-x-auto transition-all duration-500 ease-in-out ${(editingId || isEditingContext) ? 'lg:col-span-1' : 'lg:col-span-2'}`}>
                             <h2 className="font-semibold text-gray-800 mb-3">Fee Templates (Not Active Dues)</h2>
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-gray-50 border-b">
                                     <tr>
                                         <th className="p-3">Fee Head</th>
-                                        <th className="p-3">Context</th>
-                                        <th className="p-3">Category</th>
-                                        {tableYears.map(y => <th key={y} className="p-3 text-center">Yr {y}</th>)}
+                                        {!(editingId || isEditingContext) && <th className="p-3">Context</th>}
+                                        {!(editingId || isEditingContext) && <th className="p-3">Category</th>}
+                                        {!(editingId || isEditingContext) && tableYears.map(y => <th key={y} className="p-3 text-center">Yr {y}</th>)}
                                         <th className="p-3 text-right">Action</th>
                                     </tr>
                                 </thead>
@@ -896,15 +932,19 @@ const FeeConfiguration = () => {
                                                     <span title="Scholarship Eligible" className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200">🎓</span>
                                                 )}
                                             </td>
-                                            <td className="p-3 text-xs text-gray-500">
-                                                <div className="font-bold">{row.course} - {row.branch}</div>
-                                                <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{row.college}</div>
-                                                <div className="mt-1 text-black font-semibold">Batch: {row.batch}</div>
-                                            </td>
-                                            <td className="p-3">
-                                                <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full font-medium">{row.category}</span>
-                                            </td>
-                                            {tableYears.map(y => (
+                                            {!(editingId || isEditingContext) && (
+                                                <td className="p-3 text-xs text-gray-500">
+                                                    <div className="font-bold">{row.course} - {row.branch}</div>
+                                                    <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{row.college}</div>
+                                                    <div className="mt-1 text-black font-semibold">Batch: {row.batch}</div>
+                                                </td>
+                                            )}
+                                            {!(editingId || isEditingContext) && (
+                                                <td className="p-3">
+                                                    <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full font-medium">{row.category}</span>
+                                                </td>
+                                            )}
+                                            {!(editingId || isEditingContext) && tableYears.map(y => (
                                                 <td key={y} className="p-2 text-center text-gray-700 align-top">
                                                     {row.years[y] ? (
                                                         <div className="flex flex-col gap-1">

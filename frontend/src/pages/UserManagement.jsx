@@ -304,10 +304,10 @@ const UserManagement = () => {
                     </div>
                 </header>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 transition-all duration-500 ease-in-out">
                     {/* Create/Edit User Form */}
                     {isSuperAdminUser && (
-                        <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 h-fit transition-all duration-300 ${editingUserId ? 'lg:col-span-2' : 'lg:col-span-1'}`}>
+                        <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 h-fit transition-all duration-500 ease-in-out ${editingUserId ? 'lg:col-span-2' : 'lg:col-span-1'}`}>
                         <div className="flex justify-between items-center mb-3 border-b pb-2">
                             <h2 className="font-bold text-gray-800">{editingUserId ? 'Edit User' : 'Create New User'}</h2>
                             {editingUserId && (
@@ -707,7 +707,7 @@ const UserManagement = () => {
                     )}
 
                     {/* User List */}
-                    <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-300 ${!isSuperAdminUser ? 'lg:col-span-3' : (editingUserId ? 'lg:col-span-1' : 'lg:col-span-2')}`}>
+                    <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out ${!isSuperAdminUser ? 'lg:col-span-3' : (editingUserId ? 'lg:col-span-1' : 'lg:col-span-2')}`}>
                         <h2 className="font-bold text-gray-800 mb-3">Existing Users</h2>
                         {loading ? <p>Loading...</p> : (
                             <div className="overflow-x-auto">
