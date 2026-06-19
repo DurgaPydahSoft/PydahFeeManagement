@@ -68,6 +68,10 @@ const API_ACCESS_RULES = [
     permissions: ['/concessions', '/fee-collection'],
   },
   {
+    prefix: '/api/overall-concessions',
+    permissions: ['/overall-concessions', '/fee-collection'],
+  },
+  {
     prefix: '/api/reminders',
     permissions: ['/reminders'],
   },
@@ -82,6 +86,7 @@ const API_ACCESS_RULES = [
       '/permissions',
       '/due-reports',
       '/concessions',
+      '/overall-concessions',
       '/proceedings',
       '/reminders',
       '/transport-config',

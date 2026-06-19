@@ -16,7 +16,31 @@ const applyFeeStructureToBatchInternal = async (structure) => {
 
     if (students.length === 0) return;
 
+    // Fetch revised fees from overall_concessions table
+    const [concessions] = await db.query(
+        `SELECT admission_number, revised_fees FROM overall_concessions WHERE batch = ?`,
+        [structure.batch]
+    );
+    const revisedFeesMap = {};
+    concessions.forEach(c => {
+        const fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : (c.revised_fees || []);
+        if (Array.isArray(fees)) {
+            const match = fees.find(f => 
+                f.feeHeadId === structure.feeHead.toString() &&
+                Number(f.studentYear) === Number(structure.studentYear) &&
+                (f.semester === null || f.semester === undefined || Number(f.semester) === Number(structure.semester))
+            );
+            if (match) {
+                revisedFeesMap[c.admission_number] = Number(match.revisedAmount);
+            }
+        }
+    });
+
     const operations = students.map(s => {
+      const targetAmount = revisedFeesMap[s.admission_number] !== undefined 
+          ? revisedFeesMap[s.admission_number] 
+          : structure.amount;
+
       return {
         updateOne: {
           filter: {
@@ -32,7 +56,7 @@ const applyFeeStructureToBatchInternal = async (structure) => {
               college: s.college,
               course: s.course,
               branch: s.branch,
-              amount: structure.amount,
+              amount: targetAmount,
               structureId: structure._id,
               semester: structure.semester,
               batch: s.batch,
@@ -264,7 +288,26 @@ const getStudentFeeDetails = async (req, res) => {
     // --- JUST-IN-TIME (JIT) FEE STRUCTURE SYNC ---
     if (student) {
       try {
+        // Fetch revised fees from overall_concessions table
+        const [concessions] = await db.query(
+            `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
+            [admissionNo]
+        );
+        const revisedFeesMap = {};
+        if (concessions.length > 0) {
+            const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
+            if (Array.isArray(fees)) {
+                fees.forEach(rf => {
+                    const key = `${rf.feeHeadId}-${rf.studentYear}-${rf.semester || 'null'}`;
+                    revisedFeesMap[key] = Number(rf.revisedAmount);
+                });
+            }
+        }
+
         for (const fs of applicableStructures) {
+          const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
+          const targetAmount = revisedFeesMap[fsKey] !== undefined ? revisedFeesMap[fsKey] : fs.amount;
+
           const existingFee = await StudentFee.findOne({
             studentId: admissionNo,
             feeHead: fs.feeHead,
@@ -287,11 +330,15 @@ const getStudentFeeDetails = async (req, res) => {
               academicYear: fs.batch,
               studentYear: fs.studentYear,
               semester: fs.semester || null,
-              amount: fs.amount,
+              amount: targetAmount,
               batch: student.batch,
               stud_type: fs.category,
               isScholarshipApplicable: fs.isScholarshipApplicable || false
             });
+          } else if (existingFee.amount !== targetAmount) {
+            console.log(`JIT Sync: Updating StudentFee amount for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear} to ${targetAmount}`);
+            existingFee.amount = targetAmount;
+            await existingFee.save();
           }
         }
       } catch (jitError) {

@@ -14,6 +14,7 @@ export const APP_ROUTES = [
   '/reports',
   '/due-reports',
   '/concessions',
+  '/overall-concessions',
   '/transport-config',
   '/hostel-config',
   '/permissions',

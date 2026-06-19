@@ -23,6 +23,7 @@ const ReminderConfiguration = lazy(() => import('./pages/ReminderConfiguration')
 const AcademicCalendar = lazy(() => import('./pages/AcademicCalendar'));
 const BulkFeeUpload = lazy(() => import('./pages/BulkFeeUpload'));
 const ConcessionManagement = lazy(() => import('./pages/ConcessionManagement'));
+const OverallConcession = lazy(() => import('./pages/OverallConcession'));
 const Permissions = lazy(() => import('./pages/Permissions'));
 const Settings = lazy(() => import('./pages/Settings'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
@@ -52,6 +53,7 @@ function App() {
           <Route path="/academic-calendar" element={<AcademicCalendar />} />
           <Route path="/bulk-fee-upload" element={<BulkFeeUpload />} />
           <Route path="/concessions" element={<ConcessionManagement />} />
+          <Route path="/overall-concessions" element={<OverallConcession />} />
           <Route path="/permissions" element={<Permissions />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/user-profile" element={<UserProfile />} />
