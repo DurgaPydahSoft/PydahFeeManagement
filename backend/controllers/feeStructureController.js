@@ -22,19 +22,34 @@ const applyFeeStructureToBatchInternal = async (structure) => {
         [structure.batch]
     );
     const revisedFeesMap = {};
-    concessions.forEach(c => {
-        const fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : (c.revised_fees || []);
-        if (Array.isArray(fees)) {
-            const match = fees.find(f => 
-                f.feeHeadId === structure.feeHead.toString() &&
-                Number(f.studentYear) === Number(structure.studentYear) &&
-                (f.semester === null || f.semester === undefined || Number(f.semester) === Number(structure.semester))
-            );
-            if (match) {
-                revisedFeesMap[c.admission_number] = Number(match.revisedAmount);
+    if (concessions.length > 0) {
+        const feeHeads = await FeeHead.find({}).lean();
+        const codeMap = {};
+        feeHeads.forEach(fh => {
+            if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
+        });
+
+        concessions.forEach(c => {
+            const fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : (c.revised_fees || []);
+            if (Array.isArray(fees)) {
+                const match = fees.find(f => {
+                    let resolvedId = f.feeHeadId;
+                    const codeKey = f.feeHeadCode ? f.feeHeadCode.trim().toUpperCase() : '';
+                    if (codeKey && codeMap[codeKey]) {
+                        resolvedId = codeMap[codeKey];
+                    }
+                    return (
+                        resolvedId === structure.feeHead.toString() &&
+                        Number(f.studentYear) === Number(structure.studentYear) &&
+                        (f.semester === null || f.semester === undefined || Number(f.semester) === Number(structure.semester))
+                    );
+                });
+                if (match) {
+                    revisedFeesMap[c.admission_number] = Number(match.revisedAmount);
+                }
             }
-        }
-    });
+        });
+    }
 
     const operations = students.map(s => {
       const targetAmount = revisedFeesMap[s.admission_number] !== undefined 
@@ -296,8 +311,19 @@ const getStudentFeeDetails = async (req, res) => {
         if (concessions.length > 0) {
             const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
             if (Array.isArray(fees)) {
+                const feeHeads = await FeeHead.find({}).lean();
+                const codeMap = {};
+                feeHeads.forEach(fh => {
+                    if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
+                });
+
                 fees.forEach(rf => {
-                    const key = `${rf.feeHeadId}-${rf.studentYear}-${rf.semester || 'null'}`;
+                    let resolvedId = rf.feeHeadId;
+                    const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
+                    if (codeKey && codeMap[codeKey]) {
+                        resolvedId = codeMap[codeKey];
+                    }
+                    const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
                     revisedFeesMap[key] = Number(rf.revisedAmount);
                 });
             }

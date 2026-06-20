@@ -51,8 +51,12 @@ const getOverallConcessions = async (req, res) => {
 
         const feeHeads = await FeeHead.find({}).lean();
         const feeHeadMap = {};
+        const codeMap = {};
         feeHeads.forEach(fh => {
             feeHeadMap[fh._id.toString()] = fh.code || '';
+            if (fh.code) {
+                codeMap[fh.code.trim().toUpperCase()] = fh;
+            }
         });
 
         // Map concessions by student admission_number
@@ -63,14 +67,24 @@ const getOverallConcessions = async (req, res) => {
                 fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : c.revised_fees;
             }
             if (Array.isArray(fees)) {
-                concessionMap[c.admission_number] = fees.map((rf, idx) => ({
-                    id: `${c.id}_${idx}`,
-                    feeHeadId: rf.feeHeadId,
-                    feeHeadCode: rf.feeHeadCode || feeHeadMap[rf.feeHeadId] || '',
-                    studentYear: Number(rf.studentYear),
-                    semester: rf.semester || null,
-                    revisedAmount: Number(rf.revisedAmount)
-                }));
+                concessionMap[c.admission_number] = fees.map((rf, idx) => {
+                    let resolvedFh = null;
+                    const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
+                    if (codeKey && codeMap[codeKey]) {
+                        resolvedFh = codeMap[codeKey];
+                    } else {
+                        resolvedFh = feeHeads.find(fh => fh._id.toString() === rf.feeHeadId);
+                    }
+
+                    return {
+                        id: `${c.id}_${idx}`,
+                        feeHeadId: resolvedFh ? resolvedFh._id.toString() : rf.feeHeadId,
+                        feeHeadCode: resolvedFh ? resolvedFh.code : (rf.feeHeadCode || ''),
+                        studentYear: Number(rf.studentYear),
+                        semester: rf.semester || null,
+                        revisedAmount: Number(rf.revisedAmount)
+                    };
+                });
             } else {
                 concessionMap[c.admission_number] = [];
             }
@@ -307,15 +321,33 @@ const bulkSaveOverallConcessions = async (req, res) => {
 
         const feeHeads = await FeeHead.find({}).lean();
         const feeHeadMap = {};
+        const codeMap = {};
         feeHeads.forEach(fh => {
             feeHeadMap[fh._id.toString()] = fh.code || '';
+            if (fh.code) {
+                codeMap[fh.code.trim().toUpperCase()] = fh;
+            }
         });
 
         // Normalize existing concessions for easy lookup
         const existingMap = {};
         existingFees.forEach(e => {
-            const key = `${e.feeHeadId}_${e.studentYear}_${e.semester === null || e.semester === undefined ? 'null' : e.semester}`;
-            existingMap[key] = e;
+            let resolvedFh = null;
+            const codeKey = e.feeHeadCode ? e.feeHeadCode.trim().toUpperCase() : '';
+            if (codeKey && codeMap[codeKey]) {
+                resolvedFh = codeMap[codeKey];
+            } else {
+                resolvedFh = feeHeads.find(fh => fh._id.toString() === e.feeHeadId);
+            }
+            const actualId = resolvedFh ? resolvedFh._id.toString() : e.feeHeadId;
+            const actualCode = resolvedFh ? resolvedFh.code : (e.feeHeadCode || '');
+
+            const key = `${actualId}_${e.studentYear}_${e.semester === null || e.semester === undefined ? 'null' : e.semester}`;
+            existingMap[key] = {
+                ...e,
+                feeHeadId: actualId,
+                feeHeadCode: actualCode
+            };
         });
 
         const newMap = {};
@@ -325,10 +357,21 @@ const bulkSaveOverallConcessions = async (req, res) => {
         // 2. Process incoming concessions
         concessions.forEach(c => {
             const sem = c.semester === null || c.semester === '' || c.semester === undefined ? null : Number(c.semester);
-            const key = `${c.feeHeadId}_${Number(c.studentYear)}_${sem === null ? 'null' : sem}`;
+            
+            let resolvedFh = null;
+            const codeKey = c.feeHeadCode ? c.feeHeadCode.trim().toUpperCase() : '';
+            if (codeKey && codeMap[codeKey]) {
+                resolvedFh = codeMap[codeKey];
+            } else {
+                resolvedFh = feeHeads.find(fh => fh._id.toString() === c.feeHeadId);
+            }
+            const actualId = resolvedFh ? resolvedFh._id.toString() : c.feeHeadId;
+            const actualCode = resolvedFh ? resolvedFh.code : (c.feeHeadCode || '');
+
+            const key = `${actualId}_${Number(c.studentYear)}_${sem === null ? 'null' : sem}`;
             newMap[key] = {
-                feeHeadId: c.feeHeadId,
-                feeHeadCode: c.feeHeadCode || feeHeadMap[c.feeHeadId] || '',
+                feeHeadId: actualId,
+                feeHeadCode: actualCode,
                 studentYear: Number(c.studentYear),
                 semester: sem,
                 revisedAmount: Number(c.revisedAmount)
@@ -341,14 +384,13 @@ const bulkSaveOverallConcessions = async (req, res) => {
         });
 
         // Identify deletes (in existing but not in new)
-        existingFees.forEach(e => {
-            const sem = e.semester === null || e.semester === '' || e.semester === undefined ? null : Number(e.semester);
-            const key = `${e.feeHeadId}_${Number(e.studentYear)}_${sem === null ? 'null' : sem}`;
+        Object.keys(existingMap).forEach(key => {
+            const e = existingMap[key];
             if (!newMap[key]) {
                 toDelete.push({
                     feeHeadId: e.feeHeadId,
                     studentYear: Number(e.studentYear),
-                    semester: sem
+                    semester: e.semester
                 });
             }
         });
@@ -357,12 +399,19 @@ const bulkSaveOverallConcessions = async (req, res) => {
         if (concessions.length === 0) {
             await connection.query(`DELETE FROM overall_concessions WHERE admission_number = ?`, [admissionNumber]);
         } else {
-            // Map concessions list to ensure it includes the feeHeadCode
+            // Map concessions list to ensure it includes the feeHeadCode and is resolved to current ID
             const updatedConcessions = concessions.map(c => {
                 const sem = c.semester === null || c.semester === '' || c.semester === undefined ? null : Number(c.semester);
+                let resolvedFh = null;
+                const codeKey = c.feeHeadCode ? c.feeHeadCode.trim().toUpperCase() : '';
+                if (codeKey && codeMap[codeKey]) {
+                    resolvedFh = codeMap[codeKey];
+                } else {
+                    resolvedFh = feeHeads.find(fh => fh._id.toString() === c.feeHeadId);
+                }
                 return {
-                    feeHeadId: c.feeHeadId,
-                    feeHeadCode: c.feeHeadCode || feeHeadMap[c.feeHeadId] || '',
+                    feeHeadId: resolvedFh ? resolvedFh._id.toString() : c.feeHeadId,
+                    feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
                     studentYear: Number(c.studentYear),
                     semester: sem,
                     revisedAmount: Number(c.revisedAmount)
@@ -435,14 +484,23 @@ const bulkSaveOverallConcessions = async (req, res) => {
 
         const updatedRow = updatedList[0];
         const responseConcessions = updatedRow 
-            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => ({
-                id: `${updatedRow.id}_${idx}`,
-                feeHeadId: c.feeHeadId,
-                feeHeadCode: c.feeHeadCode || '',
-                studentYear: Number(c.studentYear),
-                semester: c.semester,
-                revisedAmount: Number(c.revisedAmount)
-            }))
+            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => {
+                let resolvedFh = null;
+                const codeKey = c.feeHeadCode ? c.feeHeadCode.trim().toUpperCase() : '';
+                if (codeKey && codeMap[codeKey]) {
+                    resolvedFh = codeMap[codeKey];
+                } else {
+                    resolvedFh = feeHeads.find(fh => fh._id.toString() === c.feeHeadId);
+                }
+                return {
+                    id: `${updatedRow.id}_${idx}`,
+                    feeHeadId: resolvedFh ? resolvedFh._id.toString() : c.feeHeadId,
+                    feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
+                    studentYear: Number(c.studentYear),
+                    semester: c.semester,
+                    revisedAmount: Number(c.revisedAmount)
+                };
+            })
             : [];
 
         res.json({

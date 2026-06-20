@@ -222,9 +222,12 @@ const OverallConcession = () => {
     };
 
     // Helper to get FeeHead Name
-    const getFeeHeadName = (id) => {
-        const fh = feeHeads.find(h => h._id === id);
-        return fh ? fh.name : 'Unknown Fee Component';
+    const getFeeHeadName = (id, code = '') => {
+        let fh = feeHeads.find(h => h._id === id);
+        if (!fh && code) {
+            fh = feeHeads.find(h => h.code === code);
+        }
+        return fh ? fh.name : (code || 'Unknown Fee Component');
     };
 
     return (
@@ -480,7 +483,9 @@ const OverallConcession = () => {
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100 text-slate-700">
                                                                     {activeEditHeads.map(fhId => {
-                                                                        const headName = getFeeHeadName(fhId);
+                                                                        const matchingFee = selectedStudent?.revisedFees?.find(rf => rf.feeHeadId === fhId);
+                                                                        const headCode = matchingFee ? matchingFee.feeHeadCode : '';
+                                                                        const headName = getFeeHeadName(fhId, headCode);
                                                                         return (
                                                                             <tr key={fhId} className="hover:bg-slate-50/20">
                                                                                 <td className="p-3 font-bold text-slate-900">{headName}</td>
@@ -611,7 +616,7 @@ const OverallConcession = () => {
                                                                     {Object.entries(grouped).map(([fhId, items]) => (
                                                                         <div key={fhId} className="flex flex-col sm:flex-row sm:items-start sm:justify-start gap-2">
                                                                             <span className="font-bold text-slate-700 bg-slate-100 rounded px-2 py-0.5 text-[10px] uppercase tracking-wide inline-block shrink-0 mt-0.5">
-                                                                                {getFeeHeadName(fhId)}:
+                                                                                {getFeeHeadName(fhId, items[0]?.feeHeadCode)}:
                                                                             </span>
                                                                             <div className="flex flex-wrap gap-1.5">
                                                                                 {items.map(rf => (
