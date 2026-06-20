@@ -570,6 +570,7 @@ const FeeConfiguration = () => {
         // Dynamic Filtering based on Form Selections
         if (structForm.college && s.college !== structForm.college) return false;
         if (structForm.course && s.course !== structForm.course) return false;
+        if (structForm.branch && s.branch !== structForm.branch) return false;
         if (structForm.feeHeadId && s.feeHead?._id !== structForm.feeHeadId) return false; // Filter by Fee Head
         // Handle Batch Filtering: structForm.batch might be '2022-2026', s.batch might be same
         if (structForm.batch && String(s.batch) !== String(structForm.batch)) return false;
