@@ -44,6 +44,10 @@ const feeStructureSchema = mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isTermsDivided: {
+    type: Boolean,
+    default: true
+  },
   terms: [{
     termNumber: { type: Number, required: true },
     percentage: { type: Number, required: true },

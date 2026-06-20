@@ -1089,7 +1089,7 @@ const FeeCollection = () => {
                                                                         const termCells = [];
                                                                         for (let i = 0; i < maxTerms; i++) {
                                                                             const term = fee.terms?.[i];
-                                                                            if (term) {
+                                                                            if (term && fee.isTermsDivided) {
                                                                                 const termTarget = Math.round((Number(fee.totalAmount || 0) * term.percentage) / 100);
                                                                                 const termPaid = Math.min(remainingPaid, termTarget);
                                                                                 const termBalance = termTarget - termPaid;
@@ -1101,7 +1101,7 @@ const FeeCollection = () => {
                                                                                     </td>
                                                                                 );
                                                                             } else {
-                                                                                termCells.push(<td key={i} className="py-2 px-4 text-right text-gray-200 bg-gray-50/20 text-[10px]">—</td>);
+                                                                                termCells.push(<td key={i} className="py-2 px-4 text-right text-gray-400 bg-gray-50/20 text-xs">- - -</td>);
                                                                             }
                                                                         }
                                                                         return termCells;

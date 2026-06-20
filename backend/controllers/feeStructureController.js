@@ -8,6 +8,20 @@ const db = require('../config/sqlDb');
 const applyFeeStructureToBatchInternal = async (structure) => {
   if (!structure) return;
   try {
+    // Only propagate/apply if standard fees have already been applied for this batch/course/branch
+    const batchFeesApplied = await StudentFee.exists({
+      academicYear: structure.batch,
+      college: structure.college,
+      course: structure.course,
+      branch: structure.branch,
+      $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+    });
+
+    if (!batchFeesApplied) {
+      console.log(`Skipping auto-apply: Batch fees have not been applied yet for batch ${structure.batch}, course ${structure.course}, branch ${structure.branch}`);
+      return;
+    }
+
     const [students] = await db.query(`
       SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
       FROM students 
@@ -63,7 +77,8 @@ const applyFeeStructureToBatchInternal = async (structure) => {
             feeHead: structure.feeHead,
             academicYear: structure.batch,
             studentYear: structure.studentYear,
-            semester: structure.semester
+            semester: structure.semester || null,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
           },
           update: {
             $set: {
@@ -76,7 +91,8 @@ const applyFeeStructureToBatchInternal = async (structure) => {
               semester: structure.semester,
               batch: s.batch,
               stud_type: structure.category,
-              isScholarshipApplicable: structure.isScholarshipApplicable || false
+              isScholarshipApplicable: structure.isScholarshipApplicable || false,
+              isTermsDivided: structure.isTermsDivided || false
             }
           },
           upsert: true
@@ -96,7 +112,7 @@ const applyFeeStructureToBatchInternal = async (structure) => {
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, terms } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
   // yearAmounts logic removed for simplifying Semester implementation as per requirement.
 
   try {
@@ -141,7 +157,8 @@ const createFeeStructure = async (req, res) => {
             amount: Number(amount),
             description,
             isScholarshipApplicable: isScholarshipApplicable || false,
-            terms: terms || []
+            isTermsDivided: isTermsDivided || false,
+            terms: (isTermsDivided && terms) ? terms : []
           }
         };
 
@@ -149,21 +166,37 @@ const createFeeStructure = async (req, res) => {
 
         const structure = await FeeStructure.findOneAndUpdate(query, update, options);
         
-        // Propagation: Update all students who already have this fee applied
         await StudentFee.updateMany(
           {
-            feeHead: feeHeadId,
-            college,
-            course,
-            branch,
-            academicYear: batch, // academicYear stores batch string
-            studentYear: sYear,
-            semester: sem,
-            stud_type: cat
+            $and: [
+              {
+                $or: [
+                  { structureId: structure._id },
+                  {
+                    feeHead: feeHeadId,
+                    college,
+                    course,
+                    branch,
+                    academicYear: batch, // academicYear stores batch string
+                    studentYear: sYear,
+                    semester: sem,
+                    stud_type: cat
+                  }
+                ]
+              },
+              {
+                $or: [
+                  { remarks: { $exists: false } },
+                  { remarks: null },
+                  { remarks: '' }
+                ]
+              }
+            ]
           },
           {
             $set: {
-              isScholarshipApplicable: isScholarshipApplicable || false
+              isScholarshipApplicable: isScholarshipApplicable || false,
+              isTermsDivided: isTermsDivided || false
             }
           }
         );
@@ -302,68 +335,78 @@ const getStudentFeeDetails = async (req, res) => {
     // --- JUST-IN-TIME (JIT) FEE STRUCTURE SYNC ---
     if (student) {
       try {
-        // Fetch revised fees from overall_concessions table
-        const [concessions] = await db.query(
-            `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNo]
-        );
-        const revisedFeesMap = {};
-        if (concessions.length > 0) {
-            const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
-            if (Array.isArray(fees)) {
-                const feeHeads = await FeeHead.find({}).lean();
-                const codeMap = {};
-                feeHeads.forEach(fh => {
-                    if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
-                });
+        // Only run standard JIT sync if standard fees have already been applied for this student/batch
+        const standardFeesApplied = await StudentFee.exists({
+          studentId: admissionNo,
+          academicYear: batch,
+          $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+        });
 
-                fees.forEach(rf => {
-                    let resolvedId = rf.feeHeadId;
-                    const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
-                    if (codeKey && codeMap[codeKey]) {
-                        resolvedId = codeMap[codeKey];
-                    }
-                    const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
-                    revisedFeesMap[key] = Number(rf.revisedAmount);
-                });
-            }
-        }
+        if (standardFeesApplied) {
+          // Fetch revised fees from overall_concessions table
+          const [concessions] = await db.query(
+              `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
+              [admissionNo]
+          );
+          const revisedFeesMap = {};
+          if (concessions.length > 0) {
+              const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
+              if (Array.isArray(fees)) {
+                  const feeHeads = await FeeHead.find({}).lean();
+                  const codeMap = {};
+                  feeHeads.forEach(fh => {
+                      if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
+                  });
 
-        for (const fs of applicableStructures) {
-          const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
-          const targetAmount = revisedFeesMap[fsKey] !== undefined ? revisedFeesMap[fsKey] : fs.amount;
+                  fees.forEach(rf => {
+                      let resolvedId = rf.feeHeadId;
+                      const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
+                      if (codeKey && codeMap[codeKey]) {
+                          resolvedId = codeMap[codeKey];
+                      }
+                      const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
+                      revisedFeesMap[key] = Number(rf.revisedAmount);
+                  });
+              }
+          }
 
-          const existingFee = await StudentFee.findOne({
-            studentId: admissionNo,
-            feeHead: fs.feeHead,
-            academicYear: fs.batch,
-            studentYear: fs.studentYear,
-            semester: fs.semester || null,
-            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-          });
+          for (const fs of applicableStructures) {
+            const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
+            const targetAmount = revisedFeesMap[fsKey] !== undefined ? revisedFeesMap[fsKey] : fs.amount;
 
-          if (!existingFee) {
-            console.log(`JIT Sync: Creating StudentFee demand for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear}`);
-            await StudentFee.create({
+            const existingFee = await StudentFee.findOne({
               studentId: admissionNo,
-              studentName: student.student_name,
               feeHead: fs.feeHead,
-              structureId: fs._id,
-              college: student.college,
-              course: student.course,
-              branch: student.branch,
               academicYear: fs.batch,
               studentYear: fs.studentYear,
               semester: fs.semester || null,
-              amount: targetAmount,
-              batch: student.batch,
-              stud_type: fs.category,
-              isScholarshipApplicable: fs.isScholarshipApplicable || false
+              $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
             });
-          } else if (existingFee.amount !== targetAmount) {
-            console.log(`JIT Sync: Updating StudentFee amount for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear} to ${targetAmount}`);
-            existingFee.amount = targetAmount;
-            await existingFee.save();
+
+            if (!existingFee) {
+              console.log(`JIT Sync: Creating StudentFee demand for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear}`);
+              await StudentFee.create({
+                studentId: admissionNo,
+                studentName: student.student_name,
+                feeHead: fs.feeHead,
+                structureId: fs._id,
+                college: student.college,
+                course: student.course,
+                branch: student.branch,
+                academicYear: fs.batch,
+                studentYear: fs.studentYear,
+                semester: fs.semester || null,
+                amount: targetAmount,
+                batch: student.batch,
+                stud_type: fs.category,
+                isScholarshipApplicable: fs.isScholarshipApplicable || false,
+                isTermsDivided: fs.isTermsDivided || false
+              });
+            } else if (existingFee.amount !== targetAmount) {
+              console.log(`JIT Sync: Updating StudentFee amount for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear} to ${targetAmount}`);
+              existingFee.amount = targetAmount;
+              await existingFee.save();
+            }
           }
         }
       } catch (jitError) {
@@ -377,10 +420,10 @@ const getStudentFeeDetails = async (req, res) => {
     // 4. Fetch all Transactions (Payments)
     const transactions = await Transaction.find({ studentId: admissionNo });
 
-    // Map structures by [headId-year] for quick lookup
+    // Map structures by [headId-year-semester] for quick lookup
     const structureMap = {};
     applicableStructures.forEach(fs => {
-      const key = `${fs.feeHead.toString()}-${fs.studentYear}`;
+      const key = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
       structureMap[key] = fs;
     });
 
@@ -392,11 +435,12 @@ const getStudentFeeDetails = async (req, res) => {
 
     const groupedData = {};
 
-    const getGroupKey = (headId, year, feeCode, remarks) => {
+    const getGroupKey = (headId, year, feeCode, remarks, semester) => {
+      const semKey = semester ? `S${semester}` : 'Y';
       if (feeCode === 'CF' || feeCode === 'SSF') {
-        return `${headId}-${year}-${remarks || 'General'}`;
+        return `${headId}-${year}-${semKey}-${remarks || 'General'}`;
       }
-      return `${headId}-${year}`;
+      return `${headId}-${year}-${semKey}`;
     };
 
     const formatServiceFeeName = (headName, remarks) => {
@@ -411,11 +455,11 @@ const getStudentFeeDetails = async (req, res) => {
       const hId = fee.feeHead ? fee.feeHead._id.toString() : 'unknown';
       const hCode = fee.feeHead ? fee.feeHead.code : '';
       const year = String(fee.studentYear || 1);
-      const key = getGroupKey(hId, year, hCode, fee.remarks);
+      const key = getGroupKey(hId, year, hCode, fee.remarks, fee.semester);
 
       if (!groupedData[key]) {
         // Find matching structure for terms
-        const structKey = `${hId}-${year}`;
+        const structKey = `${hId}-${year}-${fee.semester || 'null'}`;
         const matchedStructure = structureMap[structKey];
 
         groupedData[key] = {
@@ -432,8 +476,9 @@ const getStudentFeeDetails = async (req, res) => {
           dueAmount: 0,
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
+          isTermsDivided: fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false),
           studentScholarStatus: student ? student.scholar_status : null,
-          terms: matchedStructure ? matchedStructure.terms : [] // Attach terms!
+          terms: ((fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)) && matchedStructure) ? matchedStructure.terms : [] // Attach terms ONLY if terms divided!
         };
       }
       groupedData[key].totalAmount += (fee.amount || 0);
@@ -447,10 +492,10 @@ const getStudentFeeDetails = async (req, res) => {
       const head = feeHeads.find(h => h._id.toString() === hId);
       if (!head) return;
 
-      const key = getGroupKey(hId, year);
+      const key = getGroupKey(hId, year, head.code, null, fs.semester);
       if (!groupedData[key]) {
         groupedData[key] = {
-          _id: `temp-${hId}-${year}`,
+          _id: `temp-${hId}-${year}-${fs.semester || 'null'}`,
           feeHeadId: hId,
           feeHeadName: head.name,
           feeHeadCode: head.code || '',
@@ -462,7 +507,8 @@ const getStudentFeeDetails = async (req, res) => {
           paidAmount: 0,
           dueAmount: 0,
           isScholarshipApplicable: fs.isScholarshipApplicable || false,
-          terms: fs.terms || []
+          isTermsDivided: fs.isTermsDivided || false,
+          terms: fs.isTermsDivided ? (fs.terms || []) : []
         };
       }
     });
@@ -475,16 +521,16 @@ const getStudentFeeDetails = async (req, res) => {
 
         const head = feeHeads.find(h => h._id.toString() === hId);
         const hCode = head ? head.code : '';
-        const key = getGroupKey(hId, year, hCode, t.remarks);
+        const key = getGroupKey(hId, year, hCode, t.remarks, t.semester);
 
         // If we have a payment for a head/year that wasn't previously in grouping, add it
         if (!groupedData[key]) {
           const head = feeHeads.find(h => h._id.toString() === hId);
-          const structKey = `${hId}-${year}`;
+          const structKey = `${hId}-${year}-${t.semester || 'null'}`;
           const matchedStructure = structureMap[structKey];
 
           groupedData[key] = {
-            _id: `pay-${hId}-${year}`,
+            _id: `pay-${hId}-${year}-${t.semester || 'null'}`,
             feeHeadId: hId,
             feeHeadName: (head && (head.code === 'CF' || head.code === 'SSF')) ? formatServiceFeeName(head.name, t.remarks) : (head ? head.name : 'Unknown'),
             feeHeadCode: head ? head.code : '',
@@ -598,18 +644,10 @@ const applyFeeToBatch = async (req, res) => {
           filter: {
             studentId: s.admission_number,
             feeHead: structure.feeHead,
-            // We still store academicYear for historical reference if needed, 
-            // BUT for now let's just use "Batch Mode" storage or keep it simple.
-            // Actually, StudentFee likely needs an 'academicYear' to know WHICH year this fee belongs to?
-            // If we are moving to Batch Based, maybe we don't 'academicYear' on StudentFee 
-            // OR we calculate it: Batch 2024 + Year 1 = 2024-2025.
-            // For SAFETY, let's store the Batch in StudentFee too if possible, OR just use 'batch' as the key.
-            // To allow the system to work without breaking 'getStudentFeeDetails' (which uses academicYear),
-            // We might need to infer academicYear. 
-            // Let's store 'batch' in academicYear field for now to represent "This fee is for this Batch".
             academicYear: structure.batch,
             studentYear: structure.studentYear,
-            semester: structure.semester
+            semester: structure.semester || null,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
           },
           update: {
             $set: {
@@ -622,7 +660,8 @@ const applyFeeToBatch = async (req, res) => {
               semester: structure.semester,
               batch: s.batch,
               stud_type: structure.category,
-              isScholarshipApplicable: structure.isScholarshipApplicable || false
+              isScholarshipApplicable: structure.isScholarshipApplicable || false,
+              isTermsDivided: structure.isTermsDivided || false
             }
           },
           upsert: true
@@ -639,13 +678,35 @@ const applyFeeToBatch = async (req, res) => {
   }
 };
 
-// @desc    Save/Update Individual Student Fees
-// @route   POST /api/fee-structures/save-student-fees
 const saveStudentFees = async (req, res) => {
   const { fees } = req.body; // Array of objects
 
   try {
+    const uniqueColleges = [...new Set(fees.map(f => f.college))];
+    const uniqueCourses = [...new Set(fees.map(f => f.course))];
+    const uniqueBranches = [...new Set(fees.map(f => f.branch))];
+    const uniqueBatches = [...new Set(fees.map(f => f.batch))];
+
+    const applicableStructures = await FeeStructure.find({
+      college: { $in: uniqueColleges },
+      course: { $in: uniqueCourses },
+      branch: { $in: uniqueBranches },
+      batch: { $in: uniqueBatches }
+    }).lean();
+
+    const structureMap = {};
+    applicableStructures.forEach(fs => {
+      const key = `${fs.feeHead.toString()}_${fs.college}_${fs.course}_${fs.branch}_${fs.batch}_${fs.category}_${fs.studentYear}_${fs.semester || 'null'}`;
+      structureMap[key] = fs;
+    });
+
     const operations = fees.map(f => {
+      const fsKey = `${f.feeHeadId}_${f.college}_${f.course}_${f.branch}_${f.batch}_${f.category || 'Regular'}_${f.studentYear}_${f.semester || 'null'}`;
+      const matchedStructure = structureMap[fsKey];
+      const isTermsDivided = f.isTermsDivided !== undefined 
+          ? f.isTermsDivided 
+          : (matchedStructure ? matchedStructure.isTermsDivided : true);
+
       return {
         updateOne: {
           filter: {
@@ -653,7 +714,8 @@ const saveStudentFees = async (req, res) => {
             feeHead: f.feeHeadId,
             academicYear: f.batch, // Use Batch here
             studentYear: f.studentYear,
-            semester: f.semester
+            semester: f.semester || null,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
           },
           update: {
             $set: {
@@ -662,11 +724,12 @@ const saveStudentFees = async (req, res) => {
               course: f.course,
               branch: f.branch,
               amount: Number(f.amount),
-              semester: f.semester,
+              semester: f.semester || null,
               academicYear: f.batch, // Ensure it is saved
               batch: f.batch,
               stud_type: f.category,
-              isScholarshipApplicable: f.isScholarshipApplicable || false
+              isScholarshipApplicable: f.isScholarshipApplicable || false,
+              isTermsDivided: isTermsDivided
             }
           },
           upsert: true
@@ -686,7 +749,7 @@ const saveStudentFees = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, terms } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
   const user = req.user ? req.user.username : 'system';
 
   try {
@@ -714,28 +777,44 @@ const updateFeeStructure = async (req, res) => {
         amount,
         description,
         isScholarshipApplicable,
-        terms: terms || [],
+        isTermsDivided: isTermsDivided || false,
+        terms: (isTermsDivided && terms) ? terms : [],
         $push: { history: historyEntry }
       },
       { new: true }
     );
 
-    // Propagation: Update all students who already have this fee applied
-    // We match by the EXACT context of the definition BEFORE the update to ensure we target the right students
     await StudentFee.updateMany(
       {
-        feeHead: existing.feeHead,
-        college: existing.college,
-        course: existing.course,
-        branch: existing.branch,
-        academicYear: existing.batch, // academicYear stores batch string
-        studentYear: existing.studentYear,
-        semester: existing.semester,
-        stud_type: existing.category
+        $and: [
+          {
+            $or: [
+              { structureId: existing._id },
+              {
+                feeHead: existing.feeHead,
+                college: existing.college,
+                course: existing.course,
+                branch: existing.branch,
+                academicYear: existing.batch, // academicYear stores batch string
+                studentYear: existing.studentYear,
+                semester: existing.semester,
+                stud_type: existing.category
+              }
+            ]
+          },
+          {
+            $or: [
+              { remarks: { $exists: false } },
+              { remarks: null },
+              { remarks: '' }
+            ]
+          }
+        ]
       },
       {
         $set: {
-          isScholarshipApplicable: isScholarshipApplicable || false
+          isScholarshipApplicable: isScholarshipApplicable || false,
+          isTermsDivided: isTermsDivided || false
         }
       }
     );

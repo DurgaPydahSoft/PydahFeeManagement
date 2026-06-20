@@ -1,6 +1,7 @@
 const db = require('../config/sqlDb');
 const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
+const FeeStructure = require('../models/FeeStructure');
 
 // @desc    Get all students with their overall concessions (revised fees)
 // @route   GET /api/overall-concessions
@@ -196,31 +197,53 @@ const saveOverallConcession = async (req, res) => {
             concessionId = existing[0].id;
         }
 
-        // 4. Propagate to MongoDB StudentFee collection immediately
-        await StudentFee.findOneAndUpdate(
-            {
-                studentId: admissionNumber,
+        // 4. Propagate to MongoDB StudentFee collection immediately (only if standard fees already exist for this student and batch)
+        const standardFeesApplied = await StudentFee.exists({
+            studentId: admissionNumber,
+            academicYear: batch,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+        });
+
+        if (standardFeesApplied) {
+            const standardFee = await FeeStructure.findOne({
                 feeHead: feeHeadId,
-                academicYear: batch,
+                college,
+                course,
+                branch,
+                batch,
+                category: category || 'Regular',
                 studentYear: sYear,
-                semester: sem,
-                $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-            },
-            {
-                $set: {
-                    studentName: studentName,
-                    college: college || 'ANY',
-                    course: course,
-                    branch: branch,
-                    amount: amount,
+                semester: sem
+            }).lean();
+
+            const isTermsDivided = standardFee ? standardFee.isTermsDivided : false;
+
+            await StudentFee.findOneAndUpdate(
+                {
+                    studentId: admissionNumber,
+                    feeHead: feeHeadId,
+                    academicYear: batch,
+                    studentYear: sYear,
                     semester: sem,
-                    batch: batch,
-                    stud_type: category || 'Regular',
-                    isScholarshipApplicable: false
-                }
-            },
-            { upsert: true, new: true }
-        );
+                    $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+                },
+                {
+                    $set: {
+                        studentName: studentName,
+                        college: college || 'ANY',
+                        course: course,
+                        branch: branch,
+                        amount: amount,
+                        semester: sem,
+                        batch: batch,
+                        stud_type: category || 'Regular',
+                        isScholarshipApplicable: false,
+                        isTermsDivided: isTermsDivided || false
+                    }
+                },
+                { upsert: true, new: true }
+            );
+        }
 
         res.status(201).json({
             message: 'Revised fee saved successfully',
@@ -436,44 +459,71 @@ const bulkSaveOverallConcessions = async (req, res) => {
         await connection.commit();
 
         // 4. Perform MongoDB operations (outside SQL transaction, since MongoDB is not transactional in this setup and we want resilience)
-        // MongoDB Deletes
-        for (const d of toDelete) {
-            await StudentFee.deleteOne({
-                studentId: admissionNumber,
-                feeHead: d.feeHeadId,
-                academicYear: batch,
-                studentYear: d.studentYear,
-                semester: d.semester || null,
-                $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-            });
-        }
+        const standardFeesApplied = await StudentFee.exists({
+            studentId: admissionNumber,
+            academicYear: batch,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+        });
 
-        // MongoDB Upserts
-        for (const u of toUpsert) {
-            await StudentFee.findOneAndUpdate(
-                {
+        if (standardFeesApplied) {
+            // MongoDB Deletes
+            for (const d of toDelete) {
+                await StudentFee.deleteOne({
                     studentId: admissionNumber,
-                    feeHead: u.feeHeadId,
+                    feeHead: d.feeHeadId,
                     academicYear: batch,
-                    studentYear: u.studentYear,
-                    semester: u.semester,
+                    studentYear: d.studentYear,
+                    semester: d.semester || null,
                     $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-                },
-                {
-                    $set: {
-                        studentName: studentName,
-                        college: college || 'ANY',
-                        course: course,
-                        branch: branch,
-                        amount: u.revisedAmount,
+                });
+            }
+
+            const applicableStructures = await FeeStructure.find({
+                college,
+                course,
+                branch,
+                batch,
+                category: category || 'Regular'
+            }).lean();
+
+            const structureMap = {};
+            applicableStructures.forEach(fs => {
+                const key = `${fs.feeHead.toString()}_${fs.studentYear}_${fs.semester === null || fs.semester === undefined ? 'null' : fs.semester}`;
+                structureMap[key] = fs;
+            });
+
+            // MongoDB Upserts
+            for (const u of toUpsert) {
+                const fsKey = `${u.feeHeadId}_${u.studentYear}_${u.semester === null ? 'null' : u.semester}`;
+                const matchedStructure = structureMap[fsKey];
+                const isTermsDivided = matchedStructure ? matchedStructure.isTermsDivided : false;
+
+                await StudentFee.findOneAndUpdate(
+                    {
+                        studentId: admissionNumber,
+                        feeHead: u.feeHeadId,
+                        academicYear: batch,
+                        studentYear: u.studentYear,
                         semester: u.semester,
-                        batch: batch,
-                        stud_type: category || 'Regular',
-                        isScholarshipApplicable: false
-                    }
-                },
-                { upsert: true }
-            );
+                        $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+                    },
+                    {
+                        $set: {
+                            studentName: studentName,
+                            college: college || 'ANY',
+                            course: course,
+                            branch: branch,
+                            amount: u.revisedAmount,
+                            semester: u.semester,
+                            batch: batch,
+                            stud_type: category || 'Regular',
+                            isScholarshipApplicable: false,
+                            isTermsDivided: isTermsDivided || false
+                        }
+                    },
+                    { upsert: true }
+                );
+            }
         }
 
         // Fetch all concessions for this student again to return updated state

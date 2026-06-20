@@ -32,13 +32,17 @@ const FeeConfiguration = () => {
     const [headForm, setHeadForm] = useState({ name: '', code: '', description: '' });
     const [editHeadId, setEditHeadId] = useState(null);
 
+
+
+
     // --- TAB 2: DEFINITIONS (Fee Structures) ---
     const [structures, setStructures] = useState([]);
     const [structForm, setStructForm] = useState({
         feeHeadId: '', college: '', course: '', branch: '',
         batch: '', categories: [], studentYear: '', amount: '', // Replaced category with categories
         semester: '', // '1', '2' or empty for yearly
-        isScholarshipApplicable: false
+        isScholarshipApplicable: false,
+        isTermsDivided: true
     });
     const [feeType, setFeeType] = useState('Yearly'); // 'Yearly' or 'Semester'
     const [semAmounts, setSemAmounts] = useState({ 1: '', 2: '' }); // For simultaneous creation
@@ -211,23 +215,25 @@ const FeeConfiguration = () => {
         const total = Number(val) || 0;
         setBulkAmounts(prev => ({ ...prev, [key]: val }));
 
-        if (bulkTerms[key]) {
-            setBulkTerms(prev => {
-                const currentTerms = JSON.parse(JSON.stringify(prev[key]));
-                let sumA = 0;
-                currentTerms.data.forEach((t, i) => {
-                    if (i === currentTerms.data.length - 1) {
-                        t.a = total - sumA;
-                    } else {
-                        t.a = Math.round(total * (t.p / 100));
-                        sumA += t.a;
-                    }
+        if (structForm.isTermsDivided) {
+            if (bulkTerms[key]) {
+                setBulkTerms(prev => {
+                    const currentTerms = JSON.parse(JSON.stringify(prev[key]));
+                    let sumA = 0;
+                    currentTerms.data.forEach((t, i) => {
+                        if (i === currentTerms.data.length - 1) {
+                            t.a = total - sumA;
+                        } else {
+                            t.a = Math.round(total * (t.p / 100));
+                            sumA += t.a;
+                        }
+                    });
+                    return { ...prev, [key]: currentTerms };
                 });
-                return { ...prev, [key]: currentTerms };
-            });
-        } else if (val && !isNaN(val)) {
-            // Default to 3 terms as per user request
-            handleTermChange(key, 3);
+            } else if (val && !isNaN(val)) {
+                // Default to 3 terms as per user request
+                handleTermChange(key, 3);
+            }
         }
     };
 
@@ -265,7 +271,8 @@ const FeeConfiguration = () => {
                                 batch: structForm.batch,
                                 categories: structForm.categories,
                                 isScholarshipApplicable: structForm.isScholarshipApplicable,
-                                terms: termsData
+                                isTermsDivided: structForm.isTermsDivided,
+                                terms: structForm.isTermsDivided ? termsData : []
                             }));
                         }
                     } else {
@@ -288,7 +295,8 @@ const FeeConfiguration = () => {
                                     batch: structForm.batch,
                                     categories: structForm.categories,
                                     isScholarshipApplicable: structForm.isScholarshipApplicable,
-                                    terms: termsData
+                                    isTermsDivided: structForm.isTermsDivided,
+                                    terms: structForm.isTermsDivided ? termsData : []
                                 }));
                             }
                         });
@@ -324,7 +332,8 @@ const FeeConfiguration = () => {
             studentYear: '', // User must select year to refine OR use Multi-Year
             amount: '',
             semester: '',
-            isScholarshipApplicable: row.isScholarshipApplicable || false
+            isScholarshipApplicable: row.isScholarshipApplicable || false,
+            isTermsDivided: row.isTermsDivided || false
         });
 
         // Populate bulkAmounts and bulkTerms for Multi-Year Editing
@@ -369,7 +378,8 @@ const FeeConfiguration = () => {
             studentYear: '',
             amount: '',
             semester: '',
-            isScholarshipApplicable: false
+            isScholarshipApplicable: false,
+            isTermsDivided: true
         });
         setBulkAmounts({});
         setBulkTerms({});
@@ -453,10 +463,10 @@ const FeeConfiguration = () => {
                     // Check semester logic
                     if (appContext.semester) {
                         if (Number(st.semester) === Number(appContext.semester)) {
-                            yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable };
+                            yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable, isTermsDivided: st.isTermsDivided };
                         }
                     } else if (!st.semester) {
-                        yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable };
+                        yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable, isTermsDivided: st.isTermsDivided };
                     }
                 });
 
@@ -464,10 +474,10 @@ const FeeConfiguration = () => {
                 relevantFees.forEach(f => {
                     if (appContext.semester) {
                         if (Number(f.semester) === Number(appContext.semester)) {
-                            yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable };
+                            yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable, isTermsDivided: f.isTermsDivided };
                         }
                     } else if (!f.semester) {
-                        yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable };
+                        yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable, isTermsDivided: f.isTermsDivided };
                     }
                 });
 
@@ -542,7 +552,8 @@ const FeeConfiguration = () => {
                             studentYear: Number(year),
                             semester: appContext.semester,
                             amount: amt,
-                            isScholarshipApplicable: feeObj.isScholarshipApplicable // Pass the flag
+                            isScholarshipApplicable: feeObj.isScholarshipApplicable, // Pass the flag
+                            isTermsDivided: feeObj.isTermsDivided
                         });
                     }
                 });
@@ -785,15 +796,28 @@ const FeeConfiguration = () => {
                                     </div>
                                 )}
 
-                                <div className="flex items-center gap-2 mb-2">
-                                    <input
-                                        type="checkbox"
-                                        id="scholarshipCheck"
-                                        checked={structForm.isScholarshipApplicable}
-                                        onChange={e => setStructForm({ ...structForm, isScholarshipApplicable: e.target.checked })}
-                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                    />
-                                    <label htmlFor="scholarshipCheck" className="text-sm font-bold text-gray-700 cursor-pointer">Eligible for Scholarship</label>
+                                <div className="flex flex-wrap items-center gap-6 mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="scholarshipCheck"
+                                            checked={structForm.isScholarshipApplicable}
+                                            onChange={e => setStructForm({ ...structForm, isScholarshipApplicable: e.target.checked })}
+                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                        />
+                                        <label htmlFor="scholarshipCheck" className="text-sm font-bold text-gray-700 cursor-pointer">Eligible for Scholarship</label>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="termsDividedCheck"
+                                            checked={structForm.isTermsDivided}
+                                            onChange={e => setStructForm({ ...structForm, isTermsDivided: e.target.checked })}
+                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                        />
+                                        <label htmlFor="termsDividedCheck" className="text-sm font-bold text-gray-700 cursor-pointer">Terms Divided</label>
+                                    </div>
                                 </div>
 
                                 {/* Amount Section */}
@@ -829,10 +853,12 @@ const FeeConfiguration = () => {
                                                                 <>
                                                                     <div className="flex-1 flex gap-2">
                                                                         <input className="flex-1 border p-1 rounded text-sm" placeholder="Total Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-Y`, e.target.value)} />
-                                                                        <select className="border p-1 rounded text-xs w-24" value={bulkTerms[`${y}-Y`]?.count || ''} onChange={e => handleTermChange(`${y}-Y`, e.target.value)}>
-                                                                            <option value="">Terms</option>
-                                                                            {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} Terms</option>)}
-                                                                        </select>
+                                                                        {structForm.isTermsDivided && (
+                                                                            <select className="border p-1 rounded text-xs w-24" value={bulkTerms[`${y}-Y`]?.count || ''} onChange={e => handleTermChange(`${y}-Y`, e.target.value)}>
+                                                                                <option value="">Terms</option>
+                                                                                {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} Terms</option>)}
+                                                                            </select>
+                                                                        )}
                                                                     </div>
                                                                 </>
                                                             ) : (
@@ -840,19 +866,23 @@ const FeeConfiguration = () => {
                                                                     <div className="flex flex-col gap-1">
                                                                         <div className="flex gap-1">
                                                                             <input className="flex-1 border p-1 rounded text-xs" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S1`, e.target.value)} />
-                                                                            <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S1`]?.count || ''} onChange={e => handleTermChange(`${y}-S1`, e.target.value)}>
-                                                                                <option value="">T</option>
-                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
-                                                                            </select>
+                                                                            {structForm.isTermsDivided && (
+                                                                                <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S1`]?.count || ''} onChange={e => handleTermChange(`${y}-S1`, e.target.value)}>
+                                                                                    <option value="">T</option>
+                                                                                    {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
+                                                                                </select>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                     <div className="flex flex-col gap-1">
                                                                         <div className="flex gap-1">
                                                                             <input className="flex-1 border p-1 rounded text-xs" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S2`, e.target.value)} />
-                                                                            <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S2`]?.count || ''} onChange={e => handleTermChange(`${y}-S2`, e.target.value)}>
-                                                                                <option value="">T</option>
-                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
-                                                                            </select>
+                                                                            {structForm.isTermsDivided && (
+                                                                                <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S2`]?.count || ''} onChange={e => handleTermChange(`${y}-S2`, e.target.value)}>
+                                                                                    <option value="">T</option>
+                                                                                    {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
+                                                                                </select>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -860,36 +890,38 @@ const FeeConfiguration = () => {
                                                         </div>
 
                                                         {/* Terms Details Display */}
-                                                        {feeType === 'Yearly' ? (
-                                                            bulkTerms[`${y}-Y`] && (
-                                                                <div className="ml-14 grid grid-cols-3 gap-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
-                                                                    {bulkTerms[`${y}-Y`].data.map((term, idx) => (
-                                                                        <div key={idx} className="flex flex-col">
-                                                                            <label className="text-[10px] text-gray-500 font-bold uppercase">Term {idx + 1} (%)</label>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <input type="number" className="w-full border p-1 rounded text-xs" value={term.p} onChange={e => updateTermPercentage(`${y}-Y`, idx, e.target.value)} />
-                                                                                <span className="text-[10px] text-blue-600 font-bold">₹{term.a}</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                    <div className="col-span-3 text-[10px] text-right font-bold text-gray-400">Total: {bulkTerms[`${y}-Y`].data.reduce((acc, t) => acc + t.p, 0)}%</div>
-                                                                </div>
-                                                            )
-                                                        ) : (
-                                                            <div className="ml-14 grid grid-cols-2 gap-4">
-                                                                {['S1', 'S2'].map(s => bulkTerms[`${y}-${s}`] && (
-                                                                    <div key={s} className="grid grid-cols-2 gap-1 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
-                                                                        {bulkTerms[`${y}-${s}`].data.map((term, idx) => (
+                                                        {structForm.isTermsDivided && (
+                                                            feeType === 'Yearly' ? (
+                                                                bulkTerms[`${y}-Y`] && (
+                                                                    <div className="ml-14 grid grid-cols-3 gap-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                                                        {bulkTerms[`${y}-Y`].data.map((term, idx) => (
                                                                             <div key={idx} className="flex flex-col">
+                                                                                <label className="text-[10px] text-gray-500 font-bold uppercase">Term {idx + 1} (%)</label>
                                                                                 <div className="flex items-center gap-1">
-                                                                                    <input type="number" className="w-10 border p-1 rounded text-[10px]" value={term.p} onChange={e => updateTermPercentage(`${y}-${s}`, idx, e.target.value)} />
-                                                                                    <span className="text-[10px] text-blue-600 font-bold whitespace-nowrap">₹{term.a}</span>
+                                                                                    <input type="number" className="w-full border p-1 rounded text-xs" value={term.p} onChange={e => updateTermPercentage(`${y}-Y`, idx, e.target.value)} />
+                                                                                    <span className="text-[10px] text-blue-600 font-bold">₹{term.a}</span>
                                                                                 </div>
                                                                             </div>
                                                                         ))}
+                                                                        <div className="col-span-3 text-[10px] text-right font-bold text-gray-400">Total: {bulkTerms[`${y}-Y`].data.reduce((acc, t) => acc + t.p, 0)}%</div>
                                                                     </div>
-                                                                ))}
-                                                            </div>
+                                                                )
+                                                            ) : (
+                                                                <div className="ml-14 grid grid-cols-2 gap-4">
+                                                                    {['S1', 'S2'].map(s => bulkTerms[`${y}-${s}`] && (
+                                                                        <div key={s} className="grid grid-cols-2 gap-1 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                                                            {bulkTerms[`${y}-${s}`].data.map((term, idx) => (
+                                                                                <div key={idx} className="flex flex-col">
+                                                                                    <div className="flex items-center gap-1">
+                                                                                        <input type="number" className="w-10 border p-1 rounded text-[10px]" value={term.p} onChange={e => updateTermPercentage(`${y}-${s}`, idx, e.target.value)} />
+                                                                                        <span className="text-[10px] text-blue-600 font-bold whitespace-nowrap">₹{term.a}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )
                                                         )}
                                                     </div>
                                                 ));

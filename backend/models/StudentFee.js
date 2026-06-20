@@ -54,6 +54,10 @@ const studentFeeSchema = mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isTermsDivided: {
+    type: Boolean,
+    default: true
+  },
   stud_type: { // Category/Type from Student Table
     type: String,
   }
