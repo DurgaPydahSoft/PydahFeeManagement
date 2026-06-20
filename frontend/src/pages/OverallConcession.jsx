@@ -565,10 +565,10 @@ const OverallConcession = () => {
                                 <table className="w-full text-xs text-left border-collapse min-w-[800px]">
                                     <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-[10px] uppercase">
                                         <tr>
-                                            <th className="p-4 w-1/4">Student Info</th>
-                                            <th className="p-4 w-1/5">College / Batch</th>
-                                            <th className="p-4 w-1/5">Course / Branch</th>
-                                            <th className="p-4 w-1/3">Revised Fees</th>
+                                            <th className="p-4 w-3/12">Student Info</th>
+                                            <th className="p-4 w-5/12">Revised Fees</th>
+                                            <th className="p-4 w-2/12">College / Batch</th>
+                                            <th className="p-4 w-2/12">Course / Branch</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -603,14 +603,6 @@ const OverallConcession = () => {
                                                             </div>
                                                         </td>
                                                         <td className="p-4">
-                                                            <div className="font-semibold text-slate-800 uppercase">{s.college}</div>
-                                                            <div className="text-slate-500 mt-0.5">{s.batch} Batch</div>
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="font-semibold text-slate-800 uppercase">{s.course}</div>
-                                                            <div className="text-slate-500 mt-0.5 truncate max-w-[180px]">{s.branch}</div>
-                                                        </td>
-                                                        <td className="p-4">
                                                             {hasConcessions ? (
                                                                 <div className="space-y-2">
                                                                     {Object.entries(grouped).map(([fhId, items]) => (
@@ -631,6 +623,14 @@ const OverallConcession = () => {
                                                             ) : (
                                                                 <span className="text-slate-400 font-bold text-sm">-</span>
                                                             )}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <div className="font-semibold text-slate-800 uppercase">{s.college}</div>
+                                                            <div className="text-slate-500 mt-0.5">{s.batch} Batch</div>
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <div className="font-semibold text-slate-800 uppercase">{s.course}</div>
+                                                            <div className="text-slate-500 mt-0.5 truncate max-w-[180px]">{s.branch}</div>
                                                         </td>
                                                     </tr>
                                                 );
