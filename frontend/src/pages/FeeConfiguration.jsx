@@ -766,15 +766,7 @@ const FeeConfiguration = () => {
                                     <div className="bg-gray-50 p-3 rounded border border-gray-200">
                                         <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
                                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                            {categories.filter(c => {
-                                                const col = String(structForm.college || '').trim().toLowerCase();
-                                                const cou = String(structForm.course || '').trim().toLowerCase();
-                                                const bat = String(structForm.batch || '').trim().toLowerCase();
-                                                const key = `${col}|${cou}|${bat}`;
-
-                                                if (!categoryMapping[key]) return true;
-                                                return categoryMapping[key].includes(c);
-                                            }).map(c => (
+                                            {categories.map(c => (
                                                 <label key={c} className={`flex items-center gap-2 cursor-pointer p-2 rounded border transition ${structForm.categories.includes(c) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
                                                     <input
                                                         type="checkbox"
@@ -1070,15 +1062,7 @@ const FeeConfiguration = () => {
                                         <label className="text-xs font-bold text-gray-500">Category</label>
                                         <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required disabled={!appContext.college || !appContext.course || !appContext.batch}>
                                             <option value="">Select Category</option>
-                                            {categories.filter(c => {
-                                                const col = String(appContext.college || '').trim().toLowerCase();
-                                                const cou = String(appContext.course || '').trim().toLowerCase();
-                                                const bat = String(appContext.batch || '').trim().toLowerCase();
-                                                const key = `${col}|${cou}|${bat}`;
-
-                                                if (!categoryMapping[key]) return true;
-                                                return categoryMapping[key].includes(c);
-                                            }).map(c => <option key={c} value={c}>{c}</option>)}
+                                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -1232,7 +1216,7 @@ const FeeConfiguration = () => {
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
                                     <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.batch} onChange={e => setLateFeeForm({ ...lateFeeForm, batch: e.target.value, feeHead: '' })}>
                                         <option value="">Select...</option>
-                                        {batches.map(b => <option key={b}>{b}</option>)}
+                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -1259,21 +1243,9 @@ const FeeConfiguration = () => {
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
                                     <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.categories[0] || ''} onChange={e => setLateFeeForm({ ...lateFeeForm, categories: [e.target.value], feeHead: '' })}>
                                         <option value="">Select...</option>
-                                        {(lateFeeForm.college && lateFeeForm.course && lateFeeForm.batch) ? (
-                                            categories.filter(c => {
-                                                const col = String(lateFeeForm.college || '').trim().toLowerCase();
-                                                const cou = String(lateFeeForm.course || '').trim().toLowerCase();
-                                                const bat = String(lateFeeForm.batch || '').trim().toLowerCase();
-                                                const key = `${col}|${cou}|${bat}`;
-
-                                                if (!categoryMapping[key]) return true;
-                                                return categoryMapping[key].includes(c);
-                                            }).map(cat => (
-                                                <option key={cat} value={cat}>{cat}</option>
-                                            ))
-                                        ) : (
-                                            categories.map(cat => <option key={cat} value={cat}>{cat}</option>)
-                                        )}
+                                        {categories.map(cat => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>
