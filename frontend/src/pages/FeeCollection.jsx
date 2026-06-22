@@ -359,7 +359,7 @@ const FeeCollection = () => {
             setFeeDetails(feesRes.data);
 
             // Set Default Filter to student's current year to show active dues immediately
-            setViewFilterYear(String(found.current_year));
+            setViewFilterYear(String(found.current_year || 1));
 
             // 3. Fetch History
             const histRes = await api.get(`/transactions/student/${found.admission_number}`);
@@ -953,7 +953,7 @@ const FeeCollection = () => {
                                     {(() => {
                                         const yearWiseStats = {};
                                         // Initialize with all years up to current
-                                        for (let i = 1; i <= (student.current_year || 0); i++) {
+                                        for (let i = 1; i <= (student.current_year || 1); i++) {
                                             yearWiseStats[i] = { total: 0, paid: 0, due: 0, year: i };
                                         }
 

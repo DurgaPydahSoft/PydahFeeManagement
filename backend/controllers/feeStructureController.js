@@ -259,7 +259,7 @@ const getStudentFeeDetails = async (req, res) => {
     // 1. Fetch Student Info (to get current batch and year)
     const [students] = await db.query('SELECT id, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
-    const currentYear = student ? Number(student.current_year) : (Number(queryYear) || 1);
+    const currentYear = (student && student.current_year) ? Number(student.current_year) : (Number(queryYear) || 1);
     const batch = student ? student.batch : '';
     const college = student ? student.college : '';
     const course = student ? student.course : '';
@@ -335,78 +335,69 @@ const getStudentFeeDetails = async (req, res) => {
     // --- JUST-IN-TIME (JIT) FEE STRUCTURE SYNC ---
     if (student) {
       try {
-        // Only run standard JIT sync if standard fees have already been applied for this student/batch
-        const standardFeesApplied = await StudentFee.exists({
-          studentId: admissionNo,
-          academicYear: batch,
-          $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-        });
+        // Fetch revised fees from overall_concessions table
+        const [concessions] = await db.query(
+            `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
+            [admissionNo]
+        );
+        const revisedFeesMap = {};
+        if (concessions.length > 0) {
+            const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
+            if (Array.isArray(fees)) {
+                const feeHeads = await FeeHead.find({}).lean();
+                const codeMap = {};
+                feeHeads.forEach(fh => {
+                    if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
+                });
 
-        if (standardFeesApplied) {
-          // Fetch revised fees from overall_concessions table
-          const [concessions] = await db.query(
-              `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-              [admissionNo]
-          );
-          const revisedFeesMap = {};
-          if (concessions.length > 0) {
-              const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
-              if (Array.isArray(fees)) {
-                  const feeHeads = await FeeHead.find({}).lean();
-                  const codeMap = {};
-                  feeHeads.forEach(fh => {
-                      if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
-                  });
+                fees.forEach(rf => {
+                    let resolvedId = rf.feeHeadId;
+                    const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
+                    if (codeKey && codeMap[codeKey]) {
+                        resolvedId = codeMap[codeKey];
+                    }
+                    const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
+                    revisedFeesMap[key] = Number(rf.revisedAmount);
+                });
+            }
+        }
 
-                  fees.forEach(rf => {
-                      let resolvedId = rf.feeHeadId;
-                      const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
-                      if (codeKey && codeMap[codeKey]) {
-                          resolvedId = codeMap[codeKey];
-                      }
-                      const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
-                      revisedFeesMap[key] = Number(rf.revisedAmount);
-                  });
-              }
-          }
+        for (const fs of applicableStructures) {
+          const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
+          const targetAmount = revisedFeesMap[fsKey] !== undefined ? revisedFeesMap[fsKey] : fs.amount;
 
-          for (const fs of applicableStructures) {
-            const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
-            const targetAmount = revisedFeesMap[fsKey] !== undefined ? revisedFeesMap[fsKey] : fs.amount;
+          const existingFee = await StudentFee.findOne({
+            studentId: admissionNo,
+            feeHead: fs.feeHead,
+            academicYear: fs.batch,
+            studentYear: fs.studentYear,
+            semester: fs.semester || null,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+          });
 
-            const existingFee = await StudentFee.findOne({
+          if (!existingFee) {
+            console.log(`JIT Sync: Creating StudentFee demand for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear}`);
+            await StudentFee.create({
               studentId: admissionNo,
+              studentName: student.student_name,
               feeHead: fs.feeHead,
+              structureId: fs._id,
+              college: student.college,
+              course: student.course,
+              branch: student.branch,
               academicYear: fs.batch,
               studentYear: fs.studentYear,
               semester: fs.semester || null,
-              $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+              amount: targetAmount,
+              batch: student.batch,
+              stud_type: fs.category,
+              isScholarshipApplicable: fs.isScholarshipApplicable || false,
+              isTermsDivided: fs.isTermsDivided || false
             });
-
-            if (!existingFee) {
-              console.log(`JIT Sync: Creating StudentFee demand for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear}`);
-              await StudentFee.create({
-                studentId: admissionNo,
-                studentName: student.student_name,
-                feeHead: fs.feeHead,
-                structureId: fs._id,
-                college: student.college,
-                course: student.course,
-                branch: student.branch,
-                academicYear: fs.batch,
-                studentYear: fs.studentYear,
-                semester: fs.semester || null,
-                amount: targetAmount,
-                batch: student.batch,
-                stud_type: fs.category,
-                isScholarshipApplicable: fs.isScholarshipApplicable || false,
-                isTermsDivided: fs.isTermsDivided || false
-              });
-            } else if (existingFee.amount !== targetAmount) {
-              console.log(`JIT Sync: Updating StudentFee amount for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear} to ${targetAmount}`);
-              existingFee.amount = targetAmount;
-              await existingFee.save();
-            }
+          } else if (existingFee.amount !== targetAmount) {
+            console.log(`JIT Sync: Updating StudentFee amount for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear} to ${targetAmount}`);
+            existingFee.amount = targetAmount;
+            await existingFee.save();
           }
         }
       } catch (jitError) {
