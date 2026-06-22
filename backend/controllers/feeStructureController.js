@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
@@ -142,7 +143,7 @@ const createFeeStructure = async (req, res) => {
         const sem = semester ? Number(semester) : null;
 
         const query = {
-          feeHead: feeHeadId, // Mongoose casts string to ObjectId automatically in queries
+          feeHead: mongoose.Types.ObjectId.isValid(feeHeadId) ? new mongoose.Types.ObjectId(feeHeadId) : feeHeadId,
           college,
           course,
           branch,
@@ -158,7 +159,8 @@ const createFeeStructure = async (req, res) => {
             description,
             isScholarshipApplicable: isScholarshipApplicable || false,
             isTermsDivided: isTermsDivided || false,
-            terms: (isTermsDivided && terms) ? terms : []
+            terms: (isTermsDivided && terms) ? terms : [],
+            semester: sem // Explicitly set/update semester in document to match index
           }
         };
 
