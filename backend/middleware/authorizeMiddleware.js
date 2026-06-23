@@ -69,7 +69,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/overall-concessions',
-    permissions: ['/overall-concessions', '/fee-collection'],
+    permissions: ['/overall-concessions'],
   },
   {
     prefix: '/api/reminders',
@@ -159,6 +159,25 @@ const authorize = (req, res, next) => {
 
   if (user.role === 'superadmin' || user.role === 'admin') {
     return next();
+  }
+
+  // Restrict Concession process/bulk-process/modify-approved (PUT requests) strictly to /concessions permission
+  if (path.startsWith('/api/concessions') && req.method === 'PUT') {
+    if (hasPermission(user, ['/concessions'])) {
+      return next();
+    }
+    return res.status(403).json({ message: 'Forbidden: concession approvals require concessions permission' });
+  }
+
+  // Restrict Concession Approver modifications/management strictly to /concessions or /user-management
+  if (path.startsWith('/api/concession-approvers')) {
+    const isBasicGet = req.method === 'GET' && path === '/api/concession-approvers';
+    if (!isBasicGet) {
+      if (hasPermission(user, ['/concessions', '/user-management'])) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: concession approver management requires concessions or user management permissions' });
+    }
   }
 
   // Dashboard overview is the default landing page for all authenticated staff

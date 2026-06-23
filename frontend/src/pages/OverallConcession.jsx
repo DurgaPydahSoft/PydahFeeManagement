@@ -4,6 +4,12 @@ import Sidebar from './Sidebar';
 import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye } from 'lucide-react';
 
 const OverallConcession = () => {
+    // Permission Check
+    const user = JSON.parse(localStorage.getItem('user')) || {};
+    const permissions = user.permissions || [];
+    const role = user.role;
+    const hasPermission = role === 'superadmin' || role === 'admin' || permissions.includes('/overall-concessions');
+
     // Dropdown filters metadata
     const [metadata, setMetadata] = useState({});
     const [colleges, setColleges] = useState([]);
@@ -40,6 +46,7 @@ const OverallConcession = () => {
 
     // Fetch initial filter metadata and fee heads
     useEffect(() => {
+        if (!hasPermission) return;
         const fetchInitialData = async () => {
             try {
                 const [metaRes, headsRes] = await Promise.all([
@@ -56,7 +63,32 @@ const OverallConcession = () => {
             }
         };
         fetchInitialData();
-    }, []);
+    }, [hasPermission]);
+
+    if (!hasPermission) {
+        return (
+            <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+                <Sidebar />
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-red-100 max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
+                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <ShieldAlert size={40} className="text-red-500" />
+                        </div>
+                        <h2 className="text-2xl font-black text-slate-800 mb-2">Access Denied</h2>
+                        <p className="text-slate-500 font-medium leading-relaxed">
+                            You don't have the required permissions to view or manage Overall Concessions. Please contact your administrator.
+                        </p>
+                        <button 
+                            onClick={() => window.history.back()}
+                            className="mt-8 w-full py-3 px-6 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 transition-all shadow-lg shadow-slate-200 cursor-pointer"
+                        >
+                            Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // Filter cascade changes
     const handleCollegeChange = (e) => {

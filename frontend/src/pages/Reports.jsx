@@ -194,10 +194,10 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     <FileText size={14} /> Fee Head Breakdown
                                 </h4>
                                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                                    {Object.entries(row.feeHeads.reduce((acc, curr) => {
+                                    {Object.entries((row.feeHeads || []).reduce((acc, curr) => {
                                         acc[curr.name] = (acc[curr.name] || 0) + curr.amount;
                                         return acc;
-                                    })).map(([name, amount], i) => (
+                                    }, {})).map(([name, amount], i) => (
                                         <div key={i} className="flex flex-col p-3 rounded bg-gray-50 border border-gray-100">
                                             <span className="text-[10px] text-gray-500 font-bold uppercase truncate mb-1" title={name}>{name}</span>
                                             <span className="text-sm font-bold text-gray-800">{Number(amount).toLocaleString()}</span>

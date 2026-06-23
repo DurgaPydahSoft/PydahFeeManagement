@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2 } from 'lucide-react';
+import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2, ShieldAlert } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useReactToPrint } from 'react-to-print';
 import ConcessionReportPrint from '../components/ConcessionReportPrint';
@@ -94,7 +94,14 @@ const ConcessionManagement = () => {
     const [reportData, setReportData] = useState([]);
     const [isReportLoading, setIsReportLoading] = useState(false);
 
+    // Permission Check
+    const storedUser = JSON.parse(localStorage.getItem('user')) || {};
+    const permissions = storedUser.permissions || [];
+    const role = storedUser.role;
+    const hasPermission = role === 'superadmin' || role === 'admin' || permissions.includes('/concessions');
+
     useEffect(() => {
+        if (!hasPermission) return;
         const u = JSON.parse(localStorage.getItem('user'));
         setUser(u);
         fetchFeeHeads();
@@ -105,13 +112,14 @@ const ConcessionManagement = () => {
         if (activeTab === 'approvers' || activeTab === 'reports') {
             fetchApprovers();
         }
-    }, [activeTab]);
+    }, [activeTab, hasPermission]);
 
     useEffect(() => {
+        if (!hasPermission) return;
         if (activeTab === 'reports') {
             fetchReports();
         }
-    }, [activeTab, reportFilters]);
+    }, [activeTab, reportFilters, hasPermission]);
 
     const fetchReports = async () => {
         setIsReportLoading(true);
@@ -129,6 +137,7 @@ const ConcessionManagement = () => {
 
     // Search Logic (Debounced)
     useEffect(() => {
+        if (!hasPermission) return;
         const delayDebounceFn = setTimeout(async () => {
             if (activeTab === 'request' && searchTerm.length >= 3) {
                 setIsSearching(true);
@@ -142,7 +151,7 @@ const ConcessionManagement = () => {
             }
         }, 300);
         return () => clearTimeout(delayDebounceFn);
-    }, [searchTerm, activeTab]);
+    }, [searchTerm, activeTab, hasPermission]);
 
     const toggleStudentSelection = (s) => {
         // Toggle selection
@@ -234,6 +243,7 @@ const ConcessionManagement = () => {
 
     // Consolidated effect to update dropdown lists based on active tab filtering
     useEffect(() => {
+        if (!hasPermission) return;
         // Decide which filter source to use
         let currentCollege = '';
         let currentCourse = '';
@@ -266,7 +276,7 @@ const ConcessionManagement = () => {
         const branches = metadata.hierarchy[currentCollege][currentCourse] ? metadata.hierarchy[currentCollege][currentCourse].branches : [];
         setBranchList(branches);
 
-    }, [activeTab, formData.college, formData.course, filters.college, filters.course, reportFilters.college, reportFilters.course, metadata]);
+    }, [activeTab, formData.college, formData.course, filters.college, filters.course, reportFilters.college, reportFilters.course, metadata, hasPermission]);
 
 
     const fetchFeeHeads = async () => {
@@ -277,10 +287,11 @@ const ConcessionManagement = () => {
     };
 
     useEffect(() => {
+        if (!hasPermission) return;
         if (activeTab === 'approvals') {
             fetchPendingRequests();
         }
-    }, [activeTab, filters]); // Refetch when filters change
+    }, [activeTab, filters, hasPermission]); // Refetch when filters change
 
     const fetchPendingRequests = async () => {
         setApprovalLoading(true);
@@ -483,6 +494,31 @@ const ConcessionManagement = () => {
             setApprovalLoading(false);
         }
     };
+
+    if (!hasPermission) {
+        return (
+            <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+                <Sidebar />
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-red-100 max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
+                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <ShieldAlert size={40} className="text-red-500" />
+                        </div>
+                        <h2 className="text-2xl font-black text-slate-800 mb-2">Access Denied</h2>
+                        <p className="text-slate-500 font-medium leading-relaxed">
+                            You don't have the required permissions to view or manage Concession Approvals. Please contact your administrator.
+                        </p>
+                        <button 
+                            onClick={() => window.history.back()}
+                            className="mt-8 w-full py-3 px-6 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 transition-all shadow-lg shadow-slate-200 cursor-pointer"
+                        >
+                            Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const isSuperAdmin = user?.role === 'superadmin';
 
