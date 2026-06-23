@@ -56,6 +56,7 @@ const FeeCollection = () => {
     // Modals
     const [showReceiptModal, setShowReceiptModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [showPhotoPopup, setShowPhotoPopup] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
 
     const [lastTransaction, setLastTransaction] = useState(null);
@@ -880,7 +881,9 @@ const FeeCollection = () => {
                                                 <img
                                                     src={student.student_photo.startsWith('data:') ? student.student_photo : `data:image/jpeg;base64,${student.student_photo}`}
                                                     alt="Student"
-                                                    className="h-full w-full object-cover"
+                                                    className="h-full w-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
+                                                    title="Click to view larger image"
+                                                    onClick={() => setShowPhotoPopup(true)}
                                                 />
                                             ) : (
                                                 <div className="h-full w-full flex items-center justify-center text-xl font-bold text-gray-400">
@@ -1727,6 +1730,47 @@ const FeeCollection = () => {
                                     settings={receiptSettings}
                                     totalDue={totalDueAmount}
                                 />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Photo Popup Modal */}
+                {showPhotoPopup && student && student.student_photo && (
+                    <div 
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-fadeIn"
+                        onClick={() => setShowPhotoPopup(false)}
+                    >
+                        <div 
+                            className="relative bg-white p-2 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scaleUp flex flex-col items-center"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Header with Title and Close Button */}
+                            <div className="w-full flex justify-between items-center px-4 py-2 border-b border-gray-100">
+                                <h3 className="font-bold text-gray-800 truncate">{student.student_name}</h3>
+                                <button 
+                                    onClick={() => setShowPhotoPopup(false)} 
+                                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                                >
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            
+                            {/* Image Container */}
+                            <div className="w-full bg-gray-50 flex items-center justify-center overflow-hidden rounded-xl mt-2 p-1">
+                                <img
+                                    src={student.student_photo.startsWith('data:') ? student.student_photo : `data:image/jpeg;base64,${student.student_photo}`}
+                                    alt="Student Preview"
+                                    className="max-h-[70vh] max-w-full object-contain rounded-lg shadow-sm"
+                                />
+                            </div>
+                            
+                            {/* Student Metadata footer */}
+                            <div className="w-full px-4 py-3 bg-gray-50/50 mt-2 rounded-xl flex justify-between text-xs text-gray-500 font-medium">
+                                <span>Adm No: <span className="font-bold text-gray-700">{student.admission_number}</span></span>
+                                <span>Course: <span className="font-bold text-gray-700">{student.course} - {student.branch}</span></span>
                             </div>
                         </div>
                     </div>
