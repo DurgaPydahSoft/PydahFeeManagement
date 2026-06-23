@@ -5,7 +5,35 @@ import { getStoredUser } from '../lib/auth';
 
 const Sidebar = () => {
     const location = useLocation();
-    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        return localStorage.getItem('sidebar-collapsed') === 'true';
+    });
+
+    const toggleCollapsed = () => {
+        setIsCollapsed(prev => {
+            const next = !prev;
+            localStorage.setItem('sidebar-collapsed', String(next));
+            return next;
+        });
+    };
+
+    const expandSidebar = () => {
+        setIsCollapsed(false);
+        localStorage.setItem('sidebar-collapsed', 'false');
+    };
+
+    const navRef = React.useRef();
+
+    React.useEffect(() => {
+        const storedScroll = sessionStorage.getItem('sidebar-scroll');
+        if (storedScroll && navRef.current) {
+            navRef.current.scrollTop = Number(storedScroll);
+        }
+    }, []);
+
+    const handleScroll = (e) => {
+        sessionStorage.setItem('sidebar-scroll', e.target.scrollTop);
+    };
 
     const icons = {
         Dashboard: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
@@ -84,7 +112,7 @@ const Sidebar = () => {
             <div className={`p-4 border-b border-gray-200 flex items-center shrink-0 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                 <div
                     className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : ''}`}
-                    onClick={() => isCollapsed && setIsCollapsed(false)}
+                    onClick={() => isCollapsed && expandSidebar()}
                     title={isCollapsed ? "Click to Expand" : ""}
                 >
                     <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm transition-transform hover:scale-105">
@@ -95,7 +123,7 @@ const Sidebar = () => {
 
                 {!isCollapsed && (
                     <button
-                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        onClick={toggleCollapsed}
                         className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
@@ -103,7 +131,7 @@ const Sidebar = () => {
                 )}
             </div>
             
-            <nav className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+            <nav ref={navRef} onScroll={handleScroll} className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
                 {Object.entries(groupedItems).map(([section, items], sGroupIdx) => (
                     <div key={section} className="space-y-1">
                         {!isCollapsed ? (

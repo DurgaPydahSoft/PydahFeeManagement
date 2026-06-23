@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
-import * as XLSX from 'xlsx';
+// Removed XLSX import since Export was removed
 import {
     Calendar,
     Printer,
@@ -16,34 +16,12 @@ import {
     Search,
     ChevronDown,
     ChevronUp,
-    Download,
     Clock
 } from 'lucide-react';
 import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
 
-// --- Printing Helper for Modal ---
-const PrintTriggerComponent = ({ data, options, dateRange }) => {
-    const printRef = useRef();
-    const handlePrint = useReactToPrint({
-        contentRef: printRef,
-        documentTitle: `Cashier_Report_${data._id}_${Date.now()}`,
-        onAfterPrint: () => {
-            // Optional: Close modal or clear? 
-        }
-    });
-
-    return (
-        <>
-            <button id="hidden-print-trigger" onClick={handlePrint} className="hidden" />
-            <div style={{ display: 'none' }}>
-                <div style={{ display: 'block' }}>
-                    <CashierReportTemplate ref={printRef} data={data} options={options} dateRange={dateRange} />
-                </div>
-            </div>
-        </>
-    );
-};
+// PrintTriggerComponent was removed
 
 // --- Components ---
 
@@ -161,7 +139,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (activeTab === 'cashier' && role === 'cashier') {
+                                if (activeTab === 'cashier') {
                                     setPrintModalData({ row, dateRange });
                                 } else {
                                     handlePrint();
@@ -281,7 +259,13 @@ const Reports = () => {
     const [summary, setSummary] = useState({ totalConfirm: 0, count: 0 });
     const [expandedRows, setExpandedRows] = useState([]);
     const [printModalData, setPrintModalData] = useState(null);
-    const [printOptions, setPrintOptions] = useState({ mode: 'all', showTransactions: true });
+    const [printOptions, setPrintOptions] = useState({ mode: 'all', showSummary: true, showDetails: true });
+
+    const modalPrintRef = useRef(null);
+    const handleModalPrint = useReactToPrint({
+        contentRef: modalPrintRef,
+        documentTitle: `Cashier_Report_${printModalData?.isAll ? 'All' : (printModalData?.row?._id || 'N/A')}_${Date.now()}`
+    });
 
     const toggleRow = (idx) => {
         setExpandedRows(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
@@ -361,46 +345,7 @@ const Reports = () => {
         }
     };
 
-    const exportToCSV = () => {
-        if (!data || data.length === 0) return alert("No data to export");
-
-        const headers = [
-            activeTab === 'daily' ? 'Date' : activeTab === 'cashier' ? 'Cashier' : 'Fee Head',
-            "Transactions",
-            "Cash",
-            "Bank (Online)",
-            "Concession",
-            "Net Total"
-        ];
-
-        const rows = data.map(row => {
-            let identifier = '';
-            if (activeTab === 'daily') {
-                identifier = row._id?.day ? `${row._id.day}-${row._id.month}-${row._id.year}` : 'Date';
-            } else if (activeTab === 'feeHead') {
-                identifier = row.name || 'Unknown Fee Head';
-            } else {
-                identifier = row.name || row._id || 'Unknown';
-            }
-
-            const netTotal = (row.cashAmount || 0) + (row.bankAmount || 0);
-
-            return [
-                identifier,
-                row.count || row.totalCount || 0,
-                row.cashAmount || 0,
-                row.bankAmount || 0,
-                row.creditAmount || 0,
-                netTotal
-            ];
-        });
-
-        const wsData = [headers, ...rows];
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Report");
-        XLSX.writeFile(wb, `Report_${activeTab}_${startDate}_to_${endDate}.csv`);
-    };
+    // exportToCSV was removed
 
     const user = JSON.parse(localStorage.getItem('user')) || {};
     const role = user.role;
@@ -475,8 +420,12 @@ const Reports = () => {
                                             <Printer size={24} />
                                         </div>
                                         <div>
-                                            <h3 className="text-lg font-bold text-gray-900">Print Options</h3>
-                                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Cashier Summary Report</p>
+                                            <h3 className="text-lg font-bold text-gray-900">
+                                                {printModalData.isAll ? 'Print All Cashier Reports' : 'Print Cashier Report'}
+                                            </h3>
+                                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                                                {printModalData.isAll ? 'Combined Cashier Summaries' : `Cashier: ${printModalData.row?._id || 'N/A'}`}
+                                            </p>
                                         </div>
                                     </div>
 
@@ -507,48 +456,58 @@ const Reports = () => {
                                             </div>
                                         </div>
 
-                                        {/* Transactions Breakdown Toggle */}
-                                        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-                                            <div>
-                                                <p className="text-sm font-bold text-gray-800">Individual Transactions</p>
-                                                <p className="text-[10px] text-gray-500 font-medium">Show row-by-row breakdown in print</p>
-                                            </div>
-                                            <button
-                                                onClick={() => setPrintOptions(prev => ({ ...prev, showTransactions: !prev.showTransactions }))}
-                                                className={`
-                                                    w-12 h-6 rounded-full p-1 transition-colors duration-200
-                                                    ${printOptions.showTransactions ? 'bg-blue-600' : 'bg-gray-300'}
-                                                `}
-                                            >
-                                                <div className={`
-                                                    w-4 h-4 bg-white rounded-full shadow-sm transform transition-transform duration-200
-                                                    ${printOptions.showTransactions ? 'translate-x-6' : 'translate-x-0'}
-                                                `} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
+                                         {/* Printing Options Checkboxes */}
+                                         <div className="space-y-3">
+                                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">Print Sections</label>
+                                             
+                                             {/* Summary Option */}
+                                             <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                 <input
+                                                     type="checkbox"
+                                                     id="printSummaryOpt"
+                                                     checked={printOptions.showSummary}
+                                                     onChange={e => setPrintOptions(prev => ({ ...prev, showSummary: e.target.checked }))}
+                                                     className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                                 />
+                                                 <label htmlFor="printSummaryOpt" className="cursor-pointer flex-1">
+                                                     <p className="text-sm font-bold text-gray-800">Summary Abstract</p>
+                                                     <p className="text-[10px] text-gray-500 font-medium">Include overall summary, global fee heads, and college breakdowns</p>
+                                                 </label>
+                                             </div>
 
-                                <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
-                                    <button
-                                        onClick={() => setPrintModalData(null)}
-                                        className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            // The handlePrint is defined inside ReportRow. 
-                                            // We need a way to trigger it.
-                                            // For simplicity, we can just use a hidden print trigger here or pass it down.
-                                            // Actually, the easiest is to have the template in the modal and useReactToPrint here.
-                                            document.getElementById('hidden-print-trigger').click();
-                                        }}
-                                        className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-900 text-white hover:bg-black transition-all shadow-lg shadow-gray-200 active:scale-95 flex items-center justify-center gap-2"
-                                    >
-                                        <Printer size={16} /> Generate Print
-                                    </button>
-                                </div>
+                                             {/* Detailed View Option */}
+                                             <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                 <input
+                                                     type="checkbox"
+                                                     id="printDetailsOpt"
+                                                     checked={printOptions.showDetails}
+                                                     onChange={e => setPrintOptions(prev => ({ ...prev, showDetails: e.target.checked }))}
+                                                     className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                                 />
+                                                 <label htmlFor="printDetailsOpt" className="cursor-pointer flex-1">
+                                                     <p className="text-sm font-bold text-gray-800">Detailed View</p>
+                                                     <p className="text-[10px] text-gray-500 font-medium">Include row-by-row list of individual transactions</p>
+                                                 </label>
+                                             </div>
+                                         </div>
+                                     </div>
+                                 </div>
+
+                                 <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+                                     <button
+                                         onClick={() => setPrintModalData(null)}
+                                         className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
+                                     >
+                                         Cancel
+                                     </button>
+                                     <button
+                                         onClick={handleModalPrint}
+                                         disabled={!printOptions.showSummary && !printOptions.showDetails}
+                                         className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${(!printOptions.showSummary && !printOptions.showDetails) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                     >
+                                         <Printer size={16} /> Generate Print
+                                     </button>
+                                 </div>
                             </div>
                         </div>
                     )}
@@ -556,8 +515,9 @@ const Reports = () => {
                     {/* Hidden template for the modal print */}
                     <div className="hidden">
                         {printModalData && (
-                            <PrintTriggerComponent
-                                data={printModalData.row}
+                            <CashierReportTemplate
+                                ref={modalPrintRef}
+                                data={printModalData.isAll ? printModalData.rows : printModalData.row}
                                 options={printOptions}
                                 dateRange={printModalData.dateRange}
                             />
@@ -642,12 +602,14 @@ const Reports = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={exportToCSV}
-                                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-50 border border-gray-200 transition"
-                                    >
-                                        <Download size={16} /> Export
-                                    </button>
+                                    {activeTab === 'cashier' && data.length > 0 && (
+                                        <button
+                                            onClick={() => setPrintModalData({ isAll: true, rows: data, dateRange: { start: startDate, end: endDate } })}
+                                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
+                                        >
+                                            <Printer size={14} /> Print All Cashiers
+                                        </button>
+                                    )}
                                     <button
                                         onClick={fetchReport}
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-gray-800 text-white hover:bg-gray-900 transition shadow-sm"

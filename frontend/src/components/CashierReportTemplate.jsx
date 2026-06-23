@@ -1,17 +1,17 @@
 import React, { forwardRef } from 'react';
 
-const CashierReportTemplate = forwardRef(({ data, dateRange, options = { mode: 'all', showTransactions: true } }, ref) => {
+const SingleCashierReport = ({ data, dateRange, options = {} }) => {
+    if (!data) return null;
+    const { mode = 'all', showSummary = true, showDetails = true } = options || {};
+
     // Determine active transactions based on mode selection
     const rawTransactions = data.transactions || [];
     const filteredTransactions = rawTransactions.filter(tx => {
-        if (options.mode === 'all') return true;
-        if (options.mode === 'Cash') return tx.paymentMode === 'Cash';
-        if (options.mode === 'Online') return tx.paymentMode !== 'Cash';
+        if (mode === 'all') return true;
+        if (mode === 'Cash') return tx.paymentMode === 'Cash';
+        if (mode === 'Online') return tx.paymentMode !== 'Cash';
         return true;
     });
-
-    // Re-calculate Summary Stats if filtered
-    const isFiltered = options.mode !== 'all';
 
     // Summary Data for display
     const displayData = {
@@ -55,7 +55,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange, options = { mode: '
         .sort((a, b) => b.amount - a.amount);
 
     return (
-        <div ref={ref} className="p-8 font-sans text-black bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
+        <div className="p-8 font-sans text-black bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
             <style type="text/css" media="print">
                 {`
                     @page { size: A4; margin: 10mm; }
@@ -71,7 +71,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange, options = { mode: '
             {/* Header */}
             <div className="print-header">
                 <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>CASHIER COLLECTION SUMMARY REPORT {options.mode !== 'all' && `(${options.mode.toUpperCase()} ONLY)`}</p>
+                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>CASHIER COLLECTION SUMMARY REPORT {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
             </div>
 
             {/* Info Row */}
@@ -84,160 +84,137 @@ const CashierReportTemplate = forwardRef(({ data, dateRange, options = { mode: '
                 </div>
             </div>
 
-            {/* 1. Overall Summary Section (Compact Grid) */}
-            <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                    Transaction Summary {options.mode !== 'all' && `[${options.mode}]`}
-                </h3>
-                <table className="print-table">
-                    <tbody>
-                        <tr>
-                            <th style={{ width: '25%' }}>Total Receipts</th>
-                            <td style={{ width: '25%', textAlign: 'right' }}>{displayData.totalCount}</td>
-                            <th style={{ width: '25%' }}>Total Collected (Debit)</th>
-                            <td style={{ width: '25%', textAlign: 'right', fontWeight: 'bold' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
-                        </tr>
-                        <tr>
-                            {options.mode === 'all' ? (
-                                <>
-                                    <th>Cash Collected</th>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
-                                    <th>Bank Collected</th>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
-                                </>
-                            ) : options.mode === 'Cash' ? (
-                                <>
-                                    <th>Cash Collected</th>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
-                                    <th>Concessions (Credit)</th>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
-                                </>
-                            ) : (
-                                <>
-                                    <th>Bank Collected</th>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
-                                    <th>Concessions (Credit)</th>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
-                                </>
-                            )}
-                        </tr>
-                        {options.mode === 'all' ? (
-                            <tr>
-                                <th>Concessions (Credit)</th>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
-                                <th style={{ backgroundColor: '#e0e0e0' }}>NET TOTAL</th>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', backgroundColor: '#e0e0e0' }}>
-                                    ₹{Number(displayData.debitAmount || 0).toLocaleString()}
-                                </td>
-                            </tr>
-                        ) : (
-                            <tr>
-                                <th style={{ backgroundColor: '#e0e0e0' }}>NET TOTAL [{options.mode.toUpperCase()}]</th>
-                                <td colSpan="3" style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '16px', backgroundColor: '#e0e0e0' }}>
-                                    ₹{Number(displayData.debitAmount || 0).toLocaleString()}
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* 2. Global Fee Head Breakdown */}
-            <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                    Global Fee Head Summary
-                </h3>
-                <table className="print-table">
-                    <thead>
-                        <tr>
-                            <th>Fee Head</th>
-                            <th style={{ textAlign: 'right', width: '150px' }}>Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sortedFeeHeads.map((fh, idx) => (
-                            <tr key={idx} className="compact-row">
-                                <td>{fh.name}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(fh.amount).toLocaleString()}</td>
-                            </tr>
-                        ))}
-                        <tr style={{ backgroundColor: '#f0f0f0', fontWeight: 'bold' }}>
-                            <td style={{ textAlign: 'right' }}>Total</td>
-                            <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            {/* 3. College-wise Breakdown (The New Requirement) */}
-            {sortedColleges.length > 0 && (
-                <div>
+            {/* 1. Overall Summary Section (Abstract - Single Row) */}
+            {showSummary && (
+                <div style={{ marginBottom: '20px' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                        College-wise Detailed Breakdown
+                        Transaction Summary {mode !== 'all' && `[${mode}]`}
                     </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ textAlign: 'center', width: '20%' }}>Total Receipts</th>
+                                <th style={{ textAlign: 'right', width: '20%' }}>Cash</th>
+                                <th style={{ textAlign: 'right', width: '20%' }}>Bank (Online)</th>
+                                <th style={{ textAlign: 'right', width: '20%' }}>Concessions</th>
+                                <th style={{ textAlign: 'right', width: '20%', fontWeight: 'bold' }}>Net Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style={{ textAlign: 'center' }}>{displayData.totalCount}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        {sortedColleges.map((collegeName, cIdx) => {
-                            const colData = collegeData[collegeName];
+            {/* 2 & 3. Side-by-Side: Global Fee Head Summary & College-wise breakdown */}
+            {showSummary && (
+                <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '20px', pageBreakInside: 'avoid' }}>
+                    {/* Left: Global Fee Head Summary (50% width) */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                            Global Fee Head Summary
+                        </h3>
+                        <table className="print-table">
+                            <thead>
+                                <tr>
+                                    <th>Fee Head</th>
+                                    <th style={{ textAlign: 'right', width: '100px' }}>Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedFeeHeads.map((fh, idx) => (
+                                    <tr key={idx} className="compact-row">
+                                        <td>{fh.name}</td>
+                                        <td style={{ textAlign: 'right' }}>₹{Number(fh.amount).toLocaleString()}</td>
+                                    </tr>
+                                ))}
+                                <tr style={{ backgroundColor: '#f0f0f0', fontWeight: 'bold' }}>
+                                    <td style={{ textAlign: 'right' }}>Total</td>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
-                            return (
-                                <div key={cIdx} style={{ breakInside: 'avoid', marginBottom: '15px', border: '1px solid #ddd', padding: '0' }}>
-                                    <div style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        backgroundColor: '#f0f0f0',
-                                        borderBottom: '1px solid #ccc',
-                                        padding: '5px 8px',
-                                        marginBottom: '0'
-                                    }}>
-                                        <h4 style={{ margin: 0, fontSize: '11px', fontWeight: 'bold', color: '#000', textTransform: 'uppercase' }}>
-                                            {collegeName}
-                                        </h4>
-                                        <span style={{ fontSize: '11px', fontWeight: 'bold' }}>₹{Number(colData.total).toLocaleString()}</span>
-                                    </div>
-
-                                    {Object.entries(colData.courses)
-                                        .sort((a, b) => b[1].total - a[1].total)
-                                        .map(([courseName, courseData], crsIdx) => (
-                                            <div key={crsIdx} style={{ borderBottom: '1px solid #eee' }}>
-                                                <div style={{
-                                                    backgroundColor: '#fdfdfd',
-                                                    padding: '2px 8px',
-                                                    fontWeight: 'bold',
-                                                    fontSize: '9px',
-                                                    color: '#555',
-                                                    borderBottom: '1px solid #f0f0f0',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between'
-                                                }}>
-                                                    <span>{courseName}</span>
-                                                    <span>₹{Number(courseData.total).toLocaleString()}</span>
-                                                </div>
-                                                <table className="print-table" style={{ fontSize: '9px', width: '100%', border: 'none' }}>
-                                                    <tbody>
-                                                        {Object.entries(courseData.feeHeads)
-                                                            .filter(([_, amt]) => amt > 0)
-                                                            .sort((a, b) => b[1] - a[1])
-                                                            .map(([headName, amt], hIdx) => (
-                                                                <tr key={hIdx}>
-                                                                    <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 15px', color: '#444' }}>{headName}</td>
-                                                                    <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 8px', textAlign: 'right', width: '80px' }}>₹{Number(amt).toLocaleString()}</td>
-                                                                </tr>
-                                                            ))}
-                                                    </tbody>
-                                                </table>
+                    {/* Right: College-wise Breakdown (50% width) */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        {sortedColleges.length > 0 ? (
+                            <div>
+                                <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    College-wise Breakdown
+                                </h3>
+                                {sortedColleges.map((collegeName, cIdx) => {
+                                    const colData = collegeData[collegeName];
+                                    return (
+                                        <div key={cIdx} style={{ breakInside: 'avoid', marginBottom: '15px', border: '1px solid #ddd' }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                backgroundColor: '#f0f0f0',
+                                                borderBottom: '1px solid #ccc',
+                                                padding: '5px 8px',
+                                            }}>
+                                                <h4 style={{ margin: 0, fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                    {collegeName}
+                                                </h4>
+                                                <span style={{ fontSize: '10px', fontWeight: 'bold' }}>₹{Number(colData.total).toLocaleString()}</span>
                                             </div>
-                                        ))}
-                                </div>
-                            );
-                        })}
+
+                                            {Object.entries(colData.courses)
+                                                .sort((a, b) => b[1].total - a[1].total)
+                                                .map(([courseName, courseData], crsIdx) => (
+                                                    <div key={crsIdx} style={{ borderBottom: '1px solid #eee' }}>
+                                                        <div style={{
+                                                            backgroundColor: '#fdfdfd',
+                                                            padding: '2px 8px',
+                                                            fontWeight: 'bold',
+                                                            fontSize: '9px',
+                                                            color: '#555',
+                                                            borderBottom: '1px solid #f0f0f0',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between'
+                                                        }}>
+                                                            <span>{courseName}</span>
+                                                            <span>₹{Number(courseData.total).toLocaleString()}</span>
+                                                        </div>
+                                                        <table className="print-table" style={{ fontSize: '8px', width: '100%', border: 'none' }}>
+                                                            <tbody>
+                                                                {Object.entries(courseData.feeHeads)
+                                                                    .filter(([_, amt]) => amt > 0)
+                                                                    .sort((a, b) => b[1] - a[1])
+                                                                    .map(([headName, amt], hIdx) => (
+                                                                        <tr key={hIdx}>
+                                                                            <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 10px', color: '#444' }}>{headName}</td>
+                                                                            <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 8px', textAlign: 'right', width: '70px' }}>₹{Number(amt).toLocaleString()}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '20px', border: '1px solid #ddd', color: '#888' }}>
+                                No college-wise breakdown available.
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* 4. Individual Transactions Table (NEW) */}
-            {options.showTransactions && filteredTransactions.length > 0 && (
+            {/* 4. Individual Transactions Table */}
+            {showDetails && filteredTransactions.length > 0 && (
                 <div style={{ marginTop: '20px' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Individual Transactions Breakdown
@@ -291,6 +268,25 @@ const CashierReportTemplate = forwardRef(({ data, dateRange, options = { mode: '
                     <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Principal/Director</p>
                 </div>
             </div>
+        </div>
+    );
+};
+
+const CashierReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref) => {
+    if (!data) return null;
+    const isArray = Array.isArray(data);
+
+    return (
+        <div ref={ref}>
+            {isArray ? (
+                data.filter(Boolean).map((cashierRow, index) => (
+                    <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
+                        <SingleCashierReport data={cashierRow} dateRange={dateRange} options={options} />
+                    </div>
+                ))
+            ) : (
+                <SingleCashierReport data={data} dateRange={dateRange} options={options} />
+            )}
         </div>
     );
 });

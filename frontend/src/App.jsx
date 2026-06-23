@@ -1,35 +1,34 @@
 
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Documentation from './pages/Documentation';
+import Dashboard from './pages/Dashboard';
+import FeeConfiguration from './pages/FeeConfiguration';
+import Students from './pages/Students';
+import FeeCollection from './pages/FeeCollection';
+import UserManagement from './pages/UserManagement';
+import TransportConfiguration from './pages/TransportConfiguration';
+import HostelConfiguration from './pages/HostelConfiguration';
+import PaymentConfiguration from './pages/PaymentConfiguration';
+import ReminderConfiguration from './pages/ReminderConfiguration';
+import AcademicCalendar from './pages/AcademicCalendar';
+import BulkFeeUpload from './pages/BulkFeeUpload';
+import ConcessionManagement from './pages/ConcessionManagement';
+import OverallConcession from './pages/OverallConcession';
+import Permissions from './pages/Permissions';
+import Settings from './pages/Settings';
+import UserProfile from './pages/UserProfile';
+import Proceedings from './pages/Proceedings';
+import Reports from './pages/Reports';
+import DueReports from './pages/DueReports';
 
 const PageLoader = () => (
   <div className="flex h-screen items-center justify-center bg-gray-50">
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
   </div>
 );
-
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const FeeConfiguration = lazy(() => import('./pages/FeeConfiguration'));
-const Students = lazy(() => import('./pages/Students'));
-const FeeCollection = lazy(() => import('./pages/FeeCollection'));
-const UserManagement = lazy(() => import('./pages/UserManagement'));
-const TransportConfiguration = lazy(() => import('./pages/TransportConfiguration'));
-const HostelConfiguration = lazy(() => import('./pages/HostelConfiguration'));
-const PaymentConfiguration = lazy(() => import('./pages/PaymentConfiguration'));
-const ReminderConfiguration = lazy(() => import('./pages/ReminderConfiguration'));
-const AcademicCalendar = lazy(() => import('./pages/AcademicCalendar'));
-const BulkFeeUpload = lazy(() => import('./pages/BulkFeeUpload'));
-const ConcessionManagement = lazy(() => import('./pages/ConcessionManagement'));
-const OverallConcession = lazy(() => import('./pages/OverallConcession'));
-const Permissions = lazy(() => import('./pages/Permissions'));
-const Settings = lazy(() => import('./pages/Settings'));
-const UserProfile = lazy(() => import('./pages/UserProfile'));
-const Proceedings = lazy(() => import('./pages/Proceedings'));
-const Reports = lazy(() => import('./pages/Reports'));
-const DueReports = lazy(() => import('./pages/DueReports'));
 
 function App() {
   return (
