@@ -5,12 +5,46 @@ on:
     branches:
       - main
 
+concurrency:
+  group: production
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: Deploy to AWS Lightsail
     runs-on: ubuntu-latest
 
     steps:
+      #################################################
+      # Checkout code
+      #################################################
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      #################################################
+      # Setup Node.js for frontend build
+      #################################################
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      #################################################
+      # Build frontend on GitHub Actions
+      #################################################
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm run build
+
+      #################################################
+      # Configure SSH
+      #################################################
       - name: Configure SSH
         run: |
           set -e
@@ -18,8 +52,20 @@ jobs:
           echo "${{ secrets.SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
-          echo "SSH configured for host: ${{ secrets.HOST }}"
 
+      #################################################
+      # Upload frontend dist to server
+      #################################################
+      - name: Upload frontend build
+        run: |
+          rsync -avz \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            frontend/dist/ \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}:/tmp/frontend-dist/"
+
+      #################################################
+      # Deploy to server
+      #################################################
       - name: Deploy to server
         env:
           HOST: ${{ secrets.HOST }}
@@ -30,17 +76,16 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o BatchMode=yes \
             "${USERNAME}@${HOST}" << 'ENDSSH'
+
           set -e
 
           PROJECT_DIR="/home/ec2-user/PydahFeeManagement"
           FRONTEND_WEB_ROOT="/var/www/pydahfee"
 
           echo "=========================================="
-          echo "  Starting deployment"
-          echo "  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "Starting deployment"
           echo "=========================================="
 
-          echo "==> Navigating to project directory..."
           cd "${PROJECT_DIR}"
 
           echo "==> Pulling latest code from main..."
@@ -48,46 +93,51 @@ jobs:
           git checkout main
           git pull origin main
 
+          #################################################
+          # BACKEND PART (UNCHANGED)
+          #################################################
           echo "==> Installing backend dependencies..."
           cd "${PROJECT_DIR}/backend"
+
           if [ -f package-lock.json ]; then
             npm ci --omit=dev
           else
             npm install --omit=dev
           fi
 
-          echo "==> Installing frontend dependencies..."
-          cd "${PROJECT_DIR}/frontend"
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-
-          echo "==> Building frontend..."
-          npm run build
-
-          if [ ! -d "${PROJECT_DIR}/frontend/dist" ]; then
-            echo "ERROR: frontend build output not found at frontend/dist"
-            exit 1
-          fi
-
-          echo "==> Deploying frontend to ${FRONTEND_WEB_ROOT}..."
+          #################################################
+          # FRONTEND PART (UPDATED)
+          #################################################
+          echo "==> Deploying frontend..."
           sudo mkdir -p "${FRONTEND_WEB_ROOT}"
-          sudo rsync -av --delete "${PROJECT_DIR}/frontend/dist/" "${FRONTEND_WEB_ROOT}/"
 
+          sudo rsync -av --delete \
+            /tmp/frontend-dist/ \
+            "${FRONTEND_WEB_ROOT}/"
+
+          #################################################
+          # PM2
+          #################################################
           echo "==> Restarting PM2 process: backend..."
           pm2 restart backend
 
           echo "==> Saving PM2 process list..."
           pm2 save
 
+          #################################################
+          # Cleanup
+          #################################################
+          rm -rf /tmp/frontend-dist
+
           echo "=========================================="
-          echo "  Deployment completed successfully"
-          echo "  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "Deployment completed successfully"
           echo "=========================================="
+
           ENDSSH
 
+      #################################################
+      # Cleanup SSH key
+      #################################################
       - name: Cleanup SSH key
         if: always()
         run: rm -f ~/.ssh/deploy_key
