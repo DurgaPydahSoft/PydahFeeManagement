@@ -19,6 +19,8 @@ const Dashboard = () => {
     const [user, setUser] = useState(null);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -31,8 +33,11 @@ const Dashboard = () => {
 
     useEffect(() => {
         const fetchStats = async () => {
+            setLoading(true);
             try {
-                const res = await api.get(`/reports/dashboard-stats`);
+                const res = await api.get(`/reports/dashboard-stats`, {
+                    params: { startDate, endDate }
+                });
                 setStats(res.data);
             } catch (error) {
                 console.error("Error fetching dashboard stats", error);
@@ -41,40 +46,57 @@ const Dashboard = () => {
             }
         };
         if (user) fetchStats();
-    }, [user]);
+    }, [user, startDate, endDate]);
 
     if (!user) return <div className="flex h-screen items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>;
 
     const kpis = [
         {
-            label: "Today's Collection",
-            value: `${stats?.collections?.today.toLocaleString() || 0}`,
-            icon: Calendar,
-            color: "border-blue-500",
-            iconColor: "text-blue-500"
-        },
-        {
-            label: "Monthly Collection",
-            value: `${stats?.collections?.monthly.toLocaleString() || 0}`,
-            icon: TrendingUp,
-            color: "border-emerald-500",
-            iconColor: "text-emerald-500"
-        },
-        {
-            label: "Total Collection",
-            value: `${stats?.collections?.total.toLocaleString() || 0}`,
+            label: "Overall Collection",
+            value: `₹${(stats?.collections?.total || 0).toLocaleString()}`,
             icon: DollarSign,
-            color: "border-indigo-500",
-            iconColor: "text-indigo-500"
+            bgClass: "bg-blue-600 border-blue-600 hover:shadow-blue-500/30 text-white",
+            iconBg: "bg-blue-700/60 text-white border border-blue-500",
+            labelClass: "text-white/80",
+            valClass: "text-white font-extrabold"
+        },
+        {
+            label: "Cash Collection",
+            value: `₹${(stats?.collections?.cash || 0).toLocaleString()}`,
+            icon: Calendar,
+            bgClass: "bg-emerald-600 border-emerald-600 hover:shadow-emerald-500/30 text-white",
+            iconBg: "bg-emerald-700/60 text-white border border-emerald-500",
+            labelClass: "text-white/80",
+            valClass: "text-white font-extrabold"
+        },
+        {
+            label: "Online Collection",
+            value: `₹${(stats?.collections?.online || 0).toLocaleString()}`,
+            icon: TrendingUp,
+            bgClass: "bg-indigo-600 border-indigo-600 hover:shadow-indigo-500/30 text-white",
+            iconBg: "bg-indigo-700/60 text-white border border-indigo-500",
+            labelClass: "text-white/80",
+            valClass: "text-white font-extrabold"
         },
         {
             label: "Active Students",
             value: stats?.totalStudents || 0,
             icon: Users,
-            color: "border-amber-500",
-            iconColor: "text-amber-500"
+            bgClass: "bg-amber-500 border-amber-500 hover:shadow-amber-500/30 text-white",
+            iconBg: "bg-amber-600/60 text-white border border-amber-400",
+            labelClass: "text-white/80",
+            valClass: "text-white font-extrabold"
         }
     ];
+
+    const cashCollected = stats?.collections?.cash || 0;
+    const onlineCollected = stats?.collections?.online || 0;
+    const totalCollected = cashCollected + onlineCollected;
+    const cashPercentage = totalCollected > 0 ? Math.round((cashCollected / totalCollected) * 100) : 0;
+    const onlinePercentage = totalCollected > 0 ? Math.round((onlineCollected / totalCollected) * 100) : 0;
+    const maxVal = Math.max(cashCollected, onlineCollected);
+    const cashHeight = maxVal > 0 ? (cashCollected / maxVal) * 80 : 0;
+    const onlineHeight = maxVal > 0 ? (onlineCollected / maxVal) * 80 : 0;
 
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
@@ -83,14 +105,37 @@ const Dashboard = () => {
             <div className="flex-1 flex flex-col h-screen overflow-hidden">
                 <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
                     {/* Header - More Compact */}
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
                         <div>
-                            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">Admin Terminal</h1>
+                            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">Admin Dashboard</h1>
                             <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Real-time Operation Metrics</p>
                         </div>
-                        <div className="text-[10px] font-black text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-slate-200 uppercase tracking-widest flex items-center gap-2">
-                            <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-                            Live Portal
+                        
+                        <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
+                            {/* Current Date Display */}
+                            <div className="text-[11px] font-bold text-slate-500 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
+                                <Calendar size={14} className="text-blue-600" />
+                                <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                            </div>
+
+                            {/* Date Range Picker */}
+                            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wide">From:</span>
+                                <input
+                                    type="date"
+                                    className="bg-transparent border-none p-0 text-xs font-bold text-slate-700 focus:ring-0 cursor-pointer w-28"
+                                    value={startDate}
+                                    onChange={e => setStartDate(e.target.value)}
+                                />
+                                <span className="text-slate-300 mx-1">to</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wide">To:</span>
+                                <input
+                                    type="date"
+                                    className="bg-transparent border-none p-0 text-xs font-bold text-slate-700 focus:ring-0 cursor-pointer w-28"
+                                    value={endDate}
+                                    onChange={e => setEndDate(e.target.value)}
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -105,13 +150,13 @@ const Dashboard = () => {
                             {/* KPI Grid - Compact Cards */}
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                 {kpis.map((kpi, idx) => (
-                                    <div key={idx} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 ${kpi.color} flex items-center gap-4 hover:shadow-md transition-shadow cursor-default`}>
-                                        <div className={`${kpi.iconColor} bg-slate-50 p-2 rounded-lg border border-slate-100`}>
+                                    <div key={idx} className={`p-4 rounded-xl border ${kpi.bgClass} flex items-center gap-4 hover:shadow-md transition-shadow cursor-default`}>
+                                        <div className={`p-2 rounded-lg border ${kpi.iconBg}`}>
                                             <kpi.icon size={18} />
                                         </div>
                                         <div>
-                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.1em]">{kpi.label}</p>
-                                            <p className="text-lg font-black text-slate-800 tracking-tight leading-tight">{kpi.value}</p>
+                                            <p className={`text-[9px] font-bold uppercase tracking-[0.1em] ${kpi.labelClass}`}>{kpi.label}</p>
+                                            <p className={`text-lg font-black tracking-tight leading-tight ${kpi.valClass}`}>{kpi.value}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -222,25 +267,66 @@ const Dashboard = () => {
 
                                 {/* Operator & Insights Column */}
                                 <div className="space-y-6">
-                                    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-                                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Active Operator</h3>
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-12 w-12 rounded-2xl bg-white flex items-center justify-center text-slate-400 font-black text-xl border-2 border-slate-100 shadow-inner">
-                                                {user?.name?.charAt(0)}
+                                    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4 flex flex-col h-[280px]">
+                                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                Collection Analysis
+                                            </h3>
+                                            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.1em] bg-indigo-50 px-2 py-0.5 rounded-full">
+                                                Cash vs Online
+                                            </span>
+                                        </div>
+
+                                        {/* Chart Area */}
+                                        <div className="flex-1 flex items-end justify-around gap-6 relative px-4 pb-2 pt-6 border-b border-slate-100">
+                                            {/* Grid Lines */}
+                                            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-2 pt-6">
+                                                <div className="w-full border-t border-slate-100/70"></div>
+                                                <div className="w-full border-t border-slate-100/70"></div>
+                                                <div className="w-full border-t border-slate-100/70"></div>
+                                                <div className="w-full border-t border-slate-100/70 text-right"></div>
                                             </div>
-                                            <div>
-                                                <p className="text-sm font-black text-slate-800 leading-tight">{user?.name}</p>
-                                                <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.1em] bg-indigo-50 px-2 py-0.5 rounded-full mt-1 inline-block">{user?.role} Access</span>
+
+                                            {/* Cash Bar */}
+                                            <div className="flex flex-col items-center group w-16 z-10 h-full justify-end">
+                                                <span className="text-[10px] font-black text-slate-700 mb-2 opacity-100 transition-opacity">
+                                                    {cashPercentage}%
+                                                </span>
+                                                <div 
+                                                    style={{ height: `${Math.max(cashHeight, 2)}%` }}
+                                                    className="w-full bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg shadow-sm transition-all duration-500 ease-out group-hover:brightness-105"
+                                                    title={`Cash: ₹${cashCollected.toLocaleString()}`}
+                                                ></div>
+                                            </div>
+
+                                            {/* Online Bar */}
+                                            <div className="flex flex-col items-center group w-16 z-10 h-full justify-end">
+                                                <span className="text-[10px] font-black text-slate-700 mb-2 opacity-100 transition-opacity">
+                                                    {onlinePercentage}%
+                                                </span>
+                                                <div 
+                                                    style={{ height: `${Math.max(onlineHeight, 2)}%` }}
+                                                    className="w-full bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg shadow-sm transition-all duration-500 ease-out group-hover:brightness-105"
+                                                    title={`Online: ₹${onlineCollected.toLocaleString()}`}
+                                                ></div>
                                             </div>
                                         </div>
-                                        <div className="space-y-2 mt-4 pt-4 border-t border-slate-50">
-                                            <div className="flex justify-between items-center text-[10px]">
-                                                <span className="font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Shield size={10} className="text-emerald-500" /> System Integrity</span>
-                                                <span className="font-black text-emerald-500 uppercase tracking-widest">Optimal</span>
+
+                                        {/* X-Axis labels & info */}
+                                        <div className="flex justify-around text-center mt-2">
+                                            <div className="flex flex-col items-center">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                    <span className="text-xs font-bold text-slate-800">Cash</span>
+                                                </div>
+                                                <span className="text-[11px] font-black text-emerald-600 mt-0.5">₹{cashCollected.toLocaleString()}</span>
                                             </div>
-                                            <div className="flex justify-between items-center text-[10px]">
-                                                <span className="font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Users size={10} className="text-blue-500" /> Active Roster</span>
-                                                <span className="font-black text-slate-800 tracking-tighter">{stats?.totalStudents} students</span>
+                                            <div className="flex flex-col items-center">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                                    <span className="text-xs font-bold text-slate-800">Online</span>
+                                                </div>
+                                                <span className="text-[11px] font-black text-indigo-600 mt-0.5">₹{onlineCollected.toLocaleString()}</span>
                                             </div>
                                         </div>
                                     </div>

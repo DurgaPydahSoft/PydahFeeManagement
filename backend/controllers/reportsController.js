@@ -544,56 +544,69 @@ const getDueReports = async (req, res) => {
 
 const getDashboardStats = async (req, res) => {
     try {
-        const { college } = req.query; // Optional: filter by college
+        const { startDate, endDate } = req.query;
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Base date matching stage
+        const dateFilter = {};
+        if (startDate || endDate) {
+            dateFilter.createdAt = {};
+            if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                dateFilter.createdAt.$lte = end;
+            }
+        } else {
+            // Default to today if no dates provided
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const endOfToday = new Date();
+            endOfToday.setHours(23, 59, 59, 999);
+            dateFilter.createdAt = { $gte: today, $lte: endOfToday };
+        }
 
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-        // 1. Collections (DEBIT transactions)
+        // 1. Collections (DEBIT transactions) within date range
         const collectionStats = await Transaction.aggregate([
             {
                 $match: {
-                    transactionType: 'DEBIT'
+                    transactionType: 'DEBIT',
+                    ...dateFilter
                 }
             },
             {
                 $group: {
                     _id: null,
-                    today: {
-                        $sum: { $cond: [{ $gte: ["$createdAt", today] }, "$amount", 0] }
+                    total: { $sum: "$amount" },
+                    cash: {
+                        $sum: { $cond: [{ $eq: ["$paymentMode", "Cash"] }, "$amount", 0] }
                     },
-                    monthly: {
-                        $sum: { $cond: [{ $gte: ["$createdAt", firstDayOfMonth] }, "$amount", 0] }
-                    },
-                    total: { $sum: "$amount" }
+                    online: {
+                        $sum: { $cond: [{ $ne: ["$paymentMode", "Cash"] }, "$amount", 0] }
+                    }
                 }
             }
         ]);
 
-        const collections = collectionStats[0] || { today: 0, monthly: 0, total: 0 };
+        const collections = collectionStats[0] || { total: 0, cash: 0, online: 0 };
 
         // 2. Student Count (Regular students from SQL)
         const [studentCountResult] = await db.query("SELECT COUNT(*) as count FROM students WHERE LOWER(student_status) = 'regular'");
         const totalStudents = studentCountResult[0]?.count || 0;
 
-        // 3. Recent Transactions
-        const recentTransactions = await Transaction.find()
-            .populate('feeHead', 'name')
-            .sort({ createdAt: -1 })
-            .limit(5);
+        // 3. Recent Transactions within date range
+        const recentTransactions = await Transaction.find({
+            ...dateFilter
+        })
+        .populate('feeHead', 'name')
+        .sort({ createdAt: -1 })
+        .limit(5);
 
-        // 4. Collection Trend (Last 7 days)
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-
+        // 4. Collection Trend within date range
         const trendData = await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
-                    createdAt: { $gte: sevenDaysAgo }
+                    ...dateFilter
                 }
             },
             {
@@ -605,9 +618,14 @@ const getDashboardStats = async (req, res) => {
             { $sort: { _id: 1 } }
         ]);
 
-        // 5. College and Course Wise Breakdown
+        // 5. College and Course Wise Breakdown within date range
         const studentAggregates = await Transaction.aggregate([
-            { $match: { transactionType: 'DEBIT' } },
+            { 
+                $match: { 
+                    transactionType: 'DEBIT',
+                    ...dateFilter
+                } 
+            },
             { $group: { _id: "$studentId", total: { $sum: "$amount" } } }
         ]);
 

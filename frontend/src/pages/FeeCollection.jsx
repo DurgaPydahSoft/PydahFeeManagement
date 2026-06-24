@@ -382,6 +382,7 @@ const FeeCollection = () => {
         setFeeDetails([]); // Clear previous student's fees
         setTransactions([]); // Clear previous student's transactions
         setStudent(selectedStudent);
+        setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset selected fee heads & amounts
         setPaymentForm(prev => ({ ...prev, proceedingId: '' })); // Reset RTF
         setSelectedProceeding(null);
         await fetchStudentData(selectedStudent);
