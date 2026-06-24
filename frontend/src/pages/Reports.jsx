@@ -430,31 +430,6 @@ const Reports = () => {
                                     </div>
 
                                     <div className="space-y-6">
-                                        {/* Payment Mode Selection */}
-                                        <div>
-                                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block mb-3">Include Collections</label>
-                                            <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl border border-gray-200">
-                                                {[
-                                                    { id: 'all', label: 'All Modes', icon: CreditCard },
-                                                    { id: 'Cash', label: 'Cash Only', icon: Wallet },
-                                                    { id: 'Online', label: 'Online Only', icon: Landmark }
-                                                ].map((mode) => (
-                                                    <button
-                                                        key={mode.id}
-                                                        onClick={() => setPrintOptions(prev => ({ ...prev, mode: mode.id }))}
-                                                        className={`
-                                                            flex flex-col items-center justify-center py-3 rounded-lg transition-all duration-200 gap-1.5
-                                                            ${printOptions.mode === mode.id
-                                                                ? 'bg-blue-600 text-white shadow-md scale-105'
-                                                                : 'text-gray-500 hover:bg-white hover:text-blue-600 shadow-sm border border-transparent'}
-                                                        `}
-                                                    >
-                                                        <mode.icon size={18} />
-                                                        <span className="text-[10px] font-bold">{mode.label}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
 
                                          {/* Printing Options Checkboxes */}
                                          <div className="space-y-3">
