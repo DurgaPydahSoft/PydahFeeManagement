@@ -10,16 +10,18 @@ connectDB();
 
 const importData = async () => {
   try {
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash('superadmin@123', salt);
+
     // Check if superadmin already exists
     const existingAdmin = await User.findOne({ username: 'superadmin' });
 
     if (existingAdmin) {
-      console.log('Super Admin already exists!');
+      existingAdmin.password = hashedPassword;
+      await existingAdmin.save();
+      console.log('Super Admin password updated successfully!');
       process.exit();
     }
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash('superadmin123', salt);
 
     const superAdmin = new User({
       name: 'Super Admin',

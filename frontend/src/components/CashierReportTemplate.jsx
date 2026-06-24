@@ -2,6 +2,12 @@ import React, { forwardRef } from 'react';
 
 const SingleCashierReport = ({ data, dateRange, options = {} }) => {
     if (!data) return null;
+    console.log(`SingleCashierReport rendering cashier "${data._id}":`, {
+        transactionsCount: data.transactions?.length,
+        cashAmount: data.cashAmount,
+        bankAmount: data.bankAmount,
+        transactions: data.transactions
+    });
     const { mode = 'all', showSummary = true, showDetails = true } = options || {};
 
     // Determine active transactions based on mode selection
@@ -274,6 +280,7 @@ const SingleCashierReport = ({ data, dateRange, options = {} }) => {
 
 const CashierReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref) => {
     if (!data) return null;
+    console.log("CashierReportTemplate data received:", data);
     const isArray = Array.isArray(data);
 
     return (
