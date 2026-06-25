@@ -83,7 +83,8 @@ const getOverallConcessions = async (req, res) => {
                         feeHeadCode: resolvedFh ? resolvedFh.code : (rf.feeHeadCode || ''),
                         studentYear: Number(rf.studentYear),
                         semester: rf.semester || null,
-                        revisedAmount: Number(rf.revisedAmount)
+                        revisedAmount: Number(rf.revisedAmount),
+                        concessionType: rf.concessionType || 'REVISED'
                     };
                 });
             } else {
@@ -128,7 +129,8 @@ const saveOverallConcession = async (req, res) => {
         feeHeadId, 
         studentYear, 
         semester, 
-        revisedAmount 
+        revisedAmount,
+        concessionType
     } = req.body;
 
     if (!admissionNumber || !feeHeadId || !studentYear || revisedAmount === undefined) {
@@ -165,13 +167,15 @@ const saveOverallConcession = async (req, res) => {
         if (existingIndex > -1) {
             revisedFees[existingIndex].revisedAmount = amount;
             revisedFees[existingIndex].feeHeadCode = feeHeadCode;
+            revisedFees[existingIndex].concessionType = concessionType || 'REVISED';
         } else {
             revisedFees.push({
                 feeHeadId,
                 feeHeadCode,
                 studentYear: sYear,
                 semester: sem,
-                revisedAmount: amount
+                revisedAmount: amount,
+                concessionType: concessionType || 'REVISED'
             });
         }
 
@@ -218,6 +222,12 @@ const saveOverallConcession = async (req, res) => {
 
             const isTermsDivided = standardFee ? standardFee.isTermsDivided : false;
 
+            let targetAmt = amount;
+            if (concessionType === 'CONCESSION') {
+                const stdAmount = standardFee ? standardFee.amount : 0;
+                targetAmt = Math.max(0, stdAmount - amount);
+            }
+
             await StudentFee.findOneAndUpdate(
                 {
                     studentId: admissionNumber,
@@ -233,7 +243,7 @@ const saveOverallConcession = async (req, res) => {
                         college: college || 'ANY',
                         course: course,
                         branch: branch,
-                        amount: amount,
+                        amount: targetAmt,
                         semester: sem,
                         batch: batch,
                         stud_type: category || 'Regular',
@@ -253,7 +263,8 @@ const saveOverallConcession = async (req, res) => {
                 feeHeadId,
                 studentYear: sYear,
                 semester: sem,
-                revisedAmount: amount
+                revisedAmount: amount,
+                concessionType: concessionType || 'REVISED'
             }
         });
     } catch (error) {
@@ -397,11 +408,12 @@ const bulkSaveOverallConcessions = async (req, res) => {
                 feeHeadCode: actualCode,
                 studentYear: Number(c.studentYear),
                 semester: sem,
-                revisedAmount: Number(c.revisedAmount)
+                revisedAmount: Number(c.revisedAmount),
+                concessionType: c.concessionType || 'REVISED'
             };
             
             const existingEntry = existingMap[key];
-            if (!existingEntry || Number(existingEntry.revisedAmount) !== Number(c.revisedAmount)) {
+            if (!existingEntry || Number(existingEntry.revisedAmount) !== Number(c.revisedAmount) || existingEntry.concessionType !== (c.concessionType || 'REVISED')) {
                 toUpsert.push(newMap[key]);
             }
         });
@@ -437,7 +449,8 @@ const bulkSaveOverallConcessions = async (req, res) => {
                     feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
                     studentYear: Number(c.studentYear),
                     semester: sem,
-                    revisedAmount: Number(c.revisedAmount)
+                    revisedAmount: Number(c.revisedAmount),
+                    concessionType: c.concessionType || 'REVISED'
                 };
             });
 
@@ -498,6 +511,12 @@ const bulkSaveOverallConcessions = async (req, res) => {
                 const matchedStructure = structureMap[fsKey];
                 const isTermsDivided = matchedStructure ? matchedStructure.isTermsDivided : false;
 
+                let finalAmount = u.revisedAmount;
+                if (u.concessionType === 'CONCESSION') {
+                    const stdAmount = matchedStructure ? matchedStructure.amount : 0;
+                    finalAmount = Math.max(0, stdAmount - u.revisedAmount);
+                }
+
                 await StudentFee.findOneAndUpdate(
                     {
                         studentId: admissionNumber,
@@ -513,7 +532,7 @@ const bulkSaveOverallConcessions = async (req, res) => {
                             college: college || 'ANY',
                             course: course,
                             branch: branch,
-                            amount: u.revisedAmount,
+                            amount: finalAmount,
                             semester: u.semester,
                             batch: batch,
                             stud_type: category || 'Regular',
@@ -548,7 +567,8 @@ const bulkSaveOverallConcessions = async (req, res) => {
                     feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
                     studentYear: Number(c.studentYear),
                     semester: c.semester,
-                    revisedAmount: Number(c.revisedAmount)
+                    revisedAmount: Number(c.revisedAmount),
+                    concessionType: c.concessionType || 'REVISED'
                 };
             })
             : [];

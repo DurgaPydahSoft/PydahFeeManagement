@@ -38,9 +38,10 @@ const OverallConcession = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
 
-    // State for multi-head, multi-year concessions editing
+    const [courseYears, setCourseYears] = useState({});
     const [activeEditHeads, setActiveEditHeads] = useState([]);
     const [draftAmounts, setDraftAmounts] = useState({});
+    const [concessionTypes, setConcessionTypes] = useState({});
     const [selectedNewHead, setSelectedNewHead] = useState('');
     const [activeTab, setActiveTab] = useState('add'); // 'add' or 'view'
 
@@ -58,6 +59,7 @@ const OverallConcession = () => {
                 setColleges(Object.keys(meta));
                 setBatches(metaRes.data.batches || []);
                 setFeeHeads(headsRes.data || []);
+                setCourseYears(metaRes.data.courseYears || {});
             } catch (error) {
                 console.error('Error fetching metadata/fee-heads', error);
             }
@@ -145,15 +147,18 @@ const OverallConcession = () => {
         const uniqueHeads = student.revisedFees ? [...new Set(student.revisedFees.map(rf => rf.feeHeadId))] : [];
         setActiveEditHeads(uniqueHeads);
 
-        // Prepopulate draft amounts
+        // Prepopulate draft amounts & concession types
         const initialDrafts = {};
+        const initialTypes = {};
         if (student.revisedFees) {
             student.revisedFees.forEach(rf => {
                 const key = `${rf.feeHeadId}_${rf.studentYear}`;
                 initialDrafts[key] = String(rf.revisedAmount);
+                initialTypes[rf.feeHeadId] = rf.concessionType || 'REVISED';
             });
         }
         setDraftAmounts(initialDrafts);
+        setConcessionTypes(initialTypes);
     };
 
     // Add a fee head to the editing panel
@@ -161,9 +166,30 @@ const OverallConcession = () => {
         if (!selectedNewHead) return;
         if (!activeEditHeads.includes(selectedNewHead)) {
             setActiveEditHeads([...activeEditHeads, selectedNewHead]);
+            setConcessionTypes(prev => ({
+                ...prev,
+                [selectedNewHead]: 'REVISED'
+            }));
         }
         setSelectedNewHead('');
     };
+
+    const handleConcessionTypeChange = (fhId, type) => {
+        setConcessionTypes(prev => ({
+            ...prev,
+            [fhId]: type
+        }));
+    };
+
+    const getYearSuffix = (yr) => {
+        if (yr === 1) return '1st';
+        if (yr === 2) return '2nd';
+        if (yr === 3) return '3rd';
+        return `${yr}th`;
+    };
+
+    const duration = (selectedStudent && selectedStudent.course && courseYears[selectedStudent.course]) || 4;
+    const yearsArray = Array.from({ length: duration }, (_, i) => i + 1);
 
     // Remove a fee head from the editing panel (clears values)
     const handleRemoveEditHead = (fhId) => {
@@ -172,8 +198,10 @@ const OverallConcession = () => {
         setActiveEditHeads(activeEditHeads.filter(id => id !== fhId));
 
         const updatedDrafts = { ...draftAmounts };
-        [1, 2, 3, 4].forEach(yr => {
-            delete updatedDrafts[`${fhId}_${yr}`];
+        Object.keys(updatedDrafts).forEach(key => {
+            if (key.startsWith(`${fhId}_`)) {
+                delete updatedDrafts[key];
+            }
         });
         setDraftAmounts(updatedDrafts);
     };
@@ -202,7 +230,8 @@ const OverallConcession = () => {
         activeEditHeads.forEach(fhId => {
             const fh = feeHeads.find(h => h._id === fhId);
             const fhCode = fh ? fh.code : '';
-            [1, 2, 3, 4].forEach(yr => {
+            const cType = concessionTypes[fhId] || 'REVISED';
+            yearsArray.forEach(yr => {
                 const key = `${fhId}_${yr}`;
                 const val = draftAmounts[key];
                 if (val !== undefined && val !== null && val.trim() !== '') {
@@ -211,7 +240,8 @@ const OverallConcession = () => {
                         feeHeadCode: fhCode,
                         studentYear: yr,
                         semester: null,
-                        revisedAmount: Number(val)
+                        revisedAmount: Number(val),
+                        concessionType: cType
                     });
                 }
             });
@@ -505,11 +535,11 @@ const OverallConcession = () => {
                                                             <table className="w-full text-xs text-left border-collapse min-w-[650px]">
                                                                 <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-[10px] uppercase">
                                                                     <tr>
-                                                                        <th className="p-3 w-1/5">Fee Component</th>
-                                                                        <th className="p-3 text-center">1st Year (₹)</th>
-                                                                        <th className="p-3 text-center">2nd Year (₹)</th>
-                                                                        <th className="p-3 text-center">3rd Year (₹)</th>
-                                                                        <th className="p-3 text-center">4th Year (₹)</th>
+                                                                        <th className="p-3 w-1/4">Fee Component</th>
+                                                                        <th className="p-3 w-1/5 text-center">Type</th>
+                                                                        {yearsArray.map(yr => (
+                                                                            <th key={yr} className="p-3 text-center">{getYearSuffix(yr)} Year (₹)</th>
+                                                                        ))}
                                                                         <th className="p-3 text-center w-16">Action</th>
                                                                     </tr>
                                                                 </thead>
@@ -521,7 +551,17 @@ const OverallConcession = () => {
                                                                         return (
                                                                             <tr key={fhId} className="hover:bg-slate-50/20">
                                                                                 <td className="p-3 font-bold text-slate-900">{headName}</td>
-                                                                                {[1, 2, 3, 4].map(yr => (
+                                                                                <td className="p-3 text-center">
+                                                                                    <select
+                                                                                        value={concessionTypes[fhId] || 'REVISED'}
+                                                                                        onChange={e => handleConcessionTypeChange(fhId, e.target.value)}
+                                                                                        className="w-full border border-slate-300 rounded-lg p-1.5 bg-slate-50 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs font-semibold"
+                                                                                    >
+                                                                                        <option value="REVISED">Revised Fee</option>
+                                                                                        <option value="CONCESSION">Concession</option>
+                                                                                    </select>
+                                                                                </td>
+                                                                                {yearsArray.map(yr => (
                                                                                     <td key={yr} className="p-3 text-center">
                                                                                         <div className="relative max-w-[110px] mx-auto">
                                                                                             <span className="absolute left-2.5 top-2 text-slate-400 font-medium">₹</span>
@@ -644,8 +684,8 @@ const OverallConcession = () => {
                                                                             </span>
                                                                             <div className="flex flex-wrap gap-1.5">
                                                                                 {items.map(rf => (
-                                                                                    <span key={rf.id} className="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded px-1.5 py-0.5 text-[10px] font-extrabold whitespace-nowrap">
-                                                                                        Yr {rf.studentYear}: ₹{rf.revisedAmount.toLocaleString()}
+                                                                                    <span key={rf.id} className={`border rounded px-1.5 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${rf.concessionType === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+                                                                                        Yr {rf.studentYear}: {rf.concessionType === 'CONCESSION' ? '-' : ''}₹{rf.revisedAmount.toLocaleString()} {rf.concessionType === 'CONCESSION' && '(Conc.)'}
                                                                                     </span>
                                                                                 ))}
                                                                             </div>

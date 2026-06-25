@@ -60,7 +60,12 @@ const applyFeeStructureToBatchInternal = async (structure) => {
                     );
                 });
                 if (match) {
-                    revisedFeesMap[c.admission_number] = Number(match.revisedAmount);
+                    const concType = match.concessionType || 'REVISED';
+                    let amount = Number(match.revisedAmount);
+                    if (concType === 'CONCESSION') {
+                        amount = Math.max(0, structure.amount - amount);
+                    }
+                    revisedFeesMap[c.admission_number] = amount;
                 }
             }
         });
@@ -359,14 +364,26 @@ const getStudentFeeDetails = async (req, res) => {
                         resolvedId = codeMap[codeKey];
                     }
                     const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
-                    revisedFeesMap[key] = Number(rf.revisedAmount);
+                    revisedFeesMap[key] = {
+                        revisedAmount: Number(rf.revisedAmount),
+                        concessionType: rf.concessionType || 'REVISED'
+                    };
                 });
             }
         }
 
         for (const fs of applicableStructures) {
           const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
-          const targetAmount = revisedFeesMap[fsKey] !== undefined ? revisedFeesMap[fsKey] : fs.amount;
+          
+          let targetAmount = fs.amount;
+          if (revisedFeesMap[fsKey] !== undefined) {
+              const revInfo = revisedFeesMap[fsKey];
+              if (revInfo.concessionType === 'CONCESSION') {
+                  targetAmount = Math.max(0, fs.amount - revInfo.revisedAmount);
+              } else {
+                  targetAmount = revInfo.revisedAmount;
+              }
+          }
 
           const existingFee = await StudentFee.findOne({
             studentId: admissionNo,
