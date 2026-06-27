@@ -15,28 +15,33 @@ const getStudents = async (req, res) => {
       FROM students
     `;
 
+    const conditions = [];
     const params = [];
     if (college) {
       const collegeList = college.split(',').map(c => c.trim()).filter(Boolean);
       if (collegeList.length > 0) {
-        query += ` AND college IN (${collegeList.map(() => '?').join(',')})`;
+        conditions.push(`college IN (${collegeList.map(() => '?').join(',')})`);
         params.push(...collegeList);
       }
     }
     if (course) {
       const courseList = course.split(',').map(c => c.trim()).filter(Boolean);
       if (courseList.length > 0) {
-        query += ` AND course IN (${courseList.map(() => '?').join(',')})`;
+        conditions.push(`course IN (${courseList.map(() => '?').join(',')})`);
         params.push(...courseList);
       }
     }
     if (branch) {
-      query += ` AND branch = ?`;
+      conditions.push('branch = ?');
       params.push(branch);
     }
     if (batch) {
-      query += ` AND batch = ?`;
+      conditions.push('batch = ?');
       params.push(batch);
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
     }
 
     // Optimize query: Select only necessary columns
