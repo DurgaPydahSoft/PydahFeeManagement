@@ -13,7 +13,6 @@ const getStudents = async (req, res) => {
         college, course, branch, student_mobile, student_status,
         current_year, current_semester, pin_no, stud_type, batch, email
       FROM students
-      WHERE LOWER(student_status) = 'regular'
     `;
 
     const params = [];

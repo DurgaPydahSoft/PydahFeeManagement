@@ -919,7 +919,7 @@ const FeeCollection = () => {
                                                     <span className="font-bold">{student.current_year} (S{student.current_semester})</span>
                                                 </div>
                                                 <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Type:</span>
+                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Quota:</span>
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
                                                 {student.scholar_status && (
@@ -934,6 +934,12 @@ const FeeCollection = () => {
                                                     <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
                                                         <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Caste:</span>
                                                         <span className="font-bold text-orange-300 uppercase">{student.caste}</span>
+                                                    </div>
+                                                )}
+                                                {student.student_status && (
+                                                    <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
+                                                        <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Status</span>
+                                                        <span className="font-bold text-orange-300 uppercase">{student.student_status}</span>
                                                     </div>
                                                 )}
                                             </div>
