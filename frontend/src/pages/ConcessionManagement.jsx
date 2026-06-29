@@ -34,7 +34,8 @@ const ConcessionManagement = () => {
         college: '',
         course: '',
         branch: '',
-        batch: ''
+        batch: '',
+        concessionGivenBy: ''
     });
     const [imageFile, setImageFile] = useState(null);
     const [nextVoucherId, setNextVoucherId] = useState('');
@@ -107,11 +108,14 @@ const ConcessionManagement = () => {
         setUser(u);
         fetchFeeHeads();
         fetchMetadata();
+        if (activeTab === 'request') {
+            fetchActiveApprovers();
+        }
         if (activeTab === 'approvals') {
             fetchPendingRequests();
         }
         if (activeTab === 'approvers' || activeTab === 'reports') {
-            fetchApprovers();
+            fetchAllApprovers();
         }
     }, [activeTab, hasPermission]);
 
@@ -178,6 +182,19 @@ const ConcessionManagement = () => {
         return () => clearTimeout(delayDebounceFn);
     }, [searchTerm, activeTab, hasPermission]);
 
+    const applyStudentContextToForm = (s) => {
+        if (!s) return;
+        setFormData(prev => ({
+            ...prev,
+            studentYear: s.current_year,
+            semester: s.current_semester,
+            college: s.college,
+            course: s.course,
+            branch: s.branch,
+            batch: s.batch
+        }));
+    };
+
     const toggleStudentSelection = (s) => {
         // Toggle selection
         const alreadySelected = selectedStudents.some(sel => sel.admission_number === s.admission_number);
@@ -185,21 +202,10 @@ const ConcessionManagement = () => {
             setSelectedStudents(prev => prev.filter(sel => sel.admission_number !== s.admission_number));
         } else {
             setSelectedStudents(prev => [...prev, s]);
+            applyStudentContextToForm(s);
         }
         // Set preview for details view
         setPreviewStudent(s);
-        // Update formData for year/semester based on first selected (if any)
-        if (!alreadySelected) {
-            setFormData(prev => ({
-                ...prev,
-                studentYear: s.current_year,
-                semester: s.current_semester,
-                college: s.college,
-                course: s.course,
-                branch: s.branch,
-                batch: s.batch
-            }));
-        }
         setSearchTerm('');
         setSearchResults([]);
     };
@@ -368,12 +374,25 @@ const ConcessionManagement = () => {
     };
 
     // Approver CRUD
-    const fetchApprovers = async () => {
+    const fetchActiveApprovers = async () => {
         try {
-            const res = await api.get(`/concession-approvers/all`);
+            const res = await api.get('/concession-approvers');
             setApprovers(res.data);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error('Failed to load approvers', e);
+        }
     };
+
+    const fetchAllApprovers = async () => {
+        try {
+            const res = await api.get('/concession-approvers/all');
+            setApprovers(res.data);
+        } catch (e) {
+            console.error('Failed to load approvers', e);
+        }
+    };
+
+    const fetchApprovers = fetchAllApprovers;
 
     const handleAddApprover = async (e) => {
         e.preventDefault();
@@ -713,6 +732,9 @@ const ConcessionManagement = () => {
                                                         setSelectedStudents([]);
                                                     } else {
                                                         setSelectedStudents(filteredStudents);
+                                                        if (filteredStudents.length > 0) {
+                                                            applyStudentContextToForm(filteredStudents[0]);
+                                                        }
                                                     }
                                                 }}
                                                 className="text-xs text-blue-600 font-extrabold hover:underline"
@@ -813,6 +835,12 @@ const ConcessionManagement = () => {
                                             <option value="">Select Fee Component</option>
                                             {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
                                         </select>
+                                        {selectedStudents.length > 0 && formData.studentYear && (
+                                            <p className="text-[10px] text-indigo-600 font-semibold mt-1">
+                                                Credit applies to Year {formData.studentYear}
+                                                {formData.semester ? ` · Semester ${formData.semester}` : ''} (student&apos;s current year)
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-gray-600 mb-1 block">Amount (₹) <span className="text-red-500">*</span></label>
@@ -839,7 +867,7 @@ const ConcessionManagement = () => {
                                         required
                                     >
                                         <option value="">-- Select Authority --</option>
-                                        {approvers.filter(a => a.isActive).map(a => (
+                                        {approvers.map(a => (
                                             <option key={a._id} value={a.name}>{a.name} ({a.designation})</option>
                                         ))}
                                     </select>

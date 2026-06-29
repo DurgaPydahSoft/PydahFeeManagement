@@ -412,17 +412,17 @@ const getStudentFeeDetails = async (req, res) => {
       }
     });
 
-    // D. Final Calculation and Global Credit Distribution
+    // D. Final Calculation
     let processedResults = Object.values(groupedData).map(item => {
-      // Total Paid is (Direct Paid + Concessions)
-      const totalRelief = item.paidAmount + item.concessionAmount;
-      item.dueAmount = Math.max(0, item.totalAmount - totalRelief);
+      item.dueAmount = Math.max(0, item.totalAmount - item.paidAmount - item.concessionAmount);
       return item;
     });
 
-    // Handle Global Credit Pool (Transactions with no specific head or type CREDIT)
+    // Apply global credits (not tied to a specific fee head) as concessions only — never as paid
     let globalCreditPool = transactions.reduce((acc, t) => {
-      if (t.transactionType === 'CREDIT' || !t.feeHead) return acc + (t.amount || 0);
+      if (!t.feeHead && t.transactionType === 'CREDIT') {
+        return acc + (t.amount || 0);
+      }
       return acc;
     }, 0);
 
@@ -432,8 +432,7 @@ const getStudentFeeDetails = async (req, res) => {
       processedResults.forEach(item => {
         if (item.dueAmount > 0 && globalCreditPool > 0) {
           const allocation = Math.min(item.dueAmount, globalCreditPool);
-          // Distribute to paidAmount (default behavior)
-          item.paidAmount += allocation; 
+          item.concessionAmount += allocation;
           item.dueAmount -= allocation;
           globalCreditPool -= allocation;
         }

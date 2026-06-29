@@ -188,6 +188,7 @@ const processSingleRequestLogic = async (id, { action, rejectionReason, approved
                 collectedByName: reqUser ? reqUser.name : 'Administrator',
                 academicYear: request.batch,
                 studentYear: request.studentYear,
+                semester: request.semester || null,
                 college: request.college,
                 course: request.course,
                 branch: request.branch,
@@ -285,6 +286,7 @@ const modifyApprovedConcession = async (req, res) => {
             // Ensure student metadata is sync'd
             transaction.studentName = request.studentName;
             transaction.studentYear = request.studentYear;
+            transaction.semester = request.semester || null;
             await transaction.save();
         }
 
