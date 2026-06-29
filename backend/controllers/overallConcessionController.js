@@ -2,6 +2,16 @@ const db = require('../config/sqlDb');
 const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
 const FeeStructure = require('../models/FeeStructure');
+const {
+  formatConcessionEntry,
+  mapStoredEntryForResponse,
+  resolveStudentFeeAmount,
+  getConcessionAmount,
+  normalizeSemester,
+  buildFeeHeadMaps,
+  resolveFeeHeadId
+} = require('../utils/overallConcessionFees');
+const { syncStandardFees } = require('../services/studentFeeSyncService');
 
 // @desc    Get all students with their overall concessions (revised fees)
 // @route   GET /api/overall-concessions
@@ -51,14 +61,7 @@ const getOverallConcessions = async (req, res) => {
         );
 
         const feeHeads = await FeeHead.find({}).lean();
-        const feeHeadMap = {};
-        const codeMap = {};
-        feeHeads.forEach(fh => {
-            feeHeadMap[fh._id.toString()] = fh.code || '';
-            if (fh.code) {
-                codeMap[fh.code.trim().toUpperCase()] = fh;
-            }
-        });
+        const { codeMap } = buildFeeHeadMaps(feeHeads);
 
         // Map concessions by student admission_number
         const concessionMap = {};
@@ -68,25 +71,10 @@ const getOverallConcessions = async (req, res) => {
                 fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : c.revised_fees;
             }
             if (Array.isArray(fees)) {
-                concessionMap[c.admission_number] = fees.map((rf, idx) => {
-                    let resolvedFh = null;
-                    const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
-                    if (codeKey && codeMap[codeKey]) {
-                        resolvedFh = codeMap[codeKey];
-                    } else {
-                        resolvedFh = feeHeads.find(fh => fh._id.toString() === rf.feeHeadId);
-                    }
-
-                    return {
-                        id: `${c.id}_${idx}`,
-                        feeHeadId: resolvedFh ? resolvedFh._id.toString() : rf.feeHeadId,
-                        feeHeadCode: resolvedFh ? resolvedFh.code : (rf.feeHeadCode || ''),
-                        studentYear: Number(rf.studentYear),
-                        semester: rf.semester || null,
-                        revisedAmount: Number(rf.revisedAmount),
-                        concessionType: rf.concessionType || 'REVISED'
-                    };
-                });
+                concessionMap[c.admission_number] = fees.map((rf, idx) => ({
+                    id: `${c.id}_${idx}`,
+                    ...mapStoredEntryForResponse(rf, feeHeads, codeMap)
+                }));
             } else {
                 concessionMap[c.admission_number] = [];
             }
@@ -129,18 +117,20 @@ const saveOverallConcession = async (req, res) => {
         feeHeadId, 
         studentYear, 
         semester, 
+        amount,
         revisedAmount,
         concessionType
     } = req.body;
 
-    if (!admissionNumber || !feeHeadId || !studentYear || revisedAmount === undefined) {
+    const concessionAmount = amount ?? revisedAmount;
+    if (!admissionNumber || !feeHeadId || !studentYear || concessionAmount === undefined) {
         return res.status(400).json({ message: 'Missing required fields' });
     }
 
     try {
         const sYear = Number(studentYear);
-        const sem = semester ? Number(semester) : null;
-        const amount = Number(revisedAmount);
+        const sem = normalizeSemester(semester);
+        const numericAmount = Number(concessionAmount);
 
         // 1. Fetch existing student row
         const [existing] = await db.query(
@@ -159,24 +149,24 @@ const saveOverallConcession = async (req, res) => {
 
         // 2. Update or insert concession in the array
         const existingIndex = revisedFees.findIndex(f => 
-            f.feeHeadId === feeHeadId && 
+            String(f.feeHeadId) === String(feeHeadId) && 
             Number(f.studentYear) === sYear && 
-            (f.semester === sem || (f.semester === null && sem === null))
+            normalizeSemester(f.semester) === sem
         );
 
+        const storedEntry = formatConcessionEntry({
+            feeHeadId,
+            feeHeadCode,
+            studentYear: sYear,
+            semester: sem,
+            amount: numericAmount,
+            concessionType
+        });
+
         if (existingIndex > -1) {
-            revisedFees[existingIndex].revisedAmount = amount;
-            revisedFees[existingIndex].feeHeadCode = feeHeadCode;
-            revisedFees[existingIndex].concessionType = concessionType || 'REVISED';
+            revisedFees[existingIndex] = storedEntry;
         } else {
-            revisedFees.push({
-                feeHeadId,
-                feeHeadCode,
-                studentYear: sYear,
-                semester: sem,
-                revisedAmount: amount,
-                concessionType: concessionType || 'REVISED'
-            });
+            revisedFees.push(storedEntry);
         }
 
         // 3. Upsert in MySQL overall_concessions table
@@ -221,12 +211,7 @@ const saveOverallConcession = async (req, res) => {
             }).lean();
 
             const isTermsDivided = standardFee ? standardFee.isTermsDivided : false;
-
-            let targetAmt = amount;
-            if (concessionType === 'CONCESSION') {
-                const stdAmount = standardFee ? standardFee.amount : 0;
-                targetAmt = Math.max(0, stdAmount - amount);
-            }
+            const targetAmt = resolveStudentFeeAmount(standardFee ? standardFee.amount : 0, storedEntry);
 
             await StudentFee.findOneAndUpdate(
                 {
@@ -260,11 +245,7 @@ const saveOverallConcession = async (req, res) => {
             concession: {
                 id: `${concessionId}_new`,
                 admissionNumber,
-                feeHeadId,
-                studentYear: sYear,
-                semester: sem,
-                revisedAmount: amount,
-                concessionType: concessionType || 'REVISED'
+                ...storedEntry
             }
         });
     } catch (error) {
@@ -289,28 +270,31 @@ const deleteOverallConcession = async (req, res) => {
         // 2. Delete from MySQL
         await db.query(`DELETE FROM overall_concessions WHERE id = ?`, [id]);
 
-        // 3. Parse JSON list of concessions and delete overrides from MongoDB
+        // 3. Parse JSON list of concessions and restore standard fee amounts in MongoDB
         let fees = [];
         if (c.revised_fees) {
             fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : c.revised_fees;
         }
 
-        let deletedCount = 0;
-        if (Array.isArray(fees)) {
-            for (const f of fees) {
-                const deleteRes = await StudentFee.deleteOne({
-                    studentId: c.admission_number,
-                    feeHead: f.feeHeadId,
-                    academicYear: c.batch,
-                    studentYear: Number(f.studentYear),
-                    semester: f.semester || null,
-                    $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-                });
-                deletedCount += deleteRes.deletedCount;
+        const standardFeesApplied = await StudentFee.exists({
+            studentId: c.admission_number,
+            academicYear: c.batch,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+        });
+
+        let syncResult = null;
+        if (standardFeesApplied && Array.isArray(fees) && fees.length > 0) {
+            const [students] = await db.query(
+                `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
+                 FROM students WHERE admission_number = ?`,
+                [c.admission_number]
+            );
+            if (students.length > 0) {
+                syncResult = await syncStandardFees(students[0], c.admission_number);
             }
         }
 
-        console.log(`Deleted revised fees from MongoDB. Removed count: ${deletedCount}`);
+        console.log(`Restored standard fees after concession delete. Sync result:`, syncResult);
 
         res.json({ message: 'Concession removed and standard fees restored' });
     } catch (error) {
@@ -331,7 +315,7 @@ const bulkSaveOverallConcessions = async (req, res) => {
         branch, 
         batch, 
         category,
-        concessions // Array of { feeHeadId, studentYear, semester, revisedAmount }
+        concessions // Array of { feeHeadId, feeHeadCode, studentYear, semester, amount }
     } = req.body;
 
     if (!admissionNumber || !Array.isArray(concessions)) {
@@ -342,117 +326,29 @@ const bulkSaveOverallConcessions = async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Fetch existing concessions for this student in SQL
-        const [existing] = await connection.query(
-            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNumber]
-        );
-
-        const existingRow = existing[0];
-        const existingFees = existingRow 
-            ? (typeof existingRow.revised_fees === 'string' ? JSON.parse(existingRow.revised_fees) : existingRow.revised_fees || []) 
-            : [];
-
+        // 1. Persist concessions in SQL
         const feeHeads = await FeeHead.find({}).lean();
-        const feeHeadMap = {};
-        const codeMap = {};
-        feeHeads.forEach(fh => {
-            feeHeadMap[fh._id.toString()] = fh.code || '';
-            if (fh.code) {
-                codeMap[fh.code.trim().toUpperCase()] = fh;
-            }
-        });
+        const { codeMap } = buildFeeHeadMaps(feeHeads);
 
-        // Normalize existing concessions for easy lookup
-        const existingMap = {};
-        existingFees.forEach(e => {
-            let resolvedFh = null;
-            const codeKey = e.feeHeadCode ? e.feeHeadCode.trim().toUpperCase() : '';
-            if (codeKey && codeMap[codeKey]) {
-                resolvedFh = codeMap[codeKey];
-            } else {
-                resolvedFh = feeHeads.find(fh => fh._id.toString() === e.feeHeadId);
-            }
-            const actualId = resolvedFh ? resolvedFh._id.toString() : e.feeHeadId;
-            const actualCode = resolvedFh ? resolvedFh.code : (e.feeHeadCode || '');
-
-            const key = `${actualId}_${e.studentYear}_${e.semester === null || e.semester === undefined ? 'null' : e.semester}`;
-            existingMap[key] = {
-                ...e,
-                feeHeadId: actualId,
-                feeHeadCode: actualCode
-            };
-        });
-
-        const newMap = {};
-        const toUpsert = [];
-        const toDelete = [];
-
-        // 2. Process incoming concessions
-        concessions.forEach(c => {
-            const sem = c.semester === null || c.semester === '' || c.semester === undefined ? null : Number(c.semester);
-            
-            let resolvedFh = null;
-            const codeKey = c.feeHeadCode ? c.feeHeadCode.trim().toUpperCase() : '';
-            if (codeKey && codeMap[codeKey]) {
-                resolvedFh = codeMap[codeKey];
-            } else {
-                resolvedFh = feeHeads.find(fh => fh._id.toString() === c.feeHeadId);
-            }
-            const actualId = resolvedFh ? resolvedFh._id.toString() : c.feeHeadId;
-            const actualCode = resolvedFh ? resolvedFh.code : (c.feeHeadCode || '');
-
-            const key = `${actualId}_${Number(c.studentYear)}_${sem === null ? 'null' : sem}`;
-            newMap[key] = {
-                feeHeadId: actualId,
-                feeHeadCode: actualCode,
+        const normalizeIncomingEntry = (c) => {
+            const sem = normalizeSemester(c.semester);
+            const resolvedId = resolveFeeHeadId(c, codeMap);
+            const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+            return formatConcessionEntry({
+                feeHeadId: resolvedId,
+                feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
                 studentYear: Number(c.studentYear),
                 semester: sem,
-                revisedAmount: Number(c.revisedAmount),
-                concessionType: c.concessionType || 'REVISED'
-            };
-            
-            const existingEntry = existingMap[key];
-            if (!existingEntry || Number(existingEntry.revisedAmount) !== Number(c.revisedAmount) || existingEntry.concessionType !== (c.concessionType || 'REVISED')) {
-                toUpsert.push(newMap[key]);
-            }
-        });
+                amount: getConcessionAmount(c),
+                concessionType: c.concessionType
+            });
+        };
 
-        // Identify deletes (in existing but not in new)
-        Object.keys(existingMap).forEach(key => {
-            const e = existingMap[key];
-            if (!newMap[key]) {
-                toDelete.push({
-                    feeHeadId: e.feeHeadId,
-                    studentYear: Number(e.studentYear),
-                    semester: e.semester
-                });
-            }
-        });
-
-        // 3. Update SQL
+        // 2. Normalize incoming concessions for storage
         if (concessions.length === 0) {
             await connection.query(`DELETE FROM overall_concessions WHERE admission_number = ?`, [admissionNumber]);
         } else {
-            // Map concessions list to ensure it includes the feeHeadCode and is resolved to current ID
-            const updatedConcessions = concessions.map(c => {
-                const sem = c.semester === null || c.semester === '' || c.semester === undefined ? null : Number(c.semester);
-                let resolvedFh = null;
-                const codeKey = c.feeHeadCode ? c.feeHeadCode.trim().toUpperCase() : '';
-                if (codeKey && codeMap[codeKey]) {
-                    resolvedFh = codeMap[codeKey];
-                } else {
-                    resolvedFh = feeHeads.find(fh => fh._id.toString() === c.feeHeadId);
-                }
-                return {
-                    feeHeadId: resolvedFh ? resolvedFh._id.toString() : c.feeHeadId,
-                    feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
-                    studentYear: Number(c.studentYear),
-                    semester: sem,
-                    revisedAmount: Number(c.revisedAmount),
-                    concessionType: c.concessionType || 'REVISED'
-                };
-            });
+            const updatedConcessions = concessions.map(normalizeIncomingEntry);
 
             const revisedFeesJson = JSON.stringify(updatedConcessions);
             const insertQuery = `
@@ -471,7 +367,7 @@ const bulkSaveOverallConcessions = async (req, res) => {
 
         await connection.commit();
 
-        // 4. Perform MongoDB operations (outside SQL transaction, since MongoDB is not transactional in this setup and we want resilience)
+        // 4. Re-sync MongoDB fee amounts from structure + remaining concessions
         const standardFeesApplied = await StudentFee.exists({
             studentId: admissionNumber,
             academicYear: batch,
@@ -479,69 +375,13 @@ const bulkSaveOverallConcessions = async (req, res) => {
         });
 
         if (standardFeesApplied) {
-            // MongoDB Deletes
-            for (const d of toDelete) {
-                await StudentFee.deleteOne({
-                    studentId: admissionNumber,
-                    feeHead: d.feeHeadId,
-                    academicYear: batch,
-                    studentYear: d.studentYear,
-                    semester: d.semester || null,
-                    $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-                });
-            }
-
-            const applicableStructures = await FeeStructure.find({
-                college,
-                course,
-                branch,
-                batch,
-                category: category || 'Regular'
-            }).lean();
-
-            const structureMap = {};
-            applicableStructures.forEach(fs => {
-                const key = `${fs.feeHead.toString()}_${fs.studentYear}_${fs.semester === null || fs.semester === undefined ? 'null' : fs.semester}`;
-                structureMap[key] = fs;
-            });
-
-            // MongoDB Upserts
-            for (const u of toUpsert) {
-                const fsKey = `${u.feeHeadId}_${u.studentYear}_${u.semester === null ? 'null' : u.semester}`;
-                const matchedStructure = structureMap[fsKey];
-                const isTermsDivided = matchedStructure ? matchedStructure.isTermsDivided : false;
-
-                let finalAmount = u.revisedAmount;
-                if (u.concessionType === 'CONCESSION') {
-                    const stdAmount = matchedStructure ? matchedStructure.amount : 0;
-                    finalAmount = Math.max(0, stdAmount - u.revisedAmount);
-                }
-
-                await StudentFee.findOneAndUpdate(
-                    {
-                        studentId: admissionNumber,
-                        feeHead: u.feeHeadId,
-                        academicYear: batch,
-                        studentYear: u.studentYear,
-                        semester: u.semester,
-                        $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-                    },
-                    {
-                        $set: {
-                            studentName: studentName,
-                            college: college || 'ANY',
-                            course: course,
-                            branch: branch,
-                            amount: finalAmount,
-                            semester: u.semester,
-                            batch: batch,
-                            stud_type: category || 'Regular',
-                            isScholarshipApplicable: false,
-                            isTermsDivided: isTermsDivided || false
-                        }
-                    },
-                    { upsert: true }
-                );
+            const [students] = await db.query(
+                `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
+                 FROM students WHERE admission_number = ?`,
+                [admissionNumber]
+            );
+            if (students.length > 0) {
+                await syncStandardFees(students[0], admissionNumber);
             }
         }
 
@@ -553,24 +393,10 @@ const bulkSaveOverallConcessions = async (req, res) => {
 
         const updatedRow = updatedList[0];
         const responseConcessions = updatedRow 
-            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => {
-                let resolvedFh = null;
-                const codeKey = c.feeHeadCode ? c.feeHeadCode.trim().toUpperCase() : '';
-                if (codeKey && codeMap[codeKey]) {
-                    resolvedFh = codeMap[codeKey];
-                } else {
-                    resolvedFh = feeHeads.find(fh => fh._id.toString() === c.feeHeadId);
-                }
-                return {
-                    id: `${updatedRow.id}_${idx}`,
-                    feeHeadId: resolvedFh ? resolvedFh._id.toString() : c.feeHeadId,
-                    feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
-                    studentYear: Number(c.studentYear),
-                    semester: c.semester,
-                    revisedAmount: Number(c.revisedAmount),
-                    concessionType: c.concessionType || 'REVISED'
-                };
-            })
+            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => ({
+                id: `${updatedRow.id}_${idx}`,
+                ...mapStoredEntryForResponse(c, feeHeads, codeMap)
+            }))
             : [];
 
         res.json({

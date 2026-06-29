@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { Pencil, Trash2, Send, Calendar, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const FeeConfiguration = () => {
-    const [activeTab, setActiveTab] = useState('heads'); // heads, definitions, applicability
+    const [activeTab, setActiveTab] = useState('heads'); // heads, definitions, latefees
 
     // --- SHARED STATE ---
     const [feeHeads, setFeeHeads] = useState([]);
@@ -59,33 +59,8 @@ const FeeConfiguration = () => {
     const [filterCollege, setFilterCollege] = useState('');
     const [filterCourse, setFilterCourse] = useState('');
 
-    // --- TAB 3: APPLICABILITY (Assignment) ---
-    const [appContext, setAppContext] = useState({
-        college: '', course: '', branch: '', studentYear: '', semester: '', feeHeadId: '', batch: '', category: ''
-        // Removed academicYear
-    });
-    const [batches, setBatches] = useState([]); // Store batch list
-    const [studentList, setStudentList] = useState([]);
-    const [loadingStudents, setLoadingStudents] = useState(false);
+    const [batches, setBatches] = useState([]);
     const [isSavingDefinition, setIsSavingDefinition] = useState(false);
-    const [isApplyingBatch, setIsApplyingBatch] = useState(false);
-    const [isSavingFees, setIsSavingFees] = useState(false);
-    const [isBatchApplied, setIsBatchApplied] = useState(false);
-    const [applicabilityMode, setApplicabilityMode] = useState('individual'); // Consolidated to just individual view
-    const [expandedYears, setExpandedYears] = useState({}); // { 1: true, 2: false, ... }
-    const [applicabilitySearchQuery, setApplicabilitySearchQuery] = useState('');
-
-    /* 
-    // Reset selected categories when primary context changes in Definitions
-    useEffect(() => {
-        setStructForm(prev => ({ ...prev, categories: [] }));
-    }, [structForm.college, structForm.course, structForm.batch]);
-    */
-
-    // Reset selected category when primary context changes in Applicability
-    useEffect(() => {
-        setAppContext(prev => ({ ...prev, category: '' }));
-    }, [appContext.college, appContext.course, appContext.batch]);
 
     // Reset selected categories when primary context changes in Late Fees
     useEffect(() => {
@@ -395,186 +370,8 @@ const FeeConfiguration = () => {
         } catch (error) { alert('Failed to delete structure'); }
     };
 
-    const toggleYearExpand = (y) => {
-        setExpandedYears(prev => ({ ...prev, [y]: !prev[y] }));
-    };
-
-    // --- APPLICABILITY LOGIC ---
-    const fetchStudentsForApplicability = async () => {
-        // Validation based on Mode
-        const { college, course, branch, studentYear, feeHeadId, batch } = appContext;
-
-
-        if (!college || !course || !branch || !batch || !feeHeadId || !appContext.category) {
-            alert("Please select College, Fee Head, Batch, Course, Branch and Category.");
-            return;
-        }
-
-        // In Batch Mode, we fetch ALL students
-
-        setLoadingStudents(true);
-        try {
-            // 1. Fetch Students (Filtered by Backend)
-            const studentsRes = await api.get(`/students`, {
-                params: { college, course, branch, batch },
-            });
-
-            // Filter: Robust Match Category (stud_type)
-            const targetCat = String(appContext.category || '').trim().toLowerCase();
-            const batchStudents = studentsRes.data.filter(s => {
-                const sCat = String(s.stud_type || '').trim().toLowerCase();
-                return sCat === targetCat;
-            });
-
-            // 2. Fetch Existing Fee Records (Real Data)
-            let existingFees = [];
-            try {
-                const feeRes = await api.post(`/fee-structures/batch-fees`, {
-                    college, course, branch, batch, feeHeadId, category: appContext.category
-                });
-                existingFees = feeRes.data;
-            } catch (e) { console.error("Error fetching fee records", e); }
-
-            // OPTIMIZATION: Create a Lookup Map for existing fees (Student ID -> Array of Fees)
-            const feeMap = new Map();
-            existingFees.forEach(f => {
-                if (!feeMap.has(f.studentId)) feeMap.set(f.studentId, []);
-                feeMap.get(f.studentId).push(f);
-            });
-
-            // Update Applied Status: Check if ANY student in THIS filtered list has fees applied
-            const anyApplied = batchStudents.some(s => feeMap.has(s.admission_number));
-            setIsBatchApplied(anyApplied);
-
-            // 3. Prepare List with ALL Years data
-            const list = batchStudents.map(s => {
-                const sYear = s.current_year;
-                const relevantFees = feeMap.get(s.admission_number) || [];
-
-                // Build an object with amounts for each student year (1..4)
-                const yearsData = {};
-                // Pre-fill with Templates
-                structures.filter(st =>
-                    st.college === college && st.course === course && st.branch === branch &&
-                    String(st.batch) === String(batch) &&
-                    st.category === appContext.category && // Match Category
-                    st.feeHead?._id === feeHeadId
-                ).forEach(st => {
-                    // Check semester logic
-                    if (appContext.semester) {
-                        if (Number(st.semester) === Number(appContext.semester)) {
-                            yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable, isTermsDivided: st.isTermsDivided };
-                        }
-                    } else if (!st.semester) {
-                        yearsData[st.studentYear] = { amount: st.amount, isScholarshipApplicable: st.isScholarshipApplicable, isTermsDivided: st.isTermsDivided };
-                    }
-                });
-
-                // Override with Existing Student Fees if present
-                relevantFees.forEach(f => {
-                    if (appContext.semester) {
-                        if (Number(f.semester) === Number(appContext.semester)) {
-                            yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable, isTermsDivided: f.isTermsDivided };
-                        }
-                    } else if (!f.semester) {
-                        yearsData[f.studentYear] = { amount: f.amount, isScholarshipApplicable: f.isScholarshipApplicable, isTermsDivided: f.isTermsDivided };
-                    }
-                });
-
-                return {
-                    studentId: s.admission_number,
-                    studentName: s.student_name,
-                    pinNo: s.pin_no || '-',
-                    current_year: sYear,
-                    fees: yearsData, // e.g., { 1: { amount: 50000, isScholarshipApplicable: true }, ... }
-                };
-            });
-
-            setStudentList(list);
-
-        } catch (error) { console.error(error); }
-        setLoadingStudents(false);
-    };
-
-    const handleApplyBatch = async (row) => {
-        if (!window.confirm(`Apply Fee Structure to ALL students in Batch ${row.batch}?`)) return;
-
-        setIsApplyingBatch(true);
-        try {
-            // Processing ALL IDs in this structure row
-            const idsToProcess = row.allIds || [];
-            let processedCount = 0;
-
-            if (idsToProcess.length === 0) {
-                alert("No Fee Structures found in this row.");
-                return;
-            }
-
-            // Execute all apply requests
-            await Promise.all(idsToProcess.map(id =>
-                api.post(`/fee-structures/apply-batch`, {
-                    structureId: id,
-                    batch: row.batch
-                })
-            ));
-
-            await fetchStudentsForApplicability(); // Refresh table and status
-            setMessage(`Fees applied successfully for Batch ${row.batch}!`);
-            setTimeout(() => setMessage(''), 3000);
-
-        } catch (error) {
-            const msg = error.response?.data?.message || "Failed to apply batch";
-            alert(msg);
-        } finally {
-            setIsApplyingBatch(false);
-        }
-    };
-
-    const handleSaveStudentFees = async () => {
-        setIsSavingFees(true);
-        try {
-            // Flatten the studentList to extract all fee entries
-            const fees = [];
-            studentList.forEach(s => {
-                Object.keys(s.fees).forEach(year => {
-                    const feeObj = s.fees[year];
-                    const amt = feeObj?.amount;
-                    if (amt !== undefined && amt !== null && amt !== '') {
-                        fees.push({
-                            studentId: s.studentId,
-                            studentName: s.studentName,
-                            feeHeadId: appContext.feeHeadId,
-                            college: appContext.college,
-                            course: appContext.course,
-                            branch: appContext.branch,
-                            batch: appContext.batch,
-                            category: appContext.category, // Pass category
-                            studentYear: Number(year),
-                            semester: appContext.semester,
-                            amount: amt,
-                            isScholarshipApplicable: feeObj.isScholarshipApplicable, // Pass the flag
-                            isTermsDivided: feeObj.isTermsDivided
-                        });
-                    }
-                });
-            });
-
-            await api.post(`/fee-structures/save-student-fees`, { fees });
-            await fetchStudentsForApplicability(); // Refresh table and status
-            setMessage("Student List fees saved successfully!");
-            setTimeout(() => setMessage(''), 3000);
-        } catch (error) { alert("Failed to save student fees"); }
-        finally { setIsSavingFees(false); }
-    };
-
     // --- RENDER HELPERS ---
     const colleges = Object.keys(metadata);
-    // Dynamic Dropdowns for Applicability
-    const appCourses = appContext.college ? Object.keys(metadata[appContext.college] || {}) : [];
-    const appBranches = (appContext.college && appContext.course) ? metadata[appContext.college][appContext.course]?.branches || [] : [];
-    const appTotalYears = (appContext.college && appContext.course) ? metadata[appContext.college][appContext.course]?.total_years || 4 : 0;
-    const appYearOptions = ['ALL', ...Array.from({ length: appTotalYears }, (_, i) => i + 1)]; // Added ALL
-
     // Definitions Grouping
     const grouped = {};
     structures.filter(s => {
@@ -644,15 +441,14 @@ const FeeConfiguration = () => {
             <div className="flex-1 p-4 md:p-6">
                 <header className="mb-4">
                     <h1 className="text-2xl font-bold text-gray-800">Fee Configuration</h1>
-                    <p className="text-sm text-gray-500 mt-1">Manage definitions and active assignments.</p>
+                    <p className="text-sm text-gray-500 mt-1">Manage fee heads and structure definitions.</p>
                 </header>
 
                 {/* TABS */}
                 <div className="flex space-x-4 mb-6 border-b border-gray-200">
                     <button className={`pb-2 px-4 font-medium transition ${activeTab === 'heads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('heads')}>1. Fee Heads</button>
                     <button className={`pb-2 px-4 font-medium transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('definitions')}>2. Fee Structures (Definitions)</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'applicability' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('applicability')}>3. Fee Applicability (Assignment)</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('latefees')}>4. Late Fees</button>
+                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('latefees')}>3. Late Fees</button>
                 </div>
 
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
@@ -993,14 +789,6 @@ const FeeConfiguration = () => {
                                                         <Pencil size={16} />
                                                     </button>
                                                     <button
-                                                        onClick={() => handleApplyBatch(row)}
-                                                        disabled={isApplyingBatch}
-                                                        className={`text-green-600 hover:text-green-800 bg-green-50 hover:bg-green-100 p-2 rounded transition flex items-center justify-center ${isApplyingBatch ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                        title="Apply to Batch"
-                                                    >
-                                                        {isApplyingBatch ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div> : <Send size={16} />}
-                                                    </button>
-                                                    <button
                                                         onClick={async () => {
                                                             if (!window.confirm(`Delete ALL definitions for ${row.course}?`)) return;
                                                             try {
@@ -1024,171 +812,8 @@ const FeeConfiguration = () => {
                 )
                 }
 
-                {/* --- TAB 3: APPLICABILITY --- */}
-                {
-                    activeTab === 'applicability' && (
-                        <div className="flex flex-col gap-4">
-                            {/* 1. Context Selection */}
-                            <div className="bg-white p-5 rounded-lg shadow-sm border border-blue-200">
-
-
-                                <h2 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> Select Filters</h2>
-
-                                {/* Order: College -> Batch -> Course -> Branch -> Fee Head -> Category */}
-                                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                                    {/* 1. College */}
-                                    <div><label className="text-xs font-bold text-gray-500">College</label><select className="w-full border p-2 rounded mt-1" value={appContext.college} onChange={e => setAppContext({ ...appContext, college: e.target.value, course: '', branch: '', studentYear: '' })}><option value="">Select...</option>{colleges.map(c => <option key={c}>{c}</option>)}</select></div>
-
-                                    {/* 2. Batch (Required) */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500">Batch</label>
-                                        <select className="w-full border p-2 rounded mt-1" value={appContext.batch} onChange={e => setAppContext({ ...appContext, batch: e.target.value })}>
-                                            <option value="">Select Batch</option>
-                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                        </select>
-                                    </div>
-
-                                    {/* 3. Course */}
-                                    <div><label className="text-xs font-bold text-gray-500">Course</label><select className="w-full border p-2 rounded mt-1" value={appContext.course} onChange={e => setAppContext({ ...appContext, course: e.target.value, branch: '', studentYear: '' })} disabled={!appContext.college}><option value="">Select...</option>{appCourses.map(c => <option key={c}>{c}</option>)}</select></div>
-
-                                    {/* 4. Branch */}
-                                    <div><label className="text-xs font-bold text-gray-500">Branch</label><select className="w-full border p-2 rounded mt-1" value={appContext.branch} onChange={e => setAppContext({ ...appContext, branch: e.target.value })} disabled={!appContext.course}><option value="">Select...</option>{appBranches.map(c => <option key={c}>{c}</option>)}</select></div>
-
-                                    {/* 5. Fee Head */}
-                                    <div><label className="text-xs font-bold text-gray-500">Fee Head</label><select className="w-full border p-2 rounded mt-1" value={appContext.feeHeadId} onChange={e => setAppContext({ ...appContext, feeHeadId: e.target.value })}><option value="">Select...</option>{feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}</select></div>
-
-                                    {/* 6. Category */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500">Category</label>
-                                        <select className="w-full border p-2 rounded mt-1" value={appContext.category} onChange={e => setAppContext({ ...appContext, category: e.target.value })} required disabled={!appContext.college || !appContext.course || !appContext.batch}>
-                                            <option value="">Select Category</option>
-                                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-
-
-                                <div className="mt-4 flex justify-end">
-                                    <button
-                                        onClick={fetchStudentsForApplicability}
-                                        disabled={loadingStudents}
-                                        className={`text-white px-6 py-2 rounded font-semibold shadow-md flex items-center gap-2 transition ${loadingStudents ? 'bg-gray-400 cursor-not-allowed' : 'bg-gray-800 hover:bg-gray-900'}`}
-                                    >
-                                        {loadingStudents ? (
-                                            <>
-                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                                Loading...
-                                            </>
-                                        ) : 'Load Data'}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* 2. Action Area */}
-                            {studentList.length > 0 && (
-                                <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
-
-                                    <div>
-                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-                                            <div className="flex flex-col">
-                                                <p className="text-sm text-gray-500">Edit fee amounts for all years. {appContext.semester ? `(Semester ${appContext.semester} Only)` : ''}</p>
-                                                {isBatchApplied ? (
-                                                    <span className="text-xs font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded w-fit mt-1">✓ Fees Applied (Showing Actuals)</span>
-                                                ) : (
-                                                    <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded w-fit mt-1">⚠ Fees Not Applied (Showing Templates)</span>
-                                                )}
-                                            </div>
-                                            
-                                            <div className="flex-1 w-full max-w-md">
-                                                <input
-                                                    type="text"
-                                                    placeholder="Search by Admission No, Pin No, or Name..."
-                                                    className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition-shadow text-sm text-gray-700"
-                                                    value={applicabilitySearchQuery}
-                                                    onChange={(e) => setApplicabilitySearchQuery(e.target.value)}
-                                                />
-                                            </div>
-
-                                            <button
-                                                onClick={handleSaveStudentFees}
-                                                disabled={isSavingFees}
-                                                className={`text-white px-6 py-2 rounded font-bold shadow flex items-center gap-2 transition ${isSavingFees ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
-                                            >
-                                                {isSavingFees ? (
-                                                    <>
-                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                                        Saving...
-                                                    </>
-                                                ) : 'Save Changes'}
-                                            </button>
-                                        </div>
-                                        <div className="overflow-x-auto max-h-[500px] border rounded bg-white">
-                                            <table className="w-full text-left text-sm whitespace-nowrap">
-                                                <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
-                                                    <tr>
-                                                        <th className="p-3 border-b font-semibold text-gray-600 w-32">Admission No</th>
-                                                        <th className="p-3 border-b font-semibold text-gray-600 w-32">Pin Number</th>
-                                                        <th className="p-3 border-b font-semibold text-gray-600">Student Name</th>
-                                                        {/* Dynamic Year Columns based on Course Duration */}
-                                                        {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(y => (
-                                                            <th key={y} className="p-3 border-b border-l text-center w-32 font-bold text-gray-700">Year {y}</th>
-                                                        ))}
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {studentList.filter(s => {
-                                                        if (!applicabilitySearchQuery) return true;
-                                                        const q = applicabilitySearchQuery.toLowerCase();
-                                                        return (s.studentId && s.studentId.toLowerCase().includes(q)) ||
-                                                               (s.pinNo && s.pinNo.toLowerCase().includes(q)) ||
-                                                               (s.studentName && s.studentName.toLowerCase().includes(q));
-                                                    }).map((s) => (
-                                                        <tr key={s.studentId} className="hover:bg-gray-50 border-b">
-                                                            <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.studentId}</td>
-                                                            <td className="p-3 font-mono text-gray-600 text-xs bg-white">{s.pinNo}</td>
-                                                            <td className="p-3 font-medium text-gray-800 bg-white">{s.studentName}</td>
-
-                                                            {/* Dynamic Year Inputs (All Available) */}
-                                                            {Array.from({ length: appTotalYears }, (_, i) => i + 1).map(yearCol => (
-                                                                <td key={yearCol} className="p-2 border-l text-center">
-                                                                    <div className="relative">
-                                                                        <input
-                                                                            type="number"
-                                                                            className={`w-full p-2 border ${s.fees[yearCol]?.isScholarshipApplicable ? 'border-yellow-400 bg-yellow-50' : 'border-blue-200'} rounded focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-gray-900`}
-                                                                            value={s.fees[yearCol]?.amount || ''}
-                                                                            placeholder="-"
-                                                                            onChange={(e) => {
-                                                                                const actualIdx = studentList.findIndex(item => item.studentId === s.studentId);
-                                                                                if (actualIdx === -1) return;
-                                                                                const newList = [...studentList];
-                                                                                const oldFee = newList[actualIdx].fees[yearCol] || {};
-                                                                                const newFees = {
-                                                                                    ...newList[actualIdx].fees,
-                                                                                    [yearCol]: { ...oldFee, amount: e.target.value } // Preserve other props
-                                                                                };
-                                                                                newList[actualIdx].fees = newFees;
-                                                                                setStudentList(newList);
-                                                                            }}
-                                                                        />
-                                                                        {s.fees[yearCol]?.isScholarshipApplicable && (
-                                                                            <span className="absolute top-0 right-0 -mt-2 -mr-1 text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200 shadow-sm" title="Scholarship Eligible">🎓</span>
-                                                                        )}
-                                                                    </div>
-                                                                </td>
-                                                            ))}
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )
-                }
-
-                {/* --- TAB 4: LATE FEES --- */}
+                {/* --- TAB 3: LATE FEES --- */}
+                
                 {activeTab === 'latefees' && (
                     <div className="space-y-6">
                         {/* Selector Section */}

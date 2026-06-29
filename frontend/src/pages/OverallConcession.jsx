@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
 import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye } from 'lucide-react';
@@ -44,6 +44,74 @@ const OverallConcession = () => {
     const [concessionTypes, setConcessionTypes] = useState({});
     const [selectedNewHead, setSelectedNewHead] = useState('');
     const [activeTab, setActiveTab] = useState('add'); // 'add' or 'view'
+    const [isFormDirty, setIsFormDirty] = useState(false);
+    const formDirtyRef = useRef(false);
+
+    const markFormDirty = () => {
+        formDirtyRef.current = true;
+        setIsFormDirty(true);
+    };
+
+    const markFormClean = () => {
+        formDirtyRef.current = false;
+        setIsFormDirty(false);
+    };
+
+    const normalizeConcessionType = (type) =>
+        String(type ?? 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION';
+
+    const normalizeFeeHeadId = (id) => String(id ?? '').trim();
+
+    const getRowConcessionType = (fhId) =>
+        normalizeConcessionType(concessionTypes[normalizeFeeHeadId(fhId)] || 'CONCESSION');
+
+    const resolveRevisedFeeHeadId = (rf) => {
+        const directId = normalizeFeeHeadId(rf.feeHeadId);
+        if (directId) {
+            const matched = feeHeads.find(h => normalizeFeeHeadId(h._id) === directId);
+            return matched ? normalizeFeeHeadId(matched._id) : directId;
+        }
+        const code = (rf.feeHeadCode || '').trim().toUpperCase();
+        if (!code) return '';
+        const byCode = feeHeads.find(h => (h.code || '').trim().toUpperCase() === code);
+        return byCode ? normalizeFeeHeadId(byCode._id) : '';
+    };
+
+    const buildDraftKey = (feeHeadId, studentYear) =>
+        `${normalizeFeeHeadId(feeHeadId)}_${Number(studentYear)}`;
+
+    const getConcessionDisplayAmount = (rf) => {
+        const raw = rf?.amount ?? rf?.revisedAmount;
+        if (raw === undefined || raw === null || raw === '') return '';
+        return String(raw);
+    };
+
+    const applyStudentConcessionsToForm = (student) => {
+        if (!student) return;
+
+        const revisedFees = student.revisedFees || [];
+        const headIds = [];
+        const initialDrafts = {};
+        const initialTypes = {};
+
+        revisedFees.forEach(rf => {
+            const fhId = resolveRevisedFeeHeadId(rf);
+            if (!fhId) return;
+            if (!headIds.includes(fhId)) headIds.push(fhId);
+
+            initialTypes[fhId] = normalizeConcessionType(rf.concessionType);
+
+            const amountStr = getConcessionDisplayAmount(rf);
+            if (amountStr !== '') {
+                initialDrafts[buildDraftKey(fhId, rf.studentYear)] = amountStr;
+            }
+        });
+
+        setActiveEditHeads(headIds);
+        setDraftAmounts(initialDrafts);
+        setConcessionTypes(initialTypes);
+        markFormClean();
+    };
 
     // Fetch initial filter metadata and fee heads
     useEffect(() => {
@@ -66,6 +134,13 @@ const OverallConcession = () => {
         };
         fetchInitialData();
     }, [hasPermission]);
+
+    useEffect(() => {
+        if (!selectedStudent) return;
+        if (formDirtyRef.current) return;
+
+        applyStudentConcessionsToForm(selectedStudent);
+    }, [selectedStudent?.admission_number, selectedStudent?.revisedFees, feeHeads.length]);
 
     if (!hasPermission) {
         return (
@@ -138,46 +213,34 @@ const OverallConcession = () => {
 
     // Handle selecting a student
     const handleSelectStudent = (student) => {
+        markFormClean();
         setSelectedStudent(student);
         setSuccessMessage('');
         setErrorMessage('');
         setSelectedNewHead('');
-
-        // Extract already defined fee heads for this student
-        const uniqueHeads = student.revisedFees ? [...new Set(student.revisedFees.map(rf => rf.feeHeadId))] : [];
-        setActiveEditHeads(uniqueHeads);
-
-        // Prepopulate draft amounts & concession types
-        const initialDrafts = {};
-        const initialTypes = {};
-        if (student.revisedFees) {
-            student.revisedFees.forEach(rf => {
-                const key = `${rf.feeHeadId}_${rf.studentYear}`;
-                initialDrafts[key] = String(rf.revisedAmount);
-                initialTypes[rf.feeHeadId] = rf.concessionType || 'REVISED';
-            });
-        }
-        setDraftAmounts(initialDrafts);
-        setConcessionTypes(initialTypes);
+        applyStudentConcessionsToForm(student);
     };
 
     // Add a fee head to the editing panel
     const handleAddEditHead = () => {
         if (!selectedNewHead) return;
-        if (!activeEditHeads.includes(selectedNewHead)) {
-            setActiveEditHeads([...activeEditHeads, selectedNewHead]);
+        const fhId = normalizeFeeHeadId(selectedNewHead);
+        if (!activeEditHeads.includes(fhId)) {
+            setActiveEditHeads([...activeEditHeads, fhId]);
             setConcessionTypes(prev => ({
                 ...prev,
-                [selectedNewHead]: 'REVISED'
+                [fhId]: 'CONCESSION'
             }));
         }
+        markFormDirty();
         setSelectedNewHead('');
     };
 
     const handleConcessionTypeChange = (fhId, type) => {
+        markFormDirty();
         setConcessionTypes(prev => ({
             ...prev,
-            [fhId]: type
+            [normalizeFeeHeadId(fhId)]: normalizeConcessionType(type)
         }));
     };
 
@@ -191,27 +254,111 @@ const OverallConcession = () => {
     const duration = (selectedStudent && selectedStudent.course && courseYears[selectedStudent.course]) || 4;
     const yearsArray = Array.from({ length: duration }, (_, i) => i + 1);
 
-    // Remove a fee head from the editing panel (clears values)
-    const handleRemoveEditHead = (fhId) => {
-        if (!window.confirm('Remove this fee component and clear all its revised values? (Restores standard fee template amounts for this component on save)')) return;
-        
-        setActiveEditHeads(activeEditHeads.filter(id => id !== fhId));
+    const buildConcessionsPayload = (heads, drafts, types) => {
+        const payload = [];
+        heads.forEach(fhId => {
+            const fh = feeHeads.find(h => normalizeFeeHeadId(h._id) === normalizeFeeHeadId(fhId));
+            const fhCode = fh ? fh.code : '';
+            const cType = normalizeConcessionType(types[normalizeFeeHeadId(fhId)] || 'CONCESSION');
+            yearsArray.forEach(yr => {
+                const val = drafts[buildDraftKey(fhId, yr)];
+                if (val !== undefined && val !== null && String(val).trim() !== '') {
+                    payload.push({
+                        feeHeadId: fhId,
+                        feeHeadCode: fhCode,
+                        studentYear: yr,
+                        semester: null,
+                        amount: Number(val),
+                        concessionType: cType
+                    });
+                }
+            });
+        });
+        return payload;
+    };
+
+    const persistConcessions = async (heads, drafts, types, successMsg) => {
+        if (!selectedStudent) return;
+
+        const payload = {
+            admissionNumber: selectedStudent.admission_number,
+            pinNo: selectedStudent.pin_no,
+            studentName: selectedStudent.student_name,
+            college: selectedStudent.college,
+            course: selectedStudent.course,
+            branch: selectedStudent.branch,
+            batch: selectedStudent.batch,
+            category: selectedStudent.stud_type,
+            concessions: buildConcessionsPayload(heads, drafts, types)
+        };
+
+        const res = await api.post('/overall-concessions/bulk', payload);
+
+        const updatedStudentObj = {
+            ...selectedStudent,
+            revisedFees: res.data.revisedFees
+        };
+
+        setSelectedStudent(updatedStudentObj);
+        markFormClean();
+        applyStudentConcessionsToForm(updatedStudentObj);
+        setStudents(students.map(s =>
+            s.admission_number === selectedStudent.admission_number ? updatedStudentObj : s
+        ));
+
+        setSuccessMessage(successMsg || res.data.message || 'Revised fees saved successfully!');
+        setTimeout(() => setSuccessMessage(''), 3000);
+    };
+
+    // Remove a fee head and persist immediately
+    const handleRemoveEditHead = async (fhId) => {
+        if (!selectedStudent) return;
+        if (!window.confirm('Remove this fee component and restore its standard fee amounts?')) return;
+
+        const normalizedId = normalizeFeeHeadId(fhId);
+        const nextHeads = activeEditHeads.filter(id => normalizeFeeHeadId(id) !== normalizedId);
 
         const updatedDrafts = { ...draftAmounts };
+        const headPrefix = `${normalizedId}_`;
         Object.keys(updatedDrafts).forEach(key => {
-            if (key.startsWith(`${fhId}_`)) {
+            if (key.startsWith(headPrefix)) {
                 delete updatedDrafts[key];
             }
         });
+
+        const nextTypes = { ...concessionTypes };
+        delete nextTypes[normalizedId];
+
+        setActiveEditHeads(nextHeads);
         setDraftAmounts(updatedDrafts);
+        setConcessionTypes(nextTypes);
+
+        setIsSaving(true);
+        setSuccessMessage('');
+        setErrorMessage('');
+
+        try {
+            await persistConcessions(
+                nextHeads,
+                updatedDrafts,
+                nextTypes,
+                'Fee component removed and standard fees restored.'
+            );
+        } catch (error) {
+            console.error('Error removing fee component:', error);
+            setErrorMessage(error.response?.data?.message || 'Failed to remove fee component.');
+            applyStudentConcessionsToForm(selectedStudent);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     // Handle inline change in amounts
     const handleAmountChange = (feeHeadId, year, val) => {
-        const key = `${feeHeadId}_${year}`;
+        markFormDirty();
         setDraftAmounts({
             ...draftAmounts,
-            [key]: val
+            [buildDraftKey(feeHeadId, year)]: val
         });
     };
 
@@ -224,57 +371,12 @@ const OverallConcession = () => {
         setSuccessMessage('');
         setErrorMessage('');
 
-        const concessionsPayload = [];
-
-        // Build array of active draft values
-        activeEditHeads.forEach(fhId => {
-            const fh = feeHeads.find(h => h._id === fhId);
-            const fhCode = fh ? fh.code : '';
-            const cType = concessionTypes[fhId] || 'REVISED';
-            yearsArray.forEach(yr => {
-                const key = `${fhId}_${yr}`;
-                const val = draftAmounts[key];
-                if (val !== undefined && val !== null && val.trim() !== '') {
-                    concessionsPayload.push({
-                        feeHeadId: fhId,
-                        feeHeadCode: fhCode,
-                        studentYear: yr,
-                        semester: null,
-                        revisedAmount: Number(val),
-                        concessionType: cType
-                    });
-                }
-            });
-        });
-
-        const payload = {
-            admissionNumber: selectedStudent.admission_number,
-            pinNo: selectedStudent.pin_no,
-            studentName: selectedStudent.student_name,
-            college: selectedStudent.college,
-            course: selectedStudent.course,
-            branch: selectedStudent.branch,
-            batch: selectedStudent.batch,
-            category: selectedStudent.stud_type,
-            concessions: concessionsPayload
-        };
-
         try {
-            const res = await api.post('/overall-concessions/bulk', payload);
-
-            // Extract updated concessions
-            const updatedStudentObj = {
-                ...selectedStudent,
-                revisedFees: res.data.revisedFees
-            };
-
-            setSelectedStudent(updatedStudentObj);
-
-            // Update local student roster
-            setStudents(students.map(s => s.admission_number === selectedStudent.admission_number ? updatedStudentObj : s));
-
-            setSuccessMessage(res.data.message || 'Revised fees saved successfully!');
-            setTimeout(() => setSuccessMessage(''), 3000);
+            await persistConcessions(
+                activeEditHeads,
+                draftAmounts,
+                concessionTypes
+            );
         } catch (error) {
             console.error('Error saving overall concessions:', error);
             setErrorMessage(error.response?.data?.message || 'Failed to save revised fees.');
@@ -285,7 +387,7 @@ const OverallConcession = () => {
 
     // Helper to get FeeHead Name
     const getFeeHeadName = (id, code = '') => {
-        let fh = feeHeads.find(h => h._id === id);
+        let fh = feeHeads.find(h => normalizeFeeHeadId(h._id) === normalizeFeeHeadId(id));
         if (!fh && code) {
             fh = feeHeads.find(h => h.code === code);
         }
@@ -406,7 +508,7 @@ const OverallConcession = () => {
 
                     {/* Main Workspace Layout */}
                     {activeTab === 'add' ? (
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
                             
                             {/* LEFT: Students Roster */}
                             <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[500px]">
@@ -455,7 +557,7 @@ const OverallConcession = () => {
                             </div>
 
                             {/* RIGHT: Concession Management details */}
-                            <div className="lg:col-span-2 space-y-6">
+                            <div className="lg:col-span-3 space-y-6">
                                 {selectedStudent ? (
                                     <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 space-y-6 animate-fadeIn">
                                         
@@ -506,9 +608,9 @@ const OverallConcession = () => {
                                                     >
                                                         <option value="">Select Fee Component to Add...</option>
                                                         {feeHeads
-                                                            .filter(fh => !activeEditHeads.includes(fh._id))
+                                                            .filter(fh => !activeEditHeads.includes(normalizeFeeHeadId(fh._id)))
                                                             .map(fh => (
-                                                                <option key={fh._id} value={fh._id}>{fh.name} ({fh.code || 'N/A'})</option>
+                                                                <option key={fh._id} value={normalizeFeeHeadId(fh._id)}>{fh.name} ({fh.code || 'N/A'})</option>
                                                             ))
                                                         }
                                                     </select>
@@ -532,54 +634,69 @@ const OverallConcession = () => {
                                                 ) : (
                                                     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
                                                         <div className="overflow-x-auto w-full">
-                                                            <table className="w-full text-xs text-left border-collapse min-w-[650px]">
+                                                            <table className="w-full text-xs text-left border-collapse table-fixed">
+                                                                <colgroup>
+                                                                    <col className="w-[168px]" />
+                                                                    <col className="w-[118px]" />
+                                                                    {yearsArray.map(yr => (
+                                                                        <col key={yr} />
+                                                                    ))}
+                                                                    <col className="w-12" />
+                                                                </colgroup>
                                                                 <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-[10px] uppercase">
                                                                     <tr>
-                                                                        <th className="p-3 w-1/4">Fee Component</th>
-                                                                        <th className="p-3 w-1/5 text-center">Type</th>
+                                                                        <th className="px-3 py-3 text-left">Fee Component</th>
+                                                                        <th className="px-2 py-3 text-center">Type</th>
                                                                         {yearsArray.map(yr => (
-                                                                            <th key={yr} className="p-3 text-center">{getYearSuffix(yr)} Year (₹)</th>
+                                                                            <th key={yr} className="px-2 py-3 text-center">{getYearSuffix(yr)} Year (₹)</th>
                                                                         ))}
-                                                                        <th className="p-3 text-center w-16">Action</th>
+                                                                        <th className="px-2 py-3 text-center">Action</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100 text-slate-700">
                                                                     {activeEditHeads.map(fhId => {
-                                                                        const matchingFee = selectedStudent?.revisedFees?.find(rf => rf.feeHeadId === fhId);
+                                                                        const matchingFee = selectedStudent?.revisedFees?.find(
+                                                                            rf => resolveRevisedFeeHeadId(rf) === normalizeFeeHeadId(fhId)
+                                                                        );
                                                                         const headCode = matchingFee ? matchingFee.feeHeadCode : '';
                                                                         const headName = getFeeHeadName(fhId, headCode);
+                                                                        const rowType = getRowConcessionType(fhId);
+                                                                        const amountPlaceholder = rowType === 'CONCESSION' ? 'Deduction' : 'Revised fee';
                                                                         return (
                                                                             <tr key={fhId} className="hover:bg-slate-50/20">
-                                                                                <td className="p-3 font-bold text-slate-900">{headName}</td>
-                                                                                <td className="p-3 text-center">
-                                                                                    <select
-                                                                                        value={concessionTypes[fhId] || 'REVISED'}
-                                                                                        onChange={e => handleConcessionTypeChange(fhId, e.target.value)}
-                                                                                        className="w-full border border-slate-300 rounded-lg p-1.5 bg-slate-50 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs font-semibold"
-                                                                                    >
-                                                                                        <option value="REVISED">Revised Fee</option>
-                                                                                        <option value="CONCESSION">Concession</option>
-                                                                                    </select>
+                                                                                <td className="px-3 py-3 font-bold text-slate-900 whitespace-nowrap">{headName}</td>
+                                                                                <td className="px-2 py-3">
+                                                                                    <div className="flex justify-center">
+                                                                                        <select
+                                                                                            value={rowType}
+                                                                                            onChange={e => handleConcessionTypeChange(fhId, e.target.value)}
+                                                                                            className="w-[112px] border border-slate-300 rounded-lg p-1.5 bg-slate-50 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs font-semibold"
+                                                                                        >
+                                                                                            <option value="REVISED">Revised Fee</option>
+                                                                                            <option value="CONCESSION">Concession</option>
+                                                                                        </select>
+                                                                                    </div>
                                                                                 </td>
                                                                                 {yearsArray.map(yr => (
-                                                                                    <td key={yr} className="p-3 text-center">
-                                                                                        <div className="relative max-w-[110px] mx-auto">
+                                                                                    <td key={yr} className="px-2 py-3 text-center">
+                                                                                        <div className="relative w-full max-w-[120px] mx-auto">
                                                                                             <span className="absolute left-2.5 top-2 text-slate-400 font-medium">₹</span>
                                                                                             <input
                                                                                                 type="number"
-                                                                                                placeholder="Standard"
-                                                                                                value={draftAmounts[`${fhId}_${yr}`] || ''}
+                                                                                                placeholder={amountPlaceholder}
+                                                                                                value={draftAmounts[buildDraftKey(fhId, yr)] || ''}
                                                                                                 onChange={e => handleAmountChange(fhId, yr, e.target.value)}
-                                                                                                className="w-full border border-slate-300 pl-6 pr-1 py-1.5 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs font-semibold"
+                                                                                                className="w-full border border-slate-300 pl-6 pr-2 py-1.5 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs font-semibold"
                                                                                             />
                                                                                         </div>
                                                                                     </td>
                                                                                 ))}
-                                                                                <td className="p-3 text-center">
+                                                                                <td className="px-2 py-3 text-center">
                                                                                     <button
                                                                                         type="button"
                                                                                         onClick={() => handleRemoveEditHead(fhId)}
-                                                                                        className="text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition"
+                                                                                        disabled={isSaving}
+                                                                                        className="text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition disabled:opacity-40"
                                                                                         title="Clear and remove component"
                                                                                     >
                                                                                         <Trash2 size={14} />
@@ -596,7 +713,7 @@ const OverallConcession = () => {
                                             </div>
 
                                             {/* Action Button */}
-                                            {activeEditHeads.length > 0 && (
+                                            {(activeEditHeads.length > 0 || isFormDirty) && (
                                                 <div className="flex justify-end pt-4 border-t border-slate-100">
                                                     <button
                                                         type="button"
@@ -660,8 +777,10 @@ const OverallConcession = () => {
                                                 const grouped = {};
                                                 if (s.revisedFees) {
                                                     s.revisedFees.forEach(rf => {
-                                                        if (!grouped[rf.feeHeadId]) grouped[rf.feeHeadId] = [];
-                                                        grouped[rf.feeHeadId].push(rf);
+                                                        const fhId = resolveRevisedFeeHeadId(rf) || normalizeFeeHeadId(rf.feeHeadId);
+                                                        if (!fhId) return;
+                                                        if (!grouped[fhId]) grouped[fhId] = [];
+                                                        grouped[fhId].push(rf);
                                                     });
                                                 }
                                                 const hasConcessions = Object.keys(grouped).length > 0;
@@ -685,7 +804,7 @@ const OverallConcession = () => {
                                                                             <div className="flex flex-wrap gap-1.5">
                                                                                 {items.map(rf => (
                                                                                     <span key={rf.id} className={`border rounded px-1.5 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${rf.concessionType === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
-                                                                                        Yr {rf.studentYear}: {rf.concessionType === 'CONCESSION' ? '-' : ''}₹{rf.revisedAmount.toLocaleString()} {rf.concessionType === 'CONCESSION' && '(Conc.)'}
+                                                                                        Yr {rf.studentYear}: {rf.concessionType === 'CONCESSION' ? '-' : ''}₹{(rf.amount ?? rf.revisedAmount ?? 0).toLocaleString()} {rf.concessionType === 'CONCESSION' ? '(Conc.)' : '(Revised)'}
                                                                                     </span>
                                                                                 ))}
                                                                             </div>

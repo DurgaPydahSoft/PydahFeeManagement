@@ -37,6 +37,7 @@ const ConcessionManagement = () => {
         batch: ''
     });
     const [imageFile, setImageFile] = useState(null);
+    const [nextVoucherId, setNextVoucherId] = useState('');
 
     // Approval State
     const [pendingRequests, setPendingRequests] = useState([]);
@@ -120,6 +121,30 @@ const ConcessionManagement = () => {
             fetchReports();
         }
     }, [activeTab, reportFilters, hasPermission]);
+
+    useEffect(() => {
+        if (!hasPermission || activeTab !== 'request') return;
+
+        const course = selectedStudents[0]?.course;
+        if (!course) {
+            setNextVoucherId('');
+            return;
+        }
+
+        const fetchNextVoucherId = async () => {
+            try {
+                const res = await api.get(`/concessions/next-voucher-id`, {
+                    params: { course },
+                });
+                setNextVoucherId(res.data.nextVoucherId);
+            } catch (e) {
+                console.error('Failed to fetch next voucher id', e);
+                setNextVoucherId('');
+            }
+        };
+
+        fetchNextVoucherId();
+    }, [selectedStudents, activeTab, hasPermission]);
 
     const fetchReports = async () => {
         setIsReportLoading(true);
@@ -414,11 +439,24 @@ const ConcessionManagement = () => {
             const response = await api.post(`/concessions`, formDataObjs);
 
             const createdVoucherId = response.data.data?.[0]?.voucherId || 'N/A';
+            const submittedCourse = selectedStudents[0]?.course;
             alert(`Concession Request Submitted Successfully! Voucher ID: ${createdVoucherId}`);
             // Reset selections and form
             setSelectedStudents([]);
-            setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '', college: '', course: '', branch: '', batch: '' });
+            setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '', college: '', course: '', branch: '', batch: '', concessionGivenBy: '' });
             setImageFile(null);
+            setNextVoucherId('');
+
+            if (submittedCourse) {
+                try {
+                    const res = await api.get(`/concessions/next-voucher-id`, {
+                        params: { course: submittedCourse },
+                    });
+                    setNextVoucherId(res.data.nextVoucherId);
+                } catch (e) {
+                    console.error('Failed to refresh next voucher id', e);
+                }
+            }
 
         } catch (error) {
             console.error(error);
@@ -728,14 +766,21 @@ const ConcessionManagement = () => {
                                         <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Raising for {selectedStudents.length} Students</p>
                                     </div>
                                 </div>
-                                {selectedStudents.length > 0 && (
-                                    <button 
-                                        onClick={() => setSelectedStudents([])}
-                                        className="text-xs text-red-500 font-bold flex items-center gap-1 hover:text-red-700"
-                                    >
-                                        <X size={14} /> Clear Selection
-                                    </button>
-                                )}
+                                <div className="flex items-center gap-3">
+                                    {nextVoucherId && selectedStudents.length > 0 && (
+                                        <span className="text-xs font-mono font-bold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100">
+                                            Next Voucher: #{nextVoucherId}
+                                        </span>
+                                    )}
+                                    {selectedStudents.length > 0 && (
+                                        <button 
+                                            onClick={() => setSelectedStudents([])}
+                                            className="text-xs text-red-500 font-bold flex items-center gap-1 hover:text-red-700"
+                                        >
+                                            <X size={14} /> Clear Selection
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             <form onSubmit={handleSubmitRequest} className="flex-1 p-6 overflow-y-auto space-y-6">

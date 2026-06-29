@@ -4,25 +4,17 @@ const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const db = require('../config/sqlDb');
+const { syncClubFees, syncStandardFees } = require('../services/studentFeeSyncService');
+const {
+  resolveStudentFeeAmount,
+  buildFeeHeadMaps,
+  resolveFeeHeadId
+} = require('../utils/overallConcessionFees');
 
 // Helper to automatically apply a fee structure to all students in the batch
 const applyFeeStructureToBatchInternal = async (structure) => {
   if (!structure) return;
   try {
-    // Only propagate/apply if standard fees have already been applied for this batch/course/branch
-    const batchFeesApplied = await StudentFee.exists({
-      academicYear: structure.batch,
-      college: structure.college,
-      course: structure.course,
-      branch: structure.branch,
-      $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-    });
-
-    if (!batchFeesApplied) {
-      console.log(`Skipping auto-apply: Batch fees have not been applied yet for batch ${structure.batch}, course ${structure.course}, branch ${structure.branch}`);
-      return;
-    }
-
     const [students] = await db.query(`
       SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
       FROM students 
@@ -36,37 +28,26 @@ const applyFeeStructureToBatchInternal = async (structure) => {
         `SELECT admission_number, revised_fees FROM overall_concessions WHERE batch = ?`,
         [structure.batch]
     );
+    const feeHeads = await FeeHead.find({}).lean();
+    const { codeMap } = buildFeeHeadMaps(feeHeads);
     const revisedFeesMap = {};
-    if (concessions.length > 0) {
-        const feeHeads = await FeeHead.find({}).lean();
-        const codeMap = {};
-        feeHeads.forEach(fh => {
-            if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
-        });
 
+    if (concessions.length > 0) {
         concessions.forEach(c => {
             const fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : (c.revised_fees || []);
-            if (Array.isArray(fees)) {
-                const match = fees.find(f => {
-                    let resolvedId = f.feeHeadId;
-                    const codeKey = f.feeHeadCode ? f.feeHeadCode.trim().toUpperCase() : '';
-                    if (codeKey && codeMap[codeKey]) {
-                        resolvedId = codeMap[codeKey];
-                    }
-                    return (
-                        resolvedId === structure.feeHead.toString() &&
-                        Number(f.studentYear) === Number(structure.studentYear) &&
-                        (f.semester === null || f.semester === undefined || Number(f.semester) === Number(structure.semester))
-                    );
-                });
-                if (match) {
-                    const concType = match.concessionType || 'REVISED';
-                    let amount = Number(match.revisedAmount);
-                    if (concType === 'CONCESSION') {
-                        amount = Math.max(0, structure.amount - amount);
-                    }
-                    revisedFeesMap[c.admission_number] = amount;
-                }
+            if (!Array.isArray(fees)) return;
+
+            const match = fees.find(f => {
+                const resolvedId = resolveFeeHeadId(f, codeMap);
+                return (
+                    resolvedId === structure.feeHead.toString() &&
+                    Number(f.studentYear) === Number(structure.studentYear) &&
+                    (f.semester === null || f.semester === undefined || Number(f.semester) === Number(structure.semester))
+                );
+            });
+
+            if (match) {
+                revisedFeesMap[c.admission_number] = resolveStudentFeeAmount(structure.amount, match);
             }
         });
     }
@@ -264,7 +245,7 @@ const getStudentFeeDetails = async (req, res) => {
 
   try {
     // 1. Fetch Student Info (to get current batch and year)
-    const [students] = await db.query('SELECT id, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type FROM students WHERE admission_number = ?', [admissionNo]);
+    const [students] = await db.query('SELECT id, student_name, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
     const currentYear = (student && student.current_year) ? Number(student.current_year) : (Number(queryYear) || 1);
     const batch = student ? student.batch : '';
@@ -273,64 +254,16 @@ const getStudentFeeDetails = async (req, res) => {
     const branch = student ? student.branch : '';
     const category = student ? student.stud_type : 'Regular';
 
-    // --- CLUB FEE SYNC START ---
     if (student) {
       try {
-        // Get Approved Clubs
-        const [approvedClubs] = await db.query(`
-                SELECT cm.club_id, c.membership_fee, c.name, cm.updated_at 
-                FROM club_members cm 
-                JOIN clubs c ON cm.club_id = c.id 
-                WHERE cm.student_id = ? AND cm.status = 'approved'
-            `, [student.id]);
-
-        if (approvedClubs.length > 0) {
-          // Find Generic 'Club Fee' Head
-          const clubFeeHead = await FeeHead.findOne({ code: 'CF' });
-
-          if (clubFeeHead) {
-            for (const club of approvedClubs) {
-              // Check if fee already exists for this specific club (using remarks or composite check if possible)
-              // We check: same student, same fee head, same year.
-              // Ideally we should also check if the amount matches or 'remarks' contains club name to distinguish multiple clubs
-              const remarksKey = `Club Fee: ${club.name}`;
-
-              const existingFee = await StudentFee.findOne({
-                studentId: admissionNo,
-                feeHead: clubFeeHead._id,
-                remarks: remarksKey // Strict check to allow multiple different club fees
-              });
-
-              if (!existingFee) {
-                console.log(`Syncing Club Fee: ${club.name} for ${admissionNo}`);
-                await StudentFee.create({
-                  studentId: admissionNo,
-                  studentName: '', // Optional
-                  feeHead: clubFeeHead._id,
-                  college: 'ANY', // Default
-                  course: 'ANY',
-                  branch: 'ANY',
-                  academicYear: batch, // Use Batch as AY
-                  studentYear: currentYear,
-                  semester: student.current_semester || 1,
-                  amount: Number(club.membership_fee),
-                  remarks: remarksKey
-                });
-              }
-            }
-          } else {
-            console.warn('Club Fee Sync Skipped: Fee Head "CF" not found.');
-          }
-        }
+        await syncClubFees(student, admissionNo);
+        await syncStandardFees(student, admissionNo);
       } catch (syncError) {
-        console.error('Club Fee Sync Error:', syncError);
-        // Non-blocking error
+        console.error('Fee sync error:', syncError);
       }
     }
-    // --- CLUB FEE SYNC END ---
 
-    // 2. Fetch applicable Fee Structures for term definitions and sync
-    // This allows us to know which heads are currently mapped to this student's context
+    // 2. Fetch applicable Fee Structures for term definitions
     const applicableStructures = await FeeStructure.find({
       college,
       course,
@@ -338,91 +271,6 @@ const getStudentFeeDetails = async (req, res) => {
       batch,
       category
     }).lean();
-
-    // --- JUST-IN-TIME (JIT) FEE STRUCTURE SYNC ---
-    if (student) {
-      try {
-        // Fetch revised fees from overall_concessions table
-        const [concessions] = await db.query(
-            `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNo]
-        );
-        const revisedFeesMap = {};
-        if (concessions.length > 0) {
-            const fees = typeof concessions[0].revised_fees === 'string' ? JSON.parse(concessions[0].revised_fees) : (concessions[0].revised_fees || []);
-            if (Array.isArray(fees)) {
-                const feeHeads = await FeeHead.find({}).lean();
-                const codeMap = {};
-                feeHeads.forEach(fh => {
-                    if (fh.code) codeMap[fh.code.trim().toUpperCase()] = fh._id.toString();
-                });
-
-                fees.forEach(rf => {
-                    let resolvedId = rf.feeHeadId;
-                    const codeKey = rf.feeHeadCode ? rf.feeHeadCode.trim().toUpperCase() : '';
-                    if (codeKey && codeMap[codeKey]) {
-                        resolvedId = codeMap[codeKey];
-                    }
-                    const key = `${resolvedId}-${rf.studentYear}-${rf.semester || 'null'}`;
-                    revisedFeesMap[key] = {
-                        revisedAmount: Number(rf.revisedAmount),
-                        concessionType: rf.concessionType || 'REVISED'
-                    };
-                });
-            }
-        }
-
-        for (const fs of applicableStructures) {
-          const fsKey = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
-          
-          let targetAmount = fs.amount;
-          if (revisedFeesMap[fsKey] !== undefined) {
-              const revInfo = revisedFeesMap[fsKey];
-              if (revInfo.concessionType === 'CONCESSION') {
-                  targetAmount = Math.max(0, fs.amount - revInfo.revisedAmount);
-              } else {
-                  targetAmount = revInfo.revisedAmount;
-              }
-          }
-
-          const existingFee = await StudentFee.findOne({
-            studentId: admissionNo,
-            feeHead: fs.feeHead,
-            academicYear: fs.batch,
-            studentYear: fs.studentYear,
-            semester: fs.semester || null,
-            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-          });
-
-          if (!existingFee) {
-            console.log(`JIT Sync: Creating StudentFee demand for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear}`);
-            await StudentFee.create({
-              studentId: admissionNo,
-              studentName: student.student_name,
-              feeHead: fs.feeHead,
-              structureId: fs._id,
-              college: student.college,
-              course: student.course,
-              branch: student.branch,
-              academicYear: fs.batch,
-              studentYear: fs.studentYear,
-              semester: fs.semester || null,
-              amount: targetAmount,
-              batch: student.batch,
-              stud_type: fs.category,
-              isScholarshipApplicable: fs.isScholarshipApplicable || false,
-              isTermsDivided: fs.isTermsDivided || false
-            });
-          } else if (existingFee.amount !== targetAmount) {
-            console.log(`JIT Sync: Updating StudentFee amount for student ${admissionNo}, head ${fs.feeHead}, year ${fs.studentYear} to ${targetAmount}`);
-            existingFee.amount = targetAmount;
-            await existingFee.save();
-          }
-        }
-      } catch (jitError) {
-        console.error('JIT Sync Error:', jitError);
-      }
-    }
 
     // 3. Fetch all Demands (StudentFee) - including any that were just synced
     const studentFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code');
@@ -611,150 +459,6 @@ const getStudentFeeDetails = async (req, res) => {
   }
 };
 
-// @desc    Apply a Template Fee to a Batch (Creates StudentFee records)
-// @route   POST /api/fee-structures/apply-batch
-const applyFeeToBatch = async (req, res) => {
-  const { structureId } = req.body; // targetAcademicYear removed, we assume Batch is enough
-
-  try {
-    const structure = await FeeStructure.findById(structureId);
-    if (!structure) return res.status(404).json({ message: 'Structure not found' });
-
-    // Fetch Students matching the structure's Batch AND Category (stud_type)
-    // Note: Students table has 'batch' and 'stud_type' columns
-    const [students] = await db.query(`
-            SELECT admission_number, student_name, college, course, branch, current_year, current_semester, batch
-            FROM students 
-            WHERE college = ? AND course = ? AND branch = ? AND batch = ? AND stud_type = ?
-        `, [structure.college, structure.course, structure.branch, structure.batch, structure.category]);
-
-    if (students.length === 0) return res.status(404).json({ message: 'No students found in this batch' });
-
-    // Check if fees are ALREADY applied for this Batch & Structure
-    // usage: academicYear stores the batch string
-    /* 
-    const existingFees = await StudentFee.findOne({
-      feeHead: structure.feeHead,
-      academicYear: structure.batch,
-      studentYear: structure.studentYear,
-      semester: structure.semester,
-      college: structure.college,
-      course: structure.course,
-      branch: structure.branch
-    });
-
-    if (existingFees) {
-      return res.status(400).json({ message: 'Fee already applied! Use the Excel view to modify individual students.' });
-    }
-    */
-
-    const operations = students.map(s => {
-      return {
-        updateOne: {
-          filter: {
-            studentId: s.admission_number,
-            feeHead: structure.feeHead,
-            academicYear: structure.batch,
-            studentYear: structure.studentYear,
-            semester: structure.semester || null,
-            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-          },
-          update: {
-            $set: {
-              studentName: s.student_name,
-              college: s.college,
-              course: s.course,
-              branch: s.branch,
-              amount: structure.amount,
-              structureId: structure._id,
-              semester: structure.semester,
-              batch: s.batch,
-              stud_type: structure.category,
-              isScholarshipApplicable: structure.isScholarshipApplicable || false,
-              isTermsDivided: structure.isTermsDivided || false
-            }
-          },
-          upsert: true
-        }
-      };
-    });
-
-    await StudentFee.bulkWrite(operations);
-    res.json({ message: `Applied fee to ${students.length} students` });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error applying to batch' });
-  }
-};
-
-const saveStudentFees = async (req, res) => {
-  const { fees } = req.body; // Array of objects
-
-  try {
-    const uniqueColleges = [...new Set(fees.map(f => f.college))];
-    const uniqueCourses = [...new Set(fees.map(f => f.course))];
-    const uniqueBranches = [...new Set(fees.map(f => f.branch))];
-    const uniqueBatches = [...new Set(fees.map(f => f.batch))];
-
-    const applicableStructures = await FeeStructure.find({
-      college: { $in: uniqueColleges },
-      course: { $in: uniqueCourses },
-      branch: { $in: uniqueBranches },
-      batch: { $in: uniqueBatches }
-    }).lean();
-
-    const structureMap = {};
-    applicableStructures.forEach(fs => {
-      const key = `${fs.feeHead.toString()}_${fs.college}_${fs.course}_${fs.branch}_${fs.batch}_${fs.category}_${fs.studentYear}_${fs.semester || 'null'}`;
-      structureMap[key] = fs;
-    });
-
-    const operations = fees.map(f => {
-      const fsKey = `${f.feeHeadId}_${f.college}_${f.course}_${f.branch}_${f.batch}_${f.category || 'Regular'}_${f.studentYear}_${f.semester || 'null'}`;
-      const matchedStructure = structureMap[fsKey];
-      const isTermsDivided = f.isTermsDivided !== undefined 
-          ? f.isTermsDivided 
-          : (matchedStructure ? matchedStructure.isTermsDivided : true);
-
-      return {
-        updateOne: {
-          filter: {
-            studentId: f.studentId,
-            feeHead: f.feeHeadId,
-            academicYear: f.batch, // Use Batch here
-            studentYear: f.studentYear,
-            semester: f.semester || null,
-            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-          },
-          update: {
-            $set: {
-              studentName: f.studentName,
-              college: f.college,
-              course: f.course,
-              branch: f.branch,
-              amount: Number(f.amount),
-              semester: f.semester || null,
-              academicYear: f.batch, // Ensure it is saved
-              batch: f.batch,
-              stud_type: f.category,
-              isScholarshipApplicable: f.isScholarshipApplicable || false,
-              isTermsDivided: isTermsDivided
-            }
-          },
-          upsert: true
-        }
-      };
-    });
-
-    await StudentFee.bulkWrite(operations);
-    res.json({ message: 'Student fees updated' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error saving student fees' });
-  }
-};
-
 // @desc    Update Fee Structure
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
@@ -870,39 +574,10 @@ const deleteFeeStructure = async (req, res) => {
   }
 };
 
-// @desc    Get Batch Student Fees (for Excel View)
-// @route   POST /api/fee-structures/batch-fees
-const getBatchStudentFees = async (req, res) => {
-  const { college, course, branch, batch, feeHeadId, category } = req.body;
-
-  try {
-    // Query by Batch (stored in academicYear field of StudentFee for compatibility)
-    const query = { college, course, branch, academicYear: batch };
-    if (feeHeadId) query.feeHead = feeHeadId;
-    if (category) {
-      query.$or = [
-        { stud_type: category },
-        { stud_type: { $exists: false } },
-        { stud_type: null },
-        { stud_type: '' }
-      ];
-    }
-
-    const fees = await StudentFee.find(query);
-    res.json(fees);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error fetching batch fees' });
-  }
-};
-
 module.exports = {
   createFeeStructure,
   getFeeStructures,
   getStudentFeeDetails,
   updateFeeStructure,
-  deleteFeeStructure,
-  applyFeeToBatch,
-  saveStudentFees,
-  getBatchStudentFees
+  deleteFeeStructure
 };

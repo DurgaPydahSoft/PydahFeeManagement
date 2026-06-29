@@ -26,27 +26,15 @@ const FeeCollection = () => {
     // Multi-Select State
     const [feeRows, setFeeRows] = useState([{ id: Date.now(), feeHeadId: '', amount: '' }]);
 
-    const [paymentForm, setPaymentForm] = useState(() => {
-        const user = JSON.parse(localStorage.getItem('user'));
-        const isSuperAdmin = user?.role === 'superadmin';
-        const permissions = user?.permissions || [];
-        const canCollectFee = permissions.includes('fee_collection_pay');
-        const canGiveConcession = permissions.includes('fee_collection_concession');
-
-        // Default to CREDIT if only concession is allowed, otherwise DEBIT
-        const defaultType = (canGiveConcession && !canCollectFee && !isSuperAdmin) ? 'CREDIT' : 'DEBIT';
-
-        return {
-            paymentMode: 'Cash',
-            remarks: '',
-            transactionType: defaultType,
-            bankName: '',
-            instrumentDate: '',
-            referenceNo: '',
-            referenceDate: '',
-            paymentConfigId: '',
-            proceedingId: ''
-        };
+    const [paymentForm, setPaymentForm] = useState({
+        paymentMode: 'Cash',
+        remarks: '',
+        bankName: '',
+        instrumentDate: '',
+        referenceNo: '',
+        referenceDate: '',
+        paymentConfigId: '',
+        proceedingId: ''
     });
 
     const [paymentCategory, setPaymentCategory] = useState('Cash');
@@ -64,15 +52,6 @@ const FeeCollection = () => {
     const [selectedProceeding, setSelectedProceeding] = useState(null);
     const [availableProceedings, setAvailableProceedings] = useState([]);
     const [isFetchingProceedings, setIsFetchingProceedings] = useState(false);
-    const [availableVouchers, setAvailableVouchers] = useState([]);
-    const [isFetchingVouchers, setIsFetchingVouchers] = useState(false);
-    const [activeApprovers, setActiveApprovers] = useState([]);
-    const [isRaisingConcession, setIsRaisingConcession] = useState(false);
-    const [nextVoucherId, setNextVoucherId] = useState('');
-    const [concessionHistory, setConcessionHistory] = useState([]);
-    const [isFetchingHistory, setIsFetchingHistory] = useState(false);
-
-
     const receiptRef = useRef();
     const searchInputRef = useRef(null);
 
@@ -81,7 +60,6 @@ const FeeCollection = () => {
     const isSuperAdmin = user?.role === 'superadmin';
     const permissions = user?.permissions || [];
     const canCollectFee = permissions.includes('fee_collection_pay');
-    const canGiveConcession = permissions.includes('fee_collection_concession');
 
     // --- INITIAL DATA LOADING ---
     useEffect(() => {
@@ -106,18 +84,16 @@ const FeeCollection = () => {
                 }
                 const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
 
-                const [studentsRes, configsRes, settingsRes, approversRes, feeHeadsRes] = await Promise.all([
+                const [studentsRes, configsRes, settingsRes, feeHeadsRes] = await Promise.all([
                     api.get(`/students${queryString}`),
                     api.get(`/payment-config`),
                     api.get(`/settings`),
-                    api.get(`/concession-approvers`),
                     api.get(`/fee-heads`)
                 ]);
 
                 setAllStudents(studentsRes.data);
                 setPaymentConfigs(configsRes.data.filter(c => c.is_active));
                 setReceiptSettings(settingsRes.data);
-                setActiveApprovers(approversRes.data);
                 setGlobalFeeHeads(feeHeadsRes.data);
             } catch (e) {
                 console.error("Error fetching initial data", e);
@@ -188,142 +164,6 @@ const FeeCollection = () => {
         fetchRTFProceedings();
     }, [paymentCategory, paymentForm.paymentMode, student]);
 
-    // Fetch Concession Vouchers
-    useEffect(() => {
-        const fetchConcessionVouchers = async () => {
-            if (student && paymentForm.transactionType === 'CREDIT') {
-                setIsFetchingVouchers(true);
-                try {
-                    // Fetch PENDING concession requests for this student
-                    const res = await api.get(`/concessions`, {
-                        params: {
-                            studentId: student.admission_number,
-                            status: 'PENDING'
-                        },
-                    });
-                    setAvailableVouchers(res.data);
-                } catch (e) {
-                    console.error("Failed to fetch vouchers", e);
-                } finally {
-                    setIsFetchingVouchers(false);
-                }
-            } else {
-                setAvailableVouchers([]);
-            }
-        };
-
-        const fetchConcessionHistory = async () => {
-            if (student) {
-                setIsFetchingHistory(true);
-                try {
-                    const res = await api.get(`/concessions`, {
-                        params: { studentId: student.admission_number },
-                    });
-                    setConcessionHistory(res.data);
-                } catch (e) {
-                    console.error("Failed to fetch history", e);
-                } finally {
-                    setIsFetchingHistory(false);
-                }
-            } else {
-                setConcessionHistory([]);
-            }
-        };
-
-        const fetchNextVoucherId = async () => {
-            if (student && student.course) {
-                try {
-                    const res = await api.get(`/concessions/next-voucher-id`, {
-                        params: { course: student.course },
-                    });
-                    setNextVoucherId(res.data.nextVoucherId);
-                } catch (e) {
-                    console.error("Failed to fetch next voucher id", e);
-                }
-            } else {
-                setNextVoucherId('');
-            }
-        };
-
-        fetchConcessionVouchers();
-        fetchConcessionHistory();
-        fetchNextVoucherId();
-    }, [student, paymentForm.transactionType]);
-    
-    const handleBatchRaiseConcession = async () => {
-        const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
-        
-        // Final Validation
-        for (const row of validRows) {
-            if (!row.concessionGivenBy) {
-                const feeName = feeDetails.find(f => f._id === row.feeHeadId)?.feeHead?.name 
-                    || globalFeeHeads.find(h => h._id === row.feeHeadId)?.name 
-                    || 'Selected Fee';
-                alert(`Please select "Concession Given By" for ${feeName}`);
-                return;
-            }
-        }
-
-
-        setIsRaisingConcession(true);
-        try {
-            // Process all rows
-            const promises = validRows.map(async (row) => {
-                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                const payload = {
-                    students: [{
-                        studentId: student.admission_number,
-                        studentName: student.student_name,
-                        college: student.college,
-                        course: student.course,
-                        branch: student.branch,
-                        batch: student.batch
-                    }],
-                    feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
-                    amount: row.amount,
-                    reason: paymentForm.remarks || 'Concession requested at billing',
-                    studentYear: selectedFee ? selectedFee.studentYear : student.current_year,
-                    semester: selectedFee ? selectedFee.semester : student.current_semester,
-                    concessionGivenBy: row.concessionGivenBy
-                };
-
-                return api.post(`/concessions`, payload);
-            });
-
-            const results = await Promise.all(promises);
-            const voucherIds = results.map(r => r.data.data?.[0]?.voucherId).filter(Boolean);
-            
-            alert(`Successfully raised ${results.length} Concession Request(s)! \nVoucher IDs: ${voucherIds.join(', ')}.\nThey will appear in the History once approved.`);
-            
-            // Refresh counts and tables
-            const [vouchersRes, historyRes, nextIdRes] = await Promise.all([
-                api.get(`/concessions`, {
-                    params: { studentId: student.admission_number, status: 'PENDING' },
-                }),
-                api.get(`/concessions`, {
-                    params: { studentId: student.admission_number },
-                }),
-                api.get(`/concessions/next-voucher-id`, {
-                    params: { course: student.course },
-                })
-            ]);
-            setAvailableVouchers(vouchersRes.data);
-            setConcessionHistory(historyRes.data);
-            setNextVoucherId(nextIdRes.data.nextVoucherId);
-
-            // Reset Rows
-            setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '', concessionGivenBy: '', concessionReason: '' }]);
-            
-        } catch (error) {
-            console.error(error);
-            alert('Failed to raise one or more requests. Please check your data.');
-        } finally {
-            setIsRaisingConcession(false);
-        }
-    };
-;
-
-    
     // Filter Payment Configs (Bank Accounts) by selected student's Course & College
     const relevantConfigs = useMemo(() => {
         if (!student) return [];
@@ -390,7 +230,7 @@ const FeeCollection = () => {
 
     // --- Dynamic Row Handlers ---
     const addFeeRow = () => {
-        setFeeRows([...feeRows, { id: Date.now(), feeHeadId: '', amount: '', concessionReason: '' }]);
+        setFeeRows([...feeRows, { id: Date.now(), feeHeadId: '', amount: '' }]);
     };
 
     const removeFeeRow = (id) => {
@@ -402,45 +242,8 @@ const FeeCollection = () => {
         const newRows = feeRows.map(row => {
             if (row.id === id) {
                 const updatedRow = { ...row, [field]: value };
-                
-                // --- Handle Fee Head Change ---
                 if (field === 'feeHeadId') {
-                    const selectedFee = feeDetails.find(f => f._id === value);
-                    
-                    // If a voucher is already selected, check if it's compatible with the new Fee Head
-                    if (updatedRow.concessionRequestId) {
-                        const currentVoucher = availableVouchers.find(v => v._id === updatedRow.concessionRequestId);
-                        // Compare the voucher's global feeHead ID with the new fee record's global feeHead ID
-                        if (currentVoucher && selectedFee && currentVoucher.feeHead?._id !== selectedFee.feeHeadId) {
-                            updatedRow.concessionRequestId = ''; // Incompatible, reset voucher
-                        }
-                    }
-
-                    // Set Amount: Voucher amount takes priority if still present, otherwise leave empty
-                    if (updatedRow.concessionRequestId) {
-                        const currentVoucher = availableVouchers.find(v => v._id === updatedRow.concessionRequestId);
-                        updatedRow.amount = currentVoucher ? currentVoucher.amount : '';
-                    } else {
-                        updatedRow.amount = '';
-                    }
-                }
-
-                // --- Handle Voucher selection ---
-                if (field === 'concessionRequestId') {
-                    const selectedVoucher = availableVouchers.find(v => v._id === value);
-                    if (selectedVoucher) {
-                        // VOUCHER SELECTED: Force voucher amount and try to sync Fee Head
-                        updatedRow.amount = selectedVoucher.amount;
-                        if (selectedVoucher.feeHead?._id) {
-                            const matchingFee = feeDetails.find(f => f.feeHeadId === selectedVoucher.feeHead._id);
-                            if (matchingFee) {
-                                updatedRow.feeHeadId = matchingFee._id;
-                            }
-                        }
-                    } else {
-                        // VOUCHER REMOVED: Clear the amount
-                        updatedRow.amount = '';
-                    }
+                    updatedRow.amount = '';
                 }
                 return updatedRow;
             }
@@ -448,7 +251,6 @@ const FeeCollection = () => {
         });
         setFeeRows(newRows);
     };
-;
 
     const toggleFeeSelection = (fee) => {
         const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
@@ -468,8 +270,7 @@ const FeeCollection = () => {
             const newRow = {
                 id: Date.now(),
                 feeHeadId: fee._id,
-                amount: '',
-                concessionReason: ''
+                amount: ''
             };
 
             if (firstRowEmpty) {
@@ -492,28 +293,21 @@ const FeeCollection = () => {
             return;
         }
 
-        if (paymentForm.transactionType === 'DEBIT') {
-            if (paymentCategory === 'Cash' && receiptSettings?.enableCashPayment === false) {
-                alert('Cash payments are currently disabled by the administrator.');
-                return;
-            }
-            if (paymentCategory === 'Bank' && receiptSettings?.enableBankPayment === false) {
-                alert('Bank payments are currently disabled by the administrator.');
-                return;
-            }
-            if (paymentCategory === 'Split' && receiptSettings?.enableSplitPayment === false) {
-                alert('Split payments are currently disabled by the administrator.');
-                return;
-            }
+        if (paymentCategory === 'Cash' && receiptSettings?.enableCashPayment === false) {
+            alert('Cash payments are currently disabled by the administrator.');
+            return;
+        }
+        if (paymentCategory === 'Bank' && receiptSettings?.enableBankPayment === false) {
+            alert('Bank payments are currently disabled by the administrator.');
+            return;
+        }
+        if (paymentCategory === 'Split' && receiptSettings?.enableSplitPayment === false) {
+            alert('Split payments are currently disabled by the administrator.');
+            return;
         }
 
-        if (paymentForm.transactionType === 'CREDIT') {
-            handleBatchRaiseConcession();
-        } else {
-            setShowConfirmModal(true);
-        }
+        setShowConfirmModal(true);
     };
-;
 
     // Step 2: Actual Submission
     const confirmAndPay = async () => {
@@ -521,58 +315,43 @@ const FeeCollection = () => {
         try {
             const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
 
-            // Validation for CREDIT transactions with vouchers
-            if (paymentForm.transactionType === 'CREDIT') {
-                for (const row of validRows) {
-                    if (!row.concessionRequestId) {
-                        alert('For Concession transactions, each row must be linked to a voucher.');
-                        setIsProcessing(false);
-                        return;
-                    }
-                }
-            }
-
             // Build Common Data
             const commonData = {
                 studentId: student.admission_number,
                 studentName: student.student_name,
                 semester: student.current_semester,
                 studentYear: student.current_year,
-                transactionType: paymentForm.transactionType || 'DEBIT',
+                transactionType: 'DEBIT',
                 remarks: paymentForm.remarks,
                 collectedBy: JSON.parse(localStorage.getItem('user'))?.username || 'Unknown',
                 collectedByName: JSON.parse(localStorage.getItem('user'))?.name || 'Unknown'
             };
 
             // Payment Mode Details
-            if (paymentForm.transactionType === 'DEBIT') {
-                if (paymentCategory === 'Cash') {
-                    commonData.paymentMode = 'Cash';
-                } else if (paymentCategory === 'Bank') {
-                    commonData.paymentMode = paymentForm.paymentMode;
-                    commonData.bankName = paymentForm.bankName;
-                    commonData.instrumentDate = paymentForm.instrumentDate;
-                    commonData.referenceNo = paymentForm.referenceNo;
-                    commonData.referenceDate = paymentForm.referenceDate;
-                    commonData.paymentConfigId = paymentForm.paymentConfigId;
-                    const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
-                    if (selectedConfig) {
-                        commonData.depositedToAccount = selectedConfig.account_name;
-                    }
-                    if (paymentForm.paymentMode === 'RTF') {
-                        commonData.proceedingId = paymentForm.proceedingId;
-                    }
-                } else if (paymentCategory === 'Split') {
-                    // Split logic handled during batch mapping
+            if (paymentCategory === 'Cash') {
+                commonData.paymentMode = 'Cash';
+            } else if (paymentCategory === 'Bank') {
+                commonData.paymentMode = paymentForm.paymentMode;
+                commonData.bankName = paymentForm.bankName;
+                commonData.instrumentDate = paymentForm.instrumentDate;
+                commonData.referenceNo = paymentForm.referenceNo;
+                commonData.referenceDate = paymentForm.referenceDate;
+                commonData.paymentConfigId = paymentForm.paymentConfigId;
+                const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                if (selectedConfig) {
+                    commonData.depositedToAccount = selectedConfig.account_name;
                 }
-            } else {
-                commonData.paymentMode = 'Credit';
+                if (paymentForm.paymentMode === 'RTF') {
+                    commonData.proceedingId = paymentForm.proceedingId;
+                }
+            } else if (paymentCategory === 'Split') {
+                // Split logic handled during batch mapping
             }
 
             // Create Batch Array
             let batchTransactions = [];
 
-            if (paymentCategory === 'Split' && paymentForm.transactionType === 'DEBIT') {
+            if (paymentCategory === 'Split') {
                 const totalCash = Number(splitCashAmount) || 0;
                 const totalBank = totalSelectedAmount - totalCash;
                 
@@ -640,9 +419,6 @@ const FeeCollection = () => {
                             ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
                             : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
                     };
-                    if (paymentForm.transactionType === 'CREDIT' && row.concessionRequestId) {
-                        transaction.concessionRequestId = row.concessionRequestId;
-                    }
                     return transaction;
                 });
             }
@@ -1252,35 +1028,19 @@ const FeeCollection = () => {
                             </div>
 
                             {/* Right Column: Payment Form Only */}
-                            {(canCollectFee || canGiveConcession || isSuperAdmin) && (
+                            {(canCollectFee || isSuperAdmin) && (
                                 <div className="space-y-3">
-                                    {/* Payment Tabs */}
                                     <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
                                         <div className="flex border-b border-gray-100">
-                                            {(canCollectFee || isSuperAdmin) && (
-                                                <button
-                                                    className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-50/50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
-                                                    onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'DEBIT' })}
-                                                >
-                                                    COLLECT FEE
-                                                </button>
-                                            )}
-                                            {(canGiveConcession || isSuperAdmin) && (
-                                                <button
-                                                    className={`flex-1 py-3 text-sm font-bold text-center transition-colors ${paymentForm.transactionType === 'CREDIT' ? 'bg-purple-50/50 text-purple-700 border-b-2 border-purple-600' : 'text-gray-400 hover:bg-gray-50'}`}
-                                                    onClick={() => setPaymentForm({ ...paymentForm, transactionType: 'CREDIT' })}
-                                                >
-                                                    CONCESSION
-                                                </button>
-                                            )}
+                                            <div className="flex-1 py-3 text-sm font-bold text-center bg-blue-50/50 text-blue-700 border-b-2 border-blue-600">
+                                                COLLECT FEE
+                                            </div>
                                         </div>
 
                                         <div className="p-4">
                                             <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                                                 <div>
-                                                    <h3 className={`text-base font-bold ${paymentForm.transactionType === 'DEBIT' ? 'text-gray-800' : 'text-purple-800'}`}>
-                                                        {paymentForm.transactionType === 'DEBIT' ? 'Payment Details' : 'Concession Details'}
-                                                    </h3>
+                                                    <h3 className="text-base font-bold text-gray-800">Payment Details</h3>
                                                     <p className="text-[11px] text-gray-400 mt-0.5">Add fee heads and amount below</p>
                                                 </div>
                                                 <button
@@ -1348,35 +1108,6 @@ const FeeCollection = () => {
                                                                     </button>
                                                                 )}
                                                             </div>
-
-                                                            {/* Raise New Request Section */}
-                                                            {paymentForm.transactionType === 'CREDIT' && (
-                                                                <div className="mt-2 pt-2 border-t border-purple-100 flex flex-col gap-2">
-                                                                    <div className="flex justify-between items-center px-1">
-                                                                        <span className="text-[10px] font-bold text-purple-600 uppercase tracking-tight">Raise Concession Request</span>
-                                                                        {nextVoucherId && (
-                                                                            <span className="text-[10px] font-mono font-bold bg-purple-50 text-purple-600 px-2 py-0.5 rounded border border-purple-100">
-                                                                                Next Voucher: #{nextVoucherId}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="flex gap-2 p-1">
-                                                                        <div className="flex-1">
-                                                                            <label className="block text-[8px] font-bold text-gray-400 uppercase mb-0.5">Concession Given By</label>
-                                                                            <select 
-                                                                                className="w-full border border-gray-200 rounded p-1.5 text-[10px] bg-white outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400/20 trasition-all"
-                                                                                value={row.concessionGivenBy || ''}
-                                                                                onChange={e => updateFeeRow(row.id, 'concessionGivenBy', e.target.value)}
-                                                                            >
-                                                                                <option value="">-- Select --</option>
-                                                                                {activeApprovers.map(a => (
-                                                                                    <option key={a._id} value={a.name}>{a.name} ({a.designation})</option>
-                                                                                ))}
-                                                                            </select>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1387,9 +1118,8 @@ const FeeCollection = () => {
                                                     <span className="text-2xl font-extrabold text-gray-800 tracking-tight">{fmtAmount(totalSelectedAmount)}</span>
                                                 </div>
 
-                                                {/* PAYMENT MODE SELECTION (Only for DEBIT) */}
-                                                {paymentForm.transactionType === 'DEBIT' && (
-                                                    <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
+                                                {/* PAYMENT MODE SELECTION */}
+                                                <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
                                                         <div className="grid grid-cols-3 gap-2 mb-3">
                                                             <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableCashPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
@@ -1472,10 +1202,6 @@ const FeeCollection = () => {
                                                                         onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
                                                                     >
                                                                         <option value="UPI">UPI / QR Scan</option>
-                                                                        <option value="Net Banking">Net Banking</option>
-                                                                        <option value="Card">Debit / Credit Card</option>
-                                                                        <option value="Cheque">Cheque</option>
-                                                                        <option value="DD">Demand Draft (DD)</option>
                                                                         <option value="RTF">RTF (Scholarship)</option>
                                                                     </select>
                                                                 </div>
@@ -1529,7 +1255,7 @@ const FeeCollection = () => {
                                                                         )}
                                                                     </select>
                                                                 </div>
-                                                                {['UPI', 'Net Banking', 'Card'].includes(paymentForm.paymentMode) && (
+                                                                {paymentForm.paymentMode === 'UPI' && (
                                                                     <div className="grid grid-cols-2 gap-2">
                                                                         <div>
                                                                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
@@ -1541,37 +1267,18 @@ const FeeCollection = () => {
                                                                         </div>
                                                                     </div>
                                                                 )}
-                                                                {['Cheque', 'DD'].includes(paymentForm.paymentMode) && (
-                                                                    <>
-                                                                        <div className="grid grid-cols-2 gap-2">
-                                                                            <div>
-                                                                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">No *</label>
-                                                                                <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
-                                                                            </div>
-                                                                            <div>
-                                                                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Date *</label>
-                                                                                <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.instrumentDate || ''} onChange={e => setPaymentForm({ ...paymentForm, instrumentDate: e.target.value })} required />
-                                                                            </div>
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Bank Name *</label>
-                                                                            <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="Issuing Bank" value={paymentForm.bankName || ''} onChange={e => setPaymentForm({ ...paymentForm, bankName: e.target.value })} required />
-                                                                        </div>
-                                                                    </>
-                                                                )}
                                                             </div>
                                                         )}
                                                     </div>
-                                                )}
 
                                                 <div className="mb-3">
                                                     <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                                                        {paymentForm.transactionType === 'CREDIT' ? 'Reason / Justification (Optional)' : 'Remarks / Notes (Optional)'}
+                                                        Remarks / Notes (Optional)
                                                     </label>
                                                     <textarea
                                                         className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
                                                         rows="2"
-                                                        placeholder={paymentForm.transactionType === 'CREDIT' ? "Add common reason for selected concessions..." : "Add any additional notes here..."}
+                                                        placeholder="Add any additional notes here..."
                                                         value={paymentForm.remarks || ''}
                                                         onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
                                                     ></textarea>
@@ -1580,62 +1287,12 @@ const FeeCollection = () => {
                                                 <div className="pt-2">
                                                     <button
                                                         type="submit"
-                                                        disabled={isRaisingConcession || isProcessing}
-                                                        className={`w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 ${paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-200'} disabled:opacity-50`}
+                                                        disabled={isProcessing}
+                                                        className="w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 bg-blue-600 hover:bg-blue-700 shadow-blue-200 disabled:opacity-50"
                                                     >
-                                                        {paymentForm.transactionType === 'DEBIT' ? (isProcessing ? 'Processing...' : 'Confirm Payment') : (isRaisingConcession ? 'Raising...' : 'Raise Concession')}
+                                                        {isProcessing ? 'Processing...' : 'Confirm Payment'}
                                                     </button>
                                                 </div>
-
-                                                {/* Concession History List - Moved here after the main button */}
-                                                {paymentForm.transactionType === 'CREDIT' && (
-                                                    <div className="mt-8 pt-6 border-t border-purple-100">
-                                                        <div className="flex justify-between items-center mb-4 px-1">
-                                                            <h3 className="text-sm font-extrabold text-purple-700 uppercase tracking-widest flex items-center gap-2">
-                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                                                Recent Concessions
-                                                            </h3>
-                                                            {isFetchingHistory && <span className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></span>}
-                                                        </div>
-                                                        <div className="overflow-hidden border border-purple-100 rounded-2xl bg-white shadow-sm">
-                                                            <table className="w-full text-left text-xs">
-                                                                <thead className="bg-purple-50 text-purple-700 border-b border-purple-100">
-                                                                    <tr>
-                                                                        <th className="p-3 font-bold uppercase tracking-wider">Date</th>
-                                                                        <th className="p-3 font-bold uppercase tracking-wider">Fee Category</th>
-                                                                        <th className="p-3 font-bold uppercase tracking-wider">Amount</th>
-                                                                        <th className="p-3 font-bold uppercase tracking-wider text-right">Status</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody className="divide-y divide-purple-50">
-                                                                    {concessionHistory.length === 0 ? (
-                                                                        <tr><td colSpan="4" className="p-8 text-center text-gray-400 italic font-medium">No prior concession records found.</td></tr>
-                                                                    ) : (
-                                                                        concessionHistory.slice(0, 10).map(h => (
-                                                                            <tr key={h._id} className="hover:bg-purple-50/30 transition-colors">
-                                                                                <td className="p-3 text-gray-500 font-medium">{new Date(h.createdAt).toLocaleDateString()}</td>
-                                                                                <td className="p-3 font-bold text-gray-800">{h.feeHead?.name || 'N/A'}</td>
-                                                                                <td className="p-3 font-extrabold text-purple-600">₹{fmtAmount(h.amount)}</td>
-                                                                                <td className="p-3 text-right">
-                                                                                    <div className="flex flex-col items-end">
-                                                                                        <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] shadow-sm ${
-                                                                                            h.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
-                                                                                            h.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                                                                                            'bg-yellow-100 text-yellow-700'
-                                                                                        }`}>
-                                                                                            {h.status}
-                                                                                        </span>
-                                                                                        <span className="text-[8px] text-gray-400 mt-1 font-medium">by {h.requestedBy || 'System'}</span>
-                                                                                    </div>
-                                                                                </td>
-                                                                            </tr>
-                                                                        ))
-                                                                    )}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                )}
                                             </form>
                                         </div>
                                     </div>
@@ -1657,7 +1314,7 @@ const FeeCollection = () => {
                             <div className="p-6">
                                 <div className="text-center mb-6">
                                     <div className="text-sm text-gray-500 uppercase tracking-wider font-bold mb-1">Total Amount</div>
-                                    <div className={`text-4xl font-extrabold ${paymentForm.transactionType === 'DEBIT' ? 'text-blue-600' : 'text-purple-600'}`}>{fmtAmount(totalSelectedAmount)}</div>
+                                    <div className="text-4xl font-extrabold text-blue-600">{fmtAmount(totalSelectedAmount)}</div>
                                 </div>
                                 <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm">
                                     <div className="flex justify-between">
@@ -1665,15 +1322,9 @@ const FeeCollection = () => {
                                         <span className="font-bold text-gray-800">{student.student_name}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-gray-500">Type:</span>
-                                        <span className="font-bold text-gray-800">{paymentForm.transactionType}</span>
+                                        <span className="text-gray-500">Mode:</span>
+                                        <span className="font-bold text-gray-800">{paymentForm.paymentMode}</span>
                                     </div>
-                                    {paymentForm.transactionType === 'DEBIT' && (
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-500">Mode:</span>
-                                            <span className="font-bold text-gray-800">{paymentForm.paymentMode}</span>
-                                        </div>
-                                    )}
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">Verification:</span>
                                         <span className="font-bold text-gray-800">{feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).length} Fee Heads</span>
@@ -1683,7 +1334,7 @@ const FeeCollection = () => {
                                 <button
                                     onClick={confirmAndPay}
                                     disabled={isProcessing}
-                                    className={`w-full mt-6 py-3 rounded-xl text-white font-bold text-lg shadow-lg transform transition flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-400 cursor-not-allowed' : (paymentForm.transactionType === 'DEBIT' ? 'bg-blue-600 hover:bg-blue-700 active:scale-95' : 'bg-purple-600 hover:bg-purple-700 active:scale-95')}`}
+                                    className={`w-full mt-6 py-3 rounded-xl text-white font-bold text-lg shadow-lg transform transition flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-95'}`}
                                 >
                                     {isProcessing ? (
                                         <>
