@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 
 const UserProfile = () => {
     const user = JSON.parse(localStorage.getItem('user')) || {};
+    const role = user.role;
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [message, setMessage] = useState('');
@@ -44,7 +45,7 @@ const UserProfile = () => {
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
-            <div className="flex-1 p-8">
+            <div className="flex-1 p-8 overflow-y-auto max-h-screen">
                 <header className="mb-8 max-w-6xl mx-auto">
                     <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight">My Profile</h1>
                     <p className="text-gray-500 mt-2">Manage your account details and security settings.</p>
@@ -105,6 +106,102 @@ const UserProfile = () => {
                                 </p>
                             </div>
                         )}
+                    </div>
+                </div>
+
+                {/* Permissions & Scopes Card */}
+                <div className="max-w-6xl mx-auto mt-8 bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
+                    <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                        Access & Permissions Summary
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Left: Scopes */}
+                        <div className="space-y-6">
+                            <div>
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2.5">Permitted Colleges</h4>
+                                {user.role === 'superadmin' ? (
+                                    <span className="inline-block px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100">
+                                        All Colleges (Super Admin)
+                                    </span>
+                                ) : user.colleges && user.colleges.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {user.colleges.map((col, idx) => (
+                                            <span key={idx} className="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg border border-gray-200">
+                                                {col}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <span className="text-gray-400 text-xs">No specific colleges assigned</span>
+                                )}
+                            </div>
+
+                            <div>
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2.5">Permitted Courses</h4>
+                                {user.role === 'superadmin' ? (
+                                    <span className="inline-block px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-100">
+                                        All Courses (Super Admin)
+                                    </span>
+                                ) : user.courses && user.courses.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {user.courses.map((course, idx) => (
+                                            <span key={idx} className="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg border border-gray-200">
+                                                {course.includes('|') ? course.split('|')[1] : course}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <span className="text-gray-400 text-xs">No specific courses assigned (Full Access)</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Right: Modules */}
+                        <div>
+                            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2.5">Authorized Modules / Pages</h4>
+                            {user.role === 'superadmin' || user.role === 'admin' ? (
+                                <div className="p-4 bg-blue-50 text-blue-800 text-xs rounded-xl border border-blue-100 leading-relaxed font-semibold">
+                                    Full Administrator Privilege – access to all features and modules is enabled.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {[
+                                        { name: 'Dashboard', path: '/dashboard' },
+                                        { name: 'Students', path: '/students' },
+                                        { name: 'Fee Collection', path: '/fee-collection' },
+                                        { name: 'Concessions', path: '/overall-concessions' },
+                                        { name: 'Concessions Approval', path: '/concessions' },
+                                        { name: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
+                                        { name: 'Proceedings', path: '/proceedings' },
+                                        { name: 'Reports & Analytics', path: '/reports' },
+                                        { name: 'Due Reports', path: '/due-reports' },
+                                        { name: 'Fee Configuration', path: '/fee-config' },
+                                        { name: 'Payment Config', path: '/payment-config' },
+                                        { name: 'Settings', path: '/settings' },
+                                        { name: 'Reminder Config', path: '/reminders' },
+                                        { name: 'Academic Calendar', path: '/academic-calendar' },
+                                        { name: 'Transport Config', path: '/transport-config' },
+                                        { name: 'Hostel Config', path: '/hostel-config' },
+                                        { name: 'User Management', path: '/user-management' },
+                                        { name: 'Permissions', path: '/permissions' }
+                                    ].map((page, idx) => {
+                                        const hasPermission = (user.permissions || []).includes(page.path);
+                                        return (
+                                            <div key={idx} className={`flex items-center gap-2 p-2 rounded-xl border text-[11px] font-semibold ${hasPermission ? 'bg-emerald-50/50 text-emerald-800 border-emerald-100' : 'bg-gray-50/50 text-gray-400 border-gray-100 opacity-60'}`}>
+                                                {hasPermission ? (
+                                                    <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                                                ) : (
+                                                    <svg className="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                )}
+                                                {page.name}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 

@@ -171,7 +171,15 @@ const Sidebar = () => {
                         {!isCollapsed && (
                             <div className="flex-1 min-w-0 text-left">
                                 <p className="text-sm font-bold text-black leading-tight break-words">{user.name || 'User'}</p>
-                                <p className="text-[10px] text-black capitalize leading-tight break-words mt-1">{role === 'superadmin' ? 'Super Admin' : (user.college || role)}</p>
+                                <p className="text-[10px] text-black capitalize leading-tight break-words mt-1">
+                                    {role === 'superadmin' 
+                                        ? 'Super Admin' 
+                                        : (user.colleges && user.colleges.length > 1 
+                                            ? `${user.college} (+${user.colleges.length - 1})` 
+                                            : (user.college || role)
+                                          )
+                                    }
+                                </p>
                             </div>
                         )}
                     </div>
