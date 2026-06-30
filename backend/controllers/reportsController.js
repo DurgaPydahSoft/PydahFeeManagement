@@ -52,6 +52,40 @@ const getTransactionReports = async (req, res) => {
                 return res.json([]);
             }
 
+            // Fetch cashier profiles to find emp_no
+            const User = require('../models/User');
+            const getEmployeeModel = require('../models/Employee');
+            const Employee = getEmployeeModel();
+
+            let cashierEmpNoMap = {};
+
+            try {
+                // Fetch all users to handle historical transactions, UUIDs, and spacing differences
+                const usersList = await User.find({}).lean();
+                const employeeIds = usersList.map(u => u.employeeId).filter(Boolean);
+                const employeeMap = {}; // employeeId -> emp_no
+                if (employeeIds.length > 0 && Employee) {
+                    const employees = await Employee.find({ _id: { $in: employeeIds } }).select('emp_no').lean();
+                    employees.forEach(emp => {
+                        employeeMap[String(emp._id)] = emp.emp_no;
+                    });
+                }
+                usersList.forEach(u => {
+                    const empNo = u.employeeId ? (employeeMap[String(u.employeeId)] || u.username) : u.username;
+                    if (u.username) {
+                        cashierEmpNoMap[u.username.toLowerCase()] = empNo;
+                    }
+                    if (u.name) {
+                        cashierEmpNoMap[u.name.toLowerCase()] = empNo;
+                        // Normalize multiple spaces to a single space
+                        const normalizedName = u.name.replace(/\s+/g, ' ').trim().toLowerCase();
+                        cashierEmpNoMap[normalizedName] = empNo;
+                    }
+                });
+            } catch (userErr) {
+                console.error("Error fetching cashier details:", userErr);
+            }
+
             // 2. Extract Student IDs for SQL Lookup
             const studentIds = new Set();
             const feeHeadIds = new Set();
@@ -100,6 +134,7 @@ const getTransactionReports = async (req, res) => {
 
             transactions.forEach(tx => {
                 const cashier = tx.collectedByName || 'Unknown';
+                const cashierUsername = tx.collectedBy || 'Unknown';
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
                 const college = collegeData ? collegeData.college : 'Unknown';
@@ -110,9 +145,15 @@ const getTransactionReports = async (req, res) => {
                 const isCredit = tx.transactionType === 'CREDIT';
                 const isCash = tx.paymentMode === 'Cash';
 
+                const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
+
                 if (!cashierGroups[cashier]) {
                     cashierGroups[cashier] = {
                         _id: cashier,
+                        empNo: cashierEmpNoMap[cashierUsername.toLowerCase()] || 
+                               cashierEmpNoMap[normalizedCashierName] || 
+                               cashierEmpNoMap[cashier.toLowerCase()] || 
+                               cashier,
                         totalAmount: 0,
                         debitAmount: 0,
                         creditAmount: 0,
@@ -144,6 +185,7 @@ const getTransactionReports = async (req, res) => {
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
                     pinNo: collegeData ? collegeData.pin_no : '-',
+                    studentId: tx.studentId, // Include studentId (admission number)
                     course: collegeData && collegeData.course ? collegeData.course : 'N/A',
                     branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
                     studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
