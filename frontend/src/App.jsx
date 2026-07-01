@@ -23,6 +23,7 @@ import UserProfile from './pages/UserProfile';
 import Proceedings from './pages/Proceedings';
 import Reports from './pages/Reports';
 import DueReports from './pages/DueReports';
+import VerifyReceipt from './pages/VerifyReceipt';
 
 const PageLoader = () => (
   <div className="flex h-screen items-center justify-center bg-gray-50">
@@ -57,6 +58,7 @@ function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/user-profile" element={<UserProfile />} />
           <Route path="/proceedings" element={<Proceedings />} />
+          <Route path="/public/verify-receipt/:receiptNumber" element={<VerifyReceipt />} />
         </Routes>
       </Suspense>
     </Router>

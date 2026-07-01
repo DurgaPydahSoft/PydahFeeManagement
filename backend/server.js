@@ -40,6 +40,9 @@ app.use('/api/auth', require('./routes/authRoutes'));
 // Public sync routes (protected by sync secret, not user JWT)
 app.use('/api/sync', require('./routes/syncRoutes'));
 
+// Public receipt verification endpoint (NO auth/JWT required)
+app.use('/api/public/transactions', require('./routes/publicTransactionRoutes'));
+
 // All other API routes require authentication + authorization
 const protectedApi = express.Router();
 protectedApi.use(protect);
