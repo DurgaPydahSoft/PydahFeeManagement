@@ -51,13 +51,13 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 8px' }}>
                             <h1 style={{ 
                                 fontFamily: "'Outfit', sans-serif", 
-                                fontSize: '14.5px', 
+                                fontSize: '16.5px', 
                                 fontWeight: '800', 
                                 margin: 0, 
                                 color: '#000',
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.2px',
-                                lineHeight: '1.2'
+                                lineHeight: '1.6'
                             }}>
                                 {student.college || 'PYDAH COLLEGE OF ENGINEERING'}
                             </h1>
@@ -110,8 +110,8 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                 {/* Col 1 */}
                 <div style={{ flex: '1 1 28%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM9 17a1 1 0 010-2h6a1 1 0 010 2H9zm0-4a1 1 0 010-2h6a1 1 0 010 2H9z" />
                         </svg>
                         <div>
                             <div style={{ fontSize: '7.5px', color: '#555', fontWeight: '600' }}>Receipt No.</div>
@@ -119,8 +119,8 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V9h14v11zM7 11h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2zm-8 4h2v2H7zm4 0h2v2h-2z" />
                         </svg>
                         <div>
                             <div style={{ fontSize: '7.5px', color: '#555', fontWeight: '600' }}>Date</div>
@@ -135,8 +135,8 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                 {/* Col 2 */}
                 <div style={{ flex: '1 1 38%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
                         </svg>
                         <div>
                             <div style={{ fontSize: '7.5px', color: '#555', fontWeight: '600' }}>Student Name</div>
@@ -144,8 +144,8 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.378 0 2.5.895 2.5 2v1.5H7.5V16c0-1.105 1.122-2 2.5-2z" />
+                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm-8 3a3 3 0 110 6 3 3 0 010-6zm-5 10c0-1.657 2.239-3 5-3s5 1.343 5 3H7zm11-7h2v2h-2zm0-3h2v2h-2z" />
                         </svg>
                         <div>
                             <div style={{ fontSize: '7.5px', color: '#555', fontWeight: '600' }}>PIN / Roll No.</div>
@@ -160,8 +160,8 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                 {/* Col 3 */}
                 <div style={{ flex: '1 1 34%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17 2H7a2 2 0 00-2 2v18h14V4a2 2 0 00-2-2zM9 16H7v-2h2v2zm0-4H7v-2h2v2zm0-4H7V6h2v2zm4 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V6h2v2zm4 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V6h2v2z" />
                         </svg>
                         <div>
                             <div style={{ fontSize: '7.5px', color: '#555', fontWeight: '600' }}>Admission No.</div>
@@ -169,8 +169,8 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222" />
+                        <svg style={{ width: '19px', height: '19px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zm-5 9.18V16l5 2.72L17 16v-3.82l-5 2.72-5-2.72z" />
                         </svg>
                         <div>
                             <div style={{ fontSize: '7.5px', color: '#555', fontWeight: '600' }}>Course / Branch</div>
@@ -279,7 +279,7 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                     </svg>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ fontSize: '7px', color: '#555', fontWeight: '500', lineHeight: '1.1' }}>Verified</div>
-                        <strong style={{ fontSize: '8.5px', color: '#000', marginTop: '1px' }}>Auto Verified</strong>
+                        <strong style={{ fontSize: '8.5px', color: '#000', marginTop: '1px' }}>Officially Verified</strong>
                     </div>
                 </div>
 
@@ -316,8 +316,16 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                     </svg>
                     <span>Kakinada, Andhra Pradesh - 533003</span>
                 </div>
-                <div style={{ fontWeight: '700', textTransform: 'uppercase', color: '#000', fontSize: '7.5px', letterSpacing: '0.3px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '700', textTransform: 'uppercase', color: '#000', fontSize: '7.5px', letterSpacing: '0.3px' }}>
+                    {/* Computer / Software icon */}
+                    <svg style={{ width: '11px', height: '11px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20 3H4a2 2 0 00-2 2v11a2 2 0 002 2h7v2H8v2h8v-2h-3v-2h7a2 2 0 002-2V5a2 2 0 00-2-2zm0 13H4V5h16v11z" />
+                    </svg>
                     Powered by PydahSoft
+                    {/* Lightning bolt / power icon */}
+                    {/* <svg style={{ width: '10px', height: '10px', flexShrink: 0 }} fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15L11 21z" />
+                    </svg> */}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                     <svg style={{ width: '13px', height: '13px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
