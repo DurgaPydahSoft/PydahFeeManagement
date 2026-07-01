@@ -1057,33 +1057,50 @@ const FeeCollection = () => {
 
                                                 {/* Dynamic Rows */}
                                                 <div className="space-y-2">
-                                                    {feeRows.map((row, index) => (
-                                                        <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
-                                                            <div className="flex gap-2 items-start">
-                                                                <div className="flex-1">
-                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
-                                                                    <select
-                                                                        className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                                                        value={row.feeHeadId}
-                                                                        onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
-                                                                        required
-                                                                    >
-                                                                        <option value="">-- Select Fee Head --</option>
-                                                                        {displayedFees.length > 0 ? (
-                                                                            displayedFees.map(f => (
-                                                                                <option key={f._id} value={f._id}>
-                                                                                    [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
-                                                                                </option>
-                                                                            ))
-                                                                        ) : (
-                                                                            globalFeeHeads.map(h => (
-                                                                                <option key={h._id} value={h._id}>
-                                                                                    {h.name} {h.code ? `(${h.code})` : ''}
-                                                                                </option>
-                                                                            ))
-                                                                        )}
-                                                                    </select>
-                                                                </div>
+                                                    {feeRows.map((row, index) => {
+                                                        // Identify already selected fee head IDs in other rows
+                                                        const getTrueFeeHeadId = (rowFeeHeadId) => {
+                                                            const matchedFee = feeDetails.find(f => f._id === rowFeeHeadId);
+                                                            return matchedFee ? matchedFee.feeHeadId : rowFeeHeadId;
+                                                        };
+                                                        const selectedTrueFeeHeadIdsElsewhere = feeRows
+                                                            .filter(r => r.id !== row.id && r.feeHeadId)
+                                                            .map(r => getTrueFeeHeadId(r.feeHeadId));
+
+                                                        // Check if no fee structures are configured for the student
+                                                        const showGlobalFees = feeDetails.length === 0 || feeDetails.every(f => Number(f.totalAmount || 0) === 0);
+
+                                                        return (
+                                                            <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
+                                                                <div className="flex gap-2 items-start">
+                                                                    <div className="flex-1">
+                                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
+                                                                        <select
+                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                                                            value={row.feeHeadId}
+                                                                            onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
+                                                                            required
+                                                                        >
+                                                                            <option value="">-- Select Fee Head --</option>
+                                                                            {!showGlobalFees ? (
+                                                                                displayedFees
+                                                                                    .filter(f => !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
+                                                                                    .map(f => (
+                                                                                        <option key={f._id} value={f._id}>
+                                                                                            [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
+                                                                                        </option>
+                                                                                    ))
+                                                                            ) : (
+                                                                                globalFeeHeads
+                                                                                    .filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id))
+                                                                                    .map(h => (
+                                                                                        <option key={h._id} value={h._id}>
+                                                                                            {h.name} {h.code ? `(${h.code})` : ''}
+                                                                                        </option>
+                                                                                    ))
+                                                                            )}
+                                                                        </select>
+                                                                    </div>
                                                                 <div className="w-24">
                                                                     <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
                                                                     <div className="relative">
@@ -1093,6 +1110,7 @@ const FeeCollection = () => {
                                                                             className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
                                                                             value={row.amount}
                                                                             onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                                            onWheel={e => e.target.blur()}
                                                                             required
                                                                             placeholder="0"
                                                                         />
@@ -1109,7 +1127,8 @@ const FeeCollection = () => {
                                                                 )}
                                                             </div>
                                                         </div>
-                                                    ))}
+                                                    );
+                                                })}
                                                 </div>
 
                                                 {/* Total Summary */}
@@ -1174,6 +1193,7 @@ const FeeCollection = () => {
                                                                                 setSplitCashAmount(e.target.value);
                                                                             }
                                                                         }}
+                                                                        onWheel={e => e.target.blur()}
                                                                         placeholder="Cash portion"
                                                                     />
                                                                 </div>
