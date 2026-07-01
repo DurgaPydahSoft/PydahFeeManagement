@@ -24,7 +24,7 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
     // Helper component for a single receipt copy
     const ReceiptOneCopy = ({ copyTitle }) => (
         <div style={{
-            padding: '5mm 10mm',
+            padding: '3mm 6mm', // Compressed padding
             height: '100%', // Take full height of the parent copy container
             display: 'flex',
             flexDirection: 'column',
@@ -33,46 +33,46 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
         }}>
             {/* Header */}
             {showHeader ? (
-                <div style={{ textAlign: 'center', borderBottom: '1px solid #ccc', paddingBottom: '10px', marginBottom: '15px' }}>
-                    <h1 style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, color: '#000' }}>
+                <div style={{ textAlign: 'center', borderBottom: '1px solid #ccc', paddingBottom: '4px', marginBottom: '8px' }}>
+                    <h1 style={{ fontSize: '15px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0, color: '#000' }}>
                         {student.college || 'PYDAH GROUP OF COLLEGES'}
                     </h1>
-                    <p style={{ fontSize: '12px', color: '#555', margin: '2px 0' }}>Kakinada, Andhra Pradesh</p>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
-                        <div style={{ fontSize: '11px', fontStyle: 'italic' }}>{copyTitle}</div>
-                        <div style={{ border: '1px solid #000', padding: '2px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    <p style={{ fontSize: '10px', color: '#555', margin: '1px 0' }}>Kakinada, Andhra Pradesh</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3px' }}>
+                        <div style={{ fontSize: '10px', fontStyle: 'italic' }}>{copyTitle}</div>
+                        <div style={{ border: '1px solid #000', padding: '1px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>
                             Fee Receipt
                         </div>
-                        <div style={{ fontSize: '11px', width: '60px' }}></div> {/* Spacer for center alignment */}
+                        <div style={{ fontSize: '10px', width: '60px' }}></div> {/* Spacer for center alignment */}
                     </div>
                 </div>
             ) : (
-                <div style={{ marginBottom: '20px', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
+                <div style={{ marginBottom: '12px', borderBottom: '1px solid #ccc', paddingBottom: '6px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: '11px', fontStyle: 'italic' }}>{copyTitle}</div>
-                        <h1 style={{ fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0 }}>Fee Receipt</h1>
-                        <div style={{ fontSize: '11px' }}>Date: {new Date().toLocaleDateString()}</div>
+                        <div style={{ fontSize: '10px', fontStyle: 'italic' }}>{copyTitle}</div>
+                        <h1 style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase', margin: 0 }}>Fee Receipt</h1>
+                        <div style={{ fontSize: '10px' }}>Date: {new Date().toLocaleDateString()}</div>
                     </div>
                 </div>
             )}
 
             {/* Meta Info */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '6px' }}>
                 <div>
-                    <p style={{ margin: '2px 0' }}><strong>Receipt No:</strong> {primary.receiptNumber}</p>
-                    <p style={{ margin: '2px 0' }}><strong>Date:</strong> {new Date(primary.createdAt).toLocaleDateString()}</p>
+                    <p style={{ margin: '1px 0' }}><strong>Receipt No:</strong> {primary.receiptNumber}</p>
+                    <p style={{ margin: '1px 0' }}><strong>Date:</strong> {new Date(primary.createdAt).toLocaleDateString()}</p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                    <p style={{ margin: '2px 0' }}><strong>Current Year:</strong> {student.current_year}</p>
-                    <p style={{ margin: '2px 0' }}><strong>Sem:</strong> {primary.semester || student.current_year}</p>
+                    <p style={{ margin: '1px 0' }}><strong>Current Year:</strong> {student.current_year}</p>
+                    <p style={{ margin: '1px 0' }}><strong>Sem:</strong> {primary.semester || student.current_year}</p>
                 </div>
             </div>
 
             {/* Student Details - Compact grid */}
             <div style={{
-                marginBottom: '10px', padding: '8px', backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '4px'
+                marginBottom: '6px', padding: '4px 6px', backgroundColor: '#f9f9f9', border: '1px solid #eee', borderRadius: '4px'
             }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', fontSize: '12px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', fontSize: '11px' }}>
                     <div><strong>Name:</strong> {student.student_name}</div>
                     <div><strong>Adm No:</strong> {student.admission_number}</div>
                     <div><strong>Pin No:</strong> {student.pin_no || '-'}</div>
@@ -83,12 +83,12 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
 
             {/* Table */}
             <div style={{ flexGrow: 1 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '11px' }}>
                     <thead>
                         <tr style={{ backgroundColor: '#f0f0f0' }}>
-                            <th style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', width: '40px' }}>S.No</th>
-                            <th style={{ border: '1px solid #000', padding: '5px', textAlign: 'left' }}>Particulars</th>
-                            <th style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', width: '100px' }}>Amount (₹)</th>
+                            <th style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'center', width: '40px' }}>S.No</th>
+                            <th style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'left' }}>Particulars</th>
+                            <th style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'right', width: '100px' }}>Amount (₹)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -101,32 +101,31 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
 
                             return (
                                 <tr key={index}>
-                                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{index + 1}</td>
-                                    <td style={{ border: '1px solid #000', padding: '5px' }}>
+                                    <td style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'center' }}>{index + 1}</td>
+                                    <td style={{ border: '1px solid #000', padding: '3px 5px' }}>
                                         <div>{displayName}</div>
-                                        {item.remarks && <div style={{ fontSize: '10px', fontStyle: 'italic', color: '#666' }}>{item.remarks}</div>}
+                                        {item.remarks && <div style={{ fontSize: '9px', fontStyle: 'italic', color: '#666' }}>{item.remarks}</div>}
                                     </td>
-                                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right' }}>{item.amount}</td>
+                                    <td style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'right' }}>{item.amount}</td>
                                 </tr>
                             );
                         })}
-                        {/* Fill empty rows to maintain height if needed, OR just let it flex */}
 
                         <tr style={{ backgroundColor: '#f9f9f9' }}>
-                            <td colSpan="2" style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
-                            <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px' }}>₹{totalAmount}</td>
+                            <td colSpan="2" style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
+                            <td style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'right', fontWeight: 'bold', fontSize: '12px' }}>₹{totalAmount}</td>
                         </tr>
                         {/* Display Pending Due if available */}
                         {(totalDue !== undefined && totalDue !== null) && (
                             <tr>
-                                <td colSpan="3" style={{ border: '1px solid #000', padding: '5px', textAlign: 'right', color: '#dc2626', fontSize: '11px', fontStyle: 'italic' }}>
+                                <td colSpan="3" style={{ border: '1px solid #000', padding: '3px 5px', textAlign: 'right', color: '#dc2626', fontSize: '10px', fontStyle: 'italic' }}>
                                     Total Pending Due: <span style={{ fontWeight: 'bold' }}>₹{Number(totalDue).toLocaleString()}</span>
                                 </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
-                <div style={{ fontSize: '11px', marginTop: '5px' }}>
+                <div style={{ fontSize: '10px', marginTop: '2px' }}>
                     {(() => {
                         const modes = [...new Set(items.map(i => i.paymentMode))];
                         const totalCash = items.filter(i => i.paymentMode === 'Cash').reduce((sum, i) => sum + i.amount, 0);
@@ -159,10 +158,10 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
             </div>
 
             {/* Footer / Sign */}
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end' }}>
+            <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end' }}>
                 <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 5px 0' }}>{primary.collectedByName || 'Admin'}</p>
-                    <p style={{ borderTop: '1px solid #000', paddingTop: '2px', fontSize: '11px', margin: 0, width: '120px' }}>Cashier Sign</p>
+                    <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '0 0 3px 0' }}>{primary.collectedByName || 'Admin'}</p>
+                    <p style={{ borderTop: '1px solid #000', paddingTop: '2px', fontSize: '10px', margin: 0, width: '120px' }}>Cashier Sign</p>
                 </div>
             </div>
         </div>
