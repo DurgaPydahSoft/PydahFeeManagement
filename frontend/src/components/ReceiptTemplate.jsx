@@ -172,9 +172,9 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, student, totalD
     const paperSizeStr = settings?.paperSize || 'A4';
 
     // Determine layout variables
-    // A5 landscape requires us to just use A5 as the paper size typically, or "A5 landscape". 
-    // Browsers handle @page { size: A5 landscape; } well.
-    const pageCssSize = paperSizeStr === 'A5' ? 'A5 landscape' : 'A4';
+    // For A5, we use 'auto' to enable the browser's native print dialog options (Layout & Paper Size),
+    // allowing the operator to adjust orientation to match physical paper feeding (e.g. horizontal feed).
+    const pageCssSize = paperSizeStr === 'A5' ? 'auto' : 'A4';
 
     // For container heights in percentages to prevent page-overflow in print media
     const copyHeight = copies === 1 ? '100%' : '49%';
