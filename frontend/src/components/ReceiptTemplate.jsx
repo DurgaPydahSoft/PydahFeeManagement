@@ -39,40 +39,59 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
             color: '#000' // Sharp black text for printing
         }}>
             {/* Header Section */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '3px solid #000' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '3px solid #000', width: '100%', boxSizing: 'border-box' }}>
                 {showHeader ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Logo" style={{ height: '46px', width: 'auto', objectFit: 'contain' }} />
-                        <div>
+                    <>
+                        {/* Left: Logo */}
+                        <div style={{ width: '80px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flexShrink: 0 }}>
+                            <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Logo" style={{ height: '46px', width: 'auto', objectFit: 'contain' }} />
+                        </div>
+                        
+                        {/* Center: College Name */}
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 8px' }}>
                             <h1 style={{ 
                                 fontFamily: "'Outfit', sans-serif", 
-                                fontSize: '15px', 
+                                fontSize: '14.5px', 
                                 fontWeight: '800', 
                                 margin: 0, 
                                 color: '#000',
                                 textTransform: 'uppercase',
-                                letterSpacing: '0.2px'
+                                letterSpacing: '0.2px',
+                                lineHeight: '1.2'
                             }}>
                                 {student.college || 'PYDAH COLLEGE OF ENGINEERING'}
                             </h1>
-                            <p style={{ fontSize: '9px', color: '#000', margin: '1px 0 0 0', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <p style={{ fontSize: '8.5px', color: '#000', margin: '1px 0 0 0', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 Kakinada, Andhra Pradesh
                             </p>
                         </div>
-                    </div>
+                        
+                        {/* Right: Fee Receipt label */}
+                        <div style={{ width: '90px', textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'center', flexShrink: 0 }}>
+                            <h2 style={{ fontSize: '13.5px', fontWeight: '800', color: '#000', margin: 0, textTransform: 'uppercase', letterSpacing: '0.2px' }}>
+                                Fee Receipt
+                            </h2>
+                            <p style={{ fontSize: '8.5px', color: '#000', fontWeight: '700', margin: '1px 0 0 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                {copyTitle}
+                            </p>
+                        </div>
+                    </>
                 ) : (
-                    <div>
-                        <span style={{ fontSize: '9px', fontWeight: '700', color: '#000', textTransform: 'uppercase' }}>{copyTitle}</span>
-                    </div>
+                    <>
+                        <div style={{ width: '80px', flexShrink: 0 }}>
+                            <span style={{ fontSize: '9px', fontWeight: '700', color: '#000', textTransform: 'uppercase' }}>{copyTitle}</span>
+                        </div>
+                        <div style={{ flex: 1 }}></div>
+                        <div style={{ width: '90px', textAlign: 'right', flexShrink: 0 }}>
+                            <h2 style={{ fontSize: '13.5px', fontWeight: '800', color: '#000', margin: 0, textTransform: 'uppercase', letterSpacing: '0.2px' }}>
+                                Fee Receipt
+                            </h2>
+                            <p style={{ fontSize: '8.5px', color: '#000', fontWeight: '700', margin: '1px 0 0 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                {copyTitle}
+                            </p>
+                        </div>
+                    </>
                 )}
-                <div style={{ textAlign: 'right' }}>
-                    <h2 style={{ fontSize: '14.5px', fontWeight: '800', color: '#000', margin: 0, textTransform: 'uppercase', letterSpacing: '0.2px' }}>
-                        Fee Receipt
-                    </h2>
-                    <p style={{ fontSize: '8.5px', color: '#000', fontWeight: '700', margin: '1px 0 0 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        {copyTitle}
-                    </p>
-                </div>
             </div>
 
             {/* Information Box (Ledger Style) */}
@@ -286,17 +305,19 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
             {/* Note & Branding Line */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '7.5px', color: '#000', marginTop: '10px', marginBottom: '2px' }}>
                 <span style={{ fontStyle: 'italic', fontWeight: '500' }}>Note: Please preserve this receipt for future reference.</span>
-                <span style={{ fontStyle: 'italic', color: '#94a3b8' }}>Software designed by PydahSoft</span>
             </div>
 
             {/* Contact Details Bottom Bar */}
-            <div style={{ borderTop: '1.5px solid #000', paddingTop: '4px', display: 'flex', justifyContent: 'space-between', fontSize: '7.5px', color: '#000', fontWeight: '600', marginTop: '6px' }}>
+            <div style={{ borderTop: '1.5px solid #000', paddingTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '7.5px', color: '#000', fontWeight: '600', marginTop: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                     <svg style={{ width: '13px', height: '13px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                     <span>Kakinada, Andhra Pradesh - 533003</span>
+                </div>
+                <div style={{ fontWeight: '700', textTransform: 'uppercase', color: '#000', fontSize: '7.5px', letterSpacing: '0.3px' }}>
+                    Powered by PydahSoft
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                     <svg style={{ width: '13px', height: '13px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">

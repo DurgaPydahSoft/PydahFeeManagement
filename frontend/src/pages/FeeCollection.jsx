@@ -1067,8 +1067,11 @@ const FeeCollection = () => {
                                                             .filter(r => r.id !== row.id && r.feeHeadId)
                                                             .map(r => getTrueFeeHeadId(r.feeHeadId));
 
-                                                        // Check if no fee structures are configured for the student
-                                                        const showGlobalFees = feeDetails.length === 0 || feeDetails.every(f => Number(f.totalAmount || 0) === 0);
+                                                        // Build the merged options list:
+                                                        // 1. All configured fees for the student (displayedFees)
+                                                        // 2. Any global fee heads NOT already covered by configured fees
+                                                        const configuredFeeHeadIds = new Set(feeDetails.map(f => f.feeHeadId));
+                                                        const extraGlobalHeads = globalFeeHeads.filter(h => !configuredFeeHeadIds.has(h._id));
 
                                                         return (
                                                             <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
@@ -1082,22 +1085,33 @@ const FeeCollection = () => {
                                                                             required
                                                                         >
                                                                             <option value="">-- Select Fee Head --</option>
-                                                                            {!showGlobalFees ? (
-                                                                                displayedFees
-                                                                                    .filter(f => !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
-                                                                                    .map(f => (
-                                                                                        <option key={f._id} value={f._id}>
-                                                                                            [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
-                                                                                        </option>
-                                                                                    ))
-                                                                            ) : (
-                                                                                globalFeeHeads
-                                                                                    .filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id))
-                                                                                    .map(h => (
-                                                                                        <option key={h._id} value={h._id}>
-                                                                                            {h.name} {h.code ? `(${h.code})` : ''}
-                                                                                        </option>
-                                                                                    ))
+
+                                                                            {/* Configured/Structured Fee Dues */}
+                                                                            {displayedFees.filter(f => !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId)).length > 0 && (
+                                                                                <optgroup label="── Structured Fees ──">
+                                                                                    {displayedFees
+                                                                                        .filter(f => !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
+                                                                                        .map(f => (
+                                                                                            <option key={f._id} value={f._id}>
+                                                                                                [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
+                                                                                            </option>
+                                                                                        ))
+                                                                                    }
+                                                                                </optgroup>
+                                                                            )}
+
+                                                                            {/* All remaining global fee heads */}
+                                                                            {extraGlobalHeads.filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id)).length > 0 && (
+                                                                                <optgroup label="── All Fee Heads ──">
+                                                                                    {extraGlobalHeads
+                                                                                        .filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id))
+                                                                                        .map(h => (
+                                                                                            <option key={h._id} value={h._id}>
+                                                                                                {h.name} {h.code ? `(${h.code})` : ''}
+                                                                                            </option>
+                                                                                        ))
+                                                                                    }
+                                                                                </optgroup>
                                                                             )}
                                                                         </select>
                                                                     </div>
