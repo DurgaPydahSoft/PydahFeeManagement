@@ -35,6 +35,9 @@ export const persistAuthSession = (user, { isSSO = false } = {}) => {
   if (!user?.token) return false;
   localStorage.setItem('user', JSON.stringify(user));
   localStorage.setItem('token', user.token);
+  if (user.sessionId) {
+    localStorage.setItem('sessionId', user.sessionId);
+  }
   if (isSSO) {
     localStorage.setItem('isSSO', 'true');
   } else {
@@ -60,6 +63,8 @@ export const clearAuthSession = () => {
   localStorage.removeItem('user');
   localStorage.removeItem('token');
   localStorage.removeItem('isSSO');
+  localStorage.removeItem('sessionId');
+  sessionStorage.clear();
 };
 
 /**

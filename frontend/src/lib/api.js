@@ -21,7 +21,16 @@ api.interceptors.response.use(
 
     // Only force logout on 401 from protected APIs, not during login itself
     if (error.response?.status === 401 && !isAuthEndpoint && !isOnLoginPage) {
+      const isDisplaced = error.response?.data?.code === 'SESSION_DISPLACED' ||
+        error.response?.data?.message?.includes('logged in from another device');
+
       clearAuthSession();
+
+      if (isDisplaced) {
+        // Flag for App.jsx to show the security modal on the login page
+        sessionStorage.setItem('session_displaced', '1');
+      }
+
       window.location.assign('/login');
     }
     return Promise.reject(error);

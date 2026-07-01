@@ -71,6 +71,11 @@ protectedApi.use('/overall-concessions', require('./routes/overallConcessionRout
 
 app.use('/api', protectedApi);
 
+// SSE route is mounted OUTSIDE of protectedApi because EventSource (browser)
+// cannot send custom Authorization headers. The SSE route validates the token
+// itself via the ?token= query parameter.
+app.use('/api/sse', require('./routes/sseRoutes'));
+
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });
 });

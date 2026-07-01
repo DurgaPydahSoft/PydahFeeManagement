@@ -1,4 +1,5 @@
 
+import { useState } from 'react';
 import { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Landing from './pages/Landing';
@@ -24,6 +25,8 @@ import Proceedings from './pages/Proceedings';
 import Reports from './pages/Reports';
 import DueReports from './pages/DueReports';
 import VerifyReceipt from './pages/VerifyReceipt';
+import useSessionGuard from './lib/useSessionGuard';
+import SessionDisplacedModal from './components/SessionDisplacedModal';
 
 const PageLoader = () => (
   <div className="flex h-screen items-center justify-center bg-gray-50">
@@ -32,8 +35,23 @@ const PageLoader = () => (
 );
 
 function App() {
+  // Show the security modal if we were displaced from another device login
+  const [showDisplaced, setShowDisplaced] = useState(
+    () => sessionStorage.getItem('session_displaced') === '1'
+  );
+
+  const handleCloseDisplaced = () => {
+    sessionStorage.removeItem('session_displaced');
+    setShowDisplaced(false);
+  };
+
+  // Establish SSE connection for real-time single-device enforcement
+  useSessionGuard();
+
   return (
     <Router>
+      {/* Security modal — shown when this session was displaced by another device */}
+      {showDisplaced && <SessionDisplacedModal onClose={handleCloseDisplaced} />}
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Landing />} />

@@ -37,6 +37,10 @@ const userSchema = mongoose.Schema({
   permissions: {
     type: [String], // Array of allowed paths (e.g., ['/dashboard', '/students'])
     default: [],
+  },
+  sessionId: {
+    type: String,
+    default: null, // Stores the UUID of the current active session
   }
 }, {
   timestamps: true,

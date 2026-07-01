@@ -2,10 +2,17 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const User = require('../models/User');
+const { notifyLogout } = require('../utils/sseManager');
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+/**
+ * Generate a JWT embedding both the user id and the current session UUID.
+ * The sessionId is validated on every protected request to enforce
+ * single active device login.
+ */
+const generateToken = (id, sessionId) => {
+  return jwt.sign({ id, sessionId }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 };
@@ -156,7 +163,23 @@ const loginUser = async (req, res) => {
     // ==========================================
     if (authUser) {
       console.log(`[AUTH LOG] SUCCESS! Found user in: ${authMethod}`);
-      
+
+      // --- Single Active Device Login ---
+      // 1. Generate a fresh session UUID for this login.
+      const newSessionId = crypto.randomUUID();
+
+      // 2. If the user already had an active session, notify that SSE client
+      //    so the old device is logged out instantly.
+      const dbUser = await User.findById(authUser._id);
+      if (dbUser && dbUser.sessionId) {
+        notifyLogout(dbUser.sessionId);
+      }
+
+      // 3. Persist the new sessionId in MongoDB.
+      await User.findByIdAndUpdate(authUser._id, { sessionId: newSessionId });
+
+      const token = generateToken(authUser._id, newSessionId);
+
       res.json({
         _id: authUser._id,
         name: authUser.name,
@@ -166,7 +189,8 @@ const loginUser = async (req, res) => {
         colleges: authUser.colleges || [],
         courses: authUser.courses || [],
         permissions: authUser.permissions,
-        token: generateToken(authUser._id),
+        sessionId: newSessionId,
+        token,
       });
     } else {
       console.log(`[AUTH LOG] FAILURE: Invalid credentials for ${username} (Failed all DB checks)`);
@@ -294,6 +318,16 @@ const ssoLogin = async (req, res) => {
 
     if (authUser) {
       console.log(`[AUTH LOG] SSO SUCCESS! Found user in: ${authMethod}`);
+
+      // --- Single Active Device Login (SSO path) ---
+      const newSessionId = crypto.randomUUID();
+      const dbUser = await User.findById(authUser._id);
+      if (dbUser && dbUser.sessionId) {
+        notifyLogout(dbUser.sessionId);
+      }
+      await User.findByIdAndUpdate(authUser._id, { sessionId: newSessionId });
+      const token = generateToken(authUser._id, newSessionId);
+
       res.json({
         _id: authUser._id,
         name: authUser.name,
@@ -303,7 +337,8 @@ const ssoLogin = async (req, res) => {
         colleges: authUser.colleges || [],
         courses: authUser.courses || [],
         permissions: authUser.permissions,
-        token: generateToken(authUser._id),
+        sessionId: newSessionId,
+        token,
       });
     } else {
       console.log(`[AUTH LOG] SSO FAILURE: User ${identifier} not found in Fee Management`);
@@ -316,7 +351,27 @@ const ssoLogin = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Logout — clear sessionId from DB and SSE
+ * @route   POST /api/auth/logout
+ * @access  Protected
+ */
+const logoutUser = async (req, res) => {
+  try {
+    const user = req.user;
+    if (user && user.sessionId) {
+      notifyLogout(user.sessionId);
+    }
+    await User.findByIdAndUpdate(user._id, { sessionId: null });
+    res.json({ success: true, message: 'Logged out successfully.' });
+  } catch (error) {
+    console.error('Logout Error:', error);
+    res.status(500).json({ message: 'Logout failed.' });
+  }
+};
+
 module.exports = {
   loginUser,
   ssoLogin,
+  logoutUser,
 };
