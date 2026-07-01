@@ -76,8 +76,8 @@ const SingleCashierReport = ({ data, dateRange, options = {} }) => {
                 {`
                     @page { size: A4; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-                    .print-table th, .print-table td { border: 1px solid #000; padding: 4px 8px; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
                     .compact-row { line-height: 1.2; }
@@ -139,9 +139,9 @@ const SingleCashierReport = ({ data, dateRange, options = {} }) => {
                             <thead>
                                 <tr>
                                     <th>Fee Head</th>
-                                    <th style={{ textAlign: 'right', width: '80px' }}>Cash</th>
-                                    <th style={{ textAlign: 'right', width: '80px' }}>Bank</th>
-                                    <th style={{ textAlign: 'right', width: '100px' }}>Amount</th>
+                                    <th style={{ textAlign: 'right', width: '60px' }}>Cash</th>
+                                    <th style={{ textAlign: 'right', width: '60px' }}>Bank</th>
+                                    <th style={{ textAlign: 'right', width: '75px' }}>Amount</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -170,62 +170,65 @@ const SingleCashierReport = ({ data, dateRange, options = {} }) => {
                                 <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                                     College-wise Breakdown
                                 </h3>
-                                {sortedColleges.map((collegeName, cIdx) => {
-                                    const colData = collegeData[collegeName];
-                                    return (
-                                        <div key={cIdx} style={{ breakInside: 'avoid', marginBottom: '15px', border: '1px solid #ddd' }}>
-                                            <div style={{
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                                backgroundColor: '#f0f0f0',
-                                                borderBottom: '1px solid #ccc',
-                                                padding: '5px 8px',
-                                            }}>
-                                                <h4 style={{ margin: 0, fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                                                    {collegeName}
-                                                </h4>
-                                                <span style={{ fontSize: '10px', fontWeight: 'bold' }}>₹{Number(colData.total).toLocaleString()}</span>
-                                            </div>
+                                <table className="print-table" style={{ width: '100%', border: '2px solid #000' }}>
+                                    <tbody>
+                                        {sortedColleges.map((collegeName) => {
+                                            const colData = collegeData[collegeName];
+                                            const rows = [];
 
-                                            {Object.entries(colData.courses)
+                                            // Add College Header Row
+                                            rows.push(
+                                                <tr key={`col-${collegeName}`} style={{ backgroundColor: '#f0f0f0', fontWeight: 'bold', borderBottom: '1.5px solid #000' }}>
+                                                    <td style={{ textTransform: 'uppercase', fontSize: '10.5px', borderRight: '1.5px solid #000', padding: '5px 8px', color: '#000' }}>
+                                                        {collegeName} (Total)
+                                                    </td>
+                                                    <td style={{ textAlign: 'right', fontSize: '10.5px', padding: '5px 8px', color: '#000' }}>
+                                                        ₹{Number(colData.total).toLocaleString()}
+                                                    </td>
+                                                </tr>
+                                            );
+
+                                            // Add Course Rows & Fee Heads
+                                            Object.entries(colData.courses)
                                                 .sort((a, b) => b[1].total - a[1].total)
-                                                .map(([courseName, courseData], crsIdx) => (
-                                                    <div key={crsIdx} style={{ borderBottom: '1px solid #eee' }}>
-                                                        <div style={{
-                                                            backgroundColor: '#fdfdfd',
-                                                            padding: '2px 8px',
-                                                            fontWeight: 'bold',
-                                                            fontSize: '9px',
-                                                            color: '#555',
-                                                            borderBottom: '1px solid #f0f0f0',
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between'
-                                                        }}>
-                                                            <span>{courseName}</span>
-                                                            <span>₹{Number(courseData.total).toLocaleString()}</span>
-                                                        </div>
-                                                        <table className="print-table" style={{ fontSize: '8px', width: '100%', border: 'none' }}>
-                                                            <tbody>
-                                                                {Object.entries(courseData.feeHeads)
-                                                                    .filter(([_, amt]) => amt > 0)
-                                                                    .sort((a, b) => b[1] - a[1])
-                                                                    .map(([headName, amt], hIdx) => (
-                                                                        <tr key={hIdx}>
-                                                                            <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 10px', color: '#444' }}>{headName}</td>
-                                                                            <td style={{ border: 'none', borderBottom: '1px dotted #eee', padding: '2px 8px', textAlign: 'right', width: '70px' }}>₹{Number(amt).toLocaleString()}</td>
-                                                                        </tr>
-                                                                    ))}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-                                                ))}
-                                        </div>
-                                    );
-                                })}
+                                                .forEach(([courseName, courseData]) => {
+                                                    // Add Course Row
+                                                    rows.push(
+                                                        <tr key={`crs-${collegeName}-${courseName}`} style={{ backgroundColor: '#fafafa', fontWeight: 'bold', borderBottom: '1.5px solid #000' }}>
+                                                            <td style={{ paddingLeft: '15px', fontSize: '9.5px', borderRight: '1.5px solid #000', paddingTop: '4px', paddingBottom: '4px', color: '#000' }}>
+                                                                — {courseName}
+                                                            </td>
+                                                            <td style={{ textAlign: 'right', fontSize: '9.5px', paddingTop: '4px', paddingBottom: '4px', color: '#000' }}>
+                                                                ₹{Number(courseData.total).toLocaleString()}
+                                                            </td>
+                                                        </tr>
+                                                    );
+
+                                                    // Add Fee Head Rows
+                                                    Object.entries(courseData.feeHeads)
+                                                        .filter(([_, amt]) => amt > 0)
+                                                        .sort((a, b) => b[1] - a[1])
+                                                        .forEach(([headName, amt]) => {
+                                                            rows.push(
+                                                                <tr key={`fh-${collegeName}-${courseName}-${headName}`} style={{ borderBottom: '1px solid #000' }}>
+                                                                    <td style={{ paddingLeft: '30px', fontSize: '9px', color: '#000', borderRight: '1.5px solid #000', paddingTop: '3px', paddingBottom: '3px' }}>
+                                                                        {headName}
+                                                                    </td>
+                                                                    <td style={{ textAlign: 'right', fontSize: '9px', color: '#000', paddingTop: '3px', paddingBottom: '3px' }}>
+                                                                        ₹{Number(amt).toLocaleString()}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        });
+                                                });
+
+                                            return rows;
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
                         ) : (
-                            <div style={{ textAlign: 'center', padding: '20px', border: '1px solid #ddd', color: '#888' }}>
+                            <div style={{ textAlign: 'center', padding: '20px', border: '2px solid #000', color: '#000', fontWeight: 'bold' }}>
                                 No college-wise breakdown available.
                             </div>
                         )}
@@ -373,8 +376,8 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 {`
                     @page { size: A4; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-                    .print-table th, .print-table td { border: 1px solid #000; padding: 4px 8px; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
                     .compact-row { line-height: 1.2; }
