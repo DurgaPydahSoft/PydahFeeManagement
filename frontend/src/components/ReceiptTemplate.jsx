@@ -28,7 +28,7 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
     const copies = settings?.copiesPerPage || 2;
 
     // Helper component for a single receipt copy
-    const ReceiptOneCopy = ({ copyTitle }) => (
+    const ReceiptOneCopy = ({ copyTitle, items, primary, totalAmount, cellPadding, headerPadding }) => (
         <div style={{
             padding: '3mm 6mm', // Compressed vertical and horizontal padding
             display: 'flex',
@@ -348,13 +348,23 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
     // For container heights in percentages to prevent page-overflow in print media
     const copyHeight = copies === 1 ? '100%' : '49%';
 
+    // Group items by receiptNumber to print separate pages per receipt number
+    const groupedReceipts = {};
+    items.forEach(item => {
+        const rn = item.receiptNumber || 'TEMP';
+        if (!groupedReceipts[rn]) {
+            groupedReceipts[rn] = [];
+        }
+        groupedReceipts[rn].push(item);
+    });
+    const receiptGroups = Object.values(groupedReceipts);
+
     return (
         <div ref={ref} style={{
             width: '100%',
-            height: '100%', // Print full page
             backgroundColor: 'white',
             fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            color: '#000', // Set default color to black for B&W printing
+            color: '#000',
             margin: '0 auto',
             boxSizing: 'border-box'
         }}>
@@ -367,32 +377,59 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                 {`
                     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@800&family=Inter:wght@400;500;600;700;800&display=swap');
                     @page { size: ${pageCssSize}; margin: 5mm; }
-                    html, body { -webkit-print-color-adjust: exact; margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+                    html, body { -webkit-print-color-adjust: exact; margin: 0; padding: 0; }
+                    .receipt-page { page-break-after: always; height: 100vh; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; }
+                    .receipt-page:last-child { page-break-after: avoid; }
                 `}
             </style>
 
-            {/* Copy 1: Student Copy */}
-            <div style={{ height: copyHeight, position: 'relative', boxSizing: 'border-box' }}>
-                <ReceiptOneCopy copyTitle="STUDENT COPY" />
+            {receiptGroups.map((groupItems, groupIndex) => {
+                const groupPrimary = groupItems[0];
+                const groupTotalAmount = groupItems.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+                const groupCellPadding = groupItems.length > 4 ? '3px 8px' : (groupItems.length > 2 ? '4px 8px' : '5px 8px');
+                const groupHeaderPadding = groupItems.length > 4 ? '4px 8px' : '6px 8px';
 
-                {/* Dotted Separator Line (Only show if we have a second copy below) */}
-                {copies === 2 && (
-                    <div style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        left: '20px',
-                        right: '20px',
-                        borderBottom: '2px dashed #000' // Bold dashed separation line
-                    }}></div>
-                )}
-            </div>
+                return (
+                    <div key={groupIndex} className="receipt-page">
+                        {/* Copy 1: Student Copy */}
+                        <div style={{ height: copyHeight, position: 'relative', boxSizing: 'border-box' }}>
+                            <ReceiptOneCopy 
+                                copyTitle="STUDENT COPY" 
+                                items={groupItems}
+                                primary={groupPrimary}
+                                totalAmount={groupTotalAmount}
+                                cellPadding={groupCellPadding}
+                                headerPadding={groupHeaderPadding}
+                            />
 
-            {/* Copy 2: Office Copy (Only if requested) */}
-            {copies === 2 && (
-                <div style={{ height: copyHeight, paddingTop: '15px', boxSizing: 'border-box' }}>
-                    <ReceiptOneCopy copyTitle="OFFICE COPY" />
-                </div>
-            )}
+                            {/* Dotted Separator Line (Only show if we have a second copy below) */}
+                            {copies === 2 && (
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    left: '20px',
+                                    right: '20px',
+                                    borderBottom: '2px dashed #000'
+                                }}></div>
+                            )}
+                        </div>
+
+                        {/* Copy 2: Office Copy (Only if requested) */}
+                        {copies === 2 && (
+                            <div style={{ height: copyHeight, paddingTop: '15px', boxSizing: 'border-box' }}>
+                                <ReceiptOneCopy 
+                                    copyTitle="OFFICE COPY" 
+                                    items={groupItems}
+                                    primary={groupPrimary}
+                                    totalAmount={groupTotalAmount}
+                                    cellPadding={groupCellPadding}
+                                    headerPadding={groupHeaderPadding}
+                                />
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 });

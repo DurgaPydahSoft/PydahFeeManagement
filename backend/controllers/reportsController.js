@@ -445,7 +445,8 @@ const getTransactionReports = async (req, res) => {
                     feeHead: fhName,
                     college: collegeName,
                     collectedBy: cashierUsername,
-                    collectedByName: cashier
+                    collectedByName: cashier,
+                    empNo: empNo
                 });
 
                 // cashier breakdown inside this college

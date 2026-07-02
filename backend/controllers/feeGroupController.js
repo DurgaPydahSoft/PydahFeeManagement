@@ -16,20 +16,36 @@ const getFeeGroups = async (req, res) => {
 // @route   POST /api/fee-groups
 // @access  Protected
 const createFeeGroup = async (req, res) => {
-  const { name, description, feeHeads, isActive } = req.body;
+  const { name, code, description, feeHeads, isActive } = req.body;
 
-  if (!name) {
-    return res.status(400).json({ message: 'Please add a group name' });
+  if (!name || !code) {
+    return res.status(400).json({ message: 'Please add a group name and group code' });
   }
 
   try {
-    const groupExists = await FeeGroup.findOne({ name });
+    const groupExists = await FeeGroup.findOne({ name: name.trim() });
     if (groupExists) {
-      return res.status(400).json({ message: 'Fee Group already exists' });
+      return res.status(400).json({ message: 'Fee Group name already exists' });
+    }
+
+    const codeExists = await FeeGroup.findOne({ code: code.toUpperCase().trim() });
+    if (codeExists) {
+      return res.status(400).json({ message: 'Group Code already exists' });
+    }
+
+    // Mutual Exclusivity Check
+    if (feeHeads && feeHeads.length > 0) {
+      const overlappingGroup = await FeeGroup.findOne({
+        feeHeads: { $in: feeHeads }
+      });
+      if (overlappingGroup) {
+        return res.status(400).json({ message: `One or more selected fee heads already belong to another group: ${overlappingGroup.name}` });
+      }
     }
 
     const feeGroup = await FeeGroup.create({
-      name,
+      name: name.trim(),
+      code: code.toUpperCase().trim(),
       description,
       feeHeads: feeHeads || [],
       isActive: isActive !== undefined ? isActive : true
@@ -46,7 +62,7 @@ const createFeeGroup = async (req, res) => {
 // @route   PUT /api/fee-groups/:id
 // @access  Protected
 const updateFeeGroup = async (req, res) => {
-  const { name, description, feeHeads, isActive } = req.body;
+  const { name, code, description, feeHeads, isActive } = req.body;
 
   try {
     const feeGroup = await FeeGroup.findById(req.params.id);
@@ -56,15 +72,35 @@ const updateFeeGroup = async (req, res) => {
     }
 
     if (name) {
-      // Check if duplicate name
-      const duplicate = await FeeGroup.findOne({ name, _id: { $ne: req.params.id } });
+      const duplicate = await FeeGroup.findOne({ name: name.trim(), _id: { $ne: req.params.id } });
       if (duplicate) {
         return res.status(400).json({ message: 'Another group already has this name' });
       }
-      feeGroup.name = name;
+      feeGroup.name = name.trim();
     }
+
+    if (code) {
+      const duplicateCode = await FeeGroup.findOne({ code: code.toUpperCase().trim(), _id: { $ne: req.params.id } });
+      if (duplicateCode) {
+        return res.status(400).json({ message: 'Another group already has this group code' });
+      }
+      feeGroup.code = code.toUpperCase().trim();
+    }
+
+    if (feeHeads !== undefined) {
+      if (feeHeads.length > 0) {
+        const overlappingGroup = await FeeGroup.findOne({
+          _id: { $ne: req.params.id },
+          feeHeads: { $in: feeHeads }
+        });
+        if (overlappingGroup) {
+          return res.status(400).json({ message: `One or more selected fee heads already belong to another group: ${overlappingGroup.name}` });
+        }
+      }
+      feeGroup.feeHeads = feeHeads;
+    }
+
     if (description !== undefined) feeGroup.description = description;
-    if (feeHeads !== undefined) feeGroup.feeHeads = feeHeads;
     if (isActive !== undefined) feeGroup.isActive = isActive;
 
     await feeGroup.save();

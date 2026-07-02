@@ -46,6 +46,8 @@ const FeeCollection = () => {
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [showPhotoPopup, setShowPhotoPopup] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [sequencePreview, setSequencePreview] = useState(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
 
     const [lastTransaction, setLastTransaction] = useState(null);
     const [relatedTransactions, setRelatedTransactions] = useState([]);
@@ -283,7 +285,7 @@ const FeeCollection = () => {
     // ----------------------------
 
     // Step 1: Trigger Confirmation
-    const handlePrePayment = (e) => {
+    const handlePrePayment = async (e) => {
         e.preventDefault();
 
         // Validation
@@ -306,7 +308,26 @@ const FeeCollection = () => {
             return;
         }
 
+        setSequencePreview(null);
+        setPreviewLoading(true);
         setShowConfirmModal(true);
+
+        try {
+            const feeHeadIds = validRows.map(row => {
+                const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                return selectedFee ? selectedFee.feeHeadId : row.feeHeadId;
+            });
+
+            const res = await api.post('/transactions/preview-sequence', {
+                studentId: student.admission_number,
+                feeHeadIds
+            });
+            setSequencePreview(res.data);
+        } catch (err) {
+            console.error("Failed to fetch sequence preview", err);
+        } finally {
+            setPreviewLoading(false);
+        }
     };
 
     // Step 2: Actual Submission
@@ -1363,6 +1384,27 @@ const FeeCollection = () => {
                                         <span className="text-gray-500">Verification:</span>
                                         <span className="font-bold text-gray-800">{feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).length} Fee Heads</span>
                                     </div>
+
+                                    {previewLoading && (
+                                        <div className="flex items-center justify-center gap-2 py-2 text-xs text-blue-600 font-medium border-t border-gray-200/60 pt-2 mt-2">
+                                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-blue-600 border-t-transparent"></div>
+                                            Loading next sequence...
+                                        </div>
+                                    )}
+
+                                    {sequencePreview?.enableCustom && sequencePreview.previewSequences && (
+                                        <div className="border-t border-gray-200/60 pt-2 mt-2">
+                                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Next Receipt Number(s)</div>
+                                            <div className="space-y-1.5 font-mono text-xs">
+                                                {sequencePreview.previewSequences.map((p, idx) => (
+                                                    <div key={idx} className="flex justify-between bg-blue-50/50 p-2 rounded border border-blue-100">
+                                                        <span className="text-gray-600 font-sans font-bold">{p.groupName}:</span>
+                                                        <span className="font-bold text-blue-700">{p.nextReceiptNo}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <button

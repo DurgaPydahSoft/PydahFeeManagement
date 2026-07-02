@@ -226,7 +226,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
                                 rows.push(
                                     <tr key={`cashier-${idx}`} style={{ backgroundColor: '#f9f9f9', fontWeight: 'bold' }}>
                                         <td style={{ textAlign: 'center' }}>{idx + 1}</td>
-                                        <td style={{ textTransform: 'uppercase' }}>{cashier.name}</td>
+                                        <td style={{ textTransform: 'uppercase' }}>{cashier.name} {cashier.empNo && `(${cashier.empNo})`}</td>
                                         <td style={{ textAlign: 'center' }}>{cashier.count}</td>
                                         <td style={{ textAlign: 'right' }}>₹{Number(cashier.cashAmt).toLocaleString()}</td>
                                         <td style={{ textAlign: 'right' }}>₹{Number(cashier.bankAmt).toLocaleString()}</td>
@@ -292,7 +292,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
                                     <td>{tx.course} - {tx.branch}</td>
                                     <td>{tx.studentYear}</td>
                                     <td>{tx.feeHead}</td>
-                                    <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
                                         {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
                                     </td>

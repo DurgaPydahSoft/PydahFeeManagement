@@ -14,7 +14,12 @@ const getSettings = async (req, res) => {
         enableBankPayment: true,
         enableSplitPayment: true,
         maskedFeeHeads: [],
-        maskName: 'Processing Fee'
+        maskName: 'Processing Fee',
+        enableCustomReceiptSequence: false,
+        receiptSequenceSeparator: '/',
+        receiptSequencePadding: 5,
+        receiptSequenceResetMonth: 4,
+        receiptSequenceResetDay: 1
       };
     }
     res.json(settings);
@@ -35,7 +40,12 @@ const updateSettings = async (req, res) => {
     maskedFeeHeads, 
     maskName, 
     paperSize, 
-    copiesPerPage 
+    copiesPerPage,
+    enableCustomReceiptSequence,
+    receiptSequenceSeparator,
+    receiptSequencePadding,
+    receiptSequenceResetMonth,
+    receiptSequenceResetDay
   } = req.body;
   console.log('Update Settings Body:', req.body);
 
@@ -53,7 +63,12 @@ const updateSettings = async (req, res) => {
           maskedFeeHeads: maskedFeeHeads,
           maskName: maskName || 'Processing Fee',
           paperSize: paperSize || 'A4',
-          copiesPerPage: copiesPerPage || 2
+          copiesPerPage: copiesPerPage || 2,
+          enableCustomReceiptSequence: enableCustomReceiptSequence !== undefined ? enableCustomReceiptSequence : false,
+          receiptSequenceSeparator: receiptSequenceSeparator || '/',
+          receiptSequencePadding: receiptSequencePadding !== undefined ? Number(receiptSequencePadding) : 5,
+          receiptSequenceResetMonth: receiptSequenceResetMonth !== undefined ? Number(receiptSequenceResetMonth) : 4,
+          receiptSequenceResetDay: receiptSequenceResetDay !== undefined ? Number(receiptSequenceResetDay) : 1
         }
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }

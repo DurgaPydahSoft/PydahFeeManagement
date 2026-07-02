@@ -35,6 +35,26 @@ const settingSchema = mongoose.Schema({
     enum: [1, 2],
     default: 2,
   },
+  enableCustomReceiptSequence: {
+    type: Boolean,
+    default: false,
+  },
+  receiptSequenceSeparator: {
+    type: String,
+    default: '/',
+  },
+  receiptSequencePadding: {
+    type: Number,
+    default: 5,
+  },
+  receiptSequenceResetMonth: {
+    type: Number,
+    default: 4, // April
+  },
+  receiptSequenceResetDay: {
+    type: Number,
+    default: 1, // 1st
+  },
 }, {
   timestamps: true,
 });

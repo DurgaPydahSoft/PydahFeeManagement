@@ -7,6 +7,13 @@ const feeGroupSchema = mongoose.Schema({
     unique: true,
     trim: true,
   },
+  code: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    uppercase: true,
+  },
   description: {
     type: String,
   },

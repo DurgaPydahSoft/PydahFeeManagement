@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { getStudents, getStudentMetadata, getStudentByAdmissionNumber, searchStudents } = require('../controllers/studentController');
+const { getStudents, getStudentMetadata, getStudentByAdmissionNumber, searchStudents, createStudent } = require('../controllers/studentController');
 
 router.get('/', getStudents);
+router.post('/', createStudent); // Student Creation Route
 router.get('/metadata', getStudentMetadata);
-router.get('/search', searchStudents); // Added Search Route
+router.get('/search', searchStudents);
 router.get('/:id', getStudentByAdmissionNumber);
-
 
 module.exports = router;

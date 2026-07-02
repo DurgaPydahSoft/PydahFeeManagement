@@ -11,7 +11,7 @@ const FeeConfiguration = () => {
 
     // --- TAB 1B: FEE GROUPS ---
     const [feeGroups, setFeeGroups] = useState([]);
-    const [groupForm, setGroupForm] = useState({ name: '', description: '', feeHeads: [] });
+    const [groupForm, setGroupForm] = useState({ name: '', code: '', description: '', feeHeads: [] });
     const [editGroupId, setEditGroupId] = useState(null);
     const [isSavingGroup, setIsSavingGroup] = useState(false);
     const [categories, setCategories] = useState([]);
@@ -169,7 +169,7 @@ const FeeConfiguration = () => {
                 setFeeGroups([response.data, ...feeGroups]);
                 setMessage('Fee Group added successfully!');
             }
-            setGroupForm({ name: '', description: '', feeHeads: [] });
+            setGroupForm({ name: '', code: '', description: '', feeHeads: [] });
             setEditGroupId(null);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
@@ -182,6 +182,7 @@ const FeeConfiguration = () => {
     const handleEditGroup = (g) => {
         setGroupForm({
             name: g.name,
+            code: g.code || '',
             description: g.description || '',
             feeHeads: g.feeHeads ? g.feeHeads.map(fh => fh._id || fh) : []
         });
@@ -559,7 +560,7 @@ const FeeConfiguration = () => {
                                     <button 
                                         onClick={() => { 
                                             setEditGroupId(null); 
-                                            setGroupForm({ name: '', description: '', feeHeads: [] }); 
+                                            setGroupForm({ name: '', code: '', description: '', feeHeads: [] }); 
                                         }} 
                                         className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300 transition"
                                     >
@@ -568,15 +569,28 @@ const FeeConfiguration = () => {
                                 )}
                             </div>
                             <form onSubmit={activeGroupSubmit} className="space-y-4 text-sm">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-gray-500 block">Group Name</label>
-                                    <input 
-                                        className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" 
-                                        placeholder="e.g. Common Group, Hostel Group" 
-                                        value={groupForm.name} 
-                                        onChange={e => setGroupForm({ ...groupForm, name: e.target.value })} 
-                                        required 
-                                    />
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-gray-500 block">Group Name</label>
+                                        <input 
+                                            className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition text-xs font-semibold" 
+                                            placeholder="e.g. Tuition Fee Group" 
+                                            value={groupForm.name} 
+                                            onChange={e => setGroupForm({ ...groupForm, name: e.target.value })} 
+                                            required 
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-gray-500 block">Group Code</label>
+                                        <input 
+                                            className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition uppercase text-xs font-mono font-bold" 
+                                            placeholder="e.g. TUI" 
+                                            maxLength={10}
+                                            value={groupForm.code} 
+                                            onChange={e => setGroupForm({ ...groupForm, code: e.target.value.toUpperCase().replace(/\s/g, '') })} 
+                                            required 
+                                        />
+                                    </div>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-gray-500 block">Description</label>
@@ -590,26 +604,47 @@ const FeeConfiguration = () => {
                                 <div className="space-y-2">
                                     <label className="text-xs font-bold text-gray-500 block">Select Fee Heads</label>
                                     <div className="max-h-[220px] overflow-y-auto border border-gray-200 rounded-lg p-3 space-y-2 bg-gray-50/50 scrollbar-thin">
-                                        {feeHeads.map(fh => (
-                                            <label key={fh._id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded transition">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={groupForm.feeHeads.includes(fh._id)}
-                                                    onChange={e => {
-                                                        const isChecked = e.target.checked;
-                                                        let updated = [...groupForm.feeHeads];
-                                                        if (isChecked) {
-                                                            updated.push(fh._id);
-                                                        } else {
-                                                            updated = updated.filter(id => id !== fh._id);
-                                                        }
-                                                        setGroupForm({ ...groupForm, feeHeads: updated });
-                                                    }}
-                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                />
-                                                <span className="text-xs text-gray-700 font-medium">{fh.name}</span>
-                                            </label>
-                                        ))}
+                                        {feeHeads.filter(fh => {
+                                            const otherGroup = feeGroups.find(g => 
+                                                g._id !== editGroupId && 
+                                                g.feeHeads.some(h => (h._id || h) === fh._id)
+                                            );
+                                            return !otherGroup;
+                                        }).length === 0 && (
+                                            <p className="text-xs text-gray-400 italic text-center py-2">All fee heads are already grouped.</p>
+                                        )}
+                                        {feeHeads
+                                            .filter(fh => {
+                                                const otherGroup = feeGroups.find(g => 
+                                                    g._id !== editGroupId && 
+                                                    g.feeHeads.some(h => (h._id || h) === fh._id)
+                                                );
+                                                return !otherGroup;
+                                            })
+                                            .map(fh => (
+                                                <label 
+                                                    key={fh._id} 
+                                                    className="flex items-center gap-2 p-1.5 rounded transition cursor-pointer hover:bg-white"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={groupForm.feeHeads.includes(fh._id)}
+                                                        onChange={e => {
+                                                            const isChecked = e.target.checked;
+                                                            let updated = [...groupForm.feeHeads];
+                                                            if (isChecked) {
+                                                                updated.push(fh._id);
+                                                            } else {
+                                                                updated = updated.filter(id => id !== fh._id);
+                                                            }
+                                                            setGroupForm({ ...groupForm, feeHeads: updated });
+                                                        }}
+                                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-xs text-gray-700 font-medium">{fh.name}</span>
+                                                </label>
+                                            ))
+                                        }
                                     </div>
                                     {groupForm.feeHeads.length === 0 && (
                                         <p className="text-[10px] text-red-500 font-medium">Select at least one fee head.</p>
@@ -638,7 +673,7 @@ const FeeConfiguration = () => {
                                     <table className="w-full text-left text-sm border-collapse">
                                         <thead className="bg-gray-50 border-b">
                                             <tr>
-                                                <th className="p-3 w-1/4">Name</th>
+                                                <th className="p-3 w-1/4">Name / Code</th>
                                                 <th className="p-3 w-1/4">Description</th>
                                                 <th className="p-3 w-2/5">Included Fee Heads</th>
                                                 <th className="p-3 text-right">Action</th>
@@ -647,7 +682,10 @@ const FeeConfiguration = () => {
                                         <tbody className="divide-y divide-gray-100">
                                             {feeGroups.map(g => (
                                                 <tr key={g._id} className="hover:bg-gray-50/50 transition-colors">
-                                                    <td className="p-3 font-semibold text-gray-800">{g.name}</td>
+                                                    <td className="p-3">
+                                                        <div className="font-semibold text-gray-800">{g.name}</div>
+                                                        <div className="text-[10px] font-mono font-bold text-blue-600 uppercase bg-blue-50 w-fit px-1.5 py-0.5 rounded border border-blue-100 mt-1">{g.code}</div>
+                                                    </td>
                                                     <td className="p-3 text-gray-500 text-xs">{g.description || '-'}</td>
                                                     <td className="p-3">
                                                         <div className="flex flex-wrap gap-1 max-h-[100px] overflow-y-auto scrollbar-thin">

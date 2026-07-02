@@ -9,11 +9,14 @@ const Settings = () => {
         enableBankPayment: true,
         enableSplitPayment: true,
         maskedFeeHeads: [],
-        maskName: 'Processing Fee'
+        maskName: 'Processing Fee',
+        enableCustomReceiptSequence: false,
+        receiptSequenceSeparator: '/',
+        receiptSequencePadding: 5
     });
     const [feeHeads, setFeeHeads] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
+    const [savingSection, setSavingSection] = useState(null);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -40,19 +43,8 @@ const Settings = () => {
         setSettings({ ...settings, showCollegeHeader: !settings.showCollegeHeader });
     };
 
-    const handleTogglePayment = async (paymentMethod) => {
-        const newValue = !settings[paymentMethod];
-        const updatedSettings = { ...settings, [paymentMethod]: newValue };
-        setSettings(updatedSettings);
-        try {
-            await api.put(`/settings`, updatedSettings);
-            setMessage(`${paymentMethod.replace('enable', '')} payment ${newValue ? 'enabled' : 'disabled'} successfully`);
-            setTimeout(() => setMessage(''), 2000);
-        } catch (error) {
-            console.error(error);
-            setMessage('Error updating setting');
-            setTimeout(() => setMessage(''), 2000);
-        }
+    const handleTogglePayment = (paymentMethod) => {
+        setSettings({ ...settings, [paymentMethod]: !settings[paymentMethod] });
     };
 
     const handleMaskNameChange = (e) => {
@@ -74,18 +66,20 @@ const Settings = () => {
         }
     };
 
-    const handleSave = async () => {
-        setSaving(true);
+    const handleSaveSection = async (section) => {
+        setSavingSection(section);
         setMessage('');
         try {
             await api.put(`/settings`, settings);
-            setMessage('Settings saved successfully!');
+            setMessage(`${section.charAt(0).toUpperCase() + section.slice(1)} settings saved successfully!`);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
             console.error(error);
             setMessage('Error saving settings');
+            setTimeout(() => setMessage(''), 3000);
+        } finally {
+            setSavingSection(null);
         }
-        setSaving(false);
     };
 
     return (
@@ -185,6 +179,16 @@ const Settings = () => {
                                     </div>
                                 </div>
                             </div>
+                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
+                                <button
+                                    onClick={() => handleSaveSection('appearance')}
+                                    disabled={savingSection === 'appearance'}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                                >
+                                    {savingSection === 'appearance' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
+                                    {savingSection === 'appearance' ? 'Saving...' : 'Save Appearance'}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Fee Collection Features */}
@@ -224,6 +228,119 @@ const Settings = () => {
                                         <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                                     </label>
                                 </div>
+                            </div>
+                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
+                                <button
+                                    onClick={() => handleSaveSection('features')}
+                                    disabled={savingSection === 'features'}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                                >
+                                    {savingSection === 'features' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
+                                    {savingSection === 'features' ? 'Saving...' : 'Save Features'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Custom Receipt Sequence Settings */}
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                            <div className="p-6 border-b border-gray-100">
+                                <h2 className="text-lg font-bold text-gray-800">Custom Receipt Sequence</h2>
+                                <p className="text-sm text-gray-500 mt-1">Configure automated structured receipt numbers by college, course, and fee group.</p>
+                            </div>
+                            <div className="p-6 space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="font-semibold text-gray-700">Enable Custom Receipt Sequences</h3>
+                                        <p className="text-sm text-gray-500">Generate receipt numbers like COLLEGE/COURSE/GROUP/00001.</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input 
+                                            type="checkbox" 
+                                            className="sr-only peer" 
+                                            checked={settings.enableCustomReceiptSequence === true} 
+                                            onChange={() => setSettings({ ...settings, enableCustomReceiptSequence: !settings.enableCustomReceiptSequence })} 
+                                        />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+
+                                {settings.enableCustomReceiptSequence && (
+                                    <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fadeIn">
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">Sequence Separator</label>
+                                            <select
+                                                value={settings.receiptSequenceSeparator || '/'}
+                                                onChange={e => setSettings({ ...settings, receiptSequenceSeparator: e.target.value })}
+                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-semibold"
+                                            >
+                                                <option value="/">Slash ( / )</option>
+                                                <option value="-">Hyphen ( - )</option>
+                                                <option value="_">Underscore ( _ )</option>
+                                                <option value=".">Dot ( . )</option>
+                                            </select>
+                                            <p className="text-xs text-gray-400 mt-1">Character separating receipt number parts.</p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">Sequence Padding</label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={10}
+                                                value={settings.receiptSequencePadding ?? 5}
+                                                onChange={e => setSettings({ ...settings, receiptSequencePadding: Math.max(1, parseInt(e.target.value) || 1) })}
+                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                            />
+                                            <p className="text-xs text-gray-400 mt-1">Digits for the sequence counter (e.g. 5 pads to 00001).</p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">FY Reset Month</label>
+                                            <select
+                                                value={settings.receiptSequenceResetMonth ?? 4}
+                                                onChange={e => setSettings({ ...settings, receiptSequenceResetMonth: parseInt(e.target.value) })}
+                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-semibold"
+                                            >
+                                                <option value={1}>January</option>
+                                                <option value={2}>February</option>
+                                                <option value={3}>March</option>
+                                                <option value={4}>April</option>
+                                                <option value={5}>May</option>
+                                                <option value={6}>June</option>
+                                                <option value={7}>July</option>
+                                                <option value={8}>August</option>
+                                                <option value={9}>September</option>
+                                                <option value={10}>October</option>
+                                                <option value={11}>November</option>
+                                                <option value={12}>December</option>
+                                            </select>
+                                            <p className="text-xs text-gray-400 mt-1">Month to restart sequence from 1.</p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">FY Reset Day</label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={31}
+                                                value={settings.receiptSequenceResetDay ?? 1}
+                                                onChange={e => setSettings({ ...settings, receiptSequenceResetDay: Math.max(1, Math.min(31, parseInt(e.target.value) || 1)) })}
+                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                            />
+                                            <p className="text-xs text-gray-400 mt-1">Day of month to restart sequence.</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
+                                <button
+                                    onClick={() => handleSaveSection('sequence')}
+                                    disabled={savingSection === 'sequence'}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                                >
+                                    {savingSection === 'sequence' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
+                                    {savingSection === 'sequence' ? 'Saving...' : 'Save Sequence'}
+                                </button>
                             </div>
                         </div>
 
@@ -265,14 +382,14 @@ const Settings = () => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end">
+                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
                                 <button
-                                    onClick={handleSave}
-                                    disabled={saving}
-                                    className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50 flex items-center gap-2"
+                                    onClick={() => handleSaveSection('masking')}
+                                    disabled={savingSection === 'masking'}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
                                 >
-                                    {saving && <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
-                                    {saving ? 'Saving...' : 'Save Settings'}
+                                    {savingSection === 'masking' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
+                                    {savingSection === 'masking' ? 'Saving...' : 'Save Masking'}
                                 </button>
                             </div>
                         </div>

@@ -192,9 +192,96 @@ const searchStudents = async (req, res) => {
     }
 };
 
+// @desc    Create a new student
+// @route   POST /api/students
+const createStudent = async (req, res) => {
+  try {
+    const {
+      admission_number,
+      pin_no,
+      student_name,
+      father_name,
+      student_mobile,
+      email,
+      college,
+      course,
+      branch,
+      batch,
+      student_status = 'Active',
+      stud_type = 'Regular',
+      caste = null,
+      current_year = 1,
+      current_semester = 1
+    } = req.body;
+
+    if (!admission_number || !student_name || !college || !course || !branch || !batch || !pin_no) {
+      return res.status(400).json({ message: 'Please provide all required fields (Admission Number, Pin Number, Name, College, Course, Branch, Batch).' });
+    }
+
+    // Check if admission number already exists
+    const [existingAdm] = await db.query('SELECT id FROM students WHERE admission_number = ?', [admission_number]);
+    if (existingAdm && existingAdm.length > 0) {
+      return res.status(400).json({ message: `Student with Admission Number ${admission_number} already exists.` });
+    }
+
+    // Check if PIN number already exists
+    const [existingPin] = await db.query('SELECT id FROM students WHERE pin_no = ?', [pin_no]);
+    if (existingPin && existingPin.length > 0) {
+      return res.status(400).json({ message: `Student with Pin Number ${pin_no} already exists.` });
+    }
+
+    // Insert student
+    const insertQuery = `
+      INSERT INTO students (
+        admission_number, pin_no, student_name, father_name, student_mobile, email,
+        college, course, branch, batch, student_status, stud_type, caste,
+        current_year, current_semester
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const [result] = await db.query(insertQuery, [
+      admission_number.trim(),
+      pin_no.trim(),
+      student_name.trim(),
+      father_name ? father_name.trim() : null,
+      student_mobile ? student_mobile.trim() : null,
+      email ? email.trim() : null,
+      college.trim(),
+      course.trim(),
+      branch.trim(),
+      String(batch).trim(),
+      student_status,
+      stud_type && String(stud_type).trim() !== '' ? String(stud_type).trim() : 'Regular',
+      caste && String(caste).trim() !== '' ? String(caste).trim() : null,
+      Number(current_year),
+      Number(current_semester)
+    ]);
+
+    res.status(201).json({
+      message: 'Student created successfully',
+      studentId: result.insertId,
+      student: {
+        id: result.insertId,
+        admission_number,
+        pin_no,
+        student_name,
+        college,
+        course,
+        branch,
+        batch
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating student:', error);
+    res.status(500).json({ message: 'Error creating student in SQL database', error: error.message });
+  }
+};
+
 module.exports = {
   getStudents,
   getStudentMetadata,
   getStudentByAdmissionNumber,
-  searchStudents
+  searchStudents,
+  createStudent
 };

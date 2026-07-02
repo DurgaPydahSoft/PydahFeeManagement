@@ -14,6 +14,7 @@ const UserManagement = () => {
     const [searchLoading, setSearchLoading] = useState(false);
     const [editingUserId, setEditingUserId] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const currentUser = JSON.parse(localStorage.getItem('user')) || {};
     const isSuperAdminUser = currentUser.role === 'superadmin';
@@ -33,8 +34,8 @@ const UserManagement = () => {
         { name: 'Dashboard', path: '/dashboard' },
         { name: 'Students', path: '/students' },
         { name: 'Fee Collection', path: '/fee-collection' },
-        { name: 'Concessions', path: '/overall-concessions' },
-        { name: 'Concessions Approval', path: '/concessions' },
+        { name: 'Concessions (Declaration)', path: '/overall-concessions' },
+        { name: 'Concessions (Application)', path: '/concessions' },
         { name: 'Bulk Fee Upload', path: '/bulk-fee-upload' },
         { name: 'Proceedings', path: '/proceedings' },
         { name: 'Reports & Analytics', path: '/reports' },
@@ -44,8 +45,6 @@ const UserManagement = () => {
         { name: 'Settings', path: '/settings' },
         { name: 'Reminder Config', path: '/reminders' },
         { name: 'Academic Calendar', path: '/academic-calendar' },
-        { name: 'Transport Config', path: '/transport-config' },
-        { name: 'Hostel Config', path: '/hostel-config' },
         { name: 'User Management', path: '/user-management' },
         { name: 'Permissions', path: '/permissions' }
     ];
@@ -708,7 +707,26 @@ const UserManagement = () => {
 
                     {/* User List */}
                     <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out ${!isSuperAdminUser ? 'lg:col-span-3' : (editingUserId ? 'lg:col-span-1' : 'lg:col-span-2')}`}>
-                        <h2 className="font-bold text-gray-800 mb-3">Existing Users</h2>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 border-b border-gray-100 pb-3">
+                            <h2 className="font-bold text-gray-800">Existing Users</h2>
+                            <div className="relative w-full sm:w-64">
+                                <input
+                                    type="text"
+                                    placeholder="Search name or emp no..."
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    className="w-full pl-3 pr-8 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none transition-all font-semibold"
+                                />
+                                {searchTerm && (
+                                    <button
+                                        onClick={() => setSearchTerm('')}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm font-black"
+                                    >
+                                        ×
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                         {loading ? <p>Loading...</p> : (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm">
@@ -726,7 +744,15 @@ const UserManagement = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                        {users.map(user => (
+                                        {users
+                                            .filter(user => {
+                                                if (!searchTerm.trim()) return true;
+                                                const term = searchTerm.toLowerCase().trim();
+                                                const nameMatch = (user.name || '').toLowerCase().includes(term);
+                                                const usernameMatch = (user.username || '').toLowerCase().includes(term);
+                                                return nameMatch || usernameMatch;
+                                            })
+                                            .map(user => (
                                             <tr key={user._id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-medium text-gray-900">{user.name}</td>
                                                 {!editingUserId && (
@@ -790,7 +816,15 @@ const UserManagement = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                                {users.length === 0 && <p className="text-center py-4 text-gray-500">No users found.</p>}
+                                {users.filter(user => {
+                                    if (!searchTerm.trim()) return true;
+                                    const term = searchTerm.toLowerCase().trim();
+                                    const nameMatch = (user.name || '').toLowerCase().includes(term);
+                                    const usernameMatch = (user.username || '').toLowerCase().includes(term);
+                                    return nameMatch || usernameMatch;
+                                }).length === 0 && (
+                                    <p className="text-center py-6 text-gray-400 italic">No matching users found.</p>
+                                )}
                             </div>
                         )}
                     </div>
