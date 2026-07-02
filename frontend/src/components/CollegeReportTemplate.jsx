@@ -2,13 +2,20 @@ import React, { forwardRef } from 'react';
 
 const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
     if (!data) return null;
-    const { mode = 'all', showSummary = true, showDetails = true } = options || {};
+    const { mode = 'all', showSummary = true, showDetails = true, allowedFeeHeads } = options || {};
 
     const rawTransactions = data.transactions || [];
     const filteredTransactions = rawTransactions.filter(tx => {
-        if (mode === 'all') return true;
-        if (mode === 'Cash') return tx.paymentMode === 'Cash';
-        if (mode === 'Online') return tx.paymentMode !== 'Cash';
+        // Payment Mode Filter
+        if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+        if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+
+        // Fee Head Group Filter
+        if (allowedFeeHeads && allowedFeeHeads.length > 0) {
+            const fhName = (tx.feeHead || '').trim().toLowerCase();
+            if (!allowedFeeHeads.includes(fhName)) return false;
+        }
+
         return true;
     });
 
@@ -116,7 +123,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
             {/* Header */}
             <div className="print-header">
                 <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>COLLEGE COLLECTION SUMMARY REPORT {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
+                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>COLLEGE COLLECTION SUMMARY REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
             </div>
 
             {/* Info Row */}
@@ -310,16 +317,23 @@ const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
 };
 
 const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
-    const { mode = 'all' } = options || {};
+    const { mode = 'all', allowedFeeHeads } = options || {};
 
     // Recompute global fee head summary based on all transactions across all colleges
     const globalFeeHeadData = {};
     data.forEach(college => {
         const rawTransactions = college.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
-            if (mode === 'all') return true;
-            if (mode === 'Cash') return tx.paymentMode === 'Cash';
-            if (mode === 'Online') return tx.paymentMode !== 'Cash';
+            // Payment Mode Filter
+            if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+            if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+
+            // Fee Head Group Filter
+            if (allowedFeeHeads && allowedFeeHeads.length > 0) {
+                const fhName = (tx.feeHead || '').trim().toLowerCase();
+                if (!allowedFeeHeads.includes(fhName)) return false;
+            }
+
             return true;
         });
 
@@ -349,9 +363,16 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
     const collegeSummaries = data.map(college => {
         const rawTransactions = college.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
-            if (mode === 'all') return true;
-            if (mode === 'Cash') return tx.paymentMode === 'Cash';
-            if (mode === 'Online') return tx.paymentMode !== 'Cash';
+            // Payment Mode Filter
+            if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+            if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+
+            // Fee Head Group Filter
+            if (allowedFeeHeads && allowedFeeHeads.length > 0) {
+                const fhName = (tx.feeHead || '').trim().toLowerCase();
+                if (!allowedFeeHeads.includes(fhName)) return false;
+            }
+
             return true;
         });
 
@@ -396,7 +417,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             {/* Header */}
             <div className="print-header">
                 <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>ALL COLLEGES DAILY FEE COLLECTION REPORT {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
+                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>ALL COLLEGES DAILY FEE COLLECTION REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
             </div>
 
             {/* Info Row */}

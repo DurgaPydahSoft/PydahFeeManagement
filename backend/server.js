@@ -49,6 +49,7 @@ protectedApi.use(protect);
 protectedApi.use(authorize);
 
 protectedApi.use('/fee-heads', require('./routes/feeRoutes'));
+protectedApi.use('/fee-groups', require('./routes/feeGroupRoutes'));
 protectedApi.use('/students', require('./routes/studentRoutes'));
 protectedApi.use('/fee-structures', require('./routes/feeStructureRoutes'));
 protectedApi.use('/transactions', require('./routes/transactionRoutes'));

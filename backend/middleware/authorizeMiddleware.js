@@ -28,6 +28,10 @@ const API_ACCESS_RULES = [
     permissions: ['/fee-config', '/fee-collection'],
   },
   {
+    prefix: '/api/fee-groups',
+    permissions: ['/fee-config', '/reports', 'reports_fee_head_summary'],
+  },
+  {
     prefix: '/api/fee-structures',
     permissions: ['/fee-config', '/fee-collection', '/bulk-fee-upload', '/hostel-config'],
   },

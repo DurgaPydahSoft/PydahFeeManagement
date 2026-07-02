@@ -4,10 +4,16 @@ import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp } from '
 import Sidebar from './Sidebar';
 
 const FeeConfiguration = () => {
-    const [activeTab, setActiveTab] = useState('heads'); // heads, definitions, latefees
+    const [activeTab, setActiveTab] = useState('heads'); // heads, groups, definitions, latefees
 
     // --- SHARED STATE ---
     const [feeHeads, setFeeHeads] = useState([]);
+
+    // --- TAB 1B: FEE GROUPS ---
+    const [feeGroups, setFeeGroups] = useState([]);
+    const [groupForm, setGroupForm] = useState({ name: '', description: '', feeHeads: [] });
+    const [editGroupId, setEditGroupId] = useState(null);
+    const [isSavingGroup, setIsSavingGroup] = useState(false);
     const [categories, setCategories] = useState([]);
     const [categoryMapping, setCategoryMapping] = useState({}); // Mapping of category per college|course|batch
     const [metadata, setMetadata] = useState({});
@@ -69,6 +75,7 @@ const FeeConfiguration = () => {
 
     useEffect(() => {
         fetchFeeHeads();
+        fetchFeeGroups();
         fetchStructures();
         fetchMetadata();
         fetchCalendarData();
@@ -99,6 +106,13 @@ const FeeConfiguration = () => {
             const response = await api.get(`/fee-heads`);
             setFeeHeads(response.data);
         } catch (error) { console.error(error); }
+    };
+
+    const fetchFeeGroups = async () => {
+        try {
+            const response = await api.get(`/fee-groups`);
+            setFeeGroups(response.data);
+        } catch (error) { console.error('Error fetching fee groups', error); }
     };
 
     const fetchStructures = async () => {
@@ -139,6 +153,49 @@ const FeeConfiguration = () => {
             await api.delete(`/fee-heads/${id}`);
             setFeeHeads(feeHeads.filter(h => h._id !== id));
         } catch (error) { alert('Failed to delete'); }
+    };
+
+    const activeGroupSubmit = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        setIsSavingGroup(true);
+        try {
+            if (editGroupId) {
+                const response = await api.put(`/fee-groups/${editGroupId}`, groupForm);
+                setFeeGroups(feeGroups.map(g => g._id === editGroupId ? response.data : g));
+                setMessage('Fee Group updated successfully!');
+            } else {
+                const response = await api.post(`/fee-groups`, groupForm);
+                setFeeGroups([response.data, ...feeGroups]);
+                setMessage('Fee Group added successfully!');
+            }
+            setGroupForm({ name: '', description: '', feeHeads: [] });
+            setEditGroupId(null);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) {
+            setMessage(error.response?.data?.message || 'Error saving Fee Group');
+        } finally {
+            setIsSavingGroup(false);
+        }
+    };
+
+    const handleEditGroup = (g) => {
+        setGroupForm({
+            name: g.name,
+            description: g.description || '',
+            feeHeads: g.feeHeads ? g.feeHeads.map(fh => fh._id || fh) : []
+        });
+        setEditGroupId(g._id);
+    };
+
+    const deleteGroup = async (id) => {
+        if (!window.confirm('Delete this Fee Group?')) return;
+        try {
+            await api.delete(`/fee-groups/${id}`);
+            setFeeGroups(feeGroups.filter(g => g._id !== id));
+            setMessage('Fee Group deleted successfully!');
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) { alert('Failed to delete Fee Group'); }
     };
 
     const handleTermChange = (key, count) => {
@@ -447,8 +504,9 @@ const FeeConfiguration = () => {
                 {/* TABS */}
                 <div className="flex space-x-4 mb-6 border-b border-gray-200">
                     <button className={`pb-2 px-4 font-medium transition ${activeTab === 'heads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('heads')}>1. Fee Heads</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('definitions')}>2. Fee Structures (Definitions)</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('latefees')}>3. Late Fees</button>
+                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'groups' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('groups')}>2. Fee Groups</button>
+                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('definitions')}>3. Fee Structures (Definitions)</button>
+                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('latefees')}>4. Late Fees</button>
                 </div>
 
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
@@ -486,6 +544,145 @@ const FeeConfiguration = () => {
                                         </td>
                                     </tr>
                                 ))}</tbody></table></div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- TAB 1B: FEE GROUPS --- */}
+                {activeTab === 'groups' && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-200">
+                        {/* Group Add/Edit Panel */}
+                        <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100 h-fit">
+                            <div className="flex justify-between items-center mb-3">
+                                <h2 className="font-semibold text-gray-800">{editGroupId ? 'Edit Fee Group' : 'Add Fee Group'}</h2>
+                                {editGroupId && (
+                                    <button 
+                                        onClick={() => { 
+                                            setEditGroupId(null); 
+                                            setGroupForm({ name: '', description: '', feeHeads: [] }); 
+                                        }} 
+                                        className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300 transition"
+                                    >
+                                        Cancel
+                                    </button>
+                                )}
+                            </div>
+                            <form onSubmit={activeGroupSubmit} className="space-y-4 text-sm">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-gray-500 block">Group Name</label>
+                                    <input 
+                                        className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                        placeholder="e.g. Common Group, Hostel Group" 
+                                        value={groupForm.name} 
+                                        onChange={e => setGroupForm({ ...groupForm, name: e.target.value })} 
+                                        required 
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-gray-500 block">Description</label>
+                                    <textarea 
+                                        className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                        placeholder="Group description..." 
+                                        value={groupForm.description} 
+                                        onChange={e => setGroupForm({ ...groupForm, description: e.target.value })} 
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-gray-500 block">Select Fee Heads</label>
+                                    <div className="max-h-[220px] overflow-y-auto border border-gray-200 rounded-lg p-3 space-y-2 bg-gray-50/50 scrollbar-thin">
+                                        {feeHeads.map(fh => (
+                                            <label key={fh._id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded transition">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={groupForm.feeHeads.includes(fh._id)}
+                                                    onChange={e => {
+                                                        const isChecked = e.target.checked;
+                                                        let updated = [...groupForm.feeHeads];
+                                                        if (isChecked) {
+                                                            updated.push(fh._id);
+                                                        } else {
+                                                            updated = updated.filter(id => id !== fh._id);
+                                                        }
+                                                        setGroupForm({ ...groupForm, feeHeads: updated });
+                                                    }}
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                                <span className="text-xs text-gray-700 font-medium">{fh.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    {groupForm.feeHeads.length === 0 && (
+                                        <p className="text-[10px] text-red-500 font-medium">Select at least one fee head.</p>
+                                    )}
+                                </div>
+                                <button 
+                                    disabled={isSavingGroup || groupForm.feeHeads.length === 0}
+                                    className={`w-full text-white py-2 rounded font-bold transition flex items-center justify-center gap-2 ${
+                                        (isSavingGroup || groupForm.feeHeads.length === 0) 
+                                            ? 'bg-gray-400 cursor-not-allowed' 
+                                            : (editGroupId ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700')
+                                    }`}
+                                >
+                                    {isSavingGroup ? 'Saving...' : (editGroupId ? 'Update Fee Group' : 'Add Fee Group')}
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* Existing Groups Table */}
+                        <div className="md:col-span-2 bg-white p-5 rounded-lg shadow-sm border border-gray-100">
+                            <h2 className="font-semibold text-gray-800 mb-3">Existing Fee Groups</h2>
+                            {feeGroups.length === 0 ? (
+                                <p className="text-gray-400 italic text-sm">No fee groups defined yet.</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm border-collapse">
+                                        <thead className="bg-gray-50 border-b">
+                                            <tr>
+                                                <th className="p-3 w-1/4">Name</th>
+                                                <th className="p-3 w-1/4">Description</th>
+                                                <th className="p-3 w-2/5">Included Fee Heads</th>
+                                                <th className="p-3 text-right">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {feeGroups.map(g => (
+                                                <tr key={g._id} className="hover:bg-gray-50/50 transition-colors">
+                                                    <td className="p-3 font-semibold text-gray-800">{g.name}</td>
+                                                    <td className="p-3 text-gray-500 text-xs">{g.description || '-'}</td>
+                                                    <td className="p-3">
+                                                        <div className="flex flex-wrap gap-1 max-h-[100px] overflow-y-auto scrollbar-thin">
+                                                            {g.feeHeads && g.feeHeads.map(fh => (
+                                                                <span key={fh._id} className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-100 uppercase whitespace-nowrap">
+                                                                    {fh.name}
+                                                                </span>
+                                                            ))}
+                                                            {(!g.feeHeads || g.feeHeads.length === 0) && <span className="text-xs text-gray-400 italic">None</span>}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <button 
+                                                                onClick={() => handleEditGroup(g)} 
+                                                                className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded transition" 
+                                                                title="Edit"
+                                                            >
+                                                                <Pencil size={16} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => deleteGroup(g._id)} 
+                                                                className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded transition" 
+                                                                title="Delete"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

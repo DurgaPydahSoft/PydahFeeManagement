@@ -368,6 +368,10 @@ const Reports = () => {
     const [printModalData, setPrintModalData] = useState(null);
     const [printOptions, setPrintOptions] = useState({ mode: 'all', showSummary: true, showDetails: true });
 
+    // --- Fee Head Groups Filtering ---
+    const [feeGroups, setFeeGroups] = useState([]);
+    const [selectedFeeGroupId, setSelectedFeeGroupId] = useState('');
+
     const modalPrintRef = useRef(null);
     const handleModalPrint = useReactToPrint({
         contentRef: modalPrintRef,
@@ -468,6 +472,19 @@ const Reports = () => {
         ? allTabs
         : allTabs.filter(tab => permissions.includes(tab.permission));
 
+    // Fetch fee groups on mount
+    useEffect(() => {
+        const fetchFeeGroups = async () => {
+            try {
+                const res = await api.get('/fee-groups');
+                setFeeGroups(res.data);
+            } catch (err) {
+                console.error("Error fetching fee groups in reports page", err);
+            }
+        };
+        fetchFeeGroups();
+    }, []);
+
     useEffect(() => {
         // Automatically switch to the first available tab if the active one isn't permitted
         if (tabs.length > 0 && !tabs.find(t => t.id === activeTab)) {
@@ -537,6 +554,11 @@ const Reports = () => {
                                                     ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : 'Combined College Summaries') 
                                                     : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : `College: ${printModalData.row?._id || 'N/A'}`)}
                                             </p>
+                                            {activeTab === 'college' && selectedFeeGroupId && (
+                                                <span className="inline-flex mt-1.5 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200 uppercase tracking-wider">
+                                                    Group: {feeGroups.find(g => g._id === selectedFeeGroupId)?.name}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
@@ -575,6 +597,23 @@ const Reports = () => {
                                                      <p className="text-[10px] text-gray-500 font-medium">Include row-by-row list of individual transactions</p>
                                                  </label>
                                              </div>
+
+                                             {/* Fee Head Group Option */}
+                                             {activeTab === 'college' && feeGroups.length > 0 && (
+                                                 <div className="space-y-2 pt-2 border-t border-gray-100">
+                                                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">Filter by Fee Group</label>
+                                                     <select
+                                                         value={selectedFeeGroupId}
+                                                         onChange={e => setSelectedFeeGroupId(e.target.value)}
+                                                         className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-sm font-bold text-gray-700 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer"
+                                                     >
+                                                         <option value="">All Fee Groups</option>
+                                                         {feeGroups.map(g => (
+                                                             <option key={g._id} value={g._id}>{g.name}</option>
+                                                         ))}
+                                                     </select>
+                                                 </div>
+                                             )}
                                          </div>
                                      </div>
                                  </div>
@@ -605,7 +644,14 @@ const Reports = () => {
                                 <CollegeReportTemplate
                                     ref={modalPrintRef}
                                     data={printModalData.isAll ? printModalData.rows : printModalData.row}
-                                    options={printOptions}
+                                    options={{ 
+                                        ...printOptions, 
+                                        selectedGroupName: feeGroups.find(g => g._id === selectedFeeGroupId)?.name,
+                                        allowedFeeHeads: (() => {
+                                            const g = feeGroups.find(g => g._id === selectedFeeGroupId);
+                                            return g ? g.feeHeads.map(fh => (fh.name || '').trim().toLowerCase()) : null;
+                                        })()
+                                    }}
                                     dateRange={printModalData.dateRange}
                                 />
                             ) : (

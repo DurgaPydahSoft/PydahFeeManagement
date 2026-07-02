@@ -8,10 +8,21 @@ const db = require('../config/sqlDb');
 // @access  Public (should be Protected)
 const getTransactionReports = async (req, res) => {
     try {
-        const { startDate, endDate, groupBy, college } = req.query;
+        const { startDate, endDate, groupBy, college, feeGroupId } = req.query;
 
         // Base matching condition
         const matchStage = {};
+
+        // Filter by Fee Head Group if provided
+        if (feeGroupId) {
+            const FeeGroup = require('../models/FeeGroup');
+            const group = await FeeGroup.findById(feeGroupId);
+            if (group && group.feeHeads && group.feeHeads.length > 0) {
+                matchStage.feeHead = { $in: group.feeHeads };
+            } else {
+                return res.json([]);
+            }
+        }
 
         // 🚨 CASHIER PRIVACY: If the user is a cashier, they can only see their own transactions.
         if (req.user && req.user.role === 'cashier') {
