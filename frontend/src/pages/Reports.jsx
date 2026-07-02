@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
+import CollegeReportTemplate from '../components/CollegeReportTemplate';
 
 // PrintTriggerComponent was removed
 
@@ -56,14 +57,14 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     });
 
     const isExpanded = expandedRows.includes(idx);
-    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'feeHead' ? FileText : Calendar;
+    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'college' ? Landmark : Calendar;
     const formattedDate = row._id?.day ? `${row._id.day}-${row._id.month}-${row._id.year}` : 'Date';
 
     // Label determination logic
     const rowLabel = activeTab === 'daily'
         ? <span className="font-mono text-gray-700 tracking-tight font-bold">{formattedDate}</span>
-        : activeTab === 'feeHead'
-            ? (row.name || 'Unknown Fee Head')
+        : activeTab === 'college'
+            ? (row._id || 'Unknown College')
             : (row.name || row._id || 'Unknown');
 
     // Calculate Net Total (Cash + Bank) - equivalent to debitAmount
@@ -72,7 +73,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     return (
         <React.Fragment>
             <tr
-                onClick={() => (activeTab === 'cashier' || activeTab === 'daily') && toggleRow(idx)}
+                onClick={() => (activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && toggleRow(idx)}
                 className={`
                     group border-b border-gray-100 transition-all duration-200 text-sm
                     ${isExpanded ? 'bg-blue-50/60' : 'hover:bg-gray-50 cursor-pointer'}
@@ -89,7 +90,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                         </div>
                         <div>
                             <p className="font-bold text-gray-800">{rowLabel}</p>
-                            {(activeTab === 'cashier' || activeTab === 'daily') && (
+                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && (
                                 <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 mt-0.5 group-hover:text-blue-500 transition-colors uppercase tracking-wide">
                                     {isExpanded ? 'Collapse' : 'Click for Details'}
                                 </div>
@@ -127,19 +128,13 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                     </span>
                 </td>
 
-                {/* Old Total Amount (Hidden or Removed? Keeping for compatibility if needed, but NetTotal is what reflects Collection) */}
-                {/* <td className="py-4 px-6 text-right font-medium text-gray-400 line-through decoration-red-400">
-                    {Number(row.totalAmount || 0).toLocaleString()}
-                </td> */}
-
-
                 {/* Actions */}
-                {(activeTab === 'cashier' || activeTab === 'daily') && (
+                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && (
                     <td className="py-4 px-6 text-right">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (activeTab === 'cashier') {
+                                if (activeTab === 'cashier' || activeTab === 'college') {
                                     setPrintModalData({ row, dateRange });
                                 } else {
                                     handlePrint();
@@ -154,6 +149,8 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                         <div className="hidden">
                             {activeTab === 'cashier' ? (
                                 <CashierReportTemplate ref={printRef} data={row} dateRange={dateRange} />
+                            ) : activeTab === 'college' ? (
+                                <CollegeReportTemplate ref={printRef} data={row} dateRange={dateRange} />
                             ) : (
                                 <DailyReportTemplate ref={printRef} data={row} />
                             )}
@@ -181,6 +178,116 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                             <span className="text-sm font-bold text-gray-800">{Number(amount).toLocaleString()}</span>
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            )}
+
+            {/* EXPANDED CONTENT: College Cashier Breakdown */}
+            {activeTab === 'college' && row.cashiers && isExpanded && (
+                <tr className="bg-blue-50/40">
+                    <td colSpan="100%" className="p-0">
+                        <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100 space-y-6">
+                            
+                            {/* Table A: College Fee Head-wise summary */}
+                            {row.feeHeads && row.feeHeads.length > 0 && (
+                                <div className="bg-white rounded-lg border border-blue-100 shadow-sm overflow-hidden">
+                                    <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
+                                        <h4 className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-widest">
+                                            <FileText size={14} /> Fee Head-wise Collections
+                                        </h4>
+                                        <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                            {row.feeHeads.length} Fee Heads
+                                        </span>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs text-left">
+                                            <thead className="bg-gray-50 text-gray-500 font-semibold sticky top-0 z-10 shadow-sm">
+                                                <tr>
+                                                    <th className="px-4 py-3 w-[50px]">S.No</th>
+                                                    <th className="px-4 py-3">Fee Head Name</th>
+                                                    <th className="px-4 py-3 text-right">Cash</th>
+                                                    <th className="px-4 py-3 text-right">Bank</th>
+                                                    <th className="px-4 py-3 text-right">Collection</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {row.feeHeads.map((fh, fhIdx) => (
+                                                    <tr key={fhIdx} className="hover:bg-gray-50 transition-colors">
+                                                        <td className="px-4 py-2 text-gray-500">{fhIdx + 1}</td>
+                                                        <td className="px-4 py-2 font-bold text-gray-800">{fh.name}</td>
+                                                        <td className="px-4 py-2 text-right text-emerald-600">₹{Number(fh.cashAmount || 0).toLocaleString()}</td>
+                                                        <td className="px-4 py-2 text-right text-indigo-600">₹{Number(fh.bankAmount || 0).toLocaleString()}</td>
+                                                        <td className="px-4 py-2 text-right font-extrabold text-blue-900">₹{Number(fh.netTotal || 0).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Table B: User-wise Consolidated Collections with inline fee heads */}
+                            <div className="bg-white rounded-lg border border-blue-100 shadow-sm overflow-hidden">
+                                <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
+                                    <h4 className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-widest">
+                                        <Users size={14} /> User-wise Consolidated Collections
+                                    </h4>
+                                    <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                        {row.cashiers.length} Cashiers
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-gray-50 text-gray-500 font-semibold sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-4 py-3 w-[50px]">S.No</th>
+                                                <th className="px-4 py-3">Cashier Name / Fee Heads Collected</th>
+                                                <th className="px-4 py-3 text-center">Receipts</th>
+                                                <th className="px-4 py-3 text-right">Cash</th>
+                                                <th className="px-4 py-3 text-right">Bank</th>
+                                                <th className="px-4 py-3 text-right">Collection</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {row.cashiers.map((c, i) => {
+                                                const subRows = [];
+                                                // Cashier Total Row
+                                                subRows.push(
+                                                    <tr key={`c-total-${i}`} className="bg-gray-50/50 font-semibold hover:bg-gray-100/50 transition-colors">
+                                                        <td className="px-4 py-2 text-center text-gray-500">{i + 1}</td>
+                                                        <td className="px-4 py-2 font-bold text-gray-800 uppercase">
+                                                            {c.name} <span className="text-[10px] text-gray-400 font-medium font-mono ml-2">({c.username})</span>
+                                                        </td>
+                                                        <td className="px-4 py-2 text-center font-bold text-gray-700">{c.count}</td>
+                                                        <td className="px-4 py-2 text-right text-emerald-600">₹{Number(c.cashAmount || 0).toLocaleString()}</td>
+                                                        <td className="px-4 py-2 text-right text-indigo-600">₹{Number(c.bankAmount || 0).toLocaleString()}</td>
+                                                        <td className="px-4 py-2 text-right font-extrabold text-blue-900">₹{Number(c.netTotal || 0).toLocaleString()}</td>
+                                                    </tr>
+                                                );
+                                                // Cashier Fee Head Breakdown
+                                                if (c.feeHeads && c.feeHeads.length > 0) {
+                                                    c.feeHeads.forEach((fh, fhIdx) => {
+                                                        subRows.push(
+                                                            <tr key={`c-fh-${i}-${fhIdx}`} className="hover:bg-gray-50 transition-colors border-none">
+                                                                <td></td>
+                                                                <td className="px-4 py-1.5 pl-8 text-[11px] font-bold text-gray-800">
+                                                                    {fh.name}
+                                                                </td>
+                                                                <td></td>
+                                                                <td className="px-4 py-1.5 text-right text-[11px] text-emerald-600 font-bold">₹{Number(fh.cashAmount || 0).toLocaleString()}</td>
+                                                                <td className="px-4 py-1.5 text-right text-[11px] text-indigo-600 font-bold">₹{Number(fh.bankAmount || 0).toLocaleString()}</td>
+                                                                <td className="px-4 py-1.5 text-right text-[11px] font-extrabold text-gray-900">₹{Number(fh.netTotal || 0).toLocaleString()}</td>
+                                                            </tr>
+                                                        );
+                                                    });
+                                                }
+                                                return subRows;
+                                            })}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -264,7 +371,7 @@ const Reports = () => {
     const modalPrintRef = useRef(null);
     const handleModalPrint = useReactToPrint({
         contentRef: modalPrintRef,
-        documentTitle: `Cashier_Report_${printModalData?.isAll ? 'All' : (printModalData?.row?._id || 'N/A')}_${Date.now()}`
+        documentTitle: `${activeTab === 'cashier' ? 'Cashier' : 'College'}_Report_${printModalData?.isAll ? 'All' : (printModalData?.row?._id || 'N/A')}_${Date.now()}`
     });
 
     const toggleRow = (idx) => {
@@ -318,7 +425,7 @@ const Reports = () => {
             let groupBy = activeTab;
             if (activeTab === 'daily') groupBy = 'day';
             else if (activeTab === 'cashier') groupBy = 'cashier';
-            else if (activeTab === 'feeHead') groupBy = 'feeHead';
+            else if (activeTab === 'college') groupBy = 'college';
 
             const res = await api.get(`/reports/transactions`, {
                 params: { startDate, endDate, groupBy: groupBy === 'daily' ? 'day' : groupBy }
@@ -354,7 +461,7 @@ const Reports = () => {
     const allTabs = [
         { id: 'daily', label: 'Daily Collection', permission: 'reports_daily_collection' },
         { id: 'cashier', label: 'Cashier Summary', permission: 'reports_cashier_summary' },
-        { id: 'feeHead', label: 'Fee Head Summary', permission: 'reports_fee_head_summary' },
+        { id: 'college', label: 'College-wise Summary', permission: 'reports_fee_head_summary' },
     ];
 
     const tabs = role === 'superadmin'
@@ -421,10 +528,14 @@ const Reports = () => {
                                         </div>
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-900">
-                                                {printModalData.isAll ? 'Print All Cashier Reports' : 'Print Cashier Report'}
+                                                {printModalData.isAll 
+                                                    ? (activeTab === 'cashier' ? 'Print All Cashier Reports' : 'Print All College Reports') 
+                                                    : (activeTab === 'cashier' ? 'Print Cashier Report' : 'Print College Report')}
                                             </h3>
                                             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-                                                {printModalData.isAll ? 'Combined Cashier Summaries' : `Cashier: ${printModalData.row?._id || 'N/A'}`}
+                                                {printModalData.isAll 
+                                                    ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : 'Combined College Summaries') 
+                                                    : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : `College: ${printModalData.row?._id || 'N/A'}`)}
                                             </p>
                                         </div>
                                     </div>
@@ -490,12 +601,21 @@ const Reports = () => {
                     {/* Hidden template for the modal print */}
                     <div className="hidden">
                         {printModalData && (
-                            <CashierReportTemplate
-                                ref={modalPrintRef}
-                                data={printModalData.isAll ? printModalData.rows : printModalData.row}
-                                options={printOptions}
-                                dateRange={printModalData.dateRange}
-                            />
+                            activeTab === 'college' ? (
+                                <CollegeReportTemplate
+                                    ref={modalPrintRef}
+                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    options={printOptions}
+                                    dateRange={printModalData.dateRange}
+                                />
+                            ) : (
+                                <CashierReportTemplate
+                                    ref={modalPrintRef}
+                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    options={printOptions}
+                                    dateRange={printModalData.dateRange}
+                                />
+                            )
                         )}
                     </div>
 
@@ -577,12 +697,12 @@ const Reports = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {activeTab === 'cashier' && data.length > 0 && (
+                                    {(activeTab === 'cashier' || activeTab === 'college') && data.length > 0 && (
                                         <button
                                             onClick={() => setPrintModalData({ isAll: true, rows: data, dateRange: { start: startDate, end: endDate } })}
                                             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
                                         >
-                                            <Printer size={14} /> Print All Cashiers
+                                            <Printer size={14} /> {activeTab === 'cashier' ? 'Print All Cashiers' : 'Print All Colleges'}
                                         </button>
                                     )}
                                     <button
@@ -610,7 +730,7 @@ const Reports = () => {
                                             <th className="py-4 px-6 text-right text-purple-600">Concession</th>
                                             <th className="py-4 px-6 text-right text-black font-extrabold">Net Total</th>
 
-                                            {(activeTab === 'cashier' || activeTab === 'daily') && <th className="py-4 px-6 text-right">Actions</th>}
+                                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && <th className="py-4 px-6 text-right">Actions</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white">
@@ -674,7 +794,7 @@ const Reports = () => {
                                                     {Number(summary.totalConfirm).toLocaleString()}
                                                 </td>
 
-                                                {(activeTab === 'cashier' || activeTab === 'daily') && <td></td>}
+                                                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && <td></td>}
                                             </tr>
                                         </tfoot>
                                     )}

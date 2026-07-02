@@ -286,6 +286,238 @@ const getTransactionReports = async (req, res) => {
                 { $sort: { totalAmount: -1 } }
             ];
             // 'mode' groupBy removed as per request
+        } else if (groupBy === 'college') {
+            // --- Advanced College Report with Cashier Breakdown ---
+            const transactions = await Transaction.find(matchStage).lean();
+
+            if (!transactions.length) {
+                return res.json([]);
+            }
+
+            // Fetch cashier profiles to find emp_no
+            const User = require('../models/User');
+            const getEmployeeModel = require('../models/Employee');
+            const Employee = getEmployeeModel();
+
+            let cashierEmpNoMap = {};
+
+            try {
+                // Fetch all users to handle historical transactions, UUIDs, and spacing differences
+                const usersList = await User.find({}).lean();
+                const employeeIds = usersList.map(u => u.employeeId).filter(Boolean);
+                const employeeMap = {}; // employeeId -> emp_no
+                if (employeeIds.length > 0 && Employee) {
+                    const employees = await Employee.find({ _id: { $in: employeeIds } }).select('emp_no').lean();
+                    employees.forEach(emp => {
+                        employeeMap[String(emp._id)] = emp.emp_no;
+                    });
+                }
+                usersList.forEach(u => {
+                    const empNo = u.employeeId ? (employeeMap[String(u.employeeId)] || u.username) : u.username;
+                    if (u.username) {
+                        cashierEmpNoMap[u.username.toLowerCase()] = empNo;
+                    }
+                    if (u.name) {
+                        cashierEmpNoMap[u.name.toLowerCase()] = empNo;
+                        // Normalize multiple spaces to a single space
+                        const normalizedName = u.name.replace(/\s+/g, ' ').trim().toLowerCase();
+                        cashierEmpNoMap[normalizedName] = empNo;
+                    }
+                });
+            } catch (userErr) {
+                console.error("Error fetching cashier details:", userErr);
+            }
+
+            // Extract Student IDs for SQL Lookup
+            const studentIds = new Set();
+            const feeHeadIds = new Set();
+            transactions.forEach(tx => {
+                if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+                if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
+            });
+
+            // Fetch Fee Head Names from MongoDB
+            const feeHeadMap = {};
+            try {
+                const feeHeads = await mongoose.connection.collection('feeheads').find({
+                    _id: { $in: Array.from(feeHeadIds).map(id => new mongoose.Types.ObjectId(id)) }
+                }).toArray();
+                feeHeads.forEach(fh => feeHeadMap[fh._id.toString()] = fh.name);
+            } catch (err) {
+                console.error("Error fetching fee heads:", err);
+            }
+
+            // Fetch College Info from SQL
+            const collegeMap = {}; // admission_number -> college_name
+            if (studentIds.size > 0) {
+                const ids = Array.from(studentIds).map(id => `'${id}'`).join(',');
+                try {
+                    const [students] = await db.query(`SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`);
+                    students.forEach(s => {
+                        const sData = {
+                            college: s.college || 'Unknown',
+                            pin_no: s.pin_no || '-',
+                            course: s.course || 'N/A',
+                            branch: s.branch || 'N/A',
+                            current_year: s.current_year || 'N/A'
+                        };
+                        collegeMap[String(s.admission_number).trim()] = sData;
+                        collegeMap[String(s.admission_number).trim().toLowerCase()] = sData;
+                    });
+                } catch (sqlErr) {
+                    console.error("SQL Error fetching colleges:", sqlErr);
+                }
+            }
+
+            // Aggregate Data in Memory by College
+            const collegeGroups = {};
+
+            transactions.forEach(tx => {
+                const sId = String(tx.studentId).trim();
+                const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
+                const collegeName = collegeData ? collegeData.college : 'Unknown';
+                const cashier = tx.collectedByName || 'Unknown';
+                const cashierUsername = tx.collectedBy || 'Unknown';
+                const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
+                const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
+                const amount = tx.amount || 0;
+                const isDebit = tx.transactionType === 'DEBIT';
+                const isCredit = tx.transactionType === 'CREDIT';
+                const isCash = tx.paymentMode === 'Cash';
+
+                const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
+                const empNo = cashierEmpNoMap[cashierUsername.toLowerCase()] || 
+                              cashierEmpNoMap[normalizedCashierName] || 
+                              cashierEmpNoMap[cashier.toLowerCase()] || 
+                              cashier;
+
+                if (!collegeGroups[collegeName]) {
+                    collegeGroups[collegeName] = {
+                        _id: collegeName,
+                        totalAmount: 0,
+                        debitAmount: 0,
+                        creditAmount: 0,
+                        cashAmount: 0,
+                        bankAmount: 0,
+                        totalCount: 0,
+                        count: 0,
+                        cashiersMap: {},
+                        transactions: []
+                    };
+                }
+
+                const group = collegeGroups[collegeName];
+
+                group.totalCount++;
+                group.count++;
+                if (isDebit) {
+                    group.debitAmount += amount;
+                    if (isCash) group.cashAmount += amount;
+                    else group.bankAmount += amount;
+                }
+                if (isCredit) {
+                    group.creditAmount += amount;
+                }
+
+                // Add this tx to the group's transactions list
+                group.transactions.push({
+                    receiptNo: tx.receiptNumber || '-',
+                    studentName: tx.studentName,
+                    amount: tx.amount,
+                    paymentMode: tx.paymentMode,
+                    transactionType: tx.transactionType,
+                    pinNo: collegeData ? collegeData.pin_no : '-',
+                    studentId: tx.studentId,
+                    course: collegeData && collegeData.course ? collegeData.course : 'N/A',
+                    branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
+                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
+                    feeHead: fhName,
+                    college: collegeName,
+                    collectedBy: cashierUsername,
+                    collectedByName: cashier
+                });
+
+                // cashier breakdown inside this college
+                if (!group.cashiersMap[cashierUsername]) {
+                    group.cashiersMap[cashierUsername] = {
+                        username: cashierUsername,
+                        name: cashier,
+                        empNo: empNo,
+                        count: 0,
+                        cashAmount: 0,
+                        bankAmount: 0,
+                        creditAmount: 0,
+                        netTotal: 0,
+                        feeHeadsMap: {}
+                    };
+                }
+
+                const cashierEntry = group.cashiersMap[cashierUsername];
+                cashierEntry.count++;
+                if (isDebit) {
+                    cashierEntry.netTotal += amount;
+                    if (isCash) cashierEntry.cashAmount += amount;
+                    else cashierEntry.bankAmount += amount;
+
+                    // Track cashier's fee heads for this college
+                    if (!cashierEntry.feeHeadsMap[fhName]) {
+                        cashierEntry.feeHeadsMap[fhName] = {
+                            name: fhName,
+                            cashAmount: 0,
+                            bankAmount: 0,
+                            netTotal: 0
+                        };
+                    }
+                    const cfh = cashierEntry.feeHeadsMap[fhName];
+                    cfh.netTotal += amount;
+                    if (isCash) cfh.cashAmount += amount;
+                    else cfh.bankAmount += amount;
+                } else if (isCredit) {
+                    cashierEntry.creditAmount += amount;
+                }
+            });
+
+            // Format results array
+            const finalResults = Object.values(collegeGroups).map(group => {
+                // cashier breakdowns
+                group.cashiers = Object.values(group.cashiersMap).map(c => {
+                    c.feeHeads = Object.values(c.feeHeadsMap || {}).sort((a, b) => b.netTotal - a.netTotal);
+                    delete c.feeHeadsMap;
+                    return c;
+                }).sort((a, b) => b.netTotal - a.netTotal);
+                delete group.cashiersMap;
+
+                // College-level fee head summary
+                const collegeFeeHeadsMap = {};
+                group.transactions.forEach(tx => {
+                    if (tx.transactionType === 'DEBIT') {
+                        const fhName = tx.feeHead || 'Unknown';
+                        const amt = tx.amount || 0;
+                        const isCash = tx.paymentMode === 'Cash';
+
+                        if (!collegeFeeHeadsMap[fhName]) {
+                            collegeFeeHeadsMap[fhName] = {
+                                name: fhName,
+                                cashAmount: 0,
+                                bankAmount: 0,
+                                netTotal: 0
+                            };
+                        }
+                        const cfh = collegeFeeHeadsMap[fhName];
+                        cfh.netTotal += amt;
+                        if (isCash) cfh.cashAmount += amt;
+                        else cfh.bankAmount += amt;
+                    }
+                });
+                group.feeHeads = Object.values(collegeFeeHeadsMap).sort((a, b) => b.netTotal - a.netTotal);
+
+                group.totalAmount = group.debitAmount; // Match interface expectations
+                return group;
+            }).sort((a, b) => b.debitAmount - a.debitAmount);
+
+            res.json(finalResults);
+            return;
+
         } else {
             // Default Day
             groupId = { year: { $year: "$createdAt" }, month: { $month: "$createdAt" }, day: { $dayOfMonth: "$createdAt" } };

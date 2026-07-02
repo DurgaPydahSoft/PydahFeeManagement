@@ -684,7 +684,7 @@ const UserManagement = () => {
                                                             })()}
                                                             className="rounded text-blue-600 focus:ring-blue-500"
                                                         />
-                                                        <span className="text-xs text-gray-600">Fee Head Summary</span>
+                                                        <span className="text-xs text-gray-600">College-wise Summary</span>
                                                     </label>
                                                 </div>
                                             )}
