@@ -832,23 +832,56 @@ const getDashboardStats = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
-        // Base date matching stage
+        // Base date matching stage - timezone aware for IST (+05:30)
         const dateFilter = {};
         if (startDate || endDate) {
             dateFilter.createdAt = {};
-            if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+            if (startDate) {
+                const start = new Date(startDate + "T00:00:00.000Z");
+                start.setMinutes(start.getMinutes() - 330); // Offset IST by 5h 30m
+                dateFilter.createdAt.$gte = start;
+            }
             if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
+                const end = new Date(endDate + "T23:59:59.999Z");
+                end.setMinutes(end.getMinutes() - 330); // Offset IST by 5h 30m
                 dateFilter.createdAt.$lte = end;
             }
         } else {
-            // Default to today if no dates provided
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const endOfToday = new Date();
-            endOfToday.setHours(23, 59, 59, 999);
-            dateFilter.createdAt = { $gte: today, $lte: endOfToday };
+            // Default to today (IST) if no dates provided
+            const now = new Date();
+            const istTime = new Date(now.getTime() + (330 * 60 * 1000));
+            const istDateStr = istTime.toISOString().split('T')[0];
+
+            const start = new Date(istDateStr + "T00:00:00.000Z");
+            start.setMinutes(start.getMinutes() - 330);
+
+            const end = new Date(istDateStr + "T23:59:59.999Z");
+            end.setMinutes(end.getMinutes() - 330);
+
+            dateFilter.createdAt = { $gte: start, $lte: end };
+        }
+
+        // Trend date filter - defaults to last 7 days (IST) if date range is a single day (e.g. today only default)
+        const trendDateFilter = { ...dateFilter };
+        if (!startDate || startDate === endDate) {
+            let refEndDateStr;
+            if (endDate) {
+                refEndDateStr = endDate;
+            } else {
+                const now = new Date();
+                const istTime = new Date(now.getTime() + (330 * 60 * 1000));
+                refEndDateStr = istTime.toISOString().split('T')[0];
+            }
+
+            const refEnd = new Date(refEndDateStr + "T00:00:00.000Z");
+            refEnd.setDate(refEnd.getDate() - 6); // 6 days prior + today = 7 days trend
+            const trendStart = refEnd;
+            trendStart.setMinutes(trendStart.getMinutes() - 330); // Offset IST by 5h 30m
+
+            trendDateFilter.createdAt = {
+                $gte: trendStart,
+                $lte: dateFilter.createdAt.$lte
+            };
         }
 
         // 1. Collections (DEBIT transactions) within date range
@@ -887,17 +920,17 @@ const getDashboardStats = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(5);
 
-        // 4. Collection Trend within date range
+        // 4. Collection Trend within date range (with IST timezone representation for calendar alignment)
         const trendData = await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
-                    ...dateFilter
+                    ...trendDateFilter
                 }
             },
             {
                 $group: {
-                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "+05:30" } },
                     amount: { $sum: "$amount" }
                 }
             },
@@ -947,13 +980,74 @@ const getDashboardStats = async (req, res) => {
             courseWise = Object.entries(courseMap).map(([name, amount]) => ({ name, amount }));
         }
 
+        // 6. Fee Head Wise Breakdown within date range
+        const feeHeadWise = await Transaction.aggregate([
+            {
+                $match: {
+                    transactionType: 'DEBIT',
+                    ...dateFilter
+                }
+            },
+            {
+                $group: {
+                    _id: "$feeHead",
+                    amount: { $sum: "$amount" }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'feeheads',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'details'
+                }
+            },
+            { $unwind: { path: "$details", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 1,
+                    name: { $ifNull: ["$details.name", "Unknown Fee Head"] },
+                    amount: 1
+                }
+            },
+            { $sort: { amount: -1 } }
+        ]);
+
+        // 7. User Wise Breakdown within date range
+        const userWise = await Transaction.aggregate([
+            {
+                $match: {
+                    transactionType: 'DEBIT',
+                    ...dateFilter
+                }
+            },
+            {
+                $group: {
+                    _id: "$collectedBy",
+                    name: { $first: "$collectedByName" },
+                    amount: { $sum: "$amount" }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    username: "$_id",
+                    name: { $ifNull: ["$name", "$_id"] },
+                    amount: 1
+                }
+            },
+            { $sort: { amount: -1 } }
+        ]);
+
         res.json({
             collections,
             totalStudents,
             recentTransactions,
             trendData,
             collegeWise,
-            courseWise
+            courseWise,
+            feeHeadWise,
+            userWise
         });
 
     } catch (error) {

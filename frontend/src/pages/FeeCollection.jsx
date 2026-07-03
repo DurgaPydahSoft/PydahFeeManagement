@@ -26,6 +26,10 @@ const FeeCollection = () => {
     // Multi-Select State
     const [feeRows, setFeeRows] = useState([{ id: Date.now(), feeHeadId: '', amount: '' }]);
 
+    // --- EDIT TRANSACTION STATE ---
+    const [isEditMode, setIsEditMode] = useState(false);
+    const [editingTransaction, setEditingTransaction] = useState(null);
+
     const [paymentForm, setPaymentForm] = useState({
         paymentMode: 'Cash',
         remarks: '',
@@ -40,6 +44,18 @@ const FeeCollection = () => {
     const [paymentCategory, setPaymentCategory] = useState('Cash');
     const [splitCashAmount, setSplitCashAmount] = useState(''); // Amount for Cash portion in Split mode
     const [transactions, setTransactions] = useState([]);
+    const [toast, setToast] = useState(null);
+
+    const showToastMessage = (message, type = 'success') => {
+        setToast({ message, type });
+    };
+
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
 
     // Modals
     const [showReceiptModal, setShowReceiptModal] = useState(false);
@@ -224,10 +240,69 @@ const FeeCollection = () => {
         setFeeDetails([]); // Clear previous student's fees
         setTransactions([]); // Clear previous student's transactions
         setStudent(selectedStudent);
+        setIsEditMode(false);
+        setEditingTransaction(null);
         setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset selected fee heads & amounts
-        setPaymentForm(prev => ({ ...prev, proceedingId: '' })); // Reset RTF
+        setPaymentForm(prev => ({ 
+            ...prev, 
+            paymentMode: 'Cash',
+            remarks: '',
+            bankName: '',
+            instrumentDate: '',
+            referenceNo: '',
+            referenceDate: '',
+            paymentConfigId: '',
+            proceedingId: '' 
+        })); // Reset form
+        setPaymentCategory('Cash');
         setSelectedProceeding(null);
         await fetchStudentData(selectedStudent);
+    };
+
+    // --- EDIT TRANSACTION LOGIC ---
+    const handleEditTransaction = (tx) => {
+        setIsEditMode(true);
+        setEditingTransaction(tx);
+
+        // Find matching fee structure row _id or fallback to feeHead _id
+        const matchedFee = feeDetails.find(f => f.feeHeadId === (tx.feeHead?._id || tx.feeHead));
+        const prefillValue = matchedFee ? matchedFee._id : (tx.feeHead?._id || tx.feeHead);
+
+        setFeeRows([{ id: Date.now(), feeHeadId: prefillValue, amount: String(tx.amount) }]);
+
+        const category = tx.paymentMode === 'Cash' ? 'Cash' : 'Bank';
+        setPaymentCategory(category);
+
+        setPaymentForm({
+            paymentMode: tx.paymentMode || 'Cash',
+            remarks: tx.remarks || '',
+            bankName: tx.bankName || '',
+            instrumentDate: tx.instrumentDate ? tx.instrumentDate.split('T')[0] : '',
+            referenceNo: tx.referenceNo || '',
+            referenceDate: tx.referenceDate ? tx.referenceDate.split('T')[0] : '',
+            paymentConfigId: tx.paymentConfigId || '',
+            proceedingId: tx.proceedingId || ''
+        });
+
+        // Scroll to the fee collection form
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelEditMode = () => {
+        setIsEditMode(false);
+        setEditingTransaction(null);
+        setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]);
+        setPaymentCategory('Cash');
+        setPaymentForm({
+            paymentMode: 'Cash',
+            remarks: '',
+            bankName: '',
+            instrumentDate: '',
+            referenceNo: '',
+            referenceDate: '',
+            paymentConfigId: '',
+            proceedingId: ''
+        });
     };
 
     // --- Dynamic Row Handlers ---
@@ -291,20 +366,25 @@ const FeeCollection = () => {
         // Validation
         const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
         if (validRows.length === 0) {
-            alert('Please select at least one Fee Head and enter a valid amount (0 is accepted).');
+            showToastMessage('Please select at least one Fee Head and enter a valid amount (0 is accepted).', 'error');
             return;
         }
 
         if (paymentCategory === 'Cash' && receiptSettings?.enableCashPayment === false) {
-            alert('Cash payments are currently disabled by the administrator.');
+            showToastMessage('Cash payments are currently disabled by the administrator.', 'error');
             return;
         }
         if (paymentCategory === 'Bank' && receiptSettings?.enableBankPayment === false) {
-            alert('Bank payments are currently disabled by the administrator.');
+            showToastMessage('Bank payments are currently disabled by the administrator.', 'error');
             return;
         }
         if (paymentCategory === 'Split' && receiptSettings?.enableSplitPayment === false) {
-            alert('Split payments are currently disabled by the administrator.');
+            showToastMessage('Split payments are currently disabled by the administrator.', 'error');
+            return;
+        }
+
+        if (isEditMode) {
+            setShowConfirmModal(true);
             return;
         }
 
@@ -334,6 +414,46 @@ const FeeCollection = () => {
     const confirmAndPay = async () => {
         setIsProcessing(true);
         try {
+            if (isEditMode) {
+                // Build Payload for Update
+                const payload = {
+                    paymentMode: paymentCategory === 'Cash' ? 'Cash' : paymentForm.paymentMode,
+                    remarks: paymentForm.remarks
+                };
+
+                if (paymentCategory === 'Bank') {
+                    payload.bankName = paymentForm.bankName;
+                    payload.instrumentDate = paymentForm.instrumentDate;
+                    payload.referenceNo = paymentForm.referenceNo;
+                    payload.referenceDate = paymentForm.referenceDate;
+                    payload.paymentConfigId = paymentForm.paymentConfigId;
+                    const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                    if (selectedConfig) {
+                        payload.depositedToAccount = selectedConfig.account_name;
+                    }
+                    if (paymentForm.paymentMode === 'RTF') {
+                        payload.proceedingId = paymentForm.proceedingId;
+                    }
+                } else if (paymentCategory === 'Cash') {
+                    payload.bankName = '';
+                    payload.instrumentDate = '';
+                    payload.referenceNo = '';
+                    payload.referenceDate = '';
+                    payload.paymentConfigId = '';
+                    payload.depositedToAccount = '';
+                    payload.proceedingId = '';
+                }
+
+                await api.put(`/transactions/${editingTransaction._id}`, payload);
+                
+                showToastMessage('Transaction payment details updated successfully!', 'success');
+                setShowConfirmModal(false);
+                cancelEditMode();
+                await fetchStudentData(student);
+                setIsProcessing(false);
+                return;
+            }
+
             const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
 
             // Build Common Data
@@ -377,7 +497,7 @@ const FeeCollection = () => {
                 const totalBank = totalSelectedAmount - totalCash;
                 
                 if (totalCash <= 0 || totalBank <= 0) {
-                    alert("Please enter a valid split amount. Both Cash and Bank portions must be greater than zero.");
+                    showToastMessage("Please enter a valid split amount. Both Cash and Bank portions must be greater than zero.", 'error');
                     setIsProcessing(false);
                     return;
                 }
@@ -470,7 +590,7 @@ const FeeCollection = () => {
 
         } catch (error) {
             console.error(error);
-            alert('Payment Failed');
+            showToastMessage('Payment Failed', 'error');
         } finally {
             setIsProcessing(false);
         }
@@ -1039,6 +1159,7 @@ const FeeCollection = () => {
                                                             student={student}
                                                             totalDue={totalDueAmount}
                                                             settings={receiptSettings}
+                                                            onEdit={handleEditTransaction}
                                                         />
                                                     ))
                                                 )}
@@ -1052,26 +1173,48 @@ const FeeCollection = () => {
                             {(canCollectFee || isSuperAdmin) && (
                                 <div className="space-y-3">
                                     <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
-                                        <div className="flex border-b border-gray-100">
-                                            <div className="flex-1 py-3 text-sm font-bold text-center bg-blue-50/50 text-blue-700 border-b-2 border-blue-600">
-                                                COLLECT FEE
+                                        {isEditMode ? (
+                                            <div className="flex border-b border-gray-100 bg-amber-500 text-white font-bold text-sm relative items-center justify-between px-4 py-3">
+                                                 <div className="uppercase tracking-wider font-extrabold flex items-center gap-1.5">
+                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                     Edit Mode
+                                                 </div>
+                                                 <button 
+                                                     type="button"
+                                                     onClick={cancelEditMode}
+                                                     className="text-[10px] bg-amber-700 hover:bg-amber-800 text-white px-2 py-0.5 rounded font-black border border-amber-600 uppercase transition-all shadow-sm"
+                                                 >
+                                                     Cancel
+                                                 </button>
+                                             </div>
+                                        ) : (
+                                            <div className="flex border-b border-gray-100">
+                                                 <div className="flex-1 py-3 text-sm font-bold text-center bg-blue-50/50 text-blue-700 border-b-2 border-blue-600">
+                                                     COLLECT FEE
+                                                 </div>
                                             </div>
-                                        </div>
+                                        )}
 
                                         <div className="p-4">
                                             <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                                                 <div>
-                                                    <h3 className="text-base font-bold text-gray-800">Payment Details</h3>
-                                                    <p className="text-[11px] text-gray-400 mt-0.5">Add fee heads and amount below</p>
+                                                    <h3 className="text-base font-bold text-gray-800">
+                                                        {isEditMode ? 'Transaction Details' : 'Payment Details'}
+                                                    </h3>
+                                                    <p className="text-[11px] text-gray-400 mt-0.5">
+                                                        {isEditMode ? `Receipt: ${editingTransaction?.receiptNumber}` : 'Add fee heads and amount below'}
+                                                    </p>
                                                 </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={addFeeRow}
-                                                    className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
-                                                    title="Add Another Fee Head"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                                </button>
+                                                {!isEditMode && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={addFeeRow}
+                                                        className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
+                                                        title="Add Another Fee Head"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                                    </button>
+                                                )}
                                             </div>
 
                                             <form onSubmit={handlePrePayment} className="space-y-3">
@@ -1100,10 +1243,11 @@ const FeeCollection = () => {
                                                                     <div className="flex-1">
                                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
                                                                         <select
-                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                                                             value={row.feeHeadId}
                                                                             onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
                                                                             required
+                                                                            disabled={isEditMode}
                                                                         >
                                                                             <option value="">-- Select Fee Head --</option>
 
@@ -1142,16 +1286,17 @@ const FeeCollection = () => {
                                                                         <span className="absolute left-2 top-1.5 text-gray-400 text-xs"></span>
                                                                         <input
                                                                             type="number"
-                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300"
+                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300 disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                                                             value={row.amount}
                                                                             onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
                                                                             onWheel={e => e.target.blur()}
                                                                             required
                                                                             placeholder="0"
+                                                                            disabled={isEditMode}
                                                                         />
                                                                     </div>
                                                                 </div>
-                                                                {feeRows.length > 1 && (
+                                                                {feeRows.length > 1 && !isEditMode && (
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => removeFeeRow(row.id)}
@@ -1195,8 +1340,8 @@ const FeeCollection = () => {
                                                                 }} />
                                                                 <span className="font-bold text-xs text-gray-700">Bank</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableSplitPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={receiptSettings?.enableSplitPayment === false} onChange={() => { 
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || receiptSettings?.enableSplitPayment === false) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={isEditMode || receiptSettings?.enableSplitPayment === false} onChange={() => { 
                                                                     setPaymentCategory('Split'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
                                                                     
@@ -1345,7 +1490,7 @@ const FeeCollection = () => {
                                                         disabled={isProcessing}
                                                         className="w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 bg-blue-600 hover:bg-blue-700 shadow-blue-200 disabled:opacity-50"
                                                     >
-                                                        {isProcessing ? 'Processing...' : 'Confirm Payment'}
+                                                        {isProcessing ? (isEditMode ? 'Updating...' : 'Processing...') : (isEditMode ? 'Update Payment Details' : 'Confirm Payment')}
                                                     </button>
                                                 </div>
                                             </form>
@@ -1363,7 +1508,9 @@ const FeeCollection = () => {
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleUp">
                             <div className="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center">
-                                <h3 className="font-bold text-lg text-gray-800">Confirm Transaction</h3>
+                                <h3 className="font-bold text-lg text-gray-800">
+                                    {isEditMode ? 'Confirm Transaction Update' : 'Confirm Transaction'}
+                                </h3>
                                 <button onClick={() => setShowConfirmModal(false)} className="text-gray-400 hover:text-gray-600"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                             </div>
                             <div className="p-6">
@@ -1510,13 +1657,43 @@ const FeeCollection = () => {
                     </div>
                 )}
 
+                {/* Custom Toast Alert */}
+                {toast && (
+                    <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl transition-all duration-300 transform translate-y-0 ${
+                        toast.type === 'success' 
+                            ? 'bg-green-50 border-green-200 text-green-800' 
+                            : 'bg-red-50 border-red-200 text-red-800'
+                    }`}>
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                            toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                        }`}>
+                            {toast.type === 'success' ? (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                            ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                            )}
+                        </div>
+                        <div>
+                            <p className="text-sm font-bold">{toast.type === 'success' ? 'Success' : 'Error'}</p>
+                            <p className="text-xs font-semibold text-gray-600 mt-0.5">{toast.message}</p>
+                        </div>
+                        <button onClick={() => setToast(null)} className="text-gray-400 hover:text-gray-600 ml-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                )}
+
             </div>
         </div>
     );
 };
 
 // Sub-component for Row (Kept same)
-const TransactionRow = ({ transaction, allTransactions, student, totalDue, settings }) => {
+const TransactionRow = ({ transaction, allTransactions, student, totalDue, settings, onEdit }) => {
+    const loggedInUser = JSON.parse(localStorage.getItem('user'));
+    const isSuperAdmin = loggedInUser?.role === 'superadmin';
+    const hasEditPermission = loggedInUser?.permissions?.includes('fee_collection_edit') || isSuperAdmin || loggedInUser?.role === 'admin';
+    const showEditButton = hasEditPermission && transaction.transactionType !== 'CREDIT';
     // Logic to show "Print" for batch or single
     // find siblings
     // ... (This logic remains same, just simplified markup)
@@ -1573,7 +1750,16 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
             <td className="py-3 px-4 text-xs text-gray-500 max-w-[150px] truncate" title={transaction.remarks}>
                 {transaction.remarks || '-'}
             </td>
-            <td className="py-3 px-4 text-right">
+            <td className="py-3 px-4 text-right whitespace-nowrap">
+                {showEditButton && (
+                    <button
+                        onClick={() => onEdit(transaction)}
+                        className="text-amber-600 hover:text-amber-800 hover:bg-amber-50 p-1.5 rounded transition mr-1.5"
+                        title="Edit Transaction Payment Mode"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                )}
                 <button
                     onClick={() => setShowPreview(true)}
                     className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded transition"

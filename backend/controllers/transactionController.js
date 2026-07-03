@@ -301,8 +301,59 @@ const previewSequence = async (req, res) => {
   }
 };
 
+// @desc    Update Transaction Payment Mode
+// @route   PUT /api/transactions/:id
+const updateTransactionPaymentMode = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      paymentMode,
+      bankName,
+      instrumentDate,
+      referenceNo,
+      referenceDate,
+      paymentConfigId,
+      depositedToAccount,
+      remarks,
+      proceedingId
+    } = req.body;
+
+    const transaction = await Transaction.findById(id);
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    // Update ONLY payment mode related fields and remarks
+    transaction.paymentMode = paymentMode !== undefined ? paymentMode : transaction.paymentMode;
+    transaction.bankName = bankName !== undefined ? bankName : transaction.bankName;
+    transaction.instrumentDate = instrumentDate !== undefined ? instrumentDate : transaction.instrumentDate;
+    transaction.referenceNo = referenceNo !== undefined ? referenceNo : transaction.referenceNo;
+    transaction.referenceDate = referenceDate !== undefined ? referenceDate : transaction.referenceDate;
+    transaction.depositedToAccount = depositedToAccount !== undefined ? depositedToAccount : transaction.depositedToAccount;
+    transaction.remarks = remarks !== undefined ? remarks : transaction.remarks;
+
+    if (paymentConfigId !== undefined) {
+      transaction.paymentConfigId = (paymentConfigId === '' || !paymentConfigId) ? null : paymentConfigId;
+    }
+    if (proceedingId !== undefined) {
+      transaction.proceedingId = (proceedingId === '' || !proceedingId) ? null : proceedingId;
+    }
+
+    const updatedTransaction = await transaction.save();
+    
+    // Populate feeHead for returning to frontend
+    const populated = await Transaction.findById(updatedTransaction._id).populate('feeHead', 'name');
+    
+    res.json(populated);
+  } catch (error) {
+    console.error('Error updating transaction:', error);
+    res.status(500).json({ message: 'Error updating transaction details' });
+  }
+};
+
 module.exports = {
   addTransaction,
   getStudentTransactions,
-  previewSequence
+  previewSequence,
+  updateTransactionPaymentMode
 };

@@ -118,6 +118,10 @@ const hasPermission = (user, permissionList = []) => {
 };
 
 const checkTransactionAccess = (req, user) => {
+  if (req.method === 'PUT') {
+    return hasPermission(user, ['fee_collection_edit']);
+  }
+
   if (req.method !== 'POST') {
     return hasPermission(user, ['/fee-collection', '/bulk-fee-upload']);
   }

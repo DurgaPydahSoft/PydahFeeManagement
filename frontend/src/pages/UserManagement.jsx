@@ -504,7 +504,7 @@ const UserManagement = () => {
                             {/* Permission Checkboxes */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Permissions</label>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 border p-2 rounded bg-gray-50 max-h-60 overflow-y-auto">
+                                <div className="space-y-3 border p-3 rounded bg-gray-50 max-h-[400px] overflow-y-auto">
                                     {availablePages.map(page => (
                                         <div key={page.path} className="flex flex-col">
                                             <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
@@ -517,7 +517,7 @@ const UserManagement = () => {
                                                             if (currentPermissions.includes(path)) {
                                                                 currentPermissions = currentPermissions.filter(p => p !== path);
                                                                 if (path === '/fee-collection') {
-                                                                    currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession');
+                                                                    currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
                                                                 }
                                                                 if (path === '/reports') {
                                                                     currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary');
@@ -587,6 +587,23 @@ const UserManagement = () => {
                                                             className="rounded text-blue-600 focus:ring-blue-500"
                                                         />
                                                         <span className="text-xs text-gray-600">Enable Fee Concession</span>
+                                                    </label>
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('fee_collection_edit')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('fee_collection_edit')) p = p.filter(x => x !== 'fee_collection_edit');
+                                                                    else p = [...p, 'fee_collection_edit'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Enable Edit Transaction</span>
                                                     </label>
                                                 </div>
                                             )}

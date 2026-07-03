@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { addTransaction, getStudentTransactions, previewSequence } = require('../controllers/transactionController');
+const { addTransaction, getStudentTransactions, previewSequence, updateTransactionPaymentMode } = require('../controllers/transactionController');
 
 router.route('/')
   .post(addTransaction);
+
+router.route('/:id')
+  .put(updateTransactionPaymentMode);
 
 router.route('/preview-sequence')
   .post(previewSequence);
