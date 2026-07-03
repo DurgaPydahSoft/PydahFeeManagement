@@ -386,44 +386,47 @@ const Dashboard = () => {
                                     </div>
                                 </div>
 
-                                {/* Course Breakdown (Pie / Doughnut Chart) */}
+                                {/* User / Cashier collections */}
                                 <div className="bg-white rounded-2xl border border-slate-200/60 p-5 shadow-sm space-y-4">
                                     <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                                         <div className="flex items-center gap-2">
-                                            <Activity size={16} className="text-emerald-500 stroke-[2.5]" />
+                                            <UserCheck size={16} className="text-indigo-500 stroke-[2.5]" />
                                             <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">
-                                                Course Distribution
+                                                User-wise Collection
                                             </h3>
                                         </div>
                                     </div>
-                                    <div className="w-full h-[260px] flex items-center justify-center">
-                                        {courseChartData.length > 0 ? (
+                                    <div className="w-full h-[260px]">
+                                        {userChartData.length > 0 ? (
                                             <ResponsiveContainer width="100%" height="100%">
-                                                <PieChart>
-                                                    <Pie
-                                                        data={courseChartData}
-                                                        cx="50%"
-                                                        cy="50%"
-                                                        innerRadius={60}
-                                                        outerRadius={85}
-                                                        paddingAngle={4}
-                                                        dataKey="value"
-                                                    >
-                                                        {courseChartData.map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                        ))}
-                                                    </Pie>
-                                                    <Tooltip content={<CustomPieTooltip />} />
-                                                    <Legend 
-                                                        verticalAlign="bottom" 
-                                                        height={36} 
-                                                        iconType="circle"
-                                                        iconSize={8}
-                                                        wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }} 
+                                                <BarChart data={userChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                    <XAxis 
+                                                        dataKey="name" 
+                                                        axisLine={false} 
+                                                        tickLine={false} 
+                                                        tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} 
                                                     />
-                                                </PieChart>
+                                                    <YAxis 
+                                                        axisLine={false} 
+                                                        tickLine={false} 
+                                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }}
+                                                        tickFormatter={(v) => `₹${v >= 100000 ? (v / 100000) + 'L' : v >= 1000 ? (v / 1000) + 'k' : v}`}
+                                                    />
+                                                    <Tooltip content={<CustomTooltip />} />
+                                                    <Bar 
+                                                        dataKey="Amount" 
+                                                        fill="#f59e0b" 
+                                                        radius={[6, 6, 0, 0]}
+                                                        maxBarSize={45}
+                                                    >
+                                                        {userChartData.map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[(index + 4) % COLORS.length]} />
+                                                        ))}
+                                                    </Bar>
+                                                </BarChart>
                                             </ResponsiveContainer>
-                                        ) : renderEmptyState("No course breakdown data")}
+                                        ) : renderEmptyState("No user transaction records")}
                                     </div>
                                 </div>
 
@@ -478,47 +481,44 @@ const Dashboard = () => {
                                     </div>
                                 </div>
 
-                                {/* User / Cashier collections */}
+                                {/* Course Breakdown (Pie / Doughnut Chart) */}
                                 <div className="bg-white rounded-2xl border border-slate-200/60 p-5 shadow-sm space-y-4">
                                     <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                                         <div className="flex items-center gap-2">
-                                            <UserCheck size={16} className="text-indigo-500 stroke-[2.5]" />
+                                            <Activity size={16} className="text-emerald-500 stroke-[2.5]" />
                                             <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">
-                                                User-wise Collection
+                                                Course Distribution
                                             </h3>
                                         </div>
                                     </div>
-                                    <div className="w-full h-[260px]">
-                                        {userChartData.length > 0 ? (
+                                    <div className="w-full h-[260px] flex items-center justify-center">
+                                        {courseChartData.length > 0 ? (
                                             <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={userChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                    <XAxis 
-                                                        dataKey="name" 
-                                                        axisLine={false} 
-                                                        tickLine={false} 
-                                                        tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} 
-                                                    />
-                                                    <YAxis 
-                                                        axisLine={false} 
-                                                        tickLine={false} 
-                                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }}
-                                                        tickFormatter={(v) => `₹${v >= 100000 ? (v / 100000) + 'L' : v >= 1000 ? (v / 1000) + 'k' : v}`}
-                                                    />
-                                                    <Tooltip content={<CustomTooltip />} />
-                                                    <Bar 
-                                                        dataKey="Amount" 
-                                                        fill="#f59e0b" 
-                                                        radius={[6, 6, 0, 0]}
-                                                        maxBarSize={45}
+                                                <PieChart>
+                                                    <Pie
+                                                        data={courseChartData}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={60}
+                                                        outerRadius={85}
+                                                        paddingAngle={4}
+                                                        dataKey="value"
                                                     >
-                                                        {userChartData.map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={COLORS[(index + 4) % COLORS.length]} />
+                                                        {courseChartData.map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                         ))}
-                                                    </Bar>
-                                                </BarChart>
+                                                    </Pie>
+                                                    <Tooltip content={<CustomPieTooltip />} />
+                                                    <Legend 
+                                                        verticalAlign="bottom" 
+                                                        height={36} 
+                                                        iconType="circle"
+                                                        iconSize={8}
+                                                        wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }} 
+                                                    />
+                                                </PieChart>
                                             </ResponsiveContainer>
-                                        ) : renderEmptyState("No user transaction records")}
+                                        ) : renderEmptyState("No course breakdown data")}
                                     </div>
                                 </div>
                             </div>
