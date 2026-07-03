@@ -301,6 +301,26 @@ const UserManagement = () => {
                         <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
                         <p className="text-sm text-gray-500 mt-1">Create and manage access for system users.</p>
                     </div>
+                    <div className="relative w-full md:w-72">
+                        <input
+                            type="text"
+                            placeholder="Search users (name, username)..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-semibold"
+                        />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+                        {searchTerm && (
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm font-black"
+                            >
+                                ×
+                            </button>
+                        )}
+                    </div>
                 </header>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 transition-all duration-500 ease-in-out">
@@ -724,25 +744,8 @@ const UserManagement = () => {
 
                     {/* User List */}
                     <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out ${!isSuperAdminUser ? 'lg:col-span-3' : (editingUserId ? 'lg:col-span-1' : 'lg:col-span-2')}`}>
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 border-b border-gray-100 pb-3">
+                        <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h2 className="font-bold text-gray-800">Existing Users</h2>
-                            <div className="relative w-full sm:w-64">
-                                <input
-                                    type="text"
-                                    placeholder="Search name or emp no..."
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                    className="w-full pl-3 pr-8 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none transition-all font-semibold"
-                                />
-                                {searchTerm && (
-                                    <button
-                                        onClick={() => setSearchTerm('')}
-                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm font-black"
-                                    >
-                                        ×
-                                    </button>
-                                )}
-                            </div>
                         </div>
                         {loading ? <p>Loading...</p> : (
                             <div className="overflow-x-auto">

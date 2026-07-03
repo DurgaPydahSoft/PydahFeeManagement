@@ -91,19 +91,13 @@ const Login = () => {
             <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-200/40 rounded-full blur-3xl pointer-events-none"></div>
             <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] bg-purple-200/40 rounded-full blur-3xl pointer-events-none"></div>
 
-            {/* Back Button (Restored) */}
-            <Link to="/" className="absolute top-8 left-8 z-50 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors font-medium">
-                <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                </div>
-                Back to Home
-            </Link>
+
 
             {/* Main Card Container - Reduced Height */}
             <div className="w-full max-w-[1000px] bg-white rounded-[2rem] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.1)] overflow-hidden grid grid-cols-1 lg:grid-cols-2 min-h-[500px] relative z-10">
 
                 {/* Left Side: Branding & Visuals */}
-                <div className="relative bg-blue-600 p-10 flex flex-col justify-center text-white overflow-hidden">
+                <div className="relative bg-blue-600 p-10 flex flex-col justify-center items-center text-center text-white overflow-hidden">
 
                     {/* Decorative Elements */}
                     <div className="absolute top-8 left-8 opacity-30">
@@ -120,18 +114,15 @@ const Login = () => {
                     <div className="absolute bottom-[10%] right-[10%] w-16 h-16 rounded-full bg-blue-500 shadow-2xl overflow-hidden z-10"></div>
 
                     {/* Branding Content (Pydah Fees like Landing) */}
-                    <div className="relative z-20 mt-4">
-                        <div className="inline-flex items-center gap-3 mb-6 bg-white/10 backdrop-blur-sm p-3 rounded-xl border border-white/20 w-fit">
-                            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-blue-600 shadow-md">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                            </div>
-                            <span className="text-xl font-bold tracking-tight">Pydah<span className="text-blue-100">Fees</span></span>
+                    <div className="relative z-20 mt-4 flex flex-col items-center">
+                        <div className="w-80 h-32 bg-white rounded-xl p-2 mb-6 flex items-center justify-center shadow-xl overflow-hidden border border-white/30 transition-transform hover:scale-105 duration-300">
+                            <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Pydah Logo" className="w-full h-full object-contain" />
                         </div>
 
                         <h1 className="text-4xl font-bold leading-tight mb-4 tracking-tight">
                             Institutional <br /> Excellence
                         </h1>
-                        <p className="text-blue-100/90 text-base font-medium leading-relaxed max-w-sm">
+                        <p className="text-blue-100/90 text-base font-medium leading-relaxed max-w-sm text-center">
                             Secure access to the financial management dashboard.
                         </p>
                     </div>
@@ -142,9 +133,18 @@ const Login = () => {
 
                     <div className="max-w-sm mx-auto w-full">
 
-                        <div className="text-center mb-8">
-                            <h2 className="text-2xl font-bold text-slate-800">Welcome back</h2>
-                            <p className="text-slate-400 text-sm mt-1">Please login to account</p>
+                        <div className="text-center mb-8 relative flex items-center justify-center">
+                            <Link 
+                                to="/" 
+                                className="absolute left-0 text-slate-400 hover:text-blue-600 hover:border-blue-100 hover:bg-blue-50/50 p-2 rounded-xl border border-slate-200 transition-all shadow-sm"
+                                title="Back to Home"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                            </Link>
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Welcome back</h2>
+                                <p className="text-slate-400 text-sm mt-1">Please login to account</p>
+                            </div>
                         </div>
 
                         {error && (

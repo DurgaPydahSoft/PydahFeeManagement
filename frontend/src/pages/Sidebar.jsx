@@ -107,14 +107,13 @@ const Sidebar = () => {
         <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
             <div className={`p-4 border-b border-gray-200 flex items-center shrink-0 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                 <div
-                    className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : ''}`}
+                    className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : 'justify-center flex-1'}`}
                     onClick={() => isCollapsed && expandSidebar()}
                     title={isCollapsed ? "Click to Expand" : ""}
                 >
-                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm transition-transform hover:scale-105">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                    <div className={`${isCollapsed ? 'w-12 h-12 rounded-xl' : 'w-48 h-14 rounded-2xl'} flex items-center justify-center shrink-0 overflow-hidden transition-all duration-300 bg-white border border-gray-100`}>
+                        <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Logo" className="w-full h-full object-contain p-1" />
                     </div>
-                    {!isCollapsed && <h2 className="text-lg font-bold text-black tracking-tight">Pydah Fees</h2>}
                 </div>
 
                 {!isCollapsed && (
@@ -130,15 +129,16 @@ const Sidebar = () => {
             <nav ref={navRef} onScroll={handleScroll} className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
                 {Object.entries(groupedItems).map(([section, items], sGroupIdx) => (
                     <div key={section} className="space-y-1">
-                        {!isCollapsed ? (
+                        {!isCollapsed && section !== 'Overview' && (
                             <div className="mb-2 text-center">
                                 <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-3 pt-2">
                                     {section}
                                 </div>
                                 <div className="border-b-2 border-gray-300 mt-1 mx-3"></div>
                             </div>
-                        ) : (
-                            sGroupIdx > 0 && <div className="h-0 border-b border-gray-100 my-2 mx-4"></div>
+                        )}
+                        {isCollapsed && sGroupIdx > 0 && (
+                            <div className="h-0 border-b border-gray-100 my-2 mx-4"></div>
                         )}
                         <div className="space-y-1">
                             {(Array.isArray(items) ? items : []).map((item, index) => (
