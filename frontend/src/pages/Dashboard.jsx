@@ -48,9 +48,10 @@ const COLORS = [
 // Custom tooltip for Amount-based charts
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+        const item = payload[0].payload;
         return (
             <div className="bg-slate-900/90 text-white px-3 py-2 rounded-xl shadow-xl border border-slate-700 backdrop-blur-md text-xs font-bold">
-                <p className="text-slate-300 mb-0.5">{label}</p>
+                <p className="text-slate-300 mb-0.5">{label}{item.fullName ? ` (${item.fullName})` : ''}</p>
                 <p className="text-indigo-400 font-extrabold text-sm">₹{payload[0].value.toLocaleString()}</p>
             </div>
         );
@@ -176,6 +177,7 @@ const Dashboard = () => {
     // Format college-wise data
     const collegeChartData = stats?.collegeWise?.map(item => ({
         name: item.name || 'Unknown',
+        fullName: item.fullName || '',
         Amount: item.amount
     })) || [];
 
@@ -194,6 +196,7 @@ const Dashboard = () => {
     // Format user-wise data
     const userChartData = stats?.userWise?.map(item => ({
         name: item.name || item.username || 'Unknown',
+        fullName: item.fullName || '',
         Amount: item.amount
     })) || [];
 

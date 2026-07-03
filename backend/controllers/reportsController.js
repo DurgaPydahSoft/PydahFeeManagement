@@ -976,7 +976,22 @@ const getDashboardStats = async (req, res) => {
                 }
             });
 
-            collegeWise = Object.entries(collegeMap).map(([name, amount]) => ({ name, amount }));
+            const [collegesData] = await db.query('SELECT name, code FROM colleges');
+            const collegeCodeMap = {}; // name -> code
+            collegesData.forEach(c => {
+                if (c.name && c.code) {
+                    collegeCodeMap[c.name] = c.code;
+                }
+            });
+
+            collegeWise = Object.entries(collegeMap).map(([name, amount]) => {
+                const code = collegeCodeMap[name] || name;
+                return {
+                    name: code,
+                    fullName: name,
+                    amount
+                };
+            });
             courseWise = Object.entries(courseMap).map(([name, amount]) => ({ name, amount }));
         }
 
@@ -1014,7 +1029,7 @@ const getDashboardStats = async (req, res) => {
         ]);
 
         // 7. User Wise Breakdown within date range
-        const userWise = await Transaction.aggregate([
+        const rawUserWise = await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
@@ -1038,6 +1053,53 @@ const getDashboardStats = async (req, res) => {
             },
             { $sort: { amount: -1 } }
         ]);
+
+        const User = require('../models/User');
+        const getEmployeeModel = require('../models/Employee');
+        const Employee = getEmployeeModel();
+
+        const userWise = [];
+        for (const item of rawUserWise) {
+            let empNo = item.username; // fallback to username
+            
+            // 1. Check local user database
+            const dbUser = await User.findOne({ username: item.username });
+            if (dbUser && dbUser.employeeId && Employee) {
+                const emp = await Employee.findById(dbUser.employeeId).select('emp_no');
+                if (emp && emp.emp_no) {
+                    empNo = emp.emp_no;
+                }
+            } else if (Employee) {
+                // 2. Fallback: Search directly in external Employee DB
+                // Match by emp_no matching username
+                let emp = await Employee.findOne({ emp_no: item.username }).select('emp_no');
+                if (emp && emp.emp_no) {
+                    empNo = emp.emp_no;
+                } else if (item.name) {
+                    // Match by employee_name matching collectedByName
+                    emp = await Employee.findOne({ employee_name: item.name }).select('emp_no');
+                    if (emp && emp.emp_no) {
+                        empNo = emp.emp_no;
+                    } else {
+                        // Case-insensitive regex match for name
+                        const normalizedName = item.name.replace(/\s+/g, ' ').trim();
+                        emp = await Employee.findOne({ 
+                            employee_name: { $regex: new RegExp(`^${normalizedName}$`, 'i') } 
+                        }).select('emp_no');
+                        if (emp && emp.emp_no) {
+                            empNo = emp.emp_no;
+                        }
+                    }
+                }
+            }
+
+            userWise.push({
+                username: item.username,
+                name: empNo, // Display employee number as chart label
+                fullName: item.name, // Display full name inside tooltip
+                amount: item.amount
+            });
+        }
 
         res.json({
             collections,
