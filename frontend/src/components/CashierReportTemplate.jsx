@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 
-const SingleCashierReport = ({ data, dateRange, options = {} }) => {
+const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
     if (!data) return null;
     console.log(`SingleCashierReport rendering cashier "${data._id}":`, {
         transactionsCount: data.transactions?.length,
@@ -98,6 +98,11 @@ const SingleCashierReport = ({ data, dateRange, options = {} }) => {
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
+                {!hideGeneratedInfo && (
+                    <div style={{ color: '#4b5563' }}>
+                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </div>
+                )}
             </div>
 
             {/* 1. Overall Summary Section (Abstract - Single Row) */}
@@ -395,6 +400,9 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
+                <div style={{ color: '#4b5563' }}>
+                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                </div>
             </div>
 
             {/* Table 1: Cashier-wise Summary */}
@@ -508,7 +516,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref
                     {/* Individual reports */}
                     {data.filter(Boolean).map((cashierRow, index) => (
                         <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
-                            <SingleCashierReport data={cashierRow} dateRange={dateRange} options={options} />
+                            <SingleCashierReport data={cashierRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} />
                         </div>
                     ))}
                 </>

@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 
-const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
+const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
     if (!data) return null;
     const { mode = 'all', showSummary = true, showDetails = true, allowedFeeHeads } = options || {};
 
@@ -134,6 +134,11 @@ const SingleCollegeReport = ({ data, dateRange, options = {} }) => {
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
+                {!hideGeneratedInfo && (
+                    <div style={{ color: '#4b5563' }}>
+                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </div>
+                )}
             </div>
 
             {/* Overall College Summary */}
@@ -425,6 +430,9 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
+                <div style={{ color: '#4b5563' }}>
+                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                </div>
             </div>
 
             {/* 1. College-wise Abstract (FIRST) */}
@@ -530,7 +538,7 @@ const CollegeReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref
                     {/* Individual college reports */}
                     {data.filter(Boolean).map((collegeRow, index) => (
                         <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
-                            <SingleCollegeReport data={collegeRow} dateRange={dateRange} options={options} />
+                            <SingleCollegeReport data={collegeRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} />
                         </div>
                     ))}
                 </>
