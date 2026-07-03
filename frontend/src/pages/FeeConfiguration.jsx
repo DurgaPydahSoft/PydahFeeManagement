@@ -1006,7 +1006,7 @@ const FeeConfiguration = () => {
                                                         <div className="flex flex-col gap-1">
                                                             {row.years[y].map((item, idx) => (
                                                                 <div key={idx} className="text-xs bg-gray-50 p-1 rounded border">
-                                                                    {item.semester ? <span className="font-bold text-gray-500">S{item.semester}: </span> : <span className="font-bold text-gray-500">Yr: </span>}
+                                                                    {item.semester && <span className="font-bold text-gray-500">S{item.semester}: </span>}
                                                                     ₹{item.amount.toLocaleString()}
                                                                 </div>
                                                             ))}
