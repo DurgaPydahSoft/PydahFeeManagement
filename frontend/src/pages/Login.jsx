@@ -115,10 +115,25 @@ const Login = () => {
 
                     {/* Branding Content (Pydah Fees like Landing) */}
                     <div className="relative z-20 mt-4 flex flex-col items-center">
-                        <div className="w-80 h-32 bg-white rounded-xl p-2 mb-6 flex items-center justify-center shadow-xl overflow-hidden border border-white/30 transition-transform hover:scale-105 duration-300">
-                            <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Pydah Logo" className="w-full h-full object-contain" />
+                        {/* Custom Code Emblem Brand Logo */}
+                        <div className="flex flex-col items-center select-none mb-10">
+                            <div className="border-[3.5px] border-white px-10 py-4 rounded-tl-[28px] rounded-br-[28px] rounded-tr-[5px] rounded-bl-[5px] relative flex items-center justify-center leading-none shadow-xl bg-white/5 backdrop-blur-sm transition-transform hover:scale-105 duration-300">
+                                <div className="relative flex items-center">
+                                    {/* Small dots above P */}
+                                    <div className="absolute -top-2.5 -left-3 flex gap-[2.5px]">
+                                        <span className="w-3.5 h-3.5 rounded-full bg-white opacity-95 shadow-sm"></span>
+                                        <span className="w-2 h-2 rounded-full bg-white opacity-85 mt-2"></span>
+                                        <span className="w-[5px] h-[5px] rounded-full bg-white opacity-75 mt-1.5"></span>
+                                    </div>
+                                    <span className="text-4xl font-black text-white tracking-widest font-sans">
+                                        PYDAH
+                                    </span>
+                                </div>
+                            </div>
+                            <span className="text-[12.5px] text-sky-200 mt-4.5 font-serif italic tracking-widest uppercase">
+                                Education & Beyond
+                            </span>
                         </div>
-
                         <h1 className="text-4xl font-bold leading-tight mb-4 tracking-tight">
                             Institutional <br /> Excellence
                         </h1>

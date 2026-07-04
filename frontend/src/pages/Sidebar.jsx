@@ -85,9 +85,7 @@ const Sidebar = () => {
         { section: 'Administration', name: 'User Profile', path: '/user-profile', icon: <svg className="w-5 h-5 icon-userprofile transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
     ];
 
-    // Filter Logic:
-    // 1. Super Admin sees everything.
-    // 2. Others see only what's in their permissions array.
+    // Filter Logic
     const visibleMenuItems = role === 'superadmin' || role === 'admin'
         ? allMenuItems
         : allMenuItems.filter(item =>
@@ -95,7 +93,7 @@ const Sidebar = () => {
             item.path === '/user-profile'
         );
 
-    // Group items by section (must pass {} — without it, reduce uses the first menu item as acc)
+    // Group items by section
     const groupedItems = visibleMenuItems.reduce((acc, item) => {
         const section = item?.section || 'Other';
         if (!Array.isArray(acc[section])) acc[section] = [];
@@ -104,73 +102,123 @@ const Sidebar = () => {
     }, {});
 
     return (
-        <div className={`bg-white border-r border-gray-200 h-screen max-h-screen sticky top-0 flex flex-col shadow-sm transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-64'}`}>
-            <div className={`p-4 border-b border-gray-200 flex items-center shrink-0 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+        <div className={`bg-white h-screen max-h-screen sticky top-0 flex flex-col shadow-lg transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-68'}`}>
+            <div className="bg-gradient-to-br from-blue-700 via-indigo-800 to-indigo-950 p-4 pt-4 pb-7 shrink-0 relative flex flex-col items-center">
                 <div
-                    className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : 'justify-center flex-1'}`}
+                    className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : 'justify-center w-full'}`}
                     onClick={() => isCollapsed && expandSidebar()}
                     title={isCollapsed ? "Click to Expand" : ""}
                 >
-                    <div className={`${isCollapsed ? 'w-12 h-12 rounded-xl' : 'w-48 h-14 rounded-2xl'} flex items-center justify-center shrink-0 overflow-hidden transition-all duration-300 bg-white border border-gray-100`}>
-                        <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Logo" className="w-full h-full object-contain p-1" />
-                    </div>
+                    {isCollapsed ? (
+                        /* Compact Emblem for Collapsed Sidebar */
+                        <div className="border-[2px] border-white w-9 h-9 rounded-tl-lg rounded-br-lg rounded-tr-[2px] rounded-bl-[2px] flex items-center justify-center relative shrink-0">
+                            <div className="absolute -top-1 -left-0.5 flex gap-[1px]">
+                                <span className="w-1 h-1 rounded-full bg-white"></span>
+                                <span className="w-[3px] h-[3px] rounded-full bg-white mt-[1px]"></span>
+                            </div>
+                            <span className="text-base font-black text-white tracking-tighter">P</span>
+                        </div>
+                    ) : (
+                        /* Full Brand Logo Styled in CSS */
+                        <div className="flex flex-col items-center justify-center select-none">
+                            {/* Emblem Box */}
+                            <div className="border-[2.5px] border-white px-5 py-2 rounded-tl-[18px] rounded-br-[18px] rounded-tr-[3px] rounded-bl-[3px] relative flex items-center justify-center leading-none">
+                                {/* The PYDAH text with stylized dots */}
+                                <div className="relative flex items-center">
+                                    <div className="absolute -top-1.5 -left-1.5 flex gap-[1.5px]">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-white opacity-95"></span>
+                                        <span className="w-1 h-1 rounded-full bg-white opacity-85 mt-1"></span>
+                                        <span className="w-[3px] h-[3px] rounded-full bg-white opacity-75 mt-0.5"></span>
+                                    </div>
+                                    <span className="text-xl font-extrabold text-white tracking-widest font-sans">
+                                        PYDAH
+                                    </span>
+                                </div>
+                            </div>
+                            {/* Subtitle */}
+                            <span className="text-[10px] text-sky-200 mt-2 font-serif italic tracking-wider whitespace-nowrap">
+                                Education & Beyond
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 {!isCollapsed && (
                     <button
                         onClick={toggleCollapsed}
-                        className="p-1.5 rounded-md hover:bg-gray-100 text-black hover:text-black transition-colors"
+                        className="absolute top-4 right-4 p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                        title="Collapse Sidebar"
                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
                     </button>
                 )}
             </div>
             
-            <nav ref={navRef} onScroll={handleScroll} className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+            {/* Main Nav Container: White bg overlapping the header slightly with rounded corners */}
+            <nav 
+                ref={navRef} 
+                onScroll={handleScroll} 
+                className="sidebar-nav-scroll flex-1 min-h-0 overflow-y-auto bg-white rounded-t-[24px] -mt-5 pt-6 px-3 pb-3 space-y-3 relative z-10"
+            >
                 {Object.entries(groupedItems).map(([section, items], sGroupIdx) => (
                     <div key={section} className="space-y-1">
                         {!isCollapsed && section !== 'Overview' && (
-                            <div className="mb-2 text-center">
-                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-3 pt-2">
+                            <div className="mb-1.5 mt-2 flex items-center justify-center px-2">
+                                <div className="flex-1 h-[1px] bg-gray-100"></div>
+                                <div className="text-[9px] font-extrabold text-gray-400 uppercase tracking-widest px-3.5">
                                     {section}
                                 </div>
-                                <div className="border-b-2 border-gray-300 mt-1 mx-3"></div>
+                                <div className="flex-1 h-[1px] bg-gray-100"></div>
                             </div>
                         )}
                         {isCollapsed && sGroupIdx > 0 && (
-                            <div className="h-0 border-b border-gray-100 my-2 mx-4"></div>
+                            <div className="h-[1px] bg-gray-100 my-2 mx-2"></div>
                         )}
-                        <div className="space-y-1">
-                            {(Array.isArray(items) ? items : []).map((item, index) => (
-                                <Link
-                                    key={index}
-                                    to={item.path}
-                                    className={`sidebar-link flex items-center px-4 py-2.5 rounded-lg text-sm font-medium transition duration-200 ${location.pathname === item.path
-                                        ? 'bg-blue-50 text-blue-700'
-                                        : 'text-black hover:bg-gray-50 hover:text-black'
+                        <div className="space-y-0.5">
+                            {(Array.isArray(items) ? items : []).map((item, index) => {
+                                const isActive = location.pathname === item.path;
+                                return (
+                                    <Link
+                                        key={index}
+                                        to={item.path}
+                                        className={`sidebar-link flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                            isActive
+                                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
+                                                : 'text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600'
                                         } ${isCollapsed ? 'justify-center' : ''}`}
-                                    title={isCollapsed ? item.name : ''}
-                                >
-                                    <span className={`text-xl shrink-0 ${location.pathname === item.path ? 'text-blue-600' : 'text-black'}`}>{item.icon}</span>
-                                    {!isCollapsed && <span className="ml-3 whitespace-nowrap">{item.name}</span>}
-                                </Link>
-                            ))}
+                                        title={isCollapsed ? item.name : ''}
+                                    >
+                                        <span className={`text-xl shrink-0 transition-colors duration-200 ${
+                                            isActive ? 'text-white' : 'text-slate-500 group-hover:text-indigo-600'
+                                        }`}>{item.icon}</span>
+                                        {!isCollapsed && <span className="ml-3.5 whitespace-nowrap">{item.name}</span>}
+                                    </Link>
+                                );
+                            })}
                         </div>
                     </div>
                 ))}
             </nav>
-            <div className="p-4 border-t border-gray-200 shrink-0">
-                <div className={`flex items-center ${isCollapsed ? 'flex-col justify-center gap-4' : 'justify-between'}`}>
 
-                    {/* User Info */}
-                    <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
-                        <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold shadow-md shrink-0">
-                            {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+            {/* Bottom Section: Profile Card */}
+            <div className="p-4 border-t border-gray-100 shrink-0 bg-white">
+                <div className={`flex ${isCollapsed ? 'flex-col items-center gap-3' : 'items-center justify-between'}`}>
+                    
+                    {/* User Info / Profile Card Link */}
+                    <Link 
+                        to="/user-profile"
+                        className={`flex items-center gap-3 p-2 rounded-xl transition-all duration-200 hover:bg-slate-50 border border-transparent hover:border-slate-100/80 ${
+                            isCollapsed ? 'justify-center w-full' : 'flex-1 mr-2'
+                        }`}
+                        title="View Profile"
+                    >
+                        <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold shadow-md shrink-0 transition-transform duration-200 hover:scale-105">
+                            {user.name ? user.name.slice(0, 2).toUpperCase() : 'SA'}
                         </div>
                         {!isCollapsed && (
                             <div className="flex-1 min-w-0 text-left">
-                                <p className="text-sm font-bold text-black leading-tight break-words">{user.name || 'User'}</p>
-                                <p className="text-[10px] text-black capitalize leading-tight break-words mt-1">
+                                <p className="text-sm font-bold text-slate-800 leading-tight truncate">{user.name || 'Super Admin'}</p>
+                                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
                                     {role === 'superadmin' 
                                         ? 'Super Admin' 
                                         : (user.colleges && user.colleges.length > 1 
@@ -181,7 +229,10 @@ const Sidebar = () => {
                                 </p>
                             </div>
                         )}
-                    </div>
+                        {!isCollapsed && (
+                            <svg className="w-4 h-4 text-indigo-600 shrink-0 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+                        )}
+                    </Link>
 
                     {/* Logout Button */}
                     <button
@@ -209,13 +260,14 @@ const Sidebar = () => {
                                 }
                             })
                         }}
-                        className={`text-black hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50 ${isCollapsed ? '' : ''}`}
+                        className="text-slate-400 hover:text-red-500 transition-colors p-2.5 rounded-xl hover:bg-red-50 shrink-0"
                         title="Logout"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                     </button>
                 </div>
             </div>
+
             {/* Sidebar Micro-Animations */}
             <style>{`
                 .sidebar-link:hover .icon-dashboard {
@@ -258,6 +310,15 @@ const Sidebar = () => {
                     transform: translateX(2px) scale(1.1);
                 }
 
+                /* Hide Scrollbars in Sidebar Navigation */
+                .sidebar-nav-scroll {
+                    -ms-overflow-style: none;  /* IE and Edge */
+                    scrollbar-width: none;  /* Firefox */
+                }
+                .sidebar-nav-scroll::-webkit-scrollbar {
+                    display: none; /* Chrome, Safari and Opera */
+                }
+
                 @keyframes cog-spin {
                     0% { transform: rotate(0deg); }
                     100% { transform: rotate(360deg); }
@@ -295,3 +356,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+
