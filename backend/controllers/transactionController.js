@@ -351,9 +351,70 @@ const updateTransactionPaymentMode = async (req, res) => {
   }
 };
 
+// @desc    Get recent transactions (for initial load, respecting role/college/course filters)
+// @route   GET /api/transactions/recent
+const getRecentTransactions = async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    const isCashier = req.user?.role === 'cashier';
+    const username = req.user?.username;
+
+    // Base query filter
+    const query = {};
+
+    // 1. Cashier Privacy: Cashier can only see their own collections
+    if (isCashier) {
+      query.collectedBy = username;
+    }
+
+    // 2. College & Course permissions for non-SuperAdmins
+    if (!isSuperAdmin) {
+      const userColleges = req.user?.colleges || (req.user?.college ? [req.user.college] : []);
+      const userCourses = req.user?.courses || [];
+
+      if (userColleges.length > 0 || userCourses.length > 0) {
+        let sqlQuery = 'SELECT admission_number FROM students WHERE 1=1';
+        const params = [];
+        
+        if (userColleges.length > 0) {
+          sqlQuery += ' AND college IN (?)';
+          params.push(userColleges);
+        }
+        
+        if (userCourses.length > 0) {
+          const courseNames = [...new Set(userCourses.map(c => c.split('|')[1]))];
+          sqlQuery += ' AND course IN (?)';
+          params.push(courseNames);
+        }
+        
+        const [studentRows] = await db.query(sqlQuery, params);
+        if (studentRows && studentRows.length > 0) {
+          const allowedStudentIds = studentRows.map(row => String(row.admission_number).trim());
+          query.studentId = { $in: allowedStudentIds };
+        } else {
+          return res.json([]);
+        }
+      }
+    }
+
+    // Fetch the 10 most recent transactions
+    const recentTxs = await Transaction.find(query)
+      .populate('feeHead', 'name')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    res.json(recentTxs);
+  } catch (error) {
+    console.error('Error fetching recent transactions:', error);
+    res.status(500).json({ message: 'Error fetching recent transactions' });
+  }
+};
+
 module.exports = {
   addTransaction,
   getStudentTransactions,
   previewSequence,
-  updateTransactionPaymentMode
+  updateTransactionPaymentMode,
+  getRecentTransactions
 };

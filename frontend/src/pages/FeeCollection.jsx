@@ -40,10 +40,10 @@ const FeeCollection = () => {
         paymentConfigId: '',
         proceedingId: ''
     });
-
     const [paymentCategory, setPaymentCategory] = useState('Cash');
-    const [splitCashAmount, setSplitCashAmount] = useState(''); // Amount for Cash portion in Split mode
+    const [splitCashAmount, setSplitCashAmount] = useState('');
     const [transactions, setTransactions] = useState([]);
+    const [recentTransactions, setRecentTransactions] = useState([]);
     const [toast, setToast] = useState(null);
 
     const showToastMessage = (message, type = 'success') => {
@@ -101,19 +101,19 @@ const FeeCollection = () => {
                     }
                 }
                 const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
-
-                const [studentsRes, configsRes, settingsRes, feeHeadsRes] = await Promise.all([
+                const [studentsRes, configsRes, settingsRes, feeHeadsRes, recentRes] = await Promise.all([
                     api.get(`/students${queryString}`),
                     api.get(`/payment-config`),
                     api.get(`/settings`),
-                    api.get(`/fee-heads`)
+                    api.get(`/fee-heads`),
+                    api.get(`/transactions/recent`)
                 ]);
 
                 setAllStudents(studentsRes.data);
                 setPaymentConfigs(configsRes.data.filter(c => c.is_active));
                 setReceiptSettings(settingsRes.data);
                 setGlobalFeeHeads(feeHeadsRes.data);
-            } catch (e) {
+                setRecentTransactions(recentRes.data || []);            } catch (e) {
                 console.error("Error fetching initial data", e);
                 setError("Failed to load data. Please refresh.");
             } finally {
@@ -257,6 +257,52 @@ const FeeCollection = () => {
         setPaymentCategory('Cash');
         setSelectedProceeding(null);
         await fetchStudentData(selectedStudent);
+    };
+
+    const handleActionOnRecentTransaction = async (tx) => {
+        const matchingStudent = allStudents.find(s => String(s.admission_number).trim() === String(tx.studentId).trim());
+        if (matchingStudent) {
+            selectStudent(matchingStudent);
+        } else {
+            try {
+                const res = await api.get(`/students?admission_number=${tx.studentId}`);
+                if (res.data && res.data.length > 0) {
+                    selectStudent(res.data[0]);
+                }
+            } catch (e) {
+                console.error("Failed to load student for recent transaction", e);
+            }
+        }
+    };
+
+    const handlePrintRecentReceipt = async (tx) => {
+        setLoading(true);
+        try {
+            let studentData = allStudents.find(s => String(s.admission_number).trim() === String(tx.studentId).trim());
+            if (!studentData) {
+                const res = await api.get(`/students?admission_number=${tx.studentId}`);
+                if (res.data && res.data.length > 0) {
+                    studentData = res.data[0];
+                }
+            }
+            
+            const relRes = await api.get(`/transactions/student/${tx.studentId}`);
+            const related = relRes.data || [];
+            
+            setLastTransaction(tx);
+            setRelatedTransactions(related.filter(t => t.receiptNumber === tx.receiptNumber));
+            if (studentData) {
+                setStudent(studentData);
+                setTimeout(() => {
+                    setShowReceiptModal(true);
+                }, 150);
+            }
+        } catch (e) {
+            console.error("Error preparing print for recent transaction", e);
+            showToastMessage("Error preparing receipt print", "error");
+        } finally {
+            setLoading(false);
+        }
     };
 
     // --- EDIT TRANSACTION LOGIC ---
@@ -581,6 +627,14 @@ const FeeCollection = () => {
             await fetchStudentData(student);
             setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]); // Reset to 1 empty row
 
+            // Refresh recent transactions list
+            try {
+                const recentRes = await api.get(`/transactions/recent`);
+                setRecentTransactions(recentRes.data || []);
+            } catch (e) {
+                console.error("Failed to refresh recent transactions", e);
+            }
+
             setPaymentForm(prev => ({
                 ...prev,
                 remarks: '',
@@ -760,14 +814,97 @@ const FeeCollection = () => {
                     </div>
                 )}
 
-                {/* --- INITIAL EMPTY STATE --- */}
+                {/* --- INITIAL EMPTY STATE WITH RECENT TRANSACTIONS --- */}
                 {!student && !searchQuery && !loading && (
-                    <div className="flex-1 flex flex-col items-center justify-center p-10 opacity-50">
-                        <div className="bg-white p-10 rounded-full mb-4 shadow-sm">
-                            <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    <div className="flex-1 flex flex-col min-h-0 space-y-6">
+                        {/* Search prompt card */}
+                        <div className="bg-white rounded-3xl border border-slate-200/60 p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden shrink-0 shadow-sm">
+                            <div className="space-y-2">
+                                <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Search for a Student to Begin</h2>
+                                <p className="text-xs md:text-sm text-slate-500 max-w-xl font-medium leading-relaxed">
+                                    Use the search bar above to look up student accounts by Name, PIN Number, or Admission ID to collect fees, manage concessions, or view statements.
+                                </p>
+                            </div>
+                            <button 
+                                onClick={() => searchInputRef.current?.focus()} 
+                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md shrink-0 animate-pulse"
+                            >
+                                Start Search
+                            </button>
                         </div>
-                        <h2 className="text-xl font-bold text-gray-400">Search for a student to begin</h2>
-                        <p className="text-gray-400 mt-2">Use the search bar above to find students by Name, Pin, or Admission Number.</p>
+
+                        {/* Recent Transactions List */}
+                        <div className="flex-1 min-h-0 bg-white rounded-3xl border border-slate-200/60 shadow-sm p-4 sm:p-6 flex flex-col">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">
+                                        Recent Activity (User Collections)
+                                    </h3>
+                                </div>
+                                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-black uppercase">
+                                    Live
+                                </span>
+                            </div>
+
+                            {recentTransactions.length === 0 ? (
+                                <div className="flex-1 flex flex-col items-center justify-center py-12 text-slate-400 opacity-60">
+                                    <svg className="w-12 h-12 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                    <span className="text-xs font-bold uppercase tracking-wider">No recent transactions recorded</span>
+                                </div>
+                            ) : (
+                                <div className="flex-1 overflow-y-auto min-h-0 sidebar-nav-scroll pr-1">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
+                                                    <th className="py-2.5 px-3">Receipt No</th>
+                                                    <th className="py-2.5 px-3">Student Name</th>
+                                                    <th className="py-2.5 px-3">Admission No</th>
+                                                    <th className="py-2.5 px-3">Fee Head</th>
+                                                    <th className="py-2.5 px-3 text-right">Amount</th>
+                                                    <th className="py-2.5 px-3">Mode</th>
+                                                    <th className="py-2.5 px-3">Date</th>
+                                                    <th className="py-2.5 px-3 text-center">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 font-medium">
+                                                {recentTransactions.map((tx) => (
+                                                    <tr key={tx._id} className="hover:bg-slate-50/40 transition-colors">
+                                                        <td className="py-3 px-3 font-bold text-slate-800 font-mono">{tx.receiptNumber}</td>
+                                                        <td className="py-3 px-3 font-bold text-slate-900">{tx.studentName}</td>
+                                                        <td className="py-3 px-3 text-slate-500 font-mono">{tx.studentId}</td>
+                                                        <td className="py-3 px-3 text-slate-600">{tx.feeHead?.name || '—'}</td>
+                                                        <td className="py-3 px-3 text-right font-extrabold text-emerald-600 font-mono">₹{fmtAmount(tx.amount)}</td>
+                                                        <td className="py-3 px-3">
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                                                tx.paymentMode === 'Cash' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'
+                                                            }`}>
+                                                                {tx.paymentMode}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-3 text-slate-400 font-mono">
+                                                            {new Date(tx.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-center">
+                                                             <div className="flex items-center justify-center">
+                                                                 <button
+                                                                     onClick={() => handleActionOnRecentTransaction(tx)}
+                                                                     className="px-2.5 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors uppercase"
+                                                                     title="Open student profile"
+                                                                 >
+                                                                     Open
+                                                                 </button>
+                                                             </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 

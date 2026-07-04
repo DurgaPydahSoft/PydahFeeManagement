@@ -126,7 +126,7 @@ const Landing = () => {
 
                                 {/* Mock Sidebar */}
                                 <div className="w-16 md:w-12 bg-white border-r border-gray-100 flex flex-col items-center py-6 gap-6 z-10 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-                                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white  text-[15px] shadow-sm">₹</div>
+                                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-[15px]">₹</div>
                                     <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center"><PieChart size={16} /></div>
                                     <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Users size={16} /></div>
                                     <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Database size={16} /></div>
