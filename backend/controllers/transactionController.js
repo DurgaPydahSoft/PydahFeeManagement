@@ -411,10 +411,27 @@ const getRecentTransactions = async (req, res) => {
   }
 };
 
+// @desc    Delete a Transaction by ID
+// @route   DELETE /api/transactions/:id
+const deleteTransaction = async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+    await Transaction.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Transaction deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    res.status(500).json({ message: 'Error deleting transaction' });
+  }
+};
+
 module.exports = {
   addTransaction,
   getStudentTransactions,
   previewSequence,
   updateTransactionPaymentMode,
-  getRecentTransactions
+  getRecentTransactions,
+  deleteTransaction
 };

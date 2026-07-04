@@ -625,6 +625,23 @@ const UserManagement = () => {
                                                         />
                                                         <span className="text-xs text-gray-600">Enable Edit Transaction</span>
                                                     </label>
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes('fee_collection_delete')}
+                                                            onChange={(() => {
+                                                                const toggle = () => {
+                                                                    let p = formData.permissions || [];
+                                                                    if (p.includes('fee_collection_delete')) p = p.filter(x => x !== 'fee_collection_delete');
+                                                                    else p = [...p, 'fee_collection_delete'];
+                                                                    setFormData({ ...formData, permissions: p });
+                                                                };
+                                                                return toggle;
+                                                            })()}
+                                                            className="rounded text-red-600 focus:ring-red-500"
+                                                        />
+                                                        <span className="text-xs text-gray-600">Enable Delete Transaction</span>
+                                                    </label>
                                                 </div>
                                             )}
 

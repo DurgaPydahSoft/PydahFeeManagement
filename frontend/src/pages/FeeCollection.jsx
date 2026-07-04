@@ -61,6 +61,9 @@ const FeeCollection = () => {
     const [showReceiptModal, setShowReceiptModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [showPhotoPopup, setShowPhotoPopup] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [txToDelete, setTxToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [sequencePreview, setSequencePreview] = useState(null);
     const [previewLoading, setPreviewLoading] = useState(false);
@@ -349,6 +352,27 @@ const FeeCollection = () => {
             paymentConfigId: '',
             proceedingId: ''
         });
+    };
+
+    // --- DELETE TRANSACTION LOGIC ---
+    const handleDeleteTransaction = (tx) => {
+        setTxToDelete(tx);
+        setShowDeleteModal(true);
+    };
+
+    const confirmDeleteTransaction = async () => {
+        if (!txToDelete) return;
+        setIsDeleting(true);
+        try {
+            await api.delete(`/transactions/${txToDelete._id}`);
+            setTransactions(prev => prev.filter(t => t._id !== txToDelete._id));
+            showToastMessage('Transaction deleted successfully.', 'success');
+            setShowDeleteModal(false);
+            setTxToDelete(null);
+        } catch (err) {
+            showToastMessage(err.response?.data?.message || 'Failed to delete transaction.', 'error');
+        }
+        setIsDeleting(false);
     };
 
     // --- Dynamic Row Handlers ---
@@ -1297,6 +1321,7 @@ const FeeCollection = () => {
                                                             totalDue={totalDueAmount}
                                                             settings={receiptSettings}
                                                             onEdit={handleEditTransaction}
+                                                            onDelete={handleDeleteTransaction}
                                                         />
                                                     ))
                                                 )}
@@ -1794,6 +1819,72 @@ const FeeCollection = () => {
                     </div>
                 )}
 
+                {/* Delete Confirmation Modal */}
+                {showDeleteModal && txToDelete && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-fadeIn">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-scaleUp">
+                            {/* Header */}
+                            <div className="bg-red-50 border-b border-red-100 p-4 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                                    <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-gray-800 text-base">Delete Transaction</h3>
+                                    <p className="text-xs text-red-500 font-medium">This action cannot be undone</p>
+                                </div>
+                                <button
+                                    onClick={() => { setShowDeleteModal(false); setTxToDelete(null); }}
+                                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            {/* Body */}
+                            <div className="p-5 space-y-4">
+                                <p className="text-sm text-gray-600">Are you sure you want to permanently delete this transaction?</p>
+                                <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Receipt No:</span>
+                                        <span className="font-bold text-gray-800 font-mono">{txToDelete.receiptNumber}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Fee Head:</span>
+                                        <span className="font-bold text-gray-800">{txToDelete.feeHead?.name || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Payment Mode:</span>
+                                        <span className="font-bold text-gray-800">{txToDelete.paymentMode}</span>
+                                    </div>
+                                    <div className="flex justify-between border-t border-gray-200 pt-2 mt-1">
+                                        <span className="text-gray-500 font-semibold">Amount:</span>
+                                        <span className="font-extrabold text-red-600 text-base">₹{Number(txToDelete.amount).toLocaleString()}</span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 pt-1">
+                                    <button
+                                        onClick={() => { setShowDeleteModal(false); setTxToDelete(null); }}
+                                        disabled={isDeleting}
+                                        className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition disabled:opacity-50"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={confirmDeleteTransaction}
+                                        disabled={isDeleting}
+                                        className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shadow transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed active:scale-95"
+                                    >
+                                        {isDeleting ? (
+                                            <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div> Deleting...</>
+                                        ) : (
+                                            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> Delete</>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Custom Toast Alert */}
                 {toast && (
                     <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl transition-all duration-300 transform translate-y-0 ${
@@ -1826,11 +1917,13 @@ const FeeCollection = () => {
 };
 
 // Sub-component for Row (Kept same)
-const TransactionRow = ({ transaction, allTransactions, student, totalDue, settings, onEdit }) => {
+const TransactionRow = ({ transaction, allTransactions, student, totalDue, settings, onEdit, onDelete }) => {
     const loggedInUser = JSON.parse(localStorage.getItem('user'));
     const isSuperAdmin = loggedInUser?.role === 'superadmin';
     const hasEditPermission = loggedInUser?.permissions?.includes('fee_collection_edit') || isSuperAdmin || loggedInUser?.role === 'admin';
+    const hasDeletePermission = loggedInUser?.permissions?.includes('fee_collection_delete') || isSuperAdmin;
     const showEditButton = hasEditPermission && transaction.transactionType !== 'CREDIT';
+    const showDeleteButton = hasDeletePermission && transaction.transactionType !== 'CREDIT';
     // Logic to show "Print" for batch or single
     // find siblings
     // ... (This logic remains same, just simplified markup)
@@ -1891,10 +1984,19 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
                 {showEditButton && (
                     <button
                         onClick={() => onEdit(transaction)}
-                        className="text-amber-600 hover:text-amber-800 hover:bg-amber-50 p-1.5 rounded transition mr-1.5"
+                        className="text-amber-600 hover:text-amber-800 hover:bg-amber-50 p-1.5 rounded transition mr-1"
                         title="Edit Transaction Payment Mode"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                )}
+                {showDeleteButton && (
+                    <button
+                        onClick={() => onDelete(transaction)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition mr-1"
+                        title="Delete Transaction"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                     </button>
                 )}
                 <button
