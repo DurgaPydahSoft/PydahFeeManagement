@@ -359,16 +359,16 @@ const Dashboard = () => {
                     ) : (
                         <div className="space-y-4">
                             {/* KPI Grid */}
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
                                 {kpis.map((kpi, idx) => (
-                                    <div key={idx} className={`p-4 bg-white rounded-xl border border-slate-200/60 border-b-[3px] ${kpi.borderColor} flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-default`}>
-                                        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${kpi.iconBg}`}>
+                                    <div key={idx} className={`p-3.5 sm:p-4 bg-white rounded-xl border border-slate-200/60 border-b-[3px] ${kpi.borderColor} flex items-center gap-3 sm:gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-default`}>
+                                        <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center shrink-0 ${kpi.iconBg}`}>
                                             <kpi.icon />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className={`text-[9px] font-black uppercase tracking-widest truncate ${kpi.labelColor}`}>{kpi.label}</p>
-                                            <p className="text-xl font-black text-slate-800 tracking-tight leading-none mt-1">{kpi.value}</p>
-                                            <p className="text-[10px] text-slate-400 font-medium mt-1.5 flex items-center gap-1">
+                                            <p className={`text-[8px] sm:text-[9px] font-black uppercase tracking-widest truncate ${kpi.labelColor}`}>{kpi.label}</p>
+                                            <p className="text-lg sm:text-xl font-black text-slate-800 tracking-tight leading-none mt-1">{kpi.value}</p>
+                                            <p className="text-[9px] sm:text-[10px] text-slate-400 font-medium mt-1 sm:mt-1.5 flex items-center gap-1">
                                                 vs yesterday <span className={`${kpi.trend.includes('▲') ? 'text-emerald-500' : 'text-rose-500'} font-extrabold`}>{kpi.trend}</span>
                                             </p>
                                         </div>

@@ -83,10 +83,8 @@ const Login = () => {
             setLoading(false);
         }
     };
-
     return (
-        <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans relative overflow-hidden">
-
+        <div className="min-h-screen flex items-center justify-center p-4 font-sans relative overflow-hidden" style={{ backgroundImage: "url('/background.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}>
             {/* Ambient Background Blobs */}
             <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-200/40 rounded-full blur-3xl pointer-events-none"></div>
             <div className="absolute bottom-[-10%] left-[-5%] w-[500px] h-[500px] bg-purple-200/40 rounded-full blur-3xl pointer-events-none"></div>
@@ -113,7 +111,6 @@ const Login = () => {
                     <div className="absolute -bottom-12 -right-12 w-72 h-72 rounded-full border-[2px] border-white/20 opacity-60"></div>
                     <div className="absolute bottom-[10%] right-[10%] w-16 h-16 rounded-full bg-blue-500 shadow-2xl overflow-hidden z-10"></div>
 
-                    {/* Branding Content (Pydah Fees like Landing) */}
                     <div className="relative z-20 mt-4 flex flex-col items-center">
                         {/* Custom Code Emblem Brand Logo */}
                         <div className="flex flex-col items-center select-none mb-10">

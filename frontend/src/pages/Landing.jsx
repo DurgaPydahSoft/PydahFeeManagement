@@ -1,11 +1,32 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Shield, PieChart, CheckCircle, ArrowRight, Activity, Users, Database } from 'lucide-react';
 
-const Landing = () => {
-    return (
-        <div className="min-h-screen bg-slate-50 font-sans text-gray-800 overflow-hidden relative">
+const slogans = [
+    "Future of Education",
+    "Institutional Finance",
+    "Smart Fee Management",
+    "Seamless Student Billing",
+    "Real-time Collections"
+];
 
+const Landing = () => {
+    const [sloganIdx, setSloganIdx] = useState(0);
+    const [fade, setFade] = useState(true);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setFade(false);
+            setTimeout(() => {
+                setSloganIdx((prev) => (prev + 1) % slogans.length);
+                setFade(true);
+            }, 500);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div className="min-h-screen font-sans text-gray-800 overflow-x-hidden relative" style={{ backgroundImage: "url('/background.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}>
             {/* Background Decoration */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
                 <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-blue-100 rounded-full blur-3xl opacity-30"></div>
@@ -20,12 +41,16 @@ const Landing = () => {
 
             {/* Navbar */}
             <nav className="relative z-10 flex justify-between items-center py-5 px-8 md:px-16 backdrop-blur-sm bg-white/70 sticky top-0 border-b border-gray-100">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                {/* Brand Logo Code Emblem */}
+                <div className="flex items-center gap-3.5 select-none">
+                    <div className="border-[2px] border-blue-700 px-3.5 py-1.5 rounded-tl-[12px] rounded-br-[12px] rounded-tr-[2px] rounded-bl-[2px] relative flex items-center justify-center leading-none bg-blue-50/50">
+                        <span className="text-base font-extrabold text-blue-700 tracking-wider font-sans">
+                            PYDAH
+                        </span>
                     </div>
-                    <span className="text-xl font-bold tracking-tight text-slate-900">Pydah<span className="text-blue-600">Fees</span></span>
                 </div>
+
+
                 <Link to="/login" className="px-6 py-2 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-full transition-all border border-blue-100">
                     Staff Portal
                 </Link>
@@ -44,8 +69,8 @@ const Landing = () => {
 
                         <h1 className="text-4xl md:text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
                             Powering the <br />
-                            <span className="text-blue-600">
-                                Future of Education
+                            <span className={`text-blue-600 inline-block transition-all duration-500 transform ${fade ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+                                {slogans[sloganIdx]}
                             </span>
                         </h1>
 
@@ -101,7 +126,7 @@ const Landing = () => {
 
                                 {/* Mock Sidebar */}
                                 <div className="w-16 md:w-12 bg-white border-r border-gray-100 flex flex-col items-center py-6 gap-6 z-10 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-                                    <div className="w-8 h-8 rounded-lg bg-blue-600"></div>
+                                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white  text-[15px] shadow-sm">₹</div>
                                     <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center"><PieChart size={16} /></div>
                                     <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Users size={16} /></div>
                                     <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Database size={16} /></div>
@@ -176,53 +201,7 @@ const Landing = () => {
                 </div>
             </section>
 
-            {/* Innovative Features Grid */}
-            <section className="py-20 px-8 md:px-16 bg-white relative">
-                <div className="max-w-7xl mx-auto">
-                    <div className="mb-20">
-                        <h2 className="text-4xl font-bold text-slate-900 mb-6">Engineered for <br /> <span className="text-blue-600">Excellence</span></h2>
-                        <div className="h-1 w-20 bg-blue-600 rounded-full"></div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        {/* Card 1 */}
-                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-blue-600 hover:to-blue-700 hover:text-white transition-all duration-300 relative overflow-hidden">
-                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
-                                <Shield size={28} />
-                            </div>
-                            <h3 className="text-2xl font-bold mb-4">Fortified Security</h3>
-                            <p className="text-gray-500 group-hover:text-blue-100 leading-relaxed font-medium">
-                                Banking-grade encryption protocols protecting every transaction and student record.
-                            </p>
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-16 -mt-16 transition-opacity opacity-0 group-hover:opacity-100"></div>
-                        </div>
-
-                        {/* Card 2 */}
-                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-purple-600 hover:to-purple-700 hover:text-white transition-all duration-300 relative overflow-hidden">
-                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-purple-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
-                                <Database size={28} />
-                            </div>
-                            <h3 className="text-2xl font-bold mb-4">Centralized Core</h3>
-                            <p className="text-gray-500 group-hover:text-purple-100 leading-relaxed font-medium">
-                                Unified database architecture ensuring data consistency across all campuses and departments.
-                            </p>
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-16 -mt-16 transition-opacity opacity-0 group-hover:opacity-100"></div>
-                        </div>
-
-                        {/* Card 3 */}
-                        <div className="group p-8 rounded-3xl bg-slate-50 hover:bg-gradient-to-br hover:from-cyan-600 hover:to-cyan-700 hover:text-white transition-all duration-300 relative overflow-hidden">
-                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-cyan-600 mb-5 shadow-sm group-hover:scale-110 transition-transform">
-                                <Activity size={28} />
-                            </div>
-                            <h3 className="text-2xl font-bold mb-4">Live Analytics</h3>
-                            <p className="text-gray-500 group-hover:text-cyan-100 leading-relaxed font-medium">
-                                Real-time financial dashboards providing instant insights into cash flow and pending dues.
-                            </p>
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-16 -mt-16 transition-opacity opacity-0 group-hover:opacity-100"></div>
-                        </div>
-                    </div>
-                </div>
-            </section>
 
             {/* Footer */}
             <footer className="bg-slate-50 border-t border-slate-200 py-10 px-8">
