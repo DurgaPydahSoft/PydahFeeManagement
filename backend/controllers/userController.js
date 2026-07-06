@@ -13,6 +13,44 @@ const getUsers = async (req, res) => {
   }
 };
 
+// @desc    Get current logged-in user's fresh profile (including paymentAccess)
+// @route   GET /api/users/me
+// @access  Private
+const getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Update per-user payment access overrides
+// @route   PUT /api/users/:id/payment-access
+// @access  Admin / SuperAdmin
+const updateUserPaymentAccess = async (req, res) => {
+  try {
+    const { enableCashPayment, enableBankPayment, enableSplitPayment, feeCollectionDisabled } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.paymentAccess = {
+      feeCollectionDisabled: feeCollectionDisabled === true,
+      enableCashPayment: enableCashPayment !== undefined ? enableCashPayment : null,
+      enableBankPayment: enableBankPayment !== undefined ? enableBankPayment : null,
+      enableSplitPayment: enableSplitPayment !== undefined ? enableSplitPayment : null,
+      autoResetEnabled: true,
+    };
+    await user.save();
+
+    res.json({ message: 'Payment access updated', paymentAccess: user.paymentAccess });
+  } catch (error) {
+    console.error('Error updating payment access:', error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
 // @desc    Create a new user
 // @route   POST /api/users
 // @access  Admin
@@ -200,8 +238,10 @@ const updateUser = async (req, res) => {
 
 module.exports = {
   getUsers,
+  getMe,
   createUser,
   deleteUser,
   updateUserPermissions,
-  updateUser
+  updateUser,
+  updateUserPaymentAccess
 };

@@ -1,4 +1,5 @@
 const Setting = require('../models/Setting');
+const { schedulePaymentAccessReset } = require('../services/scheduler');
 
 // @desc    Get settings
 // @route   GET /api/settings
@@ -32,26 +33,26 @@ const getSettings = async (req, res) => {
 // @route   PUT /api/settings
 // @access  Private (Admin)
 const updateSettings = async (req, res) => {
-  const { 
-    showCollegeHeader, 
+  const {
+    showCollegeHeader,
     enableCashPayment,
     enableBankPayment,
     enableSplitPayment,
-    maskedFeeHeads, 
-    maskName, 
-    paperSize, 
+    maskedFeeHeads,
+    maskName,
+    paperSize,
     copiesPerPage,
     enableCustomReceiptSequence,
     receiptSequenceSeparator,
     receiptSequencePadding,
     receiptSequenceResetMonth,
-    receiptSequenceResetDay
+    receiptSequenceResetDay,
+    paymentAccessAutoReset,
+    paymentAccessResetHour,
+    paymentAccessResetMinute
   } = req.body;
-  console.log('Update Settings Body:', req.body);
 
   try {
-    // Upsert: Find the first document and update it, or create if none exists.
-    // simple findOneAndUpdate with empty filter works for singleton logic if we only ever access it this way.
     const settings = await Setting.findOneAndUpdate(
       {},
       {
@@ -68,11 +69,26 @@ const updateSettings = async (req, res) => {
           receiptSequenceSeparator: receiptSequenceSeparator || '/',
           receiptSequencePadding: receiptSequencePadding !== undefined ? Number(receiptSequencePadding) : 5,
           receiptSequenceResetMonth: receiptSequenceResetMonth !== undefined ? Number(receiptSequenceResetMonth) : 4,
-          receiptSequenceResetDay: receiptSequenceResetDay !== undefined ? Number(receiptSequenceResetDay) : 1
+          receiptSequenceResetDay: receiptSequenceResetDay !== undefined ? Number(receiptSequenceResetDay) : 1,
+          paymentAccessAutoReset: paymentAccessAutoReset !== undefined ? paymentAccessAutoReset : true,
+          paymentAccessResetHour: paymentAccessResetHour !== undefined ? Number(paymentAccessResetHour) : 9,
+          paymentAccessResetMinute: paymentAccessResetMinute !== undefined ? Number(paymentAccessResetMinute) : 0,
         }
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
+
+    // If auto-reset schedule changed, update the running cron job
+    try {
+      const autoReset = settings.paymentAccessAutoReset !== false;
+      const hour = settings.paymentAccessResetHour ?? 9;
+      const minute = settings.paymentAccessResetMinute ?? 0;
+      if (autoReset) {
+        schedulePaymentAccessReset(hour, minute);
+      }
+    } catch (schedErr) {
+      console.error('Error rescheduling payment reset:', schedErr);
+    }
     
     res.json(settings);
   } catch (error) {

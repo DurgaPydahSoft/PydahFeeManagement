@@ -43,6 +43,7 @@ const applyFeeManagementProfile = (authUser, feeUser) => ({
   courses: feeUser.courses || [],
   permissions: feeUser.permissions || [],
   employeeId: feeUser.employeeId,
+  paymentAccess: feeUser.paymentAccess || {},
 });
 
 // @desc    Authenticate a user
@@ -68,15 +69,16 @@ const loginUser = async (req, res) => {
       // console.log(`[AUTH DEBUG] Step 1: Password match -> ${isLocalMatch ? 'YES' : 'NO'}`);
       if (isLocalMatch) {
         authUser = {
-          _id: localUser._id, // FIX: Use ._id from Mongoose doc
+          _id: localUser._id,
           name: localUser.name,
           username: localUser.username,
           role: localUser.role,
-          college: localUser.college, // Specific to Fee Management 
+          college: localUser.college,
           colleges: localUser.colleges || [],
           courses: localUser.courses || [],
           permissions: localUser.permissions,
-          employeeId: localUser.employeeId
+          employeeId: localUser.employeeId,
+          paymentAccess: localUser.paymentAccess || {},
         };
         authMethod = 'Local User DB';
       }
@@ -189,6 +191,7 @@ const loginUser = async (req, res) => {
         colleges: authUser.colleges || [],
         courses: authUser.courses || [],
         permissions: authUser.permissions,
+        paymentAccess: authUser.paymentAccess || {},
         sessionId: newSessionId,
         token,
       });
@@ -337,6 +340,7 @@ const ssoLogin = async (req, res) => {
         colleges: authUser.colleges || [],
         courses: authUser.courses || [],
         permissions: authUser.permissions,
+        paymentAccess: authUser.paymentAccess || {},
         sessionId: newSessionId,
         token,
       });

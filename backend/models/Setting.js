@@ -55,6 +55,23 @@ const settingSchema = mongoose.Schema({
     type: Number,
     default: 1, // 1st
   },
+  // Per-user payment access auto-reset schedule
+  paymentAccessAutoReset: {
+    type: Boolean,
+    default: true, // enabled by default
+  },
+  paymentAccessResetHour: {
+    type: Number,
+    default: 9, // 9 AM
+    min: 0,
+    max: 23,
+  },
+  paymentAccessResetMinute: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 59,
+  },
 }, {
   timestamps: true,
 });

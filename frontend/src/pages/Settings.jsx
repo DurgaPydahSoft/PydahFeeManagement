@@ -1,8 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
 
+const SECTION_LABELS = {
+    appearance:    'Receipt Appearance',
+    features:      'Fee Collection Features',
+    'user-access': 'User Payment Access',
+    sequence:      'Receipt Sequence',
+    masking:       'Mask Fee Heads',
+};
+
+// ─── reusable Toggle ────────────────────────────────────────────────────────
+const Toggle = ({ checked, onChange, disabled = false }) => (
+    <label className={`relative inline-flex items-center ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+        <input type="checkbox" className="sr-only peer" checked={!!checked} onChange={onChange} disabled={disabled} />
+        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+    </label>
+);
+
 const Settings = () => {
+    const location = useLocation();
+    const activeSection = SECTION_LABELS[location.hash.replace('#', '')] ? location.hash.replace('#', '') : 'appearance';
     const [settings, setSettings] = useState({
         showCollegeHeader: true,
         enableCashPayment: true,
@@ -12,392 +31,476 @@ const Settings = () => {
         maskName: 'Processing Fee',
         enableCustomReceiptSequence: false,
         receiptSequenceSeparator: '/',
-        receiptSequencePadding: 5
+        receiptSequencePadding: 5,
+        receiptSequenceResetMonth: 4,
+        receiptSequenceResetDay: 1,
+        paymentAccessAutoReset: true,
+        paymentAccessResetHour: 9,
+        paymentAccessResetMinute: 0,
     });
     const [feeHeads, setFeeHeads] = useState([]);
+    const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [savingSection, setSavingSection] = useState(null);
-    const [message, setMessage] = useState('');
+    const [savingUserId, setSavingUserId] = useState(null);
+    const [toast, setToast] = useState(null);
+
+    // local per-user override state: { [userId]: { enableCashPayment, enableBankPayment, enableSplitPayment } }
+    const [userAccess, setUserAccess] = useState({});
+
+    const showMsg = (text, type = 'success') => {
+        setToast({ message: text, type });
+        setTimeout(() => setToast(null), 4000);
+    };
 
     useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [settingsRes, feeHeadsRes, usersRes] = await Promise.all([
+                    api.get('/settings'),
+                    api.get('/fee-heads'),
+                    api.get('/users'),
+                ]);
+                setSettings(settingsRes.data);
+                setFeeHeads(feeHeadsRes.data);
+
+                // Only non-superadmin users are relevant for per-user access
+                const relevantUsers = usersRes.data.filter(u => u.role !== 'superadmin');
+                setUsers(relevantUsers);
+
+                // Seed local override state from each user's stored paymentAccess
+                const initial = {};
+                relevantUsers.forEach(u => {
+                    initial[u._id] = {
+                        feeCollectionDisabled: u.paymentAccess?.feeCollectionDisabled ?? false,
+                        enableCashPayment: u.paymentAccess?.enableCashPayment ?? null,
+                        enableBankPayment: u.paymentAccess?.enableBankPayment ?? null,
+                        enableSplitPayment: u.paymentAccess?.enableSplitPayment ?? null,
+                    };
+                });
+                setUserAccess(initial);
+            } catch (error) {
+                console.error(error);
+                showMsg('Error fetching data', 'error');
+            } finally {
+                setLoading(false);
+            }
+        };
         fetchData();
     }, []);
 
-    const fetchData = async () => {
-        try {
-            const [settingsRes, feeHeadsRes] = await Promise.all([
-                api.get(`/settings`),
-                api.get(`/fee-heads`)
-            ]);
-            setSettings(settingsRes.data);
-            setFeeHeads(feeHeadsRes.data);
-            setLoading(false);
-        } catch (error) {
-            console.error(error);
-            setMessage('Error fetching data');
-            setLoading(false);
-        }
-    };
-
-    const handleToggleHeader = () => {
-        setSettings({ ...settings, showCollegeHeader: !settings.showCollegeHeader });
-    };
-
-    const handleTogglePayment = (paymentMethod) => {
-        setSettings({ ...settings, [paymentMethod]: !settings[paymentMethod] });
-    };
-
-    const handleMaskNameChange = (e) => {
-        setSettings({ ...settings, maskName: e.target.value });
-    };
-
-    const handleFeeHeadToggle = (id) => {
-        const currentMasked = settings.maskedFeeHeads || [];
-        if (currentMasked.includes(id)) {
-            setSettings({
-                ...settings,
-                maskedFeeHeads: currentMasked.filter(fid => fid !== id)
-            });
-        } else {
-            setSettings({
-                ...settings,
-                maskedFeeHeads: [...currentMasked, id]
-            });
-        }
-    };
-
     const handleSaveSection = async (section) => {
         setSavingSection(section);
-        setMessage('');
         try {
-            await api.put(`/settings`, settings);
-            setMessage(`${section.charAt(0).toUpperCase() + section.slice(1)} settings saved successfully!`);
-            setTimeout(() => setMessage(''), 3000);
+            await api.put('/settings', settings);
+            showMsg('Settings saved successfully!');
         } catch (error) {
-            console.error(error);
-            setMessage('Error saving settings');
-            setTimeout(() => setMessage(''), 3000);
+            showMsg('Error saving settings', 'error');
         } finally {
             setSavingSection(null);
         }
     };
 
-    return (
-        <div className="flex min-h-screen bg-gray-50 font-sans">
-            <Sidebar />
-            <div className="flex-1 p-6 md:p-10 max-w-5xl mx-auto space-y-8">
-                <header className="mb-8">
-                    <h1 className="text-3xl font-bold text-gray-800">Global Settings</h1>
-                    <p className="text-gray-500 mt-2">Configure fee receipts and global system features.</p>
-                </header>
+    const handleSaveUserAccess = async (userId) => {
+        setSavingUserId(userId);
+        try {
+            await api.put(`/users/${userId}/payment-access`, userAccess[userId]);
+            showMsg('User payment access updated.');
+        } catch (error) {
+            showMsg('Error updating user access', 'error');
+        } finally {
+            setSavingUserId(null);
+        }
+    };
 
-                {loading ? (
-                    <div className="text-center py-10"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div></div>
-                ) : (
-                    <div className="max-w-4xl space-y-6">
-                        {/* Status Message */}
-                        {message && (
-                            <div className={`p-4 rounded-lg text-sm font-medium ${message.includes('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-                                {message}
+    const setUserAccessField = (userId, field, value) => {
+        setUserAccess(prev => ({
+            ...prev,
+            [userId]: { ...prev[userId], [field]: value }
+        }));
+    };
+
+    // Tri-state: null → follow global, true → allow, false → deny
+    const cycleAccess = (userId, field) => {
+        const cur = userAccess[userId]?.[field];
+        // null → true → false → null
+        const next = cur === null ? true : cur === true ? false : null;
+        setUserAccessField(userId, field, next);
+    };
+
+    const accessBadge = (val, globalVal) => {
+        if (val === null) return { label: 'Global', cls: 'bg-gray-100 text-gray-500 border-gray-200' };
+        if (val === true) return { label: 'Allowed', cls: 'bg-green-50 text-green-700 border-green-200' };
+        return { label: 'Denied', cls: 'bg-red-50 text-red-600 border-red-200' };
+    };
+
+    // ── Section renderers ─────────────────────────────────────────────────────
+
+    const renderAppearance = () => (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800">Receipt Appearance</h2>
+                <p className="text-sm text-gray-500 mt-1">Configure how receipts look when printed.</p>
+            </div>
+            <div className="p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-semibold text-gray-700">College Header</h3>
+                        <p className="text-sm text-gray-500">Show college name and address at the top of the receipt.</p>
+                    </div>
+                    <Toggle checked={settings.showCollegeHeader !== false} onChange={() => setSettings(s => ({ ...s, showCollegeHeader: !s.showCollegeHeader }))} />
+                </div>
+                <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 className="font-semibold text-gray-700 mb-2">Paper Size</h3>
+                        <div className="flex space-x-4">
+                            {['A4', 'A5'].map(v => (
+                                <label key={v} className="flex items-center space-x-2 cursor-pointer">
+                                    <input type="radio" name="paperSize" value={v} checked={(!settings.paperSize && v === 'A4') || settings.paperSize === v} onChange={() => setSettings(s => ({ ...s, paperSize: v }))} className="w-4 h-4 text-blue-600" />
+                                    <span className="text-sm font-medium text-gray-700">{v} Size</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <h3 className="font-semibold text-gray-700 mb-2">Copies Per Page</h3>
+                        <div className="flex space-x-4">
+                            {[1, 2].map(v => (
+                                <label key={v} className="flex items-center space-x-2 cursor-pointer">
+                                    <input type="radio" name="copiesPerPage" value={v} checked={(!settings.copiesPerPage && v === 2) || settings.copiesPerPage === v} onChange={() => setSettings(s => ({ ...s, copiesPerPage: v }))} className="w-4 h-4 text-blue-600" />
+                                    <span className="text-sm font-medium text-gray-700">{v} {v === 1 ? 'Copy' : 'Copies'}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <SectionFooter section="appearance" savingSection={savingSection} onSave={handleSaveSection} label="Save Appearance" />
+        </div>
+    );
+
+    const renderFeatures = () => (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800">Fee Collection Features</h2>
+                <p className="text-sm text-gray-500 mt-1">Enable or disable specific payment methods globally. These act as the master switch — per-user overrides apply on top.</p>
+            </div>
+            <div className="p-6 space-y-0 divide-y divide-gray-100">
+                {[
+                    { key: 'enableCashPayment',  label: 'Cash Payments',  desc: 'Allow collection of fees via physical cash.' },
+                    { key: 'enableBankPayment',  label: 'Bank Payments',  desc: 'Allow collection of fees via bank transfers, DD, or cheques.' },
+                    { key: 'enableSplitPayment', label: 'Split Payments', desc: 'Allow splitting a single payment across multiple methods.' },
+                ].map(({ key, label, desc }) => (
+                    <div key={key} className="flex items-center justify-between py-5">
+                        <div>
+                            <h3 className="font-semibold text-gray-700">{label}</h3>
+                            <p className="text-sm text-gray-500">{desc}</p>
+                        </div>
+                        <Toggle checked={settings[key] !== false} onChange={() => setSettings(s => ({ ...s, [key]: !s[key] }))} />
+                    </div>
+                ))}
+            </div>
+            <SectionFooter section="features" savingSection={savingSection} onSave={handleSaveSection} label="Save Features" />
+        </div>
+    );
+
+    const renderUserAccess = () => (
+        <div className="space-y-6">
+            {/* Auto-reset config card */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                    <h2 className="text-lg font-bold text-gray-800">Auto-Reset Schedule</h2>
+                    <p className="text-sm text-gray-500 mt-1">User payment access overrides are automatically cleared each day at the configured time, returning each user to the global setting.</p>
+                </div>
+                <div className="p-6 space-y-5">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="font-semibold text-gray-700">Enable Daily Auto-Reset</h3>
+                            <p className="text-sm text-gray-500">Automatically revoke all user-level payment access grants at the scheduled time.</p>
+                        </div>
+                        <Toggle checked={settings.paymentAccessAutoReset !== false} onChange={() => setSettings(s => ({ ...s, paymentAccessAutoReset: !s.paymentAccessAutoReset }))} />
+                    </div>
+                    {settings.paymentAccessAutoReset !== false && (
+                        <div className="border-t border-gray-100 pt-5 flex items-end gap-4 flex-wrap">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Reset Hour (24h)</label>
+                                <input
+                                    type="number" min={0} max={23}
+                                    value={settings.paymentAccessResetHour ?? 9}
+                                    onChange={e => setSettings(s => ({ ...s, paymentAccessResetHour: Math.min(23, Math.max(0, parseInt(e.target.value) || 0)) }))}
+                                    className="w-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                />
                             </div>
-                        )}
-
-                        {/* General Settings */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                            <div className="p-6 border-b border-gray-100">
-                                <h2 className="text-lg font-bold text-gray-800">Receipt Appearance</h2>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Reset Minute</label>
+                                <input
+                                    type="number" min={0} max={59}
+                                    value={settings.paymentAccessResetMinute ?? 0}
+                                    onChange={e => setSettings(s => ({ ...s, paymentAccessResetMinute: Math.min(59, Math.max(0, parseInt(e.target.value) || 0)) }))}
+                                    className="w-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                />
                             </div>
-                            <div className="p-6 space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700">College Header</h3>
-                                        <p className="text-sm text-gray-500">Show college name and address at the top of the receipt.</p>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" checked={settings.showCollegeHeader !== false} onChange={handleToggleHeader} />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                    </label>
-                                </div>
-
-                                <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700 mb-2">Paper Size</h3>
-                                        <p className="text-sm text-gray-500 mb-3">Select the physical paper size used for printing.</p>
-                                        <div className="flex space-x-4">
-                                            <label className="flex items-center space-x-2 cursor-pointer">
-                                                <input
-                                                    type="radio"
-                                                    name="paperSize"
-                                                    value="A4"
-                                                    checked={!settings.paperSize || settings.paperSize === 'A4'}
-                                                    onChange={() => setSettings({ ...settings, paperSize: 'A4' })}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm font-medium text-gray-700">A4 Size</span>
-                                            </label>
-                                            <label className="flex items-center space-x-2 cursor-pointer">
-                                                <input
-                                                    type="radio"
-                                                    name="paperSize"
-                                                    value="A5"
-                                                    checked={settings.paperSize === 'A5'}
-                                                    onChange={() => setSettings({ ...settings, paperSize: 'A5' })}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm font-medium text-gray-700">A5 Size</span>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700 mb-2">Copies Per Page</h3>
-                                        <p className="text-sm text-gray-500 mb-3">Number of receipts printed per sheet.</p>
-                                        <div className="flex space-x-4">
-                                            <label className="flex items-center space-x-2 cursor-pointer">
-                                                <input
-                                                    type="radio"
-                                                    name="copiesPerPage"
-                                                    value="1"
-                                                    checked={settings.copiesPerPage === 1}
-                                                    onChange={() => setSettings({ ...settings, copiesPerPage: 1 })}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm font-medium text-gray-700">1 Copy</span>
-                                            </label>
-                                            <label className="flex items-center space-x-2 cursor-pointer">
-                                                <input
-                                                    type="radio"
-                                                    name="copiesPerPage"
-                                                    value="2"
-                                                    checked={!settings.copiesPerPage || settings.copiesPerPage === 2}
-                                                    onChange={() => setSettings({ ...settings, copiesPerPage: 2 })}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm font-medium text-gray-700">2 Copies</span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
-                                <button
-                                    onClick={() => handleSaveSection('appearance')}
-                                    disabled={savingSection === 'appearance'}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-                                >
-                                    {savingSection === 'appearance' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
-                                    {savingSection === 'appearance' ? 'Saving...' : 'Save Appearance'}
-                                </button>
+                            <div className="pb-2">
+                                <span className="text-sm text-gray-500">
+                                    Resets daily at <strong className="text-blue-700">{String(settings.paymentAccessResetHour ?? 9).padStart(2, '0')}:{String(settings.paymentAccessResetMinute ?? 0).padStart(2, '0')}</strong>
+                                </span>
                             </div>
                         </div>
+                    )}
+                </div>
+                <SectionFooter section="user-access-schedule" savingSection={savingSection} onSave={handleSaveSection} label="Save Schedule" />
+            </div>
 
-                        {/* Fee Collection Features */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                            <div className="p-6 border-b border-gray-100">
-                                <h2 className="text-lg font-bold text-gray-800">Fee Collection Features</h2>
-                                <p className="text-sm text-gray-500 mt-1">Enable or disable specific payment methods globally.</p>
-                            </div>
-                            <div className="p-6 space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700">Cash Payments</h3>
-                                        <p className="text-sm text-gray-500">Allow collection of fees via physical cash.</p>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" checked={settings.enableCashPayment !== false} onChange={() => handleTogglePayment('enableCashPayment')} />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                    </label>
-                                </div>
-                                <div className="flex items-center justify-between border-t border-gray-100 pt-6">
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700">Bank Payments</h3>
-                                        <p className="text-sm text-gray-500">Allow collection of fees via bank transfers, DD, or cheques.</p>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" checked={settings.enableBankPayment !== false} onChange={() => handleTogglePayment('enableBankPayment')} />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                    </label>
-                                </div>
-                                <div className="flex items-center justify-between border-t border-gray-100 pt-6">
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700">Split Payments</h3>
-                                        <p className="text-sm text-gray-500">Allow splitting a single payment across multiple methods.</p>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" checked={settings.enableSplitPayment !== false} onChange={() => handleTogglePayment('enableSplitPayment')} />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                    </label>
-                                </div>
-                            </div>
-                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
-                                <button
-                                    onClick={() => handleSaveSection('features')}
-                                    disabled={savingSection === 'features'}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-                                >
-                                    {savingSection === 'features' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
-                                    {savingSection === 'features' ? 'Saving...' : 'Save Features'}
-                                </button>
-                            </div>
+            {/* Per-user access table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                    <h2 className="text-lg font-bold text-gray-800">Per-User Payment Access</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                        Override payment methods for individual users. <span className="font-medium text-gray-700">Global</span> = follow the master switch above.
+                        Overrides marked <span className="font-medium text-blue-600">Allowed</span> will auto-reset daily.
+                    </p>
+                </div>
+                <div className="overflow-x-auto">
+                    {users.length === 0 ? (
+                        <p className="text-center py-10 text-gray-400 text-sm">No users found.</p>
+                    ) : (
+                        <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b border-gray-100">
+                                <tr>
+                                    <th className="py-3 px-5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">User</th>
+                                    <th className="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Role</th>
+                                    <th className="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Fee Collection
+                                        <div className="text-[9px] font-normal text-gray-400 normal-case tracking-normal mt-0.5">master switch</div>
+                                    </th>
+                                    <th className="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Cash</th>
+                                    <th className="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Bank</th>
+                                    <th className="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Split</th>
+                                    <th className="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {users.map(u => {
+                                    const ua = userAccess[u._id] || {};
+                                    const saving = savingUserId === u._id;
+                                    const isBlocked = ua.feeCollectionDisabled === true;
+                                    return (
+                                        <tr key={u._id} className={`transition-colors ${isBlocked ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}>
+                                            <td className="py-3 px-5">
+                                                <div className="font-semibold text-gray-800">{u.name}</div>
+                                                <div className="text-xs text-gray-400">{u.username}</div>
+                                            </td>
+                                            <td className="py-3 px-4 text-center">
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-indigo-50 text-indigo-700 border-indigo-200 uppercase">{u.role}</span>
+                                            </td>
+                                            {/* Master fee collection toggle */}
+                                            <td className="py-3 px-4 text-center">
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <Toggle
+                                                        checked={!isBlocked}
+                                                        onChange={() => {
+                                                            const nowBlocking = !isBlocked;
+                                                            setUserAccess(prev => ({
+                                                                ...prev,
+                                                                [u._id]: {
+                                                                    ...prev[u._id],
+                                                                    feeCollectionDisabled: nowBlocking,
+                                                                    // when blocking, force all methods to denied; when unblocking reset to global
+                                                                    enableCashPayment:  nowBlocking ? false : null,
+                                                                    enableBankPayment:  nowBlocking ? false : null,
+                                                                    enableSplitPayment: nowBlocking ? false : null,
+                                                                }
+                                                            }));
+                                                        }}
+                                                    />
+                                                    <span className={`text-[9px] font-bold ${isBlocked ? 'text-red-500' : 'text-green-600'}`}>
+                                                        {isBlocked ? 'Blocked' : 'Active'}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            {/* Per-method badges — greyed out when master is blocked */}
+                                            {['enableCashPayment', 'enableBankPayment', 'enableSplitPayment'].map(field => {
+                                                const val = ua[field];
+                                                const badge = accessBadge(val);
+                                                return (
+                                                    <td key={field} className="py-3 px-4 text-center">
+                                                        <button
+                                                            onClick={() => !isBlocked && cycleAccess(u._id, field)}
+                                                            disabled={isBlocked}
+                                                            title={isBlocked ? 'Enable fee collection access first' : 'Click to cycle: Global → Allowed → Denied → Global'}
+                                                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${isBlocked ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : `cursor-pointer hover:opacity-80 active:scale-95 ${badge.cls}`}`}
+                                                        >
+                                                            {badge.label}
+                                                        </button>
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="py-3 px-4 text-center">
+                                                <button
+                                                    onClick={() => handleSaveUserAccess(u._id)}
+                                                    disabled={saving}
+                                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg disabled:opacity-50 flex items-center gap-1.5 mx-auto transition"
+                                                >
+                                                    {saving && <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent inline-block"></span>}
+                                                    {saving ? 'Saving…' : 'Save'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderSequence = () => (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800">Custom Receipt Sequence</h2>
+                <p className="text-sm text-gray-500 mt-1">Configure automated structured receipt numbers by college, course, and fee group.</p>
+            </div>
+            <div className="p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-semibold text-gray-700">Enable Custom Receipt Sequences</h3>
+                        <p className="text-sm text-gray-500">Generate receipt numbers like COLLEGE/COURSE/GROUP/00001.</p>
+                    </div>
+                    <Toggle checked={settings.enableCustomReceiptSequence === true} onChange={() => setSettings(s => ({ ...s, enableCustomReceiptSequence: !s.enableCustomReceiptSequence }))} />
+                </div>
+                {settings.enableCustomReceiptSequence && (
+                    <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">Sequence Separator</label>
+                            <select value={settings.receiptSequenceSeparator || '/'} onChange={e => setSettings(s => ({ ...s, receiptSequenceSeparator: e.target.value }))} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-semibold">
+                                <option value="/">Slash ( / )</option>
+                                <option value="-">Hyphen ( - )</option>
+                                <option value="_">Underscore ( _ )</option>
+                                <option value=".">Dot ( . )</option>
+                            </select>
+                            <p className="text-xs text-gray-400 mt-1">Character separating receipt parts.</p>
                         </div>
-
-                        {/* Custom Receipt Sequence Settings */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                            <div className="p-6 border-b border-gray-100">
-                                <h2 className="text-lg font-bold text-gray-800">Custom Receipt Sequence</h2>
-                                <p className="text-sm text-gray-500 mt-1">Configure automated structured receipt numbers by college, course, and fee group.</p>
-                            </div>
-                            <div className="p-6 space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <h3 className="font-semibold text-gray-700">Enable Custom Receipt Sequences</h3>
-                                        <p className="text-sm text-gray-500">Generate receipt numbers like COLLEGE/COURSE/GROUP/00001.</p>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input 
-                                            type="checkbox" 
-                                            className="sr-only peer" 
-                                            checked={settings.enableCustomReceiptSequence === true} 
-                                            onChange={() => setSettings({ ...settings, enableCustomReceiptSequence: !settings.enableCustomReceiptSequence })} 
-                                        />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                    </label>
-                                </div>
-
-                                {settings.enableCustomReceiptSequence && (
-                                    <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fadeIn">
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">Sequence Separator</label>
-                                            <select
-                                                value={settings.receiptSequenceSeparator || '/'}
-                                                onChange={e => setSettings({ ...settings, receiptSequenceSeparator: e.target.value })}
-                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-semibold"
-                                            >
-                                                <option value="/">Slash ( / )</option>
-                                                <option value="-">Hyphen ( - )</option>
-                                                <option value="_">Underscore ( _ )</option>
-                                                <option value=".">Dot ( . )</option>
-                                            </select>
-                                            <p className="text-xs text-gray-400 mt-1">Character separating receipt number parts.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">Sequence Padding</label>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={10}
-                                                value={settings.receiptSequencePadding ?? 5}
-                                                onChange={e => setSettings({ ...settings, receiptSequencePadding: Math.max(1, parseInt(e.target.value) || 1) })}
-                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
-                                            />
-                                            <p className="text-xs text-gray-400 mt-1">Digits for the sequence counter (e.g. 5 pads to 00001).</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">FY Reset Month</label>
-                                            <select
-                                                value={settings.receiptSequenceResetMonth ?? 4}
-                                                onChange={e => setSettings({ ...settings, receiptSequenceResetMonth: parseInt(e.target.value) })}
-                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-semibold"
-                                            >
-                                                <option value={1}>January</option>
-                                                <option value={2}>February</option>
-                                                <option value={3}>March</option>
-                                                <option value={4}>April</option>
-                                                <option value={5}>May</option>
-                                                <option value={6}>June</option>
-                                                <option value={7}>July</option>
-                                                <option value={8}>August</option>
-                                                <option value={9}>September</option>
-                                                <option value={10}>October</option>
-                                                <option value={11}>November</option>
-                                                <option value={12}>December</option>
-                                            </select>
-                                            <p className="text-xs text-gray-400 mt-1">Month to restart sequence from 1.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">FY Reset Day</label>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={31}
-                                                value={settings.receiptSequenceResetDay ?? 1}
-                                                onChange={e => setSettings({ ...settings, receiptSequenceResetDay: Math.max(1, Math.min(31, parseInt(e.target.value) || 1)) })}
-                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
-                                            />
-                                            <p className="text-xs text-gray-400 mt-1">Day of month to restart sequence.</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
-                                <button
-                                    onClick={() => handleSaveSection('sequence')}
-                                    disabled={savingSection === 'sequence'}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-                                >
-                                    {savingSection === 'sequence' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
-                                    {savingSection === 'sequence' ? 'Saving...' : 'Save Sequence'}
-                                </button>
-                            </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">Sequence Padding</label>
+                            <input type="number" min={1} max={10} value={settings.receiptSequencePadding ?? 5} onChange={e => setSettings(s => ({ ...s, receiptSequencePadding: Math.max(1, parseInt(e.target.value) || 1) }))} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold" />
+                            <p className="text-xs text-gray-400 mt-1">Digits for counter (e.g. 5 → 00001).</p>
                         </div>
-
-                        {/* Masking Settings */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                            <div className="p-6 border-b border-gray-100">
-                                <h2 className="text-lg font-bold text-gray-800">Mask Fee Heads</h2>
-                                <p className="text-sm text-gray-500 mt-1">Select Fee Heads to hide/rename on the receipt. They will be displayed as the name below.</p>
-                            </div>
-                            <div className="p-6 space-y-6">
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">Mask Name (Display Name)</label>
-                                    <input
-                                        type="text"
-                                        value={settings.maskName}
-                                        onChange={handleMaskNameChange}
-                                        className="w-full md:w-1/2 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="e.g. Processing Fee"
-                                    />
-                                    <p className="text-xs text-gray-400 mt-1">This name will replace the actual fee head name on the receipt.</p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-3">Select Fee Heads to Mask:</label>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
-                                        {feeHeads.map(head => (
-                                            <label key={head._id} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${settings.maskedFeeHeads?.includes(head._id) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200 hover:border-blue-100'}`}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={settings.maskedFeeHeads?.includes(head._id)}
-                                                    onChange={() => handleFeeHeadToggle(head._id)}
-                                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                                                />
-                                                <span className={`ml-3 text-sm ${settings.maskedFeeHeads?.includes(head._id) ? 'font-bold text-blue-800' : 'text-gray-600'}`}>
-                                                    {head.name}
-                                                </span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
-                                <button
-                                    onClick={() => handleSaveSection('masking')}
-                                    disabled={savingSection === 'masking'}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-                                >
-                                    {savingSection === 'masking' && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
-                                    {savingSection === 'masking' ? 'Saving...' : 'Save Masking'}
-                                </button>
-                            </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">FY Reset Month</label>
+                            <select value={settings.receiptSequenceResetMonth ?? 4} onChange={e => setSettings(s => ({ ...s, receiptSequenceResetMonth: parseInt(e.target.value) }))} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm font-semibold">
+                                {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+                            </select>
+                            <p className="text-xs text-gray-400 mt-1">Month to restart sequence from 1.</p>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">FY Reset Day</label>
+                            <input type="number" min={1} max={31} value={settings.receiptSequenceResetDay ?? 1} onChange={e => setSettings(s => ({ ...s, receiptSequenceResetDay: Math.max(1, Math.min(31, parseInt(e.target.value) || 1)) }))} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold" />
+                            <p className="text-xs text-gray-400 mt-1">Day of month to restart sequence.</p>
                         </div>
                     </div>
                 )}
             </div>
+            <SectionFooter section="sequence" savingSection={savingSection} onSave={handleSaveSection} label="Save Sequence" />
+        </div>
+    );
+
+    const renderMasking = () => (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800">Mask Fee Heads</h2>
+                <p className="text-sm text-gray-500 mt-1">Select Fee Heads to hide/rename on the receipt. They will be displayed as the name below.</p>
+            </div>
+            <div className="p-6 space-y-6">
+                <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Mask Name (Display Name)</label>
+                    <input type="text" value={settings.maskName || ''} onChange={e => setSettings(s => ({ ...s, maskName: e.target.value }))} className="w-full md:w-1/2 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Processing Fee" />
+                    <p className="text-xs text-gray-400 mt-1">This name replaces the actual fee head name on the receipt.</p>
+                </div>
+                <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-3">Select Fee Heads to Mask:</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
+                        {feeHeads.map(head => (
+                            <label key={head._id} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${settings.maskedFeeHeads?.includes(head._id) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200 hover:border-blue-100'}`}>
+                                <input type="checkbox" checked={settings.maskedFeeHeads?.includes(head._id)} onChange={() => {
+                                    const cur = settings.maskedFeeHeads || [];
+                                    setSettings(s => ({ ...s, maskedFeeHeads: cur.includes(head._id) ? cur.filter(id => id !== head._id) : [...cur, head._id] }));
+                                }} className="w-4 h-4 text-blue-600 rounded" />
+                                <span className={`ml-3 text-sm ${settings.maskedFeeHeads?.includes(head._id) ? 'font-bold text-blue-800' : 'text-gray-600'}`}>{head.name}</span>
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <SectionFooter section="masking" savingSection={savingSection} onSave={handleSaveSection} label="Save Masking" />
+        </div>
+    );
+
+    return (
+        <div className="flex min-h-screen bg-gray-50 font-sans">
+            <Sidebar />
+            <div className="flex-1 p-6 md:p-10 max-w-5xl mx-auto space-y-8">
+                <header className="mb-2">
+                    <h1 className="text-3xl font-bold text-gray-800">{SECTION_LABELS[activeSection]}</h1>
+                    <p className="text-gray-500 mt-2">Global Settings › {SECTION_LABELS[activeSection]}</p>
+                </header>
+
+
+                {loading ? (
+                    <div className="text-center py-16"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div></div>
+                ) : (
+                    <div className="max-w-4xl space-y-6">
+                        {activeSection === 'appearance'   && renderAppearance()}
+                        {activeSection === 'features'     && renderFeatures()}
+                        {activeSection === 'user-access'  && renderUserAccess()}
+                        {activeSection === 'sequence'     && renderSequence()}
+                        {activeSection === 'masking'      && renderMasking()}
+                    </div>
+                )}
+            </div>
+
+            {/* Floating Toast — same style as FeeCollection */}
+            {toast && (
+                <div className={`fixed top-5 right-5 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl transition-all duration-300 ${
+                    toast.type === 'success'
+                        ? 'bg-green-50 border-green-200 text-green-800'
+                        : 'bg-red-50 border-red-200 text-red-800'
+                }`}>
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                        toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                    }`}>
+                        {toast.type === 'success' ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        ) : (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                        )}
+                    </div>
+                    <div>
+                        <p className="text-sm font-bold">{toast.type === 'success' ? 'Success' : 'Error'}</p>
+                        <p className="text-xs font-semibold text-gray-600 mt-0.5">{toast.message}</p>
+                    </div>
+                    <button onClick={() => setToast(null)} className="text-gray-400 hover:text-gray-600 ml-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
+
+// ─── Shared Save Footer ──────────────────────────────────────────────────────
+const SectionFooter = ({ section, savingSection, onSave, label }) => (
+    <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex justify-end">
+        <button
+            onClick={() => onSave(section)}
+            disabled={savingSection === section}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+        >
+            {savingSection === section && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
+            {savingSection === section ? 'Saving...' : label}
+        </button>
+    </div>
+);
 
 export default Settings;

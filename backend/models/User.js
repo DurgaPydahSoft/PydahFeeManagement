@@ -41,6 +41,16 @@ const userSchema = mongoose.Schema({
   sessionId: {
     type: String,
     default: null, // Stores the UUID of the current active session
+  },
+  paymentAccess: {
+    // Master kill-switch: when true the user cannot collect any fee at all
+    feeCollectionDisabled: { type: Boolean, default: false },
+    // Per-user payment method overrides. null = follow global setting, true/false = override
+    enableCashPayment: { type: Boolean, default: null },
+    enableBankPayment: { type: Boolean, default: null },
+    enableSplitPayment: { type: Boolean, default: null },
+    // When set to true, the user's access was manually enabled — will auto-reset at configured time
+    autoResetEnabled: { type: Boolean, default: false },
   }
 }, {
   timestamps: true,

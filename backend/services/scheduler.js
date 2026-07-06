@@ -1,14 +1,44 @@
 const cron = require('node-cron');
 const ReminderConfig = require('../models/ReminderConfig');
+const Setting = require('../models/Setting');
+const User = require('../models/User');
 const db = require('../config/sqlDb');
 
-// We need to import the helper safely to avoid circular dependency issues if any,
-// but since controller depends on models, and we are just importing a helper, it should be fine.
-// However, to be safe and avoid the previous error, let's ensure we import correctly.
 const { processRemindersBatch } = require('../controllers/reminderController');
 const { processLateFees } = require('../controllers/lateFeeController');
 
-const initScheduler = () => {
+// Track the currently scheduled payment-reset job so we can reschedule if settings change
+let paymentResetJob = null;
+
+const schedulePaymentAccessReset = (hour, minute) => {
+    if (paymentResetJob) {
+        paymentResetJob.stop();
+        paymentResetJob = null;
+    }
+    const cronExpr = `${minute} ${hour} * * *`;
+    paymentResetJob = cron.schedule(cronExpr, async () => {
+        console.log(`[PaymentReset] Running payment access auto-reset at ${hour}:${String(minute).padStart(2,'0')}...`);
+        try {
+            await User.updateMany(
+                { 'paymentAccess.autoResetEnabled': true },
+                {
+                    $set: {
+                        'paymentAccess.enableCashPayment': null,
+                        'paymentAccess.enableBankPayment': null,
+                        'paymentAccess.enableSplitPayment': null,
+                        'paymentAccess.autoResetEnabled': false
+                    }
+                }
+            );
+            console.log('[PaymentReset] All user payment access overrides have been reset.');
+        } catch (err) {
+            console.error('[PaymentReset] Error resetting payment access:', err);
+        }
+    });
+    console.log(`[PaymentReset] Scheduled payment access reset at ${hour}:${String(minute).padStart(2,'0')} daily.`);
+};
+
+const initScheduler = async () => {
     console.log('Initializing Timely Reminder & Late Fee Scheduler...');
 
     // Run every day at 10:00 AM (safe time)
@@ -17,6 +47,20 @@ const initScheduler = () => {
         await processReminderConfigs();
         await processLateFees();
     });
+
+    // Load current payment reset schedule from settings and start it
+    try {
+        const setting = await Setting.findOne();
+        const autoReset = setting ? setting.paymentAccessAutoReset !== false : true;
+        const hour = setting ? (setting.paymentAccessResetHour ?? 9) : 9;
+        const minute = setting ? (setting.paymentAccessResetMinute ?? 0) : 0;
+        if (autoReset) {
+            schedulePaymentAccessReset(hour, minute);
+        }
+    } catch (err) {
+        console.error('[PaymentReset] Failed to read settings, defaulting to 9:00 AM reset:', err);
+        schedulePaymentAccessReset(9, 0);
+    }
 };
 
 const processReminderConfigs = async () => {
@@ -176,4 +220,4 @@ const checkAndExecuteConfig = async (config, today) => {
     }
 };
 
-module.exports = { initScheduler };
+module.exports = { initScheduler, schedulePaymentAccessReset };

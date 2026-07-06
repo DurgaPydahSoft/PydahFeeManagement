@@ -82,6 +82,26 @@ const FeeCollection = () => {
     const permissions = user?.permissions || [];
     const canCollectFee = permissions.includes('fee_collection_pay');
 
+    // Reactive paymentAccess — updated after /users/me fetch so the UI re-renders
+    const [paymentAccess, setPaymentAccess] = useState(() => {
+        const u = JSON.parse(localStorage.getItem('user'));
+        return u?.paymentAccess || {};
+    });
+    // Master kill-switch set by admin on a per-user basis
+    const isFeeCollectionDisabled = paymentAccess?.feeCollectionDisabled === true;
+
+    // --- EFFECTIVE PAYMENT METHOD AVAILABILITY ---
+    // Merges global settings with per-user overrides stored in localStorage.
+    // If user has a non-null override, it takes precedence over the global setting.
+    const effectivePaymentAccess = (settingKey) => {
+        if (!receiptSettings) return true; // default allow while loading
+        const pa = paymentAccess;
+        if (pa && pa[settingKey] !== null && pa[settingKey] !== undefined) {
+            return pa[settingKey] === true;
+        }
+        return receiptSettings[settingKey] !== false;
+    };
+
     // --- INITIAL DATA LOADING ---
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -104,13 +124,21 @@ const FeeCollection = () => {
                     }
                 }
                 const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
-                const [studentsRes, configsRes, settingsRes, feeHeadsRes, recentRes] = await Promise.all([
+                const [studentsRes, configsRes, settingsRes, feeHeadsRes, recentRes, meRes] = await Promise.all([
                     api.get(`/students${queryString}`),
                     api.get(`/payment-config`),
                     api.get(`/settings`),
                     api.get(`/fee-heads`),
-                    api.get(`/transactions/recent`)
+                    api.get(`/transactions/recent`),
+                    api.get(`/users/me`),
                 ]);
+
+                // Sync fresh paymentAccess into localStorage and state so UI reflects latest admin settings
+                if (meRes.data?.paymentAccess !== undefined) {
+                    const storedUser = JSON.parse(localStorage.getItem('user')) || {};
+                    localStorage.setItem('user', JSON.stringify({ ...storedUser, paymentAccess: meRes.data.paymentAccess }));
+                    setPaymentAccess(meRes.data.paymentAccess);
+                }
 
                 setAllStudents(studentsRes.data);
                 setPaymentConfigs(configsRes.data.filter(c => c.is_active));
@@ -454,16 +482,16 @@ const FeeCollection = () => {
             return;
         }
 
-        if (paymentCategory === 'Cash' && receiptSettings?.enableCashPayment === false) {
-            showToastMessage('Cash payments are currently disabled by the administrator.', 'error');
+        if (paymentCategory === 'Cash' && !effectivePaymentAccess('enableCashPayment')) {
+            showToastMessage('Cash payments are currently disabled.', 'error');
             return;
         }
-        if (paymentCategory === 'Bank' && receiptSettings?.enableBankPayment === false) {
-            showToastMessage('Bank payments are currently disabled by the administrator.', 'error');
+        if (paymentCategory === 'Bank' && !effectivePaymentAccess('enableBankPayment')) {
+            showToastMessage('Bank payments are currently disabled.', 'error');
             return;
         }
-        if (paymentCategory === 'Split' && receiptSettings?.enableSplitPayment === false) {
-            showToastMessage('Split payments are currently disabled by the administrator.', 'error');
+        if (paymentCategory === 'Split' && !effectivePaymentAccess('enableSplitPayment')) {
+            showToastMessage('Split payments are currently disabled.', 'error');
             return;
         }
 
@@ -1348,6 +1376,19 @@ const FeeCollection = () => {
                             {/* Right Column: Payment Form Only */}
                             {(canCollectFee || isSuperAdmin) && (
                                 <div className="space-y-3">
+                                {isFeeCollectionDisabled && (
+                                    <div className="bg-red-50 border border-red-200 rounded-xl p-5 flex items-start gap-3">
+                                        <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5">
+                                            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-11a4 4 0 00-4 4v1H6a2 2 0 00-2 2v7a2 2 0 002 2h12a2 2 0 002-2v-7a2 2 0 00-2-2h-2V9a4 4 0 00-4-4z" /></svg>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-red-700 text-sm">Fee Collection Disabled</p>
+                                            <p className="text-red-500 text-xs mt-0.5">Your access to collect fees has been temporarily disabled by the administrator. Please contact your supervisor.</p>
+                                        </div>
+                                    </div>
+                                )}
+                                {!isFeeCollectionDisabled && (
+                                <div className="space-y-3">
                                     <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-6">
                                         {isEditMode ? (
                                             <div className="flex border-b border-gray-100 bg-amber-500 text-white font-bold text-sm relative items-center justify-between px-4 py-3">
@@ -1497,12 +1538,12 @@ const FeeCollection = () => {
                                                 <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
                                                         <div className="grid grid-cols-3 gap-2 mb-3">
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableCashPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} disabled={receiptSettings?.enableCashPayment === false} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableCashPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} disabled={!effectivePaymentAccess('enableCashPayment')} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
                                                                 <span className="font-bold text-xs text-gray-700">Cash</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${receiptSettings?.enableBankPayment === false ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} disabled={receiptSettings?.enableBankPayment === false} onChange={() => { 
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableBankPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} disabled={!effectivePaymentAccess('enableBankPayment')} onChange={() => {
                                                                     setPaymentCategory('Bank'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
                                                                     
@@ -1516,8 +1557,8 @@ const FeeCollection = () => {
                                                                 }} />
                                                                 <span className="font-bold text-xs text-gray-700">Bank</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || receiptSettings?.enableSplitPayment === false) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={isEditMode || receiptSettings?.enableSplitPayment === false} onChange={() => { 
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || !effectivePaymentAccess('enableSplitPayment')) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={isEditMode || !effectivePaymentAccess('enableSplitPayment')} onChange={() => {
                                                                     setPaymentCategory('Split'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
                                                                     
@@ -1672,6 +1713,8 @@ const FeeCollection = () => {
                                             </form>
                                         </div>
                                     </div>
+                                </div>
+                                )}
                                 </div>
                             )}
                         </div>
