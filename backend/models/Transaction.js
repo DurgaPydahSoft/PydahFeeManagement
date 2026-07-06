@@ -80,7 +80,24 @@ const transactionSchema = mongoose.Schema({
   concessionRequestId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'ConcessionRequest'
-  }
+  },
+  status: {
+    type: String,
+    enum: ['active', 'cancelled'],
+    default: 'active',
+  },
+  cancelledBy: {
+    type: String, // Username of whoever cancelled
+  },
+  cancelledByName: {
+    type: String, // Full name of whoever cancelled
+  },
+  cancelledAt: {
+    type: Date,
+  },
+  cancellationReason: {
+    type: String,
+  },
 }, {
   timestamps: true,
 });

@@ -136,7 +136,8 @@ const processLateFees = async (req, res) => {
               studentId: student.admission_number,
               feeHead: struct.feeHead._id,
               studentYear: struct.studentYear,
-              semester: struct.semester
+              semester: struct.semester,
+              status: { $ne: 'cancelled' }
             });
             const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
 

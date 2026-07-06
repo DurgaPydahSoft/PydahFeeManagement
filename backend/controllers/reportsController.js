@@ -10,8 +10,8 @@ const getTransactionReports = async (req, res) => {
     try {
         const { startDate, endDate, groupBy, college, feeGroupId } = req.query;
 
-        // Base matching condition
-        const matchStage = {};
+        // Base matching condition — always exclude cancelled transactions from reports
+        const matchStage = { status: { $ne: 'cancelled' } };
 
         // Filter by Fee Head Group if provided
         if (feeGroupId) {
@@ -748,8 +748,8 @@ const getDueReports = async (req, res) => {
             }
         });
 
-        // 3. Aggregate Total Paid - Grouped by FeeHead
-        const txMatch = { studentId: { $in: allIdentifiers } };
+        // 3. Aggregate Total Paid - Grouped by FeeHead (exclude cancelled)
+        const txMatch = { studentId: { $in: allIdentifiers }, status: { $ne: 'cancelled' } };
         const payments = await Transaction.aggregate([
             { $match: txMatch },
             {
@@ -912,9 +912,10 @@ const getDashboardStats = async (req, res) => {
         const [studentCountResult] = await db.query("SELECT COUNT(*) as count FROM students WHERE LOWER(student_status) = 'regular'");
         const totalStudents = studentCountResult[0]?.count || 0;
 
-        // 3. Recent Transactions within date range
+        // 3. Recent Transactions within date range (exclude cancelled)
         const recentTransactions = await Transaction.find({
-            ...dateFilter
+            ...dateFilter,
+            status: { $ne: 'cancelled' }
         })
         .populate('feeHead', 'name')
         .sort({ createdAt: -1 })
@@ -925,6 +926,7 @@ const getDashboardStats = async (req, res) => {
             {
                 $match: {
                     transactionType: 'DEBIT',
+                    status: { $ne: 'cancelled' },
                     ...trendDateFilter
                 }
             },
@@ -939,11 +941,12 @@ const getDashboardStats = async (req, res) => {
 
         // 5. College and Course Wise Breakdown within date range
         const studentAggregates = await Transaction.aggregate([
-            { 
-                $match: { 
+            {
+                $match: {
                     transactionType: 'DEBIT',
+                    status: { $ne: 'cancelled' },
                     ...dateFilter
-                } 
+                }
             },
             { $group: { _id: "$studentId", total: { $sum: "$amount" } } }
         ]);

@@ -359,8 +359,8 @@ const getRecentTransactions = async (req, res) => {
     const isCashier = req.user?.role === 'cashier';
     const username = req.user?.username;
 
-    // Base query filter
-    const query = {};
+    // Base query filter — exclude cancelled transactions from recent list
+    const query = { status: { $ne: 'cancelled' } };
 
     // 1. Cashier Privacy: Cashier can only see their own collections
     if (isCashier) {
@@ -411,7 +411,7 @@ const getRecentTransactions = async (req, res) => {
   }
 };
 
-// @desc    Delete a Transaction by ID
+// @desc    Delete a Transaction by ID (only when receipt sequence is disabled)
 // @route   DELETE /api/transactions/:id
 const deleteTransaction = async (req, res) => {
   try {
@@ -427,11 +427,41 @@ const deleteTransaction = async (req, res) => {
   }
 };
 
+// @desc    Cancel a Transaction by ID (used when receipt sequence is enabled — preserves record)
+// @route   PUT /api/transactions/:id/cancel
+const cancelTransaction = async (req, res) => {
+  try {
+    const { cancellationReason } = req.body;
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+    if (transaction.status === 'cancelled') {
+      return res.status(400).json({ message: 'Transaction is already cancelled' });
+    }
+
+    transaction.status = 'cancelled';
+    transaction.cancelledBy = req.user?.username || 'Unknown';
+    transaction.cancelledByName = req.user?.name || 'Unknown';
+    transaction.cancelledAt = new Date();
+    if (cancellationReason) {
+      transaction.cancellationReason = cancellationReason;
+    }
+    await transaction.save();
+
+    res.json({ message: 'Transaction cancelled successfully', transaction });
+  } catch (error) {
+    console.error('Error cancelling transaction:', error);
+    res.status(500).json({ message: 'Error cancelling transaction' });
+  }
+};
+
 module.exports = {
   addTransaction,
   getStudentTransactions,
   previewSequence,
   updateTransactionPaymentMode,
   getRecentTransactions,
-  deleteTransaction
+  deleteTransaction,
+  cancelTransaction
 };

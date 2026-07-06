@@ -276,7 +276,7 @@ const getStudentFeeDetails = async (req, res) => {
     const studentFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code');
 
     // 4. Fetch all Transactions (Payments)
-    const transactions = await Transaction.find({ studentId: admissionNo });
+    const transactions = await Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } });
 
     // Map structures by [headId-year-semester] for quick lookup
     const structureMap = {};

@@ -18,7 +18,7 @@ const getProceedings = async (req, res) => {
         const Transaction = require('../models/Transaction');
         
         const proceedingsWithSummary = await Promise.all(proceedings.map(async (p) => {
-            const txns = await Transaction.find({ proceedingId: p._id }).select('amount');
+            const txns = await Transaction.find({ proceedingId: p._id, status: { $ne: 'cancelled' } }).select('amount');
             const totalUsed = txns.reduce((acc, t) => acc + t.amount, 0);
             return {
                 ...p.toObject(),
@@ -138,7 +138,7 @@ const deleteProceeding = async (req, res) => {
 const getProceedingSummary = async (req, res) => {
     try {
         const Transaction = require('../models/Transaction');
-        const transactions = await Transaction.find({ proceedingId: req.params.id })
+        const transactions = await Transaction.find({ proceedingId: req.params.id, status: { $ne: 'cancelled' } })
             .sort({ createdAt: -1 });
 
         const totalUsed = transactions.reduce((acc, t) => acc + t.amount, 0);
