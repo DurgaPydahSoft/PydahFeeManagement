@@ -339,11 +339,17 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
 
     // Configuration defaults if undefined
     const paperSizeStr = settings?.paperSize || 'A4';
+    const orientation = (settings?.orientation || 'portrait').toString().toLowerCase();
 
     // Determine layout variables
-    // For A5, we use 'auto' to enable the browser's native print dialog options (Layout & Paper Size),
-    // allowing the operator to adjust orientation to match physical paper feeding (e.g. horizontal feed).
-    const pageCssSize = paperSizeStr === 'A5' ? 'auto' : 'A4';
+    // If paperSize is set to 'A5' or 'auto', let the browser offer native dialog options.
+    // Otherwise include orientation (e.g. 'A4 landscape') which modern browsers understand for @page.
+    let pageCssSize;
+    if (paperSizeStr === 'A5' || paperSizeStr === 'auto') {
+        pageCssSize = 'auto';
+    } else {
+        pageCssSize = paperSizeStr + (orientation === 'landscape' ? ' landscape' : '');
+    }
 
     // For container heights in percentages to prevent page-overflow in print media
     const copyHeight = copies === 1 ? '100%' : '49%';

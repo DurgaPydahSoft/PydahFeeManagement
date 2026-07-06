@@ -59,6 +59,7 @@ const FeeCollection = () => {
 
     // Modals
     const [showReceiptModal, setShowReceiptModal] = useState(false);
+    const [printOrientation, setPrintOrientation] = useState('portrait');
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [showPhotoPopup, setShowPhotoPopup] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -1803,6 +1804,20 @@ const FeeCollection = () => {
                                 <p className="text-sm text-gray-500 mb-8 px-4">The transaction has been recorded successfully. You can now download or print the receipt.</p>
 
                                 <div className="space-y-3">
+                                    <div className="flex items-center justify-center gap-3">
+                                        <label className="text-sm font-semibold text-gray-600">Orientation:</label>
+                                        <div className="inline-flex rounded-lg bg-gray-100 p-1">
+                                            <button
+                                                onClick={() => setPrintOrientation('portrait')}
+                                                className={`px-3 py-1 rounded-lg text-sm font-bold ${printOrientation === 'portrait' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
+                                            >Portrait</button>
+                                            <button
+                                                onClick={() => setPrintOrientation('landscape')}
+                                                className={`px-3 py-1 rounded-lg text-sm font-bold ${printOrientation === 'landscape' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
+                                            >Landscape</button>
+                                        </div>
+                                    </div>
+
                                     <button
                                         onClick={handlePrintReceipt}
                                         className="w-full bg-blue-600 text-white px-6 py-4 rounded-2xl font-bold hover:bg-blue-700 flex items-center justify-center gap-3 shadow-xl shadow-blue-200 transition-all transform active:scale-95 text-lg"
@@ -1827,7 +1842,7 @@ const FeeCollection = () => {
                                     transaction={lastTransaction}
                                     relatedTransactions={relatedTransactions}
                                     student={student}
-                                    settings={receiptSettings}
+                                    settings={{ ...(receiptSettings || {}), orientation: printOrientation }}
                                     totalDue={totalDueAmount}
                                 />
                             </div>
