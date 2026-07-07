@@ -190,7 +190,11 @@ const getTransactionReports = async (req, res) => {
                     }
                 }
 
-                // Add this tx to the group's transactions list
+                const empNo = cashierEmpNoMap[cashierUsername.toLowerCase()] || 
+                              cashierEmpNoMap[normalizedCashierName] || 
+                              cashierEmpNoMap[cashier.toLowerCase()] || 
+                              cashier;
+
                 group.transactions.push({
                     _id: tx._id,
                     receiptNo: tx.receiptNumber || '-',
@@ -206,6 +210,9 @@ const getTransactionReports = async (req, res) => {
                     feeHead: fhName,
                     college: college,
                     status: tx.status || 'active',
+                    collectedBy: tx.collectedBy || 'Unknown',
+                    collectedByName: tx.collectedByName || 'Unknown',
+                    empNo: empNo,
                     cancelledBy: tx.cancelledBy,
                     cancelledByName: tx.cancelledByName,
                     cancelledAt: tx.cancelledAt,
@@ -439,8 +446,6 @@ const getTransactionReports = async (req, res) => {
                         group.creditAmount += amount;
                     }
                 }
-
-                // Add this tx to the group's transactions list
                 group.transactions.push({
                     _id: tx._id,
                     receiptNo: tx.receiptNumber || '-',
@@ -456,6 +461,9 @@ const getTransactionReports = async (req, res) => {
                     feeHead: fhName,
                     college: collegeName,
                     status: tx.status || 'active',
+                    collectedBy: tx.collectedBy || 'Unknown',
+                    collectedByName: tx.collectedByName || 'Unknown',
+                    empNo: empNo,
                     cancelledBy: tx.cancelledBy,
                     cancelledByName: tx.cancelledByName,
                     cancelledAt: tx.cancelledAt,

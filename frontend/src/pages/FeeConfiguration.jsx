@@ -1106,7 +1106,7 @@ const FeeConfiguration = () => {
                                 <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg"><Calendar size={18} /></span>
                                 Select Fee Structure to Configure Late Fees
                             </h2>
-                            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3">
                                 <div>
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">College</label>
                                     <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.college} onChange={e => setLateFeeForm({ ...lateFeeForm, college: e.target.value, course: '', branch: '', feeHead: '' })}>
@@ -1119,6 +1119,20 @@ const FeeConfiguration = () => {
                                     <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.course} onChange={e => setLateFeeForm({ ...lateFeeForm, course: e.target.value, branch: '', feeHead: '' })} disabled={!lateFeeForm.college}>
                                         <option value="">Select...</option>
                                         {(lateFeeForm.college ? Object.keys(metadata[lateFeeForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Branch</label>
+                                    <select 
+                                        className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" 
+                                        value={lateFeeForm.branch} 
+                                        onChange={e => setLateFeeForm({ ...lateFeeForm, branch: e.target.value, feeHead: '' })} 
+                                        disabled={!lateFeeForm.course}
+                                    >
+                                        <option value="">Select...</option>
+                                        {(lateFeeForm.college && lateFeeForm.course ? metadata[lateFeeForm.college]?.[lateFeeForm.course]?.branches || [] : []).map(b => (
+                                            <option key={b} value={b}>{b}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>
@@ -1166,9 +1180,10 @@ const FeeConfiguration = () => {
                                             const hId = e.target.value;
                                             // Find matching structure
                                             const struct = structures.find(s =>
-                                                String(s.feeHead._id) === String(hId) &&
+                                                String(s.feeHead?._id || s.feeHead) === String(hId) &&
                                                 s.college === lateFeeForm.college &&
                                                 s.course === lateFeeForm.course &&
+                                                s.branch === lateFeeForm.branch &&
                                                 s.batch === lateFeeForm.batch &&
                                                 Number(s.studentYear) === Number(lateFeeForm.studentYear) &&
                                                 (lateFeeForm.semester ? Number(s.semester) === Number(lateFeeForm.semester) : !s.semester) &&
@@ -1200,7 +1215,7 @@ const FeeConfiguration = () => {
                                 <div className="flex justify-between items-center mb-6">
                                     <h3 className="text-xl font-bold text-gray-800">Term Due Dates Configuration</h3>
                                     <div className="bg-white px-3 py-1.5 rounded-full border border-gray-200 text-[11px] font-bold text-blue-600 shadow-sm">
-                                        Editing: {structures.find(s => s._id === lateFeeForm._id)?.feeHead.name || 'Structure'}
+                                        Editing: {feeHeads.find(h => String(h._id) === String(lateFeeForm.feeHead))?.name || 'Structure'}
                                     </div>
                                 </div>
 
@@ -1321,11 +1336,15 @@ const FeeConfiguration = () => {
                                             if (!lateFeeForm._id) return alert("No structure selected");
                                             setIsSavingLateFee(true);
                                             try {
-                                                // We update the FeeStructure document
-                                                await api.put(`/fee-structures/${lateFeeForm._id}`, {
-                                                    ...structures.find(s => s._id === lateFeeForm._id),
-                                                    terms: lateFeeForm.termMappings
-                                                });
+                                                const originalStruct = structures.find(s => s._id === lateFeeForm._id);
+                                                if (originalStruct) {
+                                                    const payload = {
+                                                        ...originalStruct,
+                                                        feeHead: originalStruct.feeHead?._id || originalStruct.feeHead,
+                                                        terms: lateFeeForm.termMappings
+                                                    };
+                                                    await api.put(`/fee-structures/${lateFeeForm._id}`, payload);
+                                                }
                                                 setMessage("Late Fee Configuration Updated Successfully!");
                                                 fetchStructures();
                                                 setTimeout(() => setMessage(''), 3000);
@@ -1346,9 +1365,19 @@ const FeeConfiguration = () => {
                                 <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-4">
                                     <AlertTriangle size={32} />
                                 </div>
-                                <h3 className="text-lg font-bold text-amber-700">No Matching Fee Structure Found</h3>
+                                <h3 className="text-lg font-bold text-amber-700">
+                                    {lateFeeForm._id ? 'Structure is Not Divided into Terms' : 'No Matching Fee Structure Found'}
+                                </h3>
                                 <p className="text-gray-500 text-sm max-w-sm mt-1">
-                                    No fee structure has been defined for this combination of College, Course, Batch, Year, Category, and Fee Head. You must create this fee structure under tab <strong>"3. Fee Structures (Definitions)"</strong> first before you can configure its late fees.
+                                    {lateFeeForm._id ? (
+                                        <>
+                                            This fee structure exists, but it has not been divided into terms (installments). Late fees can only be configured for term-divided fee structures. Please edit this fee structure under Tab <strong>"3. Fee Structures (Definitions)"</strong> first and set term counts.
+                                        </>
+                                    ) : (
+                                        <>
+                                            No fee structure has been defined for this combination of College, Course, Batch, Year, Category, and Fee Head. You must create this fee structure under Tab <strong>"3. Fee Structures (Definitions)"</strong> first before you can configure its late fees.
+                                        </>
+                                    )}
                                 </p>
                             </div>
                         )}

@@ -476,10 +476,13 @@ const updateFeeStructure = async (req, res) => {
       changeDescription: `Updated amount from ${existing.amount} to ${amount}`
     };
 
+    const fHead = feeHeadId || req.body.feeHead;
+    const finalFeeHead = mongoose.Types.ObjectId.isValid(fHead) ? new mongoose.Types.ObjectId(fHead) : (fHead?._id || fHead);
+
     const updatedStructure = await FeeStructure.findByIdAndUpdate(
       id,
       {
-        feeHead: feeHeadId,
+        feeHead: finalFeeHead,
         college,
         course,
         branch,
