@@ -66,14 +66,34 @@ const settingSchema = mongoose.Schema({
     min: 0,
     max: 23,
   },
-  paymentAccessResetMinute: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 59,
-  },
-}, {
-  timestamps: true,
-});
+    paymentAccessResetMinute: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 59,
+    },
+    emailReportEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    emailReportHour: {
+      type: Number,
+      default: 18, // Default to 6 PM
+      min: 0,
+      max: 23,
+    },
+    emailReportMinute: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 59,
+    },
+    emailReportRecipients: {
+      type: String,
+      default: '',
+    },
+  }, {
+    timestamps: true,
+  });
 
 module.exports = mongoose.model('Setting', settingSchema);

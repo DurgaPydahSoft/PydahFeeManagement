@@ -10,6 +10,31 @@ const { processLateFees } = require('../controllers/lateFeeController');
 // Track the currently scheduled payment-reset job so we can reschedule if settings change
 let paymentResetJob = null;
 
+// Track the scheduled email report job
+let emailReportJob = null;
+
+const scheduleEmailReport = (hour, minute, enabled, recipients) => {
+    if (emailReportJob) {
+        emailReportJob.stop();
+        emailReportJob = null;
+    }
+    if (!enabled || !recipients || recipients.trim() === '') {
+        console.log('[EmailReportScheduler] Automated daily email report is disabled or has no recipients configured.');
+        return;
+    }
+
+    const { sendDailyAllCollegesReportEmail } = require('./emailReportService');
+    const cronExpr = `${minute} ${hour} * * *`;
+    
+    emailReportJob = cron.schedule(cronExpr, async () => {
+        console.log(`[EmailReportScheduler] Running daily collection report email task at ${hour}:${String(minute).padStart(2,'0')}...`);
+        await sendDailyAllCollegesReportEmail(recipients);
+    }, { timezone: 'Asia/Kolkata' });
+
+    console.log(`[EmailReportScheduler] Scheduled daily email report at ${hour}:${String(minute).padStart(2,'0')} to recipients: ${recipients} (IST).`);
+};
+
+
 const schedulePaymentAccessReset = (hour, minute) => {
     if (paymentResetJob) {
         paymentResetJob.stop();
@@ -34,8 +59,8 @@ const schedulePaymentAccessReset = (hour, minute) => {
         } catch (err) {
             console.error('[PaymentReset] Error resetting payment access:', err);
         }
-    });
-    console.log(`[PaymentReset] Scheduled payment access reset at ${hour}:${String(minute).padStart(2,'0')} daily.`);
+    }, { timezone: 'Asia/Kolkata' });
+    console.log(`[PaymentReset] Scheduled payment access reset at ${hour}:${String(minute).padStart(2,'0')} daily (IST).`);
 };
 
 const initScheduler = async () => {
@@ -46,7 +71,7 @@ const initScheduler = async () => {
         console.log('Running Daily Automated Tasks...');
         await processReminderConfigs();
         await processLateFees();
-    });
+    }, { timezone: 'Asia/Kolkata' });
 
     // Load current payment reset schedule from settings and start it
     try {
@@ -60,6 +85,20 @@ const initScheduler = async () => {
     } catch (err) {
         console.error('[PaymentReset] Failed to read settings, defaulting to 9:00 AM reset:', err);
         schedulePaymentAccessReset(9, 0);
+    }
+
+    // Load email report configuration from settings and start it
+    try {
+        const setting = await Setting.findOne();
+        if (setting) {
+            const enabled = setting.emailReportEnabled === true;
+            const rHour = setting.emailReportHour ?? 18;
+            const rMinute = setting.emailReportMinute ?? 0;
+            const recipients = setting.emailReportRecipients || '';
+            scheduleEmailReport(rHour, rMinute, enabled, recipients);
+        }
+    } catch (err) {
+        console.error('[EmailReportScheduler] Failed to initialize daily email report schedule:', err);
     }
 };
 
@@ -220,4 +259,4 @@ const checkAndExecuteConfig = async (config, today) => {
     }
 };
 
-module.exports = { initScheduler, schedulePaymentAccessReset };
+module.exports = { initScheduler, schedulePaymentAccessReset, scheduleEmailReport };

@@ -9,6 +9,7 @@ const SECTION_LABELS = {
     'user-access': 'User Payment Access',
     sequence:      'Receipt Sequence',
     masking:       'Mask Fee Heads',
+    'email-reports': 'Email Reports',
 };
 
 // ─── reusable Toggle ────────────────────────────────────────────────────────
@@ -37,6 +38,10 @@ const Settings = () => {
         paymentAccessAutoReset: true,
         paymentAccessResetHour: 9,
         paymentAccessResetMinute: 0,
+        emailReportEnabled: false,
+        emailReportHour: 18,
+        emailReportMinute: 0,
+        emailReportRecipients: '',
     });
     const [feeHeads, setFeeHeads] = useState([]);
     const [users, setUsers] = useState([]);
@@ -47,6 +52,11 @@ const Settings = () => {
 
     // local per-user override state: { [userId]: { enableCashPayment, enableBankPayment, enableSplitPayment } }
     const [userAccess, setUserAccess] = useState({});
+
+    // Email Reports list and manual sending states
+    const [emailList, setEmailList] = useState(['']);
+    const [sendingReport, setSendingReport] = useState(false);
+
 
     const showMsg = (text, type = 'success') => {
         setToast({ message: text, type });
@@ -63,6 +73,15 @@ const Settings = () => {
                 ]);
                 setSettings(settingsRes.data);
                 setFeeHeads(feeHeadsRes.data);
+
+                // Parse email list from settings
+                if (settingsRes.data?.emailReportRecipients) {
+                    const list = settingsRes.data.emailReportRecipients.split(',').map(e => e.trim()).filter(Boolean);
+                    setEmailList(list.length > 0 ? list : ['']);
+                } else {
+                    setEmailList(['']);
+                }
+
 
                 // Only non-superadmin users are relevant for per-user access
                 const relevantUsers = usersRes.data.filter(u => u.role !== 'superadmin');
@@ -92,12 +111,35 @@ const Settings = () => {
     const handleSaveSection = async (section) => {
         setSavingSection(section);
         try {
-            await api.put('/settings', settings);
+            const payload = { ...settings };
+            if (section === 'email-reports') {
+                payload.emailReportRecipients = emailList.map(e => e.trim()).filter(Boolean).join(',');
+            }
+            await api.put('/settings', payload);
+            setSettings(payload);
             showMsg('Settings saved successfully!');
         } catch (error) {
             showMsg('Error saving settings', 'error');
         } finally {
             setSavingSection(null);
+        }
+    };
+
+    const handleSendManualReport = async () => {
+        const recipientsStr = emailList.map(e => e.trim()).filter(Boolean).join(',');
+        if (!recipientsStr) {
+            showMsg('Please add at least one recipient email address.', 'error');
+            return;
+        }
+        setSendingReport(true);
+        try {
+            const res = await api.post('/settings/send-test-report', { recipients: recipientsStr });
+            showMsg(res.data?.message || 'Report generated and emailed successfully!');
+        } catch (error) {
+            console.error('[ManualReport] Error:', error);
+            showMsg(error.response?.data?.message || 'Failed to trigger report email', 'error');
+        } finally {
+            setSendingReport(false);
         }
     };
 
@@ -437,6 +479,122 @@ const Settings = () => {
         </div>
     );
 
+    const renderEmailReports = () => (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800">Email Reports Configuration</h2>
+                <p className="text-sm text-gray-500 mt-1">Configure automated sending of the All Colleges Collection Summary report PDF.</p>
+            </div>
+            <div className="p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-semibold text-gray-700">Enable Automated Daily Report</h3>
+                        <p className="text-sm text-gray-500">Automatically generate and email the collections report every day.</p>
+                    </div>
+                    <Toggle checked={settings.emailReportEnabled === true} onChange={() => setSettings(s => ({ ...s, emailReportEnabled: !s.emailReportEnabled }))} />
+                </div>
+                
+                {settings.emailReportEnabled && (
+                    <>
+                        <div className="border-t border-gray-100 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Schedule Hour (24h format)</label>
+                                <input 
+                                    type="number" min={0} max={23} 
+                                    value={settings.emailReportHour ?? 18} 
+                                    onChange={e => setSettings(s => ({ ...s, emailReportHour: Math.min(23, Math.max(0, parseInt(e.target.value) || 0)) }))} 
+                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold" 
+                                />
+                                <p className="text-xs text-gray-400 mt-1">Hour of day to run the report (0 to 23).</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Schedule Minute</label>
+                                <input 
+                                    type="number" min={0} max={59} 
+                                    value={settings.emailReportMinute ?? 0} 
+                                    onChange={e => setSettings(s => ({ ...s, emailReportMinute: Math.min(59, Math.max(0, parseInt(e.target.value) || 0)) }))} 
+                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold" 
+                                />
+                                <p className="text-xs text-gray-400 mt-1">Minute of the hour (0 to 59).</p>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-gray-100 pt-6 space-y-3">
+                            <label className="block text-sm font-bold text-gray-700">Recipient Email Addresses</label>
+                            
+                            <div className="space-y-2">
+                                {emailList.map((email, idx) => (
+                                    <div key={idx} className="flex items-center gap-2">
+                                        <input 
+                                            type="email"
+                                            value={email}
+                                            onChange={e => {
+                                                const list = [...emailList];
+                                                list[idx] = e.target.value;
+                                                setEmailList(list);
+                                            }}
+                                            className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                                            placeholder="e.g. director@pydah.edu"
+                                            required
+                                        />
+                                        {emailList.length > 1 && (
+                                            <button 
+                                                onClick={() => {
+                                                    setEmailList(emailList.filter((_, i) => i !== idx));
+                                                }}
+                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                title="Remove email"
+                                                type="button"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button 
+                                onClick={() => setEmailList([...emailList, ''])}
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 transition"
+                                type="button"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                                Add Email Recipient
+                            </button>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-xs font-semibold text-blue-800 flex items-center gap-2">
+                            <svg className="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>
+                                Scheduled to send daily at <strong className="text-blue-900">{String(settings.emailReportHour ?? 18).padStart(2, '0')}:{String(settings.emailReportMinute ?? 0).padStart(2, '0')}</strong> to: <span className="underline">{emailList.filter(Boolean).join(', ') || '(no recipients)'}</span>
+                            </span>
+                        </div>
+
+                        {/* Send Manually Action Card */}
+                        <div className="border-t border-gray-100 pt-6">
+                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                <div>
+                                    <h4 className="font-bold text-gray-800 text-sm">Send Collection Report Manually</h4>
+                                    <p className="text-xs text-gray-500 mt-0.5">Generate the summary PDF and email it immediately to the configured recipients.</p>
+                                </div>
+                                <button
+                                    onClick={handleSendManualReport}
+                                    disabled={sendingReport}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm shrink-0"
+                                    type="button"
+                                >
+                                    {sendingReport && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
+                                    {sendingReport ? 'Sending Report...' : 'Send Report Now'}
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
+            <SectionFooter section="email-reports" savingSection={savingSection} onSave={handleSaveSection} label="Save Email Reports Config" />
+        </div>
+    );
+
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
@@ -456,6 +614,7 @@ const Settings = () => {
                         {activeSection === 'user-access'  && renderUserAccess()}
                         {activeSection === 'sequence'     && renderSequence()}
                         {activeSection === 'masking'      && renderMasking()}
+                        {activeSection === 'email-reports' && renderEmailReports()}
                     </div>
                 )}
             </div>

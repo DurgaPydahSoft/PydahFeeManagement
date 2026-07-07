@@ -62,6 +62,7 @@ const Sidebar = () => {
         { name: 'User Payment Access',     hash: 'user-access' },
         { name: 'Receipt Sequence',        hash: 'sequence' },
         { name: 'Mask Fee Heads',          hash: 'masking' },
+        { name: 'Email Reports',           hash: 'email-reports' },
     ];
 
     const isSettingsActive = location.pathname === '/settings';

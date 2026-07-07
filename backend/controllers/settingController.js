@@ -1,5 +1,5 @@
 const Setting = require('../models/Setting');
-const { schedulePaymentAccessReset } = require('../services/scheduler');
+const { schedulePaymentAccessReset, scheduleEmailReport } = require('../services/scheduler');
 
 // @desc    Get settings
 // @route   GET /api/settings
@@ -20,7 +20,11 @@ const getSettings = async (req, res) => {
         receiptSequenceSeparator: '/',
         receiptSequencePadding: 5,
         receiptSequenceResetMonth: 4,
-        receiptSequenceResetDay: 1
+        receiptSequenceResetDay: 1,
+        emailReportEnabled: false,
+        emailReportHour: 18,
+        emailReportMinute: 0,
+        emailReportRecipients: ''
       };
     }
     res.json(settings);
@@ -49,7 +53,11 @@ const updateSettings = async (req, res) => {
     receiptSequenceResetDay,
     paymentAccessAutoReset,
     paymentAccessResetHour,
-    paymentAccessResetMinute
+    paymentAccessResetMinute,
+    emailReportEnabled,
+    emailReportHour,
+    emailReportMinute,
+    emailReportRecipients
   } = req.body;
 
   try {
@@ -73,6 +81,10 @@ const updateSettings = async (req, res) => {
           paymentAccessAutoReset: paymentAccessAutoReset !== undefined ? paymentAccessAutoReset : true,
           paymentAccessResetHour: paymentAccessResetHour !== undefined ? Number(paymentAccessResetHour) : 9,
           paymentAccessResetMinute: paymentAccessResetMinute !== undefined ? Number(paymentAccessResetMinute) : 0,
+          emailReportEnabled: emailReportEnabled !== undefined ? emailReportEnabled : false,
+          emailReportHour: emailReportHour !== undefined ? Number(emailReportHour) : 18,
+          emailReportMinute: emailReportMinute !== undefined ? Number(emailReportMinute) : 0,
+          emailReportRecipients: emailReportRecipients || ''
         }
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -89,6 +101,17 @@ const updateSettings = async (req, res) => {
     } catch (schedErr) {
       console.error('Error rescheduling payment reset:', schedErr);
     }
+
+    // If email report schedule changed, update the running cron job
+    try {
+      const enabled = settings.emailReportEnabled === true;
+      const hour = settings.emailReportHour ?? 18;
+      const minute = settings.emailReportMinute ?? 0;
+      const recipients = settings.emailReportRecipients || '';
+      scheduleEmailReport(hour, minute, enabled, recipients);
+    } catch (schedErr) {
+      console.error('Error rescheduling email report:', schedErr);
+    }
     
     res.json(settings);
   } catch (error) {
@@ -97,4 +120,24 @@ const updateSettings = async (req, res) => {
   }
 };
 
-module.exports = { getSettings, updateSettings };
+// @desc    Manually trigger email report sending
+// @route   POST /api/settings/send-test-report
+// @access  Private
+const sendManualReport = async (req, res) => {
+  const { recipients } = req.body;
+  if (!recipients || recipients.trim() === '') {
+    return res.status(400).json({ message: 'No email recipients provided.' });
+  }
+  try {
+    const { sendDailyAllCollegesReportEmail } = require('../services/emailReportService');
+    console.log('[ManualReport] Triggering manual Daily Report email to:', recipients);
+    await sendDailyAllCollegesReportEmail(recipients);
+    res.json({ message: 'Report generated and emailed successfully!' });
+  } catch (error) {
+    console.error('[ManualReport] Failed to trigger manual report:', error);
+    res.status(500).json({ message: 'Failed to trigger manual report email dispatch', error: error.message });
+  }
+};
+
+module.exports = { getSettings, updateSettings, sendManualReport };
+
