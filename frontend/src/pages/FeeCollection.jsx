@@ -65,6 +65,7 @@ const FeeCollection = () => {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [txToDelete, setTxToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [cancelReason, setCancelReason] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [sequencePreview, setSequencePreview] = useState(null);
     const [previewLoading, setPreviewLoading] = useState(false);
@@ -386,6 +387,7 @@ const FeeCollection = () => {
     // --- DELETE / CANCEL TRANSACTION LOGIC ---
     const handleDeleteTransaction = (tx) => {
         setTxToDelete(tx);
+        setCancelReason('');
         setShowDeleteModal(true);
     };
 
@@ -397,7 +399,7 @@ const FeeCollection = () => {
             if (isSequenceEnabled) {
                 // Cancel the transaction (preserve record, keep receipt sequence intact)
                 const res = await api.put(`/transactions/${txToDelete._id}/cancel`, {
-                    cancellationReason: 'Cancelled by user'
+                    cancellationReason: cancelReason || 'Cancelled by user'
                 });
                 // Update the transaction in-place so UI reflects cancelled status
                 setTransactions(prev =>
@@ -1943,6 +1945,18 @@ const FeeCollection = () => {
                                         <span className="text-gray-500 font-semibold">Amount:</span>
                                         <span className={`font-extrabold text-base ${isSeqEnabled ? 'text-orange-600' : 'text-red-600'}`}>₹{Number(txToDelete.amount).toLocaleString()}</span>
                                     </div>
+                                    {isSeqEnabled && (
+                                        <div className="space-y-1 mt-3 text-left">
+                                            <label className="text-[11px] font-bold text-gray-500 block">Cancellation Reason</label>
+                                            <textarea
+                                                rows={2}
+                                                value={cancelReason}
+                                                onChange={(e) => setCancelReason(e.target.value)}
+                                                placeholder="Enter reason (e.g. incorrect amount, wrong category)..."
+                                                className="w-full text-xs border border-gray-200 rounded-xl p-2.5 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none resize-none font-medium text-gray-700 bg-white"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex gap-3 pt-1">
                                     <button

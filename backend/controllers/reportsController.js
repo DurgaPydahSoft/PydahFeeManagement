@@ -55,9 +55,10 @@ const getTransactionReports = async (req, res) => {
         // We'll proceed with basic filtering.
 
         if (groupBy === 'cashier') {
-            // --- Advanced Cashier Report with College Breakdown ---
-            // 1. Fetch raw transactions for the period
-            const transactions = await Transaction.find(matchStage).lean();
+            // --- Advanced Cashier Report with College Breakdown (Includes Cancelled) ---
+            const matchStageWithCancelled = { ...matchStage };
+            delete matchStageWithCancelled.status;
+            const transactions = await Transaction.find(matchStageWithCancelled).lean();
 
             if (!transactions.length) {
                 return res.json([]);
@@ -116,7 +117,6 @@ const getTransactionReports = async (req, res) => {
                 console.error("Error fetching fee heads:", err);
             }
 
-
             // 4. Fetch College Info from SQL
             const collegeMap = {}; // admission_number -> college_name
             if (studentIds.size > 0) {
@@ -141,7 +141,6 @@ const getTransactionReports = async (req, res) => {
 
             // 5. Aggregate Data in Memory
             const cashierGroups = {};
-            // Structure: { cashierName: { totalAmount, totalCount, debitAmount, creditAmount, cashAmount, bankAmount, feeHeadsMap: { feeHeadId: { name, amount, count, colleges: { collegeName: amount } } } } }
 
             transactions.forEach(tx => {
                 const cashier = tx.collectedByName || 'Unknown';
@@ -155,6 +154,7 @@ const getTransactionReports = async (req, res) => {
                 const isDebit = tx.transactionType === 'DEBIT';
                 const isCredit = tx.transactionType === 'CREDIT';
                 const isCash = tx.paymentMode === 'Cash';
+                const isCancelled = tx.status === 'cancelled';
 
                 const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -172,43 +172,49 @@ const getTransactionReports = async (req, res) => {
                         bankAmount: 0,
                         totalCount: 0,
                         feeHeadsMap: {},
-                        transactions: [] // <-- Add transactions array
+                        transactions: []
                     };
                 }
 
                 const group = cashierGroups[cashier];
 
-                group.totalCount++;
-                if (isDebit) {
-                    group.debitAmount += amount;
-                    if (isCash) group.cashAmount += amount;
-                    else group.bankAmount += amount;
-                }
-                if (isCredit) {
-                    group.creditAmount += amount;
+                if (!isCancelled) {
+                    group.totalCount++;
+                    if (isDebit) {
+                        group.debitAmount += amount;
+                        if (isCash) group.cashAmount += amount;
+                        else group.bankAmount += amount;
+                    }
+                    if (isCredit) {
+                        group.creditAmount += amount;
+                    }
                 }
 
                 // Add this tx to the group's transactions list
                 group.transactions.push({
+                    _id: tx._id,
                     receiptNo: tx.receiptNumber || '-',
                     studentName: tx.studentName,
                     amount: tx.amount,
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
                     pinNo: collegeData ? collegeData.pin_no : '-',
-                    studentId: tx.studentId, // Include studentId (admission number)
+                    studentId: tx.studentId,
                     course: collegeData && collegeData.course ? collegeData.course : 'N/A',
                     branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
                     studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
                     feeHead: fhName,
-                    college: college
+                    college: college,
+                    status: tx.status || 'active',
+                    cancelledBy: tx.cancelledBy,
+                    cancelledByName: tx.cancelledByName,
+                    cancelledAt: tx.cancelledAt,
+                    cancellationReason: tx.cancellationReason,
+                    createdAt: tx.createdAt,
+                    updatedAt: tx.updatedAt
                 });
 
-                // Fee Head Breakdown (Count DEBIT amounts usually for "Collection Report")
-                // If the user wants Concession breakdown, we might need separate tracking.
-                // Standard Cashier Report = What did they COLLECT. So verify if we should include Credits.
-                // Usually "Fee Head Breakdown" sums the Collected amount.
-                if (isDebit) {
+                if (!isCancelled && isDebit) {
                     if (!group.feeHeadsMap[fhId]) {
                         group.feeHeadsMap[fhId] = {
                             name: fhName,
@@ -224,7 +230,6 @@ const getTransactionReports = async (req, res) => {
                     // College Breakdown for this Fee Head
                     if (!fhEntry.colleges[college]) fhEntry.colleges[college] = { total: 0, courses: {} };
                     if (typeof fhEntry.colleges[college] === 'number') {
-                        // Fallback for safety if somehow initialized as number
                         fhEntry.colleges[college] = { total: fhEntry.colleges[college], courses: { 'N/A': fhEntry.colleges[college] } };
                     }
                     const cName = collegeData && collegeData.course ? collegeData.course : 'N/A';
@@ -241,7 +246,7 @@ const getTransactionReports = async (req, res) => {
                     name: fh.name,
                     amount: fh.amount,
                     count: fh.count,
-                    colleges: fh.colleges // Keep the map: { "College A": 1000, "College B": 500 }
+                    colleges: fh.colleges
                 })).sort((a, b) => b.amount - a.amount);
 
                 // Remove map
@@ -298,8 +303,10 @@ const getTransactionReports = async (req, res) => {
             ];
             // 'mode' groupBy removed as per request
         } else if (groupBy === 'college') {
-            // --- Advanced College Report with Cashier Breakdown ---
-            const transactions = await Transaction.find(matchStage).lean();
+            // --- Advanced College Report with Cashier Breakdown (Includes Cancelled) ---
+            const matchStageWithCancelled = { ...matchStage };
+            delete matchStageWithCancelled.status;
+            const transactions = await Transaction.find(matchStageWithCancelled).lean();
 
             if (!transactions.length) {
                 return res.json([]);
@@ -395,6 +402,7 @@ const getTransactionReports = async (req, res) => {
                 const isDebit = tx.transactionType === 'DEBIT';
                 const isCredit = tx.transactionType === 'CREDIT';
                 const isCash = tx.paymentMode === 'Cash';
+                const isCancelled = tx.status === 'cancelled';
 
                 const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
                 const empNo = cashierEmpNoMap[cashierUsername.toLowerCase()] || 
@@ -419,19 +427,22 @@ const getTransactionReports = async (req, res) => {
 
                 const group = collegeGroups[collegeName];
 
-                group.totalCount++;
-                group.count++;
-                if (isDebit) {
-                    group.debitAmount += amount;
-                    if (isCash) group.cashAmount += amount;
-                    else group.bankAmount += amount;
-                }
-                if (isCredit) {
-                    group.creditAmount += amount;
+                if (!isCancelled) {
+                    group.totalCount++;
+                    group.count++;
+                    if (isDebit) {
+                        group.debitAmount += amount;
+                        if (isCash) group.cashAmount += amount;
+                        else group.bankAmount += amount;
+                    }
+                    if (isCredit) {
+                        group.creditAmount += amount;
+                    }
                 }
 
                 // Add this tx to the group's transactions list
                 group.transactions.push({
+                    _id: tx._id,
                     receiptNo: tx.receiptNumber || '-',
                     studentName: tx.studentName,
                     amount: tx.amount,
@@ -444,9 +455,13 @@ const getTransactionReports = async (req, res) => {
                     studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
                     feeHead: fhName,
                     college: collegeName,
-                    collectedBy: cashierUsername,
-                    collectedByName: cashier,
-                    empNo: empNo
+                    status: tx.status || 'active',
+                    cancelledBy: tx.cancelledBy,
+                    cancelledByName: tx.cancelledByName,
+                    cancelledAt: tx.cancelledAt,
+                    cancellationReason: tx.cancellationReason,
+                    createdAt: tx.createdAt,
+                    updatedAt: tx.updatedAt
                 });
 
                 // cashier breakdown inside this college
@@ -464,28 +479,30 @@ const getTransactionReports = async (req, res) => {
                     };
                 }
 
-                const cashierEntry = group.cashiersMap[cashierUsername];
-                cashierEntry.count++;
-                if (isDebit) {
-                    cashierEntry.netTotal += amount;
-                    if (isCash) cashierEntry.cashAmount += amount;
-                    else cashierEntry.bankAmount += amount;
+                if (!isCancelled) {
+                    const cashierEntry = group.cashiersMap[cashierUsername];
+                    cashierEntry.count++;
+                    if (isDebit) {
+                        cashierEntry.netTotal += amount;
+                        if (isCash) cashierEntry.cashAmount += amount;
+                        else cashierEntry.bankAmount += amount;
 
-                    // Track cashier's fee heads for this college
-                    if (!cashierEntry.feeHeadsMap[fhName]) {
-                        cashierEntry.feeHeadsMap[fhName] = {
-                            name: fhName,
-                            cashAmount: 0,
-                            bankAmount: 0,
-                            netTotal: 0
-                        };
+                        // Track cashier's fee heads for this college
+                        if (!cashierEntry.feeHeadsMap[fhName]) {
+                            cashierEntry.feeHeadsMap[fhName] = {
+                                name: fhName,
+                                cashAmount: 0,
+                                bankAmount: 0,
+                                netTotal: 0
+                            };
+                        }
+                        const cfh = cashierEntry.feeHeadsMap[fhName];
+                        cfh.netTotal += amount;
+                        if (isCash) cfh.cashAmount += amount;
+                        else cfh.bankAmount += amount;
+                    } else if (isCredit) {
+                        cashierEntry.creditAmount += amount;
                     }
-                    const cfh = cashierEntry.feeHeadsMap[fhName];
-                    cfh.netTotal += amount;
-                    if (isCash) cfh.cashAmount += amount;
-                    else cfh.bankAmount += amount;
-                } else if (isCredit) {
-                    cashierEntry.creditAmount += amount;
                 }
             });
 
@@ -502,7 +519,7 @@ const getTransactionReports = async (req, res) => {
                 // College-level fee head summary
                 const collegeFeeHeadsMap = {};
                 group.transactions.forEach(tx => {
-                    if (tx.transactionType === 'DEBIT') {
+                    if (tx.status !== 'cancelled' && tx.transactionType === 'DEBIT') {
                         const fhName = tx.feeHead || 'Unknown';
                         const amt = tx.amount || 0;
                         const isCash = tx.paymentMode === 'Cash';

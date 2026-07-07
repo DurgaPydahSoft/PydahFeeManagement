@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 const FeeConfiguration = () => {
@@ -17,6 +17,7 @@ const FeeConfiguration = () => {
     const [categories, setCategories] = useState([]);
     const [categoryMapping, setCategoryMapping] = useState({}); // Mapping of category per college|course|batch
     const [metadata, setMetadata] = useState({});
+    const [collegeCodes, setCollegeCodes] = useState({});
     const [message, setMessage] = useState('');
     const [calendarData, setCalendarData] = useState([]);
     const [isSavingLateFee, setIsSavingLateFee] = useState(false);
@@ -98,6 +99,7 @@ const FeeConfiguration = () => {
             if (response.data.batches) setBatches(response.data.batches);
             if (response.data.categories) setCategories(response.data.categories);
             if (response.data.categoryMapping) setCategoryMapping(response.data.categoryMapping);
+            if (response.data.collegeCodes) setCollegeCodes(response.data.collegeCodes);
         } catch (error) { console.error('Error fetching metadata', error); }
     };
 
@@ -453,7 +455,8 @@ const FeeConfiguration = () => {
             id: st._id,
             amount: st.amount,
             semester: st.semester,
-            terms: st.terms // Include terms in the row data
+            terms: st.terms,
+            isTermsDivided: st.isTermsDivided
         });
 
         grouped[key].allIds.push(st._id);
@@ -497,17 +500,40 @@ const FeeConfiguration = () => {
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6">
-                <header className="mb-4">
-                    <h1 className="text-2xl font-bold text-gray-800">Fee Configuration</h1>
-                    <p className="text-sm text-gray-500 mt-1">Manage fee heads and structure definitions.</p>
-                </header>
+                {/* Header & Tabs Row */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 pb-2 border-b border-gray-200 gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-800">Fee Configuration</h1>
+                        <p className="text-sm text-gray-500 mt-1">Manage fee heads and structure definitions.</p>
+                    </div>
 
-                {/* TABS */}
-                <div className="flex space-x-4 mb-6 border-b border-gray-200">
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'heads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('heads')}>1. Fee Heads</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'groups' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('groups')}>2. Fee Groups</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('definitions')}>3. Fee Structures (Definitions)</button>
-                    <button className={`pb-2 px-4 font-medium transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`} onClick={() => setActiveTab('latefees')}>4. Late Fees</button>
+                    {/* TABS */}
+                    <div className="flex space-x-2 md:space-x-4">
+                        <button 
+                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'heads' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
+                            onClick={() => setActiveTab('heads')}
+                        >
+                            1. Fee Heads
+                        </button>
+                        <button 
+                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'groups' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
+                            onClick={() => setActiveTab('groups')}
+                        >
+                            2. Fee Groups
+                        </button>
+                        <button 
+                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
+                            onClick={() => setActiveTab('definitions')}
+                        >
+                            3. Fee Structures (Definitions)
+                        </button>
+                        <button 
+                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
+                            onClick={() => setActiveTab('latefees')}
+                        >
+                            4. Late Fees
+                        </button>
+                    </div>
                 </div>
 
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
@@ -991,7 +1017,7 @@ const FeeConfiguration = () => {
                                             {!(editingId || isEditingContext) && (
                                                 <td className="p-3 text-xs text-gray-500">
                                                     <div className="font-bold">{row.course} - {row.branch}</div>
-                                                    <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{row.college}</div>
+                                                    <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{collegeCodes[row.college] || row.college}</div>
                                                     <div className="mt-1 text-black font-semibold">Batch: {row.batch}</div>
                                                 </td>
                                             )}
@@ -1005,9 +1031,32 @@ const FeeConfiguration = () => {
                                                     {row.years[y] ? (
                                                         <div className="flex flex-col gap-1">
                                                             {row.years[y].map((item, idx) => (
-                                                                <div key={idx} className="text-xs bg-gray-50 p-1 rounded border">
-                                                                    {item.semester && <span className="font-bold text-gray-500">S{item.semester}: </span>}
-                                                                    ₹{item.amount.toLocaleString()}
+                                                                <div key={idx} className="text-xs bg-gray-50 p-1.5 rounded border relative group/term text-left">
+                                                                    <div className="flex justify-between items-center gap-2">
+                                                                        <div>
+                                                                            {item.semester && <span className="font-bold text-gray-500">S{item.semester}: </span>}
+                                                                            <span className="font-semibold text-gray-800">₹{item.amount.toLocaleString()}</span>
+                                                                        </div>
+                                                                        {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                                                                            <span 
+                                                                                className="bg-blue-50 text-blue-700 text-[9px] px-1 py-0.5 rounded-md font-bold uppercase border border-blue-100 cursor-help"
+                                                                                title={item.terms.map(t => `Term ${t.termNumber}: ₹${t.amount.toLocaleString()} (${t.percentage}%)`).join('\n')}
+                                                                            >
+                                                                                {item.terms.length}T
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                                                                        <div className="hidden group-hover/term:block absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 bg-gray-900 text-white text-[9px] rounded-lg p-2 shadow-lg min-w-[125px] pointer-events-none">
+                                                                            {item.terms.map(t => (
+                                                                                <div key={t.termNumber} className="flex justify-between gap-3 border-b border-gray-800/60 last:border-0 py-0.5 whitespace-nowrap">
+                                                                                    <span className="text-gray-300">Term {t.termNumber}:</span>
+                                                                                    <span className="font-bold text-blue-400">₹{t.amount.toLocaleString()} ({t.percentage}%)</span>
+                                                                                </div>
+                                                                            ))}
+                                                                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900"></div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -1289,6 +1338,18 @@ const FeeConfiguration = () => {
                                         <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
                                     </button>
                                 </div>
+                            </div>
+                        )}
+
+                        {lateFeeForm.feeHead && lateFeeForm.termMappings.length === 0 && (
+                            <div className="bg-white p-20 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-center">
+                                <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-4">
+                                    <AlertTriangle size={32} />
+                                </div>
+                                <h3 className="text-lg font-bold text-amber-700">No Matching Fee Structure Found</h3>
+                                <p className="text-gray-500 text-sm max-w-sm mt-1">
+                                    No fee structure has been defined for this combination of College, Course, Batch, Year, Category, and Fee Head. You must create this fee structure under tab <strong>"3. Fee Structures (Definitions)"</strong> first before you can configure its late fees.
+                                </p>
                             </div>
                         )}
 

@@ -19,9 +19,13 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
         return true;
     });
 
-    // Recompute fee head summary based on filtered transactions for this college
+    const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
+    const cancelledTransactions = filteredTransactions.filter(tx => tx.status === 'cancelled');
+    const editedTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled' && tx.updatedAt && tx.createdAt && (new Date(tx.updatedAt).getTime() - new Date(tx.createdAt).getTime() > 10000));
+
+    // Recompute fee head summary based on active transactions for this college
     const feeHeadData = {};
-    filteredTransactions.forEach(tx => {
+    activeTransactions.forEach(tx => {
         if (tx.transactionType === 'DEBIT') {
             const fhName = tx.feeHead || 'Unknown';
             const amount = tx.amount || 0;
@@ -43,67 +47,82 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     });
     const sortedFeeHeads = Object.values(feeHeadData).sort((a, b) => b.netTotal - a.netTotal);
 
-    // Recompute cashier breakdown based on filtered transactions for this college
-    const cashierData = {};
-    filteredTransactions.forEach(tx => {
-        const username = tx.collectedBy || 'Unknown';
-        const name = tx.collectedByName || 'Unknown';
-        const amount = tx.amount || 0;
-        const isDebit = tx.transactionType === 'DEBIT';
-        const isCredit = tx.transactionType === 'CREDIT';
-        const isCash = tx.paymentMode === 'Cash';
-
-        if (!cashierData[username]) {
-            cashierData[username] = {
-                username,
-                name,
-                empNo: tx.empNo || username,
-                count: 0,
-                cashAmt: 0,
-                bankAmt: 0,
-                concessionAmt: 0,
-                netTotal: 0,
-                feeHeads: {}
-            };
-        }
-
-        const entry = cashierData[username];
-        entry.count++;
-        if (isDebit) {
-            entry.netTotal += amount;
-            if (isCash) entry.cashAmt += amount;
-            else entry.bankAmt += amount;
-
+    // Recompute Course > User > FeeHead hierarchical breakdown for this college
+    const courseHierarchy = {};
+    activeTransactions.forEach(tx => {
+        if (tx.transactionType === 'DEBIT') {
+            const courseName = tx.course || 'Unknown Course';
+            const username = tx.collectedBy || 'Unknown';
+            const cashierName = tx.collectedByName || 'Unknown';
+            const empNo = tx.empNo || username;
             const fhName = tx.feeHead || 'Unknown';
-            if (!entry.feeHeads[fhName]) {
-                entry.feeHeads[fhName] = {
+            const amount = tx.amount || 0;
+            const isCash = tx.paymentMode === 'Cash';
+
+            if (!courseHierarchy[courseName]) {
+                courseHierarchy[courseName] = {
+                    courseName,
+                    count: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0,
+                    cashiers: {}
+                };
+            }
+            const courseEntry = courseHierarchy[courseName];
+            courseEntry.count++;
+            courseEntry.netTotal += amount;
+            if (isCash) courseEntry.cashAmt += amount;
+            else courseEntry.bankAmt += amount;
+
+            if (!courseEntry.cashiers[username]) {
+                courseEntry.cashiers[username] = {
+                    username,
+                    name: cashierName,
+                    empNo,
+                    count: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0,
+                    feeHeads: {}
+                };
+            }
+            const cashierEntry = courseEntry.cashiers[username];
+            cashierEntry.count++;
+            cashierEntry.netTotal += amount;
+            if (isCash) cashierEntry.cashAmt += amount;
+            else cashierEntry.bankAmt += amount;
+
+            if (!cashierEntry.feeHeads[fhName]) {
+                cashierEntry.feeHeads[fhName] = {
                     name: fhName,
                     cashAmt: 0,
                     bankAmt: 0,
                     netTotal: 0
                 };
             }
-            const fhEntry = entry.feeHeads[fhName];
+            const fhEntry = cashierEntry.feeHeads[fhName];
             fhEntry.netTotal += amount;
             if (isCash) fhEntry.cashAmt += amount;
             else fhEntry.bankAmt += amount;
-        } else if (isCredit) {
-            entry.concessionAmt += amount;
         }
     });
 
-    const sortedCashiers = Object.values(cashierData).map(c => {
-        c.sortedFeeHeads = Object.values(c.feeHeads).sort((a, b) => b.netTotal - a.netTotal);
-        return c;
+    const sortedHierarchy = Object.values(courseHierarchy).map(course => {
+        course.sortedCashiers = Object.values(course.cashiers).map(cashier => {
+            cashier.sortedFeeHeads = Object.values(cashier.feeHeads).sort((a, b) => b.netTotal - a.netTotal);
+            return cashier;
+        }).sort((a, b) => b.netTotal - a.netTotal);
+        return course;
     }).sort((a, b) => b.netTotal - a.netTotal);
 
-    // Totals for this college
+    // Totals for this college (using active transactions only)
     const displayData = {
-        totalCount: filteredTransactions.length,
-        debitAmount: filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        creditAmount: filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        cashAmount: filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        bankAmount: filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        totalCount: activeTransactions.length,
+        debitAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        creditAmount: activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        cashAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        bankAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
     };
 
     return (
@@ -207,17 +226,17 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* 2. Cashier Breakdown for this College (SECOND, with inline fee heads breakdown) */}
-            {showSummary && sortedCashiers.length > 0 && (
+            {/* 2. Course-wise, Cashier-wise & Fee Head-wise Collections for this College (SECOND) */}
+            {showSummary && sortedHierarchy.length > 0 && (
                 <div style={{ marginBottom: '25px' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                        User-wise Consolidated Collections
+                        Course, User & Fee Head Collections
                     </h3>
                     <table className="print-table">
                         <thead>
                             <tr>
                                 <th style={{ width: '5%' }}>S.No</th>
-                                <th style={{ width: '45%' }}>Cashier Name / Fee Heads Collected</th>
+                                <th style={{ width: '45%' }}>Course / Cashier Name / Fee Heads Collected</th>
                                 <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
                                 <th style={{ textAlign: 'right', width: '12%' }}>Cash</th>
                                 <th style={{ textAlign: 'right', width: '13%' }}>Bank</th>
@@ -225,34 +244,54 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedCashiers.map((cashier, idx) => {
+                            {sortedHierarchy.map((course, cIdx) => {
                                 const rows = [];
-                                // Add Cashier Total Row
+                                
+                                // 1. Course Row (Bold)
                                 rows.push(
-                                    <tr key={`cashier-${idx}`} style={{ backgroundColor: '#f9f9f9', fontWeight: 'bold' }}>
-                                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
-                                        <td style={{ textTransform: 'uppercase' }}>{cashier.name} {cashier.empNo && `(${cashier.empNo})`}</td>
-                                        <td style={{ textAlign: 'center' }}>{cashier.count}</td>
-                                        <td style={{ textAlign: 'right' }}>₹{Number(cashier.cashAmt).toLocaleString()}</td>
-                                        <td style={{ textAlign: 'right' }}>₹{Number(cashier.bankAmt).toLocaleString()}</td>
-                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(cashier.netTotal).toLocaleString()}</td>
+                                    <tr key={`course-${cIdx}`} style={{ fontWeight: 'bold' }}>
+                                        <td style={{ textAlign: 'center' }}>{cIdx + 1}</td>
+                                        <td style={{ textTransform: 'uppercase' }}>{course.courseName}</td>
+                                        <td style={{ textAlign: 'center' }}>{course.count}</td>
+                                        <td style={{ textAlign: 'right' }}>₹{Number(course.cashAmt).toLocaleString()}</td>
+                                        <td style={{ textAlign: 'right' }}>₹{Number(course.bankAmt).toLocaleString()}</td>
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString()}</td>
                                     </tr>
                                 );
-                                // Add Cashier's Fee Head Breakdown sub-rows
-                                cashier.sortedFeeHeads.forEach((fh, fhIdx) => {
+
+                                cashierRowsLoop:
+                                course.sortedCashiers.forEach((cashier, uIdx) => {
+                                    // 2. Cashier Row under the Course (Indented slightly, Bold)
                                     rows.push(
-                                        <tr key={`cashier-fh-${idx}-${fhIdx}`} className="compact-row" style={{ color: '#333', fontWeight: 'bold' }}>
+                                        <tr key={`course-cashier-${cIdx}-${uIdx}`} style={{ fontWeight: 'bold' }}>
                                             <td></td>
-                                            <td style={{ paddingLeft: '20px', fontSize: '10px' }}>
-                                                {fh.name}
+                                            <td style={{ paddingLeft: '15px', textTransform: 'uppercase' }}>
+                                                {cashier.name} {cashier.empNo && `(${cashier.empNo})`}
                                             </td>
-                                            <td></td>
-                                            <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>
-                                            <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>
-                                            <td style={{ textAlign: 'right', fontSize: '10px', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                            <td style={{ textAlign: 'center' }}>{cashier.count}</td>
+                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.cashAmt).toLocaleString()}</td>
+                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.bankAmt).toLocaleString()}</td>
+                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.netTotal).toLocaleString()}</td>
                                         </tr>
                                     );
+
+                                    // 3. Fee Head Row under the Cashier (Indented further, oblique/italic)
+                                    cashier.sortedFeeHeads.forEach((fh, fhIdx) => {
+                                        rows.push(
+                                            <tr key={`course-cashier-fh-${cIdx}-${uIdx}-${fhIdx}`} className="compact-row" style={{ fontWeight: 'normal' }}>
+                                                <td></td>
+                                                <td style={{ paddingLeft: '30px', fontSize: '10px', fontStyle: 'italic' }}>
+                                                    {fh.name}
+                                                </td>
+                                                <td></td>
+                                                <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>
+                                                <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>
+                                                <td style={{ textAlign: 'right', fontSize: '10px', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                            </tr>
+                                        );
+                                    });
                                 });
+
                                 return rows;
                             })}
                             <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
@@ -268,7 +307,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             )}
 
             {/* Individual Transactions for this College */}
-            {showDetails && filteredTransactions.length > 0 && (
+            {showDetails && activeTransactions.length > 0 && (
                 <div style={{ marginTop: '20px' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Individual Transactions Breakdown
@@ -288,7 +327,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredTransactions.map((tx, idx) => (
+                            {activeTransactions.map((tx, idx) => (
                                 <tr key={idx} className="compact-row">
                                     <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                                     <td>{tx.receiptNo}</td>
@@ -300,6 +339,88 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
                                         {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Cancelled Transactions Breakdown */}
+            {showDetails && cancelledTransactions.length > 0 && (
+                <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Cancelled Transactions
+                    </h3>
+                    <table className="print-table" style={{ fontSize: '8px' }}>
+                        <thead>
+                            <tr>
+                                <th>S.No</th>
+                                <th>Receipt #</th>
+                                <th>Student Name</th>
+                                <th>Pin No</th>
+                                <th>Course/Branch</th>
+                                <th>Fee Head</th>
+                                <th>Cancelled By</th>
+                                <th>Cancellation Reason</th>
+                                <th style={{ textAlign: 'right' }}>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {cancelledTransactions.map((tx, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{tx.receiptNo}</td>
+                                    <td>{tx.studentName}</td>
+                                    <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                                    <td>{tx.course} - {tx.branch}</td>
+                                    <td>{tx.feeHead}</td>
+                                    <td>{tx.cancelledByName || tx.cancelledBy || 'Unknown'}</td>
+                                    <td>{tx.cancellationReason || '-'}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                        ₹{Number(tx.amount).toLocaleString()}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Edited Transactions Breakdown */}
+            {showDetails && editedTransactions.length > 0 && (
+                <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Edited Transactions
+                    </h3>
+                    <table className="print-table" style={{ fontSize: '8px' }}>
+                        <thead>
+                            <tr>
+                                <th>S.No</th>
+                                <th>Receipt #</th>
+                                <th>Student Name</th>
+                                <th>Pin No</th>
+                                <th>Course/Branch</th>
+                                <th>Fee Head</th>
+                                <th>Remarks</th>
+                                <th>Last Updated</th>
+                                <th style={{ textAlign: 'right' }}>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {editedTransactions.map((tx, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{tx.receiptNo}</td>
+                                    <td>{tx.studentName}</td>
+                                    <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                                    <td>{tx.course} - {tx.branch}</td>
+                                    <td>{tx.feeHead}</td>
+                                    <td>{tx.remarks || '-'}</td>
+                                    <td>{tx.updatedAt ? new Date(tx.updatedAt).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '-'}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                        ₹{Number(tx.amount).toLocaleString()}
                                     </td>
                                 </tr>
                             ))}
@@ -325,7 +446,8 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
     const { mode = 'all', allowedFeeHeads } = options || {};
 
     // Recompute global fee head summary based on all transactions across all colleges
-    const globalFeeHeadData = {};
+    // Recompute global course-wise summary based on all transactions across all colleges
+    const globalCourseData = {};
     data.forEach(college => {
         const rawTransactions = college.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
@@ -344,26 +466,26 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
         filteredTransactions.forEach(tx => {
             if (tx.transactionType === 'DEBIT') {
-                const fhName = tx.feeHead || 'Unknown';
+                const courseName = tx.course || 'Unknown Course';
                 const amount = tx.amount || 0;
                 const isCash = tx.paymentMode === 'Cash';
 
-                if (!globalFeeHeadData[fhName]) {
-                    globalFeeHeadData[fhName] = {
-                        name: fhName,
+                if (!globalCourseData[courseName]) {
+                    globalCourseData[courseName] = {
+                        courseName,
                         cashAmt: 0,
                         bankAmt: 0,
                         netTotal: 0
                     };
                 }
-                const entry = globalFeeHeadData[fhName];
-                entry.netTotal += amount;
-                if (isCash) entry.cashAmt += amount;
-                else entry.bankAmt += amount;
+                const courseEntry = globalCourseData[courseName];
+                courseEntry.netTotal += amount;
+                if (isCash) courseEntry.cashAmt += amount;
+                else courseEntry.bankAmt += amount;
             }
         });
     });
-    const sortedGlobalFeeHeads = Object.values(globalFeeHeadData).sort((a, b) => b.netTotal - a.netTotal);
+    const sortedGlobalCourses = Object.values(globalCourseData).sort((a, b) => b.netTotal - a.netTotal);
 
     const collegeSummaries = data.map(college => {
         const rawTransactions = college.transactions || [];
@@ -473,30 +595,30 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 </table>
             </div>
 
-            {/* 2. Global Fee Head-wise collections (SECOND) */}
-            {sortedGlobalFeeHeads.length > 0 && (
+            {/* 2. Global Course-wise collections (SECOND) */}
+            {sortedGlobalCourses.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                        Fee Head-wise Consolidated Collections (All Colleges)
+                        Course-wise Consolidated Collections
                     </h3>
                     <table className="print-table">
                         <thead>
                             <tr>
                                 <th style={{ width: '5%' }}>S.No</th>
-                                <th style={{ width: '50%' }}>Fee Head Name</th>
+                                <th style={{ width: '50%' }}>Course Name</th>
                                 <th style={{ textAlign: 'right', width: '15%' }}>Cash Amount</th>
                                 <th style={{ textAlign: 'right', width: '15%' }}>Bank Amount</th>
                                 <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedGlobalFeeHeads.map((fh, idx) => (
+                            {sortedGlobalCourses.map((course, idx) => (
                                 <tr key={idx} className="compact-row">
                                     <td style={{ textAlign: 'center' }}>{idx + 1}</td>
-                                    <td>{fh.name}</td>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{course.courseName}</td>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(course.cashAmt).toLocaleString()}</td>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(course.bankAmt).toLocaleString()}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString()}</td>
                                 </tr>
                             ))}
                             <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>

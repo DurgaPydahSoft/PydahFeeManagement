@@ -5,7 +5,7 @@ const PDFDocument = require('pdfkit');
 const sendReportEmail = require('../utils/sendReportEmail');
 
 /**
- * Compiles aggregated collection summary stats across colleges with active transactions.
+ * Compiles aggregated collection summary stats dynamically.
  */
 const compileDailyReportData = async () => {
     const startOfToday = new Date();
@@ -19,7 +19,7 @@ const compileDailyReportData = async () => {
         createdAt: { $gte: startOfToday, $lte: endOfToday }
     }).lean();
 
-    // 2. Pull associated student and fee head names
+    // 2. Pull student profiles to map colleges and courses
     const studentIds = new Set();
     const feeHeadIds = new Set();
     transactions.forEach(tx => {
@@ -27,15 +27,16 @@ const compileDailyReportData = async () => {
         if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
     });
 
-    const collegeMap = {};
+    const studentInfoMap = {};
     if (studentIds.size > 0) {
         const ids = Array.from(studentIds).map(id => `'${id}'`).join(',');
         try {
-            const [students] = await db.query(`SELECT admission_number, college FROM students WHERE admission_number IN (${ids})`);
+            const [students] = await db.query(`SELECT admission_number, college, course FROM students WHERE admission_number IN (${ids})`);
             students.forEach(s => {
-                if (s.college) {
-                    collegeMap[String(s.admission_number).trim().toLowerCase()] = s.college;
-                }
+                studentInfoMap[String(s.admission_number).trim().toLowerCase()] = {
+                    college: s.college || 'Unknown',
+                    course: s.course || 'Unknown Course'
+                };
             });
         } catch (sqlErr) {
             console.error('[emailReportService] SQL Query failed:', sqlErr);
@@ -56,20 +57,20 @@ const compileDailyReportData = async () => {
         }
     }
 
-    // 3. Initialize college groupings dynamically based on today's active transactions
+    // 3. Aggregate collections dynamically by college and course
     const collegeGroups = {};
+    const globalCourseGroups = {};
 
-    // 4. Aggregate collections
-    const globalFeeHeadGroups = {};
     transactions.forEach(tx => {
         const sId = String(tx.studentId || '').trim().toLowerCase();
-        const collegeName = collegeMap[sId] || 'Unknown';
+        const studentInfo = studentInfoMap[sId];
+        const collegeName = studentInfo ? studentInfo.college : 'Unknown';
+        const courseName = studentInfo ? studentInfo.course : 'Unknown Course';
         const amount = tx.amount || 0;
         const isDebit = tx.transactionType === 'DEBIT';
         const isCash = tx.paymentMode === 'Cash';
-        const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
-        const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
 
+        // College-wise aggregation
         if (!collegeGroups[collegeName]) {
             collegeGroups[collegeName] = {
                 collegeName: collegeName,
@@ -80,52 +81,54 @@ const compileDailyReportData = async () => {
             };
         }
 
-        const group = collegeGroups[collegeName];
-        group.receiptsCount++;
+        const colGroup = collegeGroups[collegeName];
+        colGroup.receiptsCount++;
 
         if (isDebit) {
-            group.netTotal += amount;
+            colGroup.netTotal += amount;
             if (isCash) {
-                group.cashAmt += amount;
+                colGroup.cashAmt += amount;
             } else {
-                group.bankAmt += amount;
+                colGroup.bankAmt += amount;
             }
 
-            if (!globalFeeHeadGroups[fhName]) {
-                globalFeeHeadGroups[fhName] = {
-                    name: fhName,
+            // Global Course-wise aggregation
+            if (!globalCourseGroups[courseName]) {
+                globalCourseGroups[courseName] = {
+                    courseName: courseName,
                     cashAmt: 0,
                     bankAmt: 0,
                     netTotal: 0
                 };
             }
-            const fhGroup = globalFeeHeadGroups[fhName];
-            fhGroup.netTotal += amount;
+            const cGroup = globalCourseGroups[courseName];
+            cGroup.netTotal += amount;
             if (isCash) {
-                fhGroup.cashAmt += amount;
+                cGroup.cashAmt += amount;
             } else {
-                fhGroup.bankAmt += amount;
+                cGroup.bankAmt += amount;
             }
         }
     });
 
     return {
         collegeSummaries: Object.values(collegeGroups),
-        globalFeeHeads: Object.values(globalFeeHeadGroups)
+        globalCourses: Object.values(globalCourseGroups).sort((a, b) => b.netTotal - a.netTotal)
     };
 };
 
 /**
  * Draws a clean, structured table on a PDFKit document.
  */
-const drawPdfTable = (doc, startY, headers, rows, columnWidths, alignRight = []) => {
+const drawPdfTableFlex = (doc, startY, headers, rows, columnWidths, alignRight = []) => {
     let currentY = startY;
 
-    // Draw Header
+    // Draw Table Header background
     doc.fillColor('#f1f5f9');
-    doc.rect(40, currentY, 515, 20).fill();
+    doc.rect(40, currentY, 515, 18).fill();
 
-    doc.fillColor('#1e293b').font('Helvetica-Bold').fontSize(8.5);
+    // Draw Table Header labels
+    doc.fillColor('#1e293b').font('Helvetica-Bold').fontSize(8);
     let hx = 40;
     headers.forEach((h, idx) => {
         const width = columnWidths[idx];
@@ -134,22 +137,21 @@ const drawPdfTable = (doc, startY, headers, rows, columnWidths, alignRight = [])
         hx += width;
     });
 
-    doc.strokeColor('#94a3b8').lineWidth(1);
-    doc.moveTo(40, currentY + 20).lineTo(555, currentY + 20).stroke();
+    doc.strokeColor('#94a3b8').lineWidth(0.8);
+    doc.moveTo(40, currentY + 18).lineTo(555, currentY + 18).stroke();
 
-    currentY += 20;
+    currentY += 18;
 
     // Draw Rows
-    doc.font('Helvetica').fontSize(8.5).fillColor('#334155');
-    rows.forEach((row, rowIdx) => {
-        // Page boundary check
+    rows.forEach((row) => {
+        // Automatic page split handling
         if (currentY > 730) {
             doc.addPage();
             currentY = 40;
 
             // Re-render header on the new page
-            doc.fillColor('#f1f5f9').rect(40, currentY, 515, 20).fill();
-            doc.fillColor('#1e293b').font('Helvetica-Bold');
+            doc.fillColor('#f1f5f9').rect(40, currentY, 515, 18).fill();
+            doc.fillColor('#1e293b').font('Helvetica-Bold').fontSize(8);
             let tempX = 40;
             headers.forEach((h, idx) => {
                 const width = columnWidths[idx];
@@ -157,33 +159,33 @@ const drawPdfTable = (doc, startY, headers, rows, columnWidths, alignRight = [])
                 doc.text(h, tempX, currentY + 5, { width, align });
                 tempX += width;
             });
-            doc.strokeColor('#94a3b8').moveTo(40, currentY + 20).lineTo(555, currentY + 20).stroke();
-            doc.font('Helvetica').fillColor('#334155');
-            currentY += 20;
+            doc.strokeColor('#94a3b8').moveTo(40, currentY + 18).lineTo(555, currentY + 18).stroke();
+            currentY += 18;
         }
 
-        const isTotalRow = rowIdx === rows.length - 1;
-        if (isTotalRow) {
-            doc.font('Helvetica-Bold').fillColor('#0f172a');
-            doc.strokeColor('#64748b').lineWidth(1);
+        const isTotal = row.isTotal === true;
+        const cells = row.cells;
+
+        if (isTotal) {
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a');
+            doc.strokeColor('#475569').lineWidth(0.8);
             doc.moveTo(40, currentY).lineTo(555, currentY).stroke();
         } else {
-            doc.font('Helvetica').fillColor('#334155');
+            doc.font('Helvetica').fontSize(8).fillColor('#334155');
         }
 
         let rx = 40;
-        row.forEach((cell, cellIdx) => {
+        cells.forEach((cell, cellIdx) => {
             const width = columnWidths[cellIdx];
             const align = alignRight.includes(cellIdx) ? 'right' : 'left';
-            doc.text(String(cell), rx, currentY + 6, { width, align });
+            doc.text(String(cell ?? ''), rx, currentY + 4, { width, align });
             rx += width;
         });
 
         // Draw light bottom border
         doc.strokeColor('#e2e8f0').lineWidth(0.5);
-        doc.moveTo(40, currentY + 20).lineTo(555, currentY + 20).stroke();
-
-        currentY += 20;
+        doc.moveTo(40, currentY + 15).lineTo(555, currentY + 15).stroke();
+        currentY += 15;
     });
 
     return currentY;
@@ -201,7 +203,7 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
         doc.on('end', () => resolve(Buffer.concat(buffers)));
         doc.on('error', err => reject(err));
 
-        // 1. Title Header - explicitly pass coordinates and reset paragraph formatting
+        // 1. Title Header
         doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e3a8a').text('PYDAH GROUP OF COLLEGES', 40, doc.y, { align: 'center', width: 515 });
         doc.fontSize(11).font('Helvetica-Bold').fillColor('#475569').text('ALL COLLEGES DAILY FEE COLLECTION REPORT', 40, doc.y, { align: 'center', width: 515 });
         doc.moveDown(0.8);
@@ -245,70 +247,80 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
             totalBank += summary.bankAmt;
             totalNet += summary.netTotal;
 
-            return [
-                idx + 1,
-                String(summary.collegeName).toUpperCase(),
-                summary.receiptsCount,
-                `Rs. ${Number(summary.cashAmt).toLocaleString('en-IN')}`,
-                `Rs. ${Number(summary.bankAmt).toLocaleString('en-IN')}`,
-                `Rs. ${Number(summary.netTotal).toLocaleString('en-IN')}`
-            ];
+            return {
+                cells: [
+                    idx + 1,
+                    String(summary.collegeName).toUpperCase(),
+                    summary.receiptsCount,
+                    `Rs. ${Number(summary.cashAmt).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(summary.bankAmt).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(summary.netTotal).toLocaleString('en-IN')}`
+                ]
+            };
         });
 
         // Add overall total row
-        collegeRows.push([
-            '',
-            'TOTAL',
-            totalReceipts,
-            `Rs. ${Number(totalCash).toLocaleString('en-IN')}`,
-            `Rs. ${Number(totalBank).toLocaleString('en-IN')}`,
-            `Rs. ${Number(totalNet).toLocaleString('en-IN')}`
-        ]);
+        collegeRows.push({
+            isTotal: true,
+            cells: [
+                '',
+                'TOTAL',
+                totalReceipts,
+                `Rs. ${Number(totalCash).toLocaleString('en-IN')}`,
+                `Rs. ${Number(totalBank).toLocaleString('en-IN')}`,
+                `Rs. ${Number(totalNet).toLocaleString('en-IN')}`
+            ]
+        });
 
-        let currentY = drawPdfTable(doc, doc.y, collegeHeaders, collegeRows, collegeColWidths, collegeAlignRight);
+        let currentY = drawPdfTableFlex(doc, doc.y, collegeHeaders, collegeRows, collegeColWidths, collegeAlignRight);
         doc.y = currentY + 20;
 
-        // 4. Global Fee Head-wise abstract table
+        // 4. Course-wise Consolidated Collections Table (Flat list of courses)
         if (doc.y > 600) {
             doc.addPage();
             doc.y = 40;
         }
 
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('Fee Head-wise Consolidated Collections (All Colleges)', 40, doc.y, { align: 'left', width: 515 });
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('Course-wise Consolidated Collections', 40, doc.y, { align: 'left', width: 515 });
         doc.moveDown(0.4);
 
-        const fhHeaders = ['S.No', 'Fee Head Name', 'Cash Amount', 'Bank Amount', 'Net Collection'];
-        const fhColWidths = [35, 230, 80, 80, 90];
-        const fhAlignRight = [2, 3, 4];
+        const courseHeaders = ['S.No', 'Course Name', 'Cash Amount', 'Bank Amount', 'Net Collection'];
+        const courseColWidths = [40, 225, 80, 80, 90];
+        const courseAlignRight = [2, 3, 4];
 
-        let totalFhCash = 0;
-        let totalFhBank = 0;
-        let totalFhNet = 0;
+        let totalCourseCash = 0;
+        let totalCourseBank = 0;
+        let totalCourseNet = 0;
 
-        const fhRows = data.globalFeeHeads.map((fh, idx) => {
-            totalFhCash += fh.cashAmt;
-            totalFhBank += fh.bankAmt;
-            totalFhNet += fh.netTotal;
+        const courseRows = data.globalCourses.map((c, idx) => {
+            totalCourseCash += c.cashAmt;
+            totalCourseBank += c.bankAmt;
+            totalCourseNet += c.netTotal;
 
-            return [
-                idx + 1,
-                fh.name,
-                `Rs. ${Number(fh.cashAmt).toLocaleString('en-IN')}`,
-                `Rs. ${Number(fh.bankAmt).toLocaleString('en-IN')}`,
-                `Rs. ${Number(fh.netTotal).toLocaleString('en-IN')}`
-            ];
+            return {
+                cells: [
+                    idx + 1,
+                    String(c.courseName).toUpperCase(),
+                    `Rs. ${Number(c.cashAmt).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(c.bankAmt).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(c.netTotal).toLocaleString('en-IN')}`
+                ]
+            };
         });
 
-        // Add fee heads total row
-        fhRows.push([
-            '',
-            'TOTAL',
-            `Rs. ${Number(totalFhCash).toLocaleString('en-IN')}`,
-            `Rs. ${Number(totalFhBank).toLocaleString('en-IN')}`,
-            `Rs. ${Number(totalFhNet).toLocaleString('en-IN')}`
-        ]);
+        // Add overall totals row
+        courseRows.push({
+            isTotal: true,
+            cells: [
+                '',
+                'TOTAL',
+                `Rs. ${Number(totalCourseCash).toLocaleString('en-IN')}`,
+                `Rs. ${Number(totalCourseBank).toLocaleString('en-IN')}`,
+                `Rs. ${Number(totalCourseNet).toLocaleString('en-IN')}`
+            ]
+        });
 
-        currentY = drawPdfTable(doc, doc.y, fhHeaders, fhRows, fhColWidths, fhAlignRight);
+        currentY = drawPdfTableFlex(doc, doc.y, courseHeaders, courseRows, courseColWidths, courseAlignRight);
         doc.y = currentY + 35;
 
         // 5. Signatures

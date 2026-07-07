@@ -66,8 +66,8 @@ const schedulePaymentAccessReset = (hour, minute) => {
 const initScheduler = async () => {
     console.log('Initializing Timely Reminder & Late Fee Scheduler...');
 
-    // Run every day at 10:00 AM (safe time)
-    cron.schedule('0 10 * * *', async () => {
+    // Run every day at 3:00 AM (safe time)
+    cron.schedule('0 3 * * *', async () => {
         console.log('Running Daily Automated Tasks...');
         await processReminderConfigs();
         await processLateFees();

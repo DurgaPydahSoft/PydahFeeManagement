@@ -63,6 +63,7 @@ const getStudentMetadata = async (req, res) => {
     const [rows] = await db.query(`
       SELECT 
         cl.name as college, 
+        cl.code as collegeCode,
         c.name as course, 
         c.total_years,
         cb.name as branch 
@@ -87,7 +88,11 @@ const getStudentMetadata = async (req, res) => {
     const casteList = castes.map(c => c.caste);
 
     const hierarchy = {};
+    const collegeCodes = {};
     rows.forEach(row => {
+      if (row.college && row.collegeCode) {
+        collegeCodes[row.college] = row.collegeCode.toUpperCase().trim();
+      }
       if (!hierarchy[row.college]) {
         hierarchy[row.college] = {};
       }
@@ -143,7 +148,8 @@ const getStudentMetadata = async (req, res) => {
       categories: categoryList,
       castes: casteList,
       categoryMapping,
-      courseYears
+      courseYears,
+      collegeCodes
     });
   } catch (error) {
     console.error('Error fetching metadata:', error);
