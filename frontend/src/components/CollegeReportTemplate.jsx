@@ -49,18 +49,12 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
 
     // Recompute Course > User > FeeHead hierarchical breakdown for this college
     const courseHierarchy = {};
-    const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str || '');
-    
     activeTransactions.forEach(tx => {
         if (tx.transactionType === 'DEBIT') {
             const courseName = tx.course || 'Unknown Course';
             const username = tx.collectedBy || 'Unknown';
             const cashierName = tx.collectedByName || 'Unknown';
-            const hasRealEmpNo = tx.empNo && 
-                                 !isUUID(tx.empNo) && 
-                                 String(tx.empNo).toLowerCase() !== String(cashierName).toLowerCase() && 
-                                 String(tx.empNo).toLowerCase() !== String(username).toLowerCase();
-            const empNo = hasRealEmpNo ? tx.empNo : '';
+            const empNo = tx.empNo || username;
             const fhName = tx.feeHead || 'Unknown';
             const amount = tx.amount || 0;
             const isCash = tx.paymentMode === 'Cash';

@@ -96,16 +96,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Info Row */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '12px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
                 <div>
-                    <strong>Cashier:</strong> <span style={{ textTransform: 'uppercase' }}>{typeof data._id === 'string' ? data._id : 'N/A'}</span> 
-                    {(() => {
-                        const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str || '');
-                        const cleanEmp = String(data.empNo || '').trim();
-                        const cleanName = String(data._id || '').trim();
-                        const showEmp = cleanEmp && 
-                                        !isUUID(cleanEmp) && 
-                                        cleanEmp.toLowerCase() !== cleanName.toLowerCase();
-                        return showEmp ? ` (${cleanEmp})` : '';
-                    })()}
+                    <strong>Cashier:</strong> <span style={{ textTransform: 'uppercase' }}>{typeof data._id === 'string' ? data._id : 'N/A'}</span> {data.empNo && `(${data.empNo})`}
                 </div>
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
