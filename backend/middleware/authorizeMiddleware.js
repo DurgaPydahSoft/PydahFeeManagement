@@ -153,6 +153,11 @@ const authorize = (req, res, next) => {
 
   // Restrict User Management changes (POST/PUT/DELETE) strictly to superadmin
   if (path.startsWith('/api/users')) {
+    // Allow any authenticated user to retrieve their own profile details
+    if (path === '/api/users/me' && req.method === 'GET') {
+      return next();
+    }
+
     if (req.method === 'GET') {
       if (user.role === 'superadmin' || user.role === 'admin' || hasPermission(user, ['/user-management'])) {
         return next();
@@ -164,6 +169,7 @@ const authorize = (req, res, next) => {
     }
     return res.status(403).json({ message: 'Forbidden: User Management changes require superadmin privileges' });
   }
+
 
   if (user.role === 'superadmin' || user.role === 'admin') {
     return next();
