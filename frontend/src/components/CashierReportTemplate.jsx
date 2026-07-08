@@ -280,7 +280,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             )}
 
             {/* Cancelled Transactions Breakdown */}
-            {showDetails && cancelledTransactions.length > 0 && (
+            {cancelledTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Cancelled Transactions
@@ -321,7 +321,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             )}
 
             {/* Edited Transactions Breakdown */}
-            {showDetails && editedTransactions.length > 0 && (
+            {editedTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Edited Transactions
