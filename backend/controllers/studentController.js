@@ -1,4 +1,6 @@
 const db = require('../config/sqlDb');
+const { syncStudentFeesByAdmissionNumber } = require('../services/studentFeeSyncService');
+
 // @desc    Get all students
 // @route   GET /api/students
 const getStudents = async (req, res) => {
@@ -168,6 +170,13 @@ const getStudentByAdmissionNumber = async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ message: 'Student not found' });
     }
+
+    // Fire fee sync in the background — does not block the student record response.
+    // This ensures StudentFee records are up-to-date by the time the frontend
+    // makes the follow-up call to /fee-structures/student/:admissionNo.
+    syncStudentFeesByAdmissionNumber(String(id)).catch(err =>
+      console.error(`[StudentController] Background fee sync failed for ${id}:`, err.message)
+    );
 
     res.json(rows[0]);
   } catch (error) {
