@@ -1553,11 +1553,11 @@ const FeeCollection = () => {
                                                 <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
                                                         <div className="grid grid-cols-3 gap-2 mb-3">
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableCashPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableCashPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
                                                                 <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} disabled={!effectivePaymentAccess('enableCashPayment')} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
-                                                                <span className="font-bold text-xs text-gray-700">Cash</span>
+                                                                <span className={`font-bold text-xs ${paymentCategory === 'Cash' ? 'text-white' : 'text-gray-700'}`}>Cash</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableBankPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableBankPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
                                                                 <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} disabled={!effectivePaymentAccess('enableBankPayment')} onChange={() => {
                                                                     setPaymentCategory('Bank'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
@@ -1570,9 +1570,9 @@ const FeeCollection = () => {
                                                                     
                                                                     setPaymentForm(newState);
                                                                 }} />
-                                                                <span className="font-bold text-xs text-gray-700">Bank</span>
+                                                                <span className={`font-bold text-xs ${paymentCategory === 'Bank' ? 'text-white' : 'text-gray-700'}`}>Bank</span>
                                                             </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || !effectivePaymentAccess('enableSplitPayment')) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-500/20' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || !effectivePaymentAccess('enableSplitPayment')) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
                                                                 <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={isEditMode || !effectivePaymentAccess('enableSplitPayment')} onChange={() => {
                                                                     setPaymentCategory('Split'); 
                                                                     const newState = { ...paymentForm, paymentMode: 'UPI' };
@@ -1586,7 +1586,7 @@ const FeeCollection = () => {
                                                                     setPaymentForm(newState);
                                                                     setSplitCashAmount(Math.floor(totalSelectedAmount / 2)); // Default to 50/50 split
                                                                 }} />
-                                                                <span className="font-bold text-xs text-gray-700">Split</span>
+                                                                <span className={`font-bold text-xs ${paymentCategory === 'Split' ? 'text-white' : 'text-gray-700'}`}>Split</span>
                                                             </label>
                                                         </div>
 
@@ -1959,14 +1959,19 @@ const FeeCollection = () => {
                                     </div>
                                     {isSeqEnabled && (
                                         <div className="space-y-1 mt-3 text-left">
-                                            <label className="text-[11px] font-bold text-gray-500 block">Cancellation Reason</label>
+                                            <label className="text-[11px] font-bold text-gray-500 block">
+                                                Cancellation Reason <span className="text-red-500">*</span>
+                                            </label>
                                             <textarea
                                                 rows={2}
                                                 value={cancelReason}
                                                 onChange={(e) => setCancelReason(e.target.value)}
                                                 placeholder="Enter reason (e.g. incorrect amount, wrong category)..."
-                                                className="w-full text-xs border border-gray-200 rounded-xl p-2.5 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 outline-none resize-none font-medium text-gray-700 bg-white"
+                                                className={`w-full text-xs border rounded-xl p-2.5 focus:ring-1 outline-none resize-none font-medium text-gray-700 bg-white transition-colors ${cancelReason.trim() ? 'border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'border-red-300 focus:ring-red-400 focus:border-red-400'}`}
                                             />
+                                            {!cancelReason.trim() && (
+                                                <p className="text-[10px] text-red-500 font-semibold">Reason is required to cancel a transaction.</p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -1980,7 +1985,7 @@ const FeeCollection = () => {
                                     </button>
                                     <button
                                         onClick={confirmDeleteTransaction}
-                                        disabled={isDeleting}
+                                        disabled={isDeleting || (isSeqEnabled && !cancelReason.trim())}
                                         className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm shadow transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed active:scale-95 ${isSeqEnabled ? 'bg-orange-500 hover:bg-orange-600' : 'bg-red-600 hover:bg-red-700'}`}
                                     >
                                         {isDeleting ? (
