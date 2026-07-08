@@ -31,6 +31,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors());
 
+app.get('/api', (req, res) => {
+  res.json({ message: 'API is running' });
+});
+
 const { protect } = require('./middleware/authMiddleware');
 const { authorize } = require('./middleware/authorizeMiddleware');
 
@@ -80,9 +84,6 @@ app.use('/api', protectedApi);
 // itself via the ?token= query parameter.
 app.use('/api/sse', require('./routes/sseRoutes'));
 
-app.get('/', (req, res) => {
-  res.json({ message: 'API is running' });
-});
 
 const PORT = process.env.PORT || 5000;
 
