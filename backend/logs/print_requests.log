@@ -1,0 +1,18 @@
+[2026-07-08T10:46:52.550Z] App: fees | Template: N/A | Record: N/A | User: API | Status: FAIL | Error: Missing template name
+[2026-07-08T10:48:13.213Z] App: fees | Template: N/A | Record: N/A | User: API | Status: FAIL | Error: Missing template name
+[2026-07-08T10:48:39.511Z] App: fees | Template: N/A | Record: N/A | User: API | Status: FAIL | Error: Missing template name
+[2026-07-08T10:49:43.348Z] App: fees | Template: fee-receipt | Record: N/A | User: API | Status: FAIL | Error: Missing data
+[2026-07-08T10:51:01.883Z] App: fees | Template: fee-receipt | Record: Bulk/N/A | User: API | Status: FORBIDDEN | Error: Application fees is not authorized to print template 'fee-receipt'
+[2026-07-08T10:55:06.068Z] App: fee-management | Template: fee-receipt | Record: Bulk/N/A | User: API | Status: ERROR | Error: Missing receiptId or receiptNumber in request data
+[2026-07-08T10:55:19.593Z] App: fee-management | Template: fee-receipt | Record: Bulk/N/A | User: API | Status: ERROR | Error: Missing receiptId or receiptNumber in request data
+[2026-07-08T10:56:25.549Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: ERROR | Error: Objects are not valid as a React child (found: object with keys {$$typeof, type, key, ref, props, _owner, _store}). If you meant to render a collection of children, use an array instead.
+[2026-07-08T11:01:09.541Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: ERROR | Error: window is not defined
+[2026-07-08T11:02:27.620Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: ERROR | Error: window is not defined
+[2026-07-08T11:02:52.151Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: SUCCESS
+[2026-07-08T11:03:15.316Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: SUCCESS
+[2026-07-08T11:04:19.238Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: SUCCESS
+[2026-07-08T11:04:39.016Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: SUCCESS
+[2026-07-08T11:07:34.353Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: SUCCESS
+[2026-07-08T11:12:57.808Z] App: fee-management | Template: fee-receipt | Record: 6a4e28109007b22f3d757c0b | User: superadmin | Status: SUCCESS
+[2026-07-08T11:12:57.982Z] App: fee-management | Template: fee-receipt | Record: 6a4e28109007b22f3d757c0b | User: superadmin | Status: SUCCESS
+[2026-07-08T11:13:06.741Z] App: fee-management | Template: fee-receipt | Record: REC615260342 | User: API | Status: SUCCESS

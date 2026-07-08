@@ -44,7 +44,7 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
                     <>
                         {/* Left: Logo */}
                         <div style={{ width: '80px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flexShrink: 0 }}>
-                            <img src="/PYDAH_LOGO_PHOTO.jpg" alt="Logo" style={{ height: '46px', width: 'auto', objectFit: 'contain' }} />
+                            <img src="https://static.wixstatic.com/media/bfee2e_7d499a9b2c40442e85bb0fa99e7d5d37~mv2.png/v1/fill/w_162,h_89,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/logo1.png" alt="Logo" style={{ height: '46px', width: 'auto', objectFit: 'contain' }} />
                         </div>
                         
                         {/* Center: College Name */}
@@ -231,7 +231,7 @@ const ReceiptTemplate = forwardRef(({ transaction, transactions, relatedTransact
             <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxSizing: 'border-box', width: '100%' }}>
                 {/* Left side: QR Code Verification Box */}
                 <div style={{ border: '1.5px solid #000', borderRadius: '8px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${window.location.origin}/public/verify-receipt/${primary.receiptNumber}`)}`} alt="QR" style={{ width: '48px', height: '48px' }} />
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`${typeof window !== 'undefined' ? window.location.origin : ''}/public/verify-receipt/${primary.receiptNumber}`)}`} alt="QR" style={{ width: '48px', height: '48px' }} />
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ fontSize: '7.5px', fontWeight: '800', color: '#000' }}>SCAN TO VERIFY</div>
                         <div style={{ fontSize: '7px', color: '#555', marginTop: '1px' }}>Receipt No.</div>

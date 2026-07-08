@@ -43,6 +43,9 @@ app.use('/api/sync', require('./routes/syncRoutes'));
 // Public receipt verification endpoint (NO auth/JWT required)
 app.use('/api/public/transactions', require('./routes/publicTransactionRoutes'));
 
+// Secure Internal Print API (utilizes custom print token authentication)
+app.use('/api/print', require('./routes/print.routes'));
+
 // All other API routes require authentication + authorization
 const protectedApi = express.Router();
 protectedApi.use(protect);

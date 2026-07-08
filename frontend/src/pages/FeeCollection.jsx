@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
 import Sidebar from './Sidebar';
 import ReceiptTemplate from '../components/ReceiptTemplate';
+import { printHtmlDocument } from '../utils/printService';
 
 const fmtAmount = (value) => Number(value ?? 0).toLocaleString();
 
@@ -226,11 +227,22 @@ const FeeCollection = () => {
 
 
     // Print Handler
-    const handlePrintReceipt = useReactToPrint({
-        contentRef: receiptRef,
-        documentTitle: lastTransaction ? `Receipt-${lastTransaction.receiptNumber}` : 'Receipt',
-        onAfterPrint: () => setShowReceiptModal(false)
-    });
+    const handlePrintReceipt = async () => {
+        if (!lastTransaction) return;
+        try {
+            const response = await api.post('/print', {
+                template: 'fee-receipt',
+                data: {
+                    receiptId: lastTransaction._id
+                }
+            });
+            printHtmlDocument(response.data);
+            setShowReceiptModal(false);
+        } catch (err) {
+            console.error('Print failed:', err);
+            alert('Failed to generate print document');
+        }
+    };
 
     // Helper: Fetch Student Data (Avoids UI flicker/reset)
     const fetchStudentData = async (selectedStudent) => {
@@ -2036,11 +2048,21 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
     const batchSiblings = allTransactions.filter(t => t.receiptNumber === transaction.receiptNumber);
     const isBatch = batchSiblings.length > 1;
 
-    const handlePrint = useReactToPrint({
-        contentRef: printRef,
-        documentTitle: `Receipt-${transaction.receiptNumber}`,
-        onAfterPrint: () => setShowPreview(false)
-    });
+    const handlePrint = async () => {
+        try {
+            const response = await api.post('/print', {
+                template: 'fee-receipt',
+                data: {
+                    receiptId: transaction._id
+                }
+            });
+            printHtmlDocument(response.data);
+            setShowPreview(false);
+        } catch (err) {
+            console.error('Print failed:', err);
+            alert('Failed to generate print document');
+        }
+    };
 
     return (
         <tr className={`transition-colors group ${isCancelled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'}`}>

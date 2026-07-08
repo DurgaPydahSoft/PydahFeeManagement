@@ -4,6 +4,7 @@ import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Prin
 import Sidebar from './Sidebar';
 import { useReactToPrint } from 'react-to-print';
 import ConcessionReportPrint from '../components/ConcessionReportPrint';
+import { printHtmlDocument } from '../utils/printService';
 
 const ConcessionManagement = () => {
     const [activeTab, setActiveTab] = useState('request'); // 'request', 'approvals', 'approvers'
@@ -61,10 +62,21 @@ const ConcessionManagement = () => {
 
 
     const reportPrintRef = React.useRef();
-    const handlePrint = useReactToPrint({
-        contentRef: reportPrintRef,
-        documentTitle: 'Concession_Fee_Advice_Report',
-    });
+    const handlePrint = async () => {
+        try {
+            const response = await api.post('/print', {
+                template: 'concession-report',
+                data: {
+                    reportData,
+                    filters: reportFilters
+                }
+            });
+            printHtmlDocument(response.data);
+        } catch (err) {
+            console.error('Print failed:', err);
+            alert('Failed to generate print document');
+        }
+    };
 
     // Metadata for filters
     const [metadata, setMetadata] = useState({ hierarchy: {}, batches: [] });

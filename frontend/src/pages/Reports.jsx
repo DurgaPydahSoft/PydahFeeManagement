@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
+import { printHtmlDocument } from '../utils/printService';
 // Removed XLSX import since Export was removed
 import {
     Calendar,
@@ -51,10 +52,28 @@ const StatCard = ({ title, value, color, icon: Icon, note }) => {
 
 const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, role, setPrintModalData }) => {
     const printRef = useRef();
-    const handlePrint = useReactToPrint({
-        contentRef: printRef,
-        documentTitle: `${activeTab}_Report_${row._id}_${Date.now()}`
-    });
+    const handlePrint = async () => {
+        try {
+            let template = '';
+            let data = {};
+            if (activeTab === 'cashier') {
+                template = 'cashier-report';
+                data = { cashierData: row, dateRange, options: { mode: 'all' } };
+            } else if (activeTab === 'college') {
+                template = 'college-report';
+                data = { displayData: row, dateRange, options: { mode: 'all' } };
+            } else if (activeTab === 'daily') {
+                template = 'daily-report';
+                data = { reportData: row };
+            }
+
+            const response = await api.post('/print', { template, data });
+            printHtmlDocument(response.data);
+        } catch (err) {
+            console.error('Print failed:', err);
+            alert('Failed to generate print document');
+        }
+    };
 
     const isExpanded = expandedRows.includes(idx);
     const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'college' ? Landmark : Calendar;
@@ -373,10 +392,35 @@ const Reports = () => {
     const [selectedFeeGroupId, setSelectedFeeGroupId] = useState('');
 
     const modalPrintRef = useRef(null);
-    const handleModalPrint = useReactToPrint({
-        contentRef: modalPrintRef,
-        documentTitle: `${activeTab === 'cashier' ? 'Cashier' : 'College'}_Report_${printModalData?.isAll ? 'All' : (printModalData?.row?._id || 'N/A')}_${Date.now()}`
-    });
+    const handleModalPrint = async () => {
+        if (!printModalData) return;
+        try {
+            const template = activeTab === 'college' ? 'college-report' : 'cashier-report';
+            const options = activeTab === 'college' ? {
+                ...printOptions,
+                selectedGroupName: feeGroups.find(g => g._id === selectedFeeGroupId)?.name,
+                allowedFeeHeads: (() => {
+                    const g = feeGroups.find(g => g._id === selectedFeeGroupId);
+                    return g ? g.feeHeads.map(fh => (fh.name || '').trim().toLowerCase()) : null;
+                })()
+            } : printOptions;
+
+            const response = await api.post('/print', {
+                template,
+                data: {
+                    displayData: printModalData.isAll ? printModalData.rows : printModalData.row,
+                    cashierData: printModalData.isAll ? printModalData.rows : printModalData.row,
+                    options,
+                    dateRange: printModalData.dateRange,
+                    hideGeneratedInfo: true
+                }
+            });
+            printHtmlDocument(response.data);
+        } catch (err) {
+            console.error('Print failed:', err);
+            alert('Failed to generate print document');
+        }
+    };
 
     const toggleRow = (idx) => {
         setExpandedRows(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
