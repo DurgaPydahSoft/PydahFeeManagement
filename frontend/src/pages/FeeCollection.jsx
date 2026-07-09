@@ -42,7 +42,8 @@ const FeeCollection = () => {
         proceedingId: ''
     });
     const [paymentCategory, setPaymentCategory] = useState('Cash');
-    const [splitCashAmount, setSplitCashAmount] = useState('');
+    // perRowSplitCash: { [feeRowId]: cashAmountString }
+    const [perRowSplitCash, setPerRowSplitCash] = useState({});
     const [transactions, setTransactions] = useState([]);
     const [recentTransactions, setRecentTransactions] = useState([]);
     const [toast, setToast] = useState(null);
@@ -300,6 +301,7 @@ const FeeCollection = () => {
             proceedingId: '' 
         })); // Reset form
         setPaymentCategory('Cash');
+        setPerRowSplitCash({});
         setSelectedProceeding(null);
         await fetchStudentData(selectedStudent);
     };
@@ -384,6 +386,7 @@ const FeeCollection = () => {
         setEditingTransaction(null);
         setFeeRows([{ id: Date.now(), feeHeadId: '', amount: '' }]);
         setPaymentCategory('Cash');
+        setPerRowSplitCash({});
         setPaymentForm({
             paymentMode: 'Cash',
             remarks: '',
@@ -620,11 +623,21 @@ const FeeCollection = () => {
             let batchTransactions = [];
 
             if (paymentCategory === 'Split') {
-                const totalCash = Number(splitCashAmount) || 0;
-                const totalBank = totalSelectedAmount - totalCash;
-                
-                if (totalCash <= 0 || totalBank <= 0) {
-                    showToastMessage("Please enter a valid split amount. Both Cash and Bank portions must be greater than zero.", 'error');
+                // Validate per-row split entries
+                const overflowRows = validRows.filter(row => {
+                    const cash = Number(perRowSplitCash[row.id]) || 0;
+                    return cash > Number(row.amount);
+                });
+                if (overflowRows.length > 0) {
+                    showToastMessage("Cash amount exceeds fee amount in one or more rows. Please correct before proceeding.", 'error');
+                    setIsProcessing(false);
+                    return;
+                }
+
+                const totalCashEntered = validRows.reduce((sum, row) => sum + (Number(perRowSplitCash[row.id]) || 0), 0);
+                const totalBankEntered = totalSelectedAmount - totalCashEntered;
+                if (totalCashEntered <= 0 || totalBankEntered <= 0) {
+                    showToastMessage("Each split must have both a Cash and Bank portion. Enter cash amounts for at least one fee head.", 'error');
                     setIsProcessing(false);
                     return;
                 }
@@ -632,10 +645,8 @@ const FeeCollection = () => {
                 validRows.forEach(row => {
                     const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
                     const rowTotal = Number(row.amount);
-                    
-                    // Proportional Split
-                    const rowCashAmount = Math.round((rowTotal * (totalCash / totalSelectedAmount)) * 100) / 100;
-                    const rowBankAmount = Math.round((rowTotal - rowCashAmount) * 100) / 100;
+                    const rowCashAmount = Number(perRowSplitCash[row.id]) || 0;
+                    const rowBankAmount = rowTotal - rowCashAmount;
 
                     const baseData = {
                         ...commonData,
@@ -647,32 +658,36 @@ const FeeCollection = () => {
                             : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
                     };
 
-                    // 1. Cash Part
-                    batchTransactions.push({
-                        ...baseData,
-                        amount: rowCashAmount,
-                        paymentMode: 'Cash'
-                    });
+                    // Only push Cash transaction if cash portion > 0
+                    if (rowCashAmount > 0) {
+                        batchTransactions.push({
+                            ...baseData,
+                            amount: rowCashAmount,
+                            paymentMode: 'Cash'
+                        });
+                    }
 
-                    // 2. Bank Part
-                    const bankData = {
-                        ...baseData,
-                        amount: rowBankAmount,
-                        paymentMode: paymentForm.paymentMode,
-                        bankName: paymentForm.bankName,
-                        instrumentDate: paymentForm.instrumentDate,
-                        referenceNo: paymentForm.referenceNo,
-                        referenceDate: paymentForm.referenceDate,
-                        paymentConfigId: paymentForm.paymentConfigId
-                    };
-                    const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
-                    if (selectedConfig) {
-                        bankData.depositedToAccount = selectedConfig.account_name;
+                    // Only push Bank transaction if bank portion > 0
+                    if (rowBankAmount > 0) {
+                        const bankData = {
+                            ...baseData,
+                            amount: rowBankAmount,
+                            paymentMode: paymentForm.paymentMode,
+                            bankName: paymentForm.bankName,
+                            instrumentDate: paymentForm.instrumentDate,
+                            referenceNo: paymentForm.referenceNo,
+                            referenceDate: paymentForm.referenceDate,
+                            paymentConfigId: paymentForm.paymentConfigId
+                        };
+                        const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                        if (selectedConfig) {
+                            bankData.depositedToAccount = selectedConfig.account_name;
+                        }
+                        if (paymentForm.paymentMode === 'RTF') {
+                            bankData.proceedingId = paymentForm.proceedingId;
+                        }
+                        batchTransactions.push(bankData);
                     }
-                    if (paymentForm.paymentMode === 'RTF') {
-                        bankData.proceedingId = paymentForm.proceedingId;
-                    }
-                    batchTransactions.push(bankData);
                 });
             } else {
                 batchTransactions = validRows.map(row => {
@@ -1584,40 +1599,65 @@ const FeeCollection = () => {
                                                                     }
                                                                     
                                                                     setPaymentForm(newState);
-                                                                    setSplitCashAmount(Math.floor(totalSelectedAmount / 2)); // Default to 50/50 split
+                                                                    setPerRowSplitCash({}); // reset so table shows fresh inputs
                                                                 }} />
                                                                 <span className={`font-bold text-xs ${paymentCategory === 'Split' ? 'text-white' : 'text-gray-700'}`}>Split</span>
                                                             </label>
                                                         </div>
 
-                                                        {/* Sub-options for Split / Bank */}
+                                                        {/* Per-fee-head split input table */}
                                                         {paymentCategory === 'Split' && (
-                                                            <div className="grid grid-cols-2 gap-2 mb-3 bg-blue-50/50 p-2 rounded-lg border border-blue-100">
-                                                                <div>
-                                                                    <label className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block mb-1">Cash Amount</label>
-                                                                    <input 
-                                                                        type="number" 
-                                                                        className="w-full border border-blue-200 p-2 rounded-lg text-xs font-bold bg-white outline-none focus:border-blue-500" 
-                                                                        value={splitCashAmount} 
-                                                                        onChange={e => {
-                                                                            const val = Number(e.target.value);
-                                                                            if (val <= totalSelectedAmount) {
-                                                                                setSplitCashAmount(e.target.value);
-                                                                            }
-                                                                        }}
-                                                                        onWheel={e => e.target.blur()}
-                                                                        placeholder="Cash portion"
-                                                                    />
-                                                                </div>
-                                                                <div>
-                                                                    <label className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block mb-1">Bank Amount</label>
-                                                                    <input 
-                                                                        type="number" 
-                                                                        className="w-full border border-blue-200 p-2 rounded-lg text-xs font-bold bg-gray-100 text-gray-500 outline-none" 
-                                                                        value={totalSelectedAmount - (Number(splitCashAmount) || 0)} 
-                                                                        readOnly
-                                                                    />
-                                                                </div>
+                                                            <div className="mb-3 bg-blue-50/50 border border-blue-100 rounded-xl p-3 space-y-2">
+                                                               
+                                                                {feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).map((row) => {
+                                                                    const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                                                                    const feeLabel = selectedFee
+                                                                        ? selectedFee.feeHeadName
+                                                                        : (globalFeeHeads.find(h => h._id === row.feeHeadId)?.name || 'Fee');
+                                                                    const rowTotal = Number(row.amount) || 0;
+                                                                    const cashVal = perRowSplitCash[row.id] !== undefined ? perRowSplitCash[row.id] : '';
+                                                                    const bankVal = rowTotal - (Number(cashVal) || 0);
+                                                                    const isOverflow = (Number(cashVal) || 0) > rowTotal;
+                                                                    return (
+                                                                        <div key={row.id} className="bg-white rounded-lg border border-blue-100 p-2 space-y-1">
+                                                                            <div className="flex justify-between items-center">
+                                                                                <span className="text-[11px] font-bold text-gray-700 truncate max-w-[60%]">{feeLabel}</span>
+                                                                                <span className="text-[10px] text-gray-400 font-mono">Total: ₹{fmtAmount(rowTotal)}</span>
+                                                                            </div>
+                                                                            <div className="grid grid-cols-2 gap-2">
+                                                                                <div>
+                                                                                    <label className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider block mb-0.5">Cash</label>
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        className={`w-full border rounded-lg p-1.5 text-xs font-bold outline-none focus:ring-1 transition-colors ${isOverflow ? 'border-red-400 bg-red-50 focus:ring-red-400' : 'border-gray-300 bg-white focus:border-blue-500 focus:ring-blue-300'}`}
+                                                                                        placeholder="0"
+                                                                                        value={cashVal}
+                                                                                        onChange={e => {
+                                                                                            const val = e.target.value;
+                                                                                            setPerRowSplitCash(prev => ({ ...prev, [row.id]: val }));
+                                                                                        }}
+                                                                                        onWheel={e => e.target.blur()}
+                                                                                    />
+                                                                                    {isOverflow && (
+                                                                                        <p className="text-[9px] text-red-500 font-semibold mt-0.5">Exceeds fee amount</p>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div>
+                                                                                    <label className="text-[9px] font-bold text-indigo-700 uppercase tracking-wider block mb-0.5">Bank</label>
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        className="w-full border border-gray-200 rounded-lg p-1.5 text-xs font-bold bg-gray-100 text-gray-500 outline-none"
+                                                                                        value={bankVal < 0 ? 0 : bankVal}
+                                                                                        readOnly
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).length === 0 && (
+                                                                    <p className="text-[11px] text-blue-400 text-center py-2 italic">Select fee heads above to enter split amounts.</p>
+                                                                )}
                                                             </div>
                                                         )}
 
@@ -1818,20 +1858,6 @@ const FeeCollection = () => {
                                 <p className="text-sm text-gray-500 mb-8 px-4">The transaction has been recorded successfully. You can now download or print the receipt.</p>
 
                                 <div className="space-y-3">
-                                    <div className="flex items-center justify-center gap-3">
-                                        <label className="text-sm font-semibold text-gray-600">Orientation:</label>
-                                        <div className="inline-flex rounded-lg bg-gray-100 p-1">
-                                            <button
-                                                onClick={() => setPrintOrientation('portrait')}
-                                                className={`px-3 py-1 rounded-lg text-sm font-bold ${printOrientation === 'portrait' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
-                                            >Portrait</button>
-                                            <button
-                                                onClick={() => setPrintOrientation('landscape')}
-                                                className={`px-3 py-1 rounded-lg text-sm font-bold ${printOrientation === 'landscape' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
-                                            >Landscape</button>
-                                        </div>
-                                    </div>
-
                                     <button
                                         onClick={handlePrintReceipt}
                                         className="w-full bg-blue-600 text-white px-6 py-4 rounded-2xl font-bold hover:bg-blue-700 flex items-center justify-center gap-3 shadow-xl shadow-blue-200 transition-all transform active:scale-95 text-lg"

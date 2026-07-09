@@ -429,8 +429,11 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Signatures (Removed Cashier Sign) */}
+            {/* Signatures */}
             <div style={{ marginTop: '45px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Cashier</p>
+                </div>
                 <div style={{ textAlign: 'center' }}>
                     <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
                 </div>
@@ -632,7 +635,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 </div>
             )}
 
-            {/* Signatures (Removed Representative/Cashier Sign, keeping Administrative Officer (AO) + Principal/Vice Principal) */}
+            {/* Signatures */}
             <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
                 <div style={{ textAlign: 'center' }}>
                     <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>

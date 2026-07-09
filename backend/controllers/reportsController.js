@@ -54,6 +54,9 @@ const getTransactionReports = async (req, res) => {
         // Actually, let's check Transaction schema again. Not there.
         // We'll proceed with basic filtering.
 
+        let groupId;
+        let pipeline;
+
         if (groupBy === 'cashier') {
             // --- Advanced Cashier Report with College Breakdown (Includes Cancelled) ---
             const matchStageWithCancelled = { ...matchStage };

@@ -80,11 +80,27 @@ const addTransaction = async (req, res) => {
             groupCode = feeGroup.code.toUpperCase().trim();
           }
         }
-        const seq = await ReceiptSequence.findOneAndUpdate(
-          { collegeCode, courseCode, groupCode, financialYear },
-          { $inc: { nextNumber: 1 } },
-          { new: true, upsert: true }
-        );
+        // Retry loop handles the rare upsert race condition (E11000) by falling
+        // back to a plain increment on the now-existing document.
+        let seq;
+        try {
+          seq = await ReceiptSequence.findOneAndUpdate(
+            { collegeCode, courseCode, groupCode, financialYear },
+            { $inc: { nextNumber: 1 } },
+            { new: true, upsert: true }
+          );
+        } catch (err) {
+          if (err.code === 11000) {
+            // Document was inserted by a concurrent request — just increment it
+            seq = await ReceiptSequence.findOneAndUpdate(
+              { collegeCode, courseCode, groupCode, financialYear },
+              { $inc: { nextNumber: 1 } },
+              { new: true }
+            );
+          } else {
+            throw err;
+          }
+        }
         const sequenceNumber = seq.nextNumber;
         const paddedNum = String(sequenceNumber).padStart(padding, '0');
         return `${collegeCode}${separator}${courseCode}${separator}${groupCode}${separator}${paddedNum}`;
