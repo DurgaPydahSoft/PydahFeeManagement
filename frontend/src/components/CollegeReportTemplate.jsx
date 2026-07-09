@@ -306,46 +306,67 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Individual Transactions for this College */}
-            {showDetails && activeTransactions.length > 0 && (
-                <div style={{ marginTop: '20px' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                        Individual Transactions Breakdown
-                    </h3>
-                    <table className="print-table" style={{ fontSize: '8px' }}>
-                        <thead>
-                            <tr>
-                                <th>S.No</th>
-                                <th>Receipt #</th>
-                                <th>Student Name</th>
-                                <th>Pin No</th>
-                                <th>Course/Branch</th>
-                                <th>Year</th>
-                                <th>Fee Head</th>
-                                <th>Cashier</th>
-                                <th style={{ textAlign: 'right' }}>Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {activeTransactions.map((tx, idx) => (
-                                <tr key={idx} className="compact-row">
-                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
-                                    <td>{tx.receiptNo}</td>
-                                    <td>{tx.studentName}</td>
-                                    <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
-                                    <td>{tx.course} - {tx.branch}</td>
-                                    <td>{tx.studentYear}</td>
-                                    <td>{tx.feeHead}</td>
-                                    <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                        {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+            {/* Individual Transactions for this College — Cash first, then Bank */}
+            {showDetails && activeTransactions.length > 0 && (() => {
+                const cashTxs = activeTransactions.filter(tx => tx.paymentMode === 'Cash');
+                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash');
+                const txTableHead = (
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Receipt #</th>
+                            <th>Student Name</th>
+                            <th>Pin No</th>
+                            <th>Course/Branch</th>
+                            <th>Year</th>
+                            <th>Fee Head</th>
+                            <th>Cashier</th>
+                            <th style={{ textAlign: 'right' }}>Amount</th>
+                        </tr>
+                    </thead>
+                );
+                const txRow = (tx, idx) => (
+                    <tr key={idx} className="compact-row">
+                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                        <td>{tx.receiptNo}</td>
+                        <td>{tx.studentName}</td>
+                        <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                        <td>{tx.course} - {tx.branch}</td>
+                        <td>{tx.studentYear}</td>
+                        <td>{tx.feeHead}</td>
+                        <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                            {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                        </td>
+                    </tr>
+                );
+                return (
+                    <div style={{ marginTop: '20px' }}>
+                        {cashTxs.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                </h3>
+                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                    {txTableHead}
+                                    <tbody>{cashTxs.map(txRow)}</tbody>
+                                </table>
+                            </div>
+                        )}
+                        {bankTxs.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                </h3>
+                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                    {txTableHead}
+                                    <tbody>{bankTxs.map(txRow)}</tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
 
             {/* Cancelled Transactions Breakdown */}
             {showDetails && cancelledTransactions.length > 0 && (
