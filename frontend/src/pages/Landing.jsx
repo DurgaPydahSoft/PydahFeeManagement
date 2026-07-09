@@ -25,6 +25,34 @@ const Landing = () => {
         return () => clearInterval(interval);
     }, []);
 
+    // Inject local CSS for silver button shine and scrollbar colors (removed on unmount)
+    useEffect(() => {
+        const css = `
+        /* Landing-local: black button with silver shine */
+        .btn-silver { position: relative; overflow: hidden; background: #0f172a; color: #fff; box-shadow: 0 8px 22px rgba(2,6,23,0.3); border: 1px solid rgba(11,37,69,0.2); }
+        .btn-silver .shine { position: absolute; top: 0; left: -90%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent); transform: skewX(-20deg); animation: landing-shine 2s ease-in-out 0.3s infinite; }
+        .btn-silver:hover { background: #1a2544; }
+        .btn-silver:active { transform: translateY(1px); }
+        @keyframes landing-shine { 0% { left: -90%; } 50% { left: 100%; } 100% { left: 100%; } }
+
+        /* Scrollbar styling to match the landing background (applies to chrome/safari and firefox) */
+        html, body { scrollbar-width: thin; scrollbar-color: rgba(230,236,255,0.65) transparent !important; }
+        html::-webkit-scrollbar, body::-webkit-scrollbar { width: 12px !important; }
+        /* keep the track subtle and matching background */
+        html::-webkit-scrollbar-track, body::-webkit-scrollbar-track { background: transparent !important; }
+        /* thumb uses a subtle gradient close to the page background to blend in */
+        html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(230,236,255,0.9), rgba(240,246,255,0.7)) !important; border-radius: 10px !important; border: 3px solid transparent !important; background-clip: padding-box !important; }
+        html::-webkit-scrollbar-corner { background: transparent !important; }
+        `;
+        const style = document.createElement('style');
+        style.setAttribute('data-landing-local', 'true');
+        style.appendChild(document.createTextNode(css));
+        document.head.appendChild(style);
+        return () => { document.head.removeChild(style); };
+    }, []);
+
+    // (no global overflow changes) keep native scrolling but style scrollbar to match background
+
     return (
         <div className="min-h-screen font-sans text-gray-800 overflow-x-hidden relative" style={{ backgroundImage: "url('/background.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}>
             {/* Background Decoration */}
@@ -79,9 +107,11 @@ const Landing = () => {
                         </p>
 
                         <div className="flex flex-wrap gap-2 sm:gap-3 pt-1 sm:pt-2">
-                            <Link to="/login" className="group px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 bg-gray-900 text-white rounded-lg md:rounded-xl font-bold shadow-lg hover:bg-gray-800 hover:scale-[1.01] transition-all flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base">
-                                Access Dashboard
-                                <ArrowRight size={14} className="sm:size-4 md:size-5 group-hover:translate-x-1 transition-transform" />
+                            <Link to="/login" className="btn-silver group px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 rounded-lg md:rounded-xl font-bold shadow-lg flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base">
+                                <span className="shine" aria-hidden></span>
+                                <span className="relative z-10 flex items-center gap-2">Access Dashboard
+                                    <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                                </span>
                             </Link>
                             <Link to="/docs" className="px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 bg-white text-slate-700 border border-gray-200 rounded-lg md:rounded-xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center text-xs sm:text-sm md:text-base">
                                 View Documentation
