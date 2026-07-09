@@ -24,3 +24,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Runtime logs — never commit, always regenerated on the server
+logs/
+*.log

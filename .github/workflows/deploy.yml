@@ -95,6 +95,8 @@ jobs:
           echo "==> Pulling latest code from main..."
           git fetch origin main
           git checkout main
+          # Discard any local changes to log files before pulling
+          git checkout -- backend/logs/ 2>/dev/null || true
           git pull origin main
 
           #################################################
