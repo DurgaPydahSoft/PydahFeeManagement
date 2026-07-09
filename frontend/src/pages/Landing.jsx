@@ -57,75 +57,75 @@ const Landing = () => {
             </nav>
 
             {/* Hero Section */}
-            <section className="relative z-10 pt-16 pb-24 px-8 md:px-16">
-                <div className=" mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+            <section className="relative z-10 pt-4 sm:pt-5 md:pt-6 lg:pt-7 pb-3 sm:pb-4 md:pb-5 px-4 sm:px-6 md:px-8 lg:px-12 xl:px-16 h-[calc(100vh-80px)] flex items-center">
+                <div className="w-full mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 md:gap-10 lg:gap-12 items-center">
 
                     {/* Hero Text */}
-                    <div className="space-y-8">
-                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 border border-blue-100 shadow-sm">
+                    <div className="space-y-2 sm:space-y-3 md:space-y-4">
+                        <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-blue-50 border border-blue-100 shadow-sm">
                             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                            <span className="text-xs font-bold text-blue-700  tracking-wide">Institutional Finance v2.0</span>
+                            <span className="text-[10px] sm:text-xs font-bold text-blue-700 tracking-wide">Institutional Finance v2.0</span>
                         </div>
 
-                        <h1 className="text-4xl md:text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+                        <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl 2xl:text-7xl font-extrabold text-slate-900 leading-tight tracking-tight">
                             Powering the <br />
                             <span className={`text-blue-600 inline-block transition-all duration-500 transform ${fade ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
                                 {slogans[sloganIdx]}
                             </span>
                         </h1>
 
-                        <p className="text-lg text-slate-500 max-w-lg leading-relaxed border-l-4 border-blue-200 pl-6">
+                        <p className="text-xs sm:text-sm md:text-base text-slate-500 max-w-sm sm:max-w-md lg:max-w-lg leading-snug border-l-4 border-blue-200 pl-2 sm:pl-3 md:pl-4">
                             Experience a seamless, secure, and smart fee management ecosystem designed for high-performance institutions.
                         </p>
 
-                        <div className="flex flex-wrap gap-4 pt-2">
-                            <Link to="/login" className="group px-8 py-4 bg-gray-900 text-white rounded-2xl font-bold shadow-xl hover:bg-gray-800 hover:scale-[1.02] transition-all flex items-center gap-3">
+                        <div className="flex flex-wrap gap-2 sm:gap-3 pt-1 sm:pt-2">
+                            <Link to="/login" className="group px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 bg-gray-900 text-white rounded-lg md:rounded-xl font-bold shadow-lg hover:bg-gray-800 hover:scale-[1.01] transition-all flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm md:text-base">
                                 Access Dashboard
-                                <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                                <ArrowRight size={14} className="sm:size-4 md:size-5 group-hover:translate-x-1 transition-transform" />
                             </Link>
-                            <Link to="/docs" className="px-8 py-4 bg-white text-slate-700 border border-gray-200 rounded-2xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center">
+                            <Link to="/docs" className="px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 bg-white text-slate-700 border border-gray-200 rounded-lg md:rounded-xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center text-xs sm:text-sm md:text-base">
                                 View Documentation
                             </Link>
                         </div>
 
                         {/* Stats Row */}
-                        <div className="grid grid-cols-3 gap-8 pt-8 border-t border-gray-200/60">
+                        <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4 lg:gap-6 pt-2 sm:pt-3 md:pt-4 border-t border-gray-200/60">
                             <div>
-                                <p className="text-3xl font-bold text-slate-900">100%</p>
-                                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Digital</p>
+                                <p className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-slate-900">100%</p>
+                                <p className="text-[10px] sm:text-xs md:text-sm font-medium text-slate-500 uppercase tracking-wider mt-0.5">Digital</p>
                             </div>
                             <div>
-                                <p className="text-3xl font-bold text-slate-900">0s</p>
-                                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Downtime</p>
+                                <p className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-slate-900">0s</p>
+                                <p className="text-[10px] sm:text-xs md:text-sm font-medium text-slate-500 uppercase tracking-wider mt-0.5">Downtime</p>
                             </div>
                             <div>
-                                <p className="text-3xl font-bold text-slate-900">SECURE</p>
-                                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Encryption</p>
+                                <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-bold text-slate-900">SECURE</p>
+                                <p className="text-[10px] sm:text-xs md:text-sm font-medium text-slate-500 uppercase tracking-wider mt-0.5">Encryption</p>
                             </div>
                         </div>
                     </div>
 
                     {/* Hero Visual / Placeholder */}
-                    <div className="relative">
+                    <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl lg:ml-auto mx-auto">
                         <div className="absolute inset-0 bg-blue-600 rounded-3xl rotate-2 opacity-10 scale-95 blur-sm"></div>
                         <div className="relative bg-white/80 backdrop-blur-xl border border-white/50 p-2 rounded-3xl shadow-2xl ring-1 ring-gray-900/5">
                             {/* Browser Mockup Header */}
-                            <div className="h-10 border-b border-gray-100 flex items-center px-4 gap-2">
+                            <div className="h-5 sm:h-6 md:h-7 lg:h-8 border-b border-gray-100 flex items-center px-2 sm:px-3 gap-1">
                                 <div className="flex gap-1.5">
                                     <div className="w-3 h-3 rounded-full bg-red-400/80"></div>
                                     <div className="w-3 h-3 rounded-full bg-yellow-400/80"></div>
                                     <div className="w-3 h-3 rounded-full bg-green-400/80"></div>
                                 </div>
-                                <div className="ml-4 flex-1 h-5 bg-gray-100 rounded-md text-[10px] text-gray-400 flex items-center px-2 font-mono">
+                                <div className="ml-2 sm:ml-3 flex-1 h-4 sm:h-5 bg-gray-100 rounded-md text-[8px] sm:text-[9px] text-gray-400 flex items-center px-2 font-mono">
                                     auth.pydah.edu/dashboard
                                 </div>
                             </div>
 
                             {/* Main Placeholder Area - Realistic Dashboard Mockup */}
-                            <div className="h-[400px] bg-slate-50 rounded-b-2xl relative overflow-hidden flex flex-row">
+                            <div className="h-[200px] sm:h-[240px] md:h-[280px] lg:h-[320px] xl:h-[360px] bg-slate-50 rounded-b-2xl relative overflow-hidden flex flex-row">
 
                                 {/* Mock Sidebar */}
-                                <div className="w-16 md:w-12 bg-white border-r border-gray-100 flex flex-col items-center py-6 gap-6 z-10 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+                                <div className="w-8 sm:w-9 md:w-10 lg:w-12 bg-white border-r border-gray-100 flex flex-col items-center py-2 sm:py-3 gap-2 sm:gap-3 z-10 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
                                     <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-[15px]">₹</div>
                                     <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center"><PieChart size={16} /></div>
                                     <div className="w-8 h-8 rounded-lg bg-transparent text-gray-400 flex items-center justify-center"><Users size={16} /></div>
@@ -133,10 +133,10 @@ const Landing = () => {
                                 </div>
 
                                 {/* Mock Main Content */}
-                                <div className="flex-1 p-6 overflow-hidden">
+                                <div className="flex-1 p-2 sm:p-3 md:p-4 overflow-hidden">
 
                                     {/* Mock Header */}
-                                    <div className="flex justify-between items-center mb-6 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+                                    <div className="flex justify-between items-center mb-2 sm:mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
                                         <div className="h-4 w-32 bg-gray-200 rounded-full"></div>
                                         <div className="flex gap-2">
                                             <div className="w-8 h-8 rounded-full bg-gray-200"></div>
@@ -145,15 +145,15 @@ const Landing = () => {
                                     </div>
 
                                     {/* Mock Stats Grid */}
-                                    <div className="grid grid-cols-2 gap-4 mb-6">
-                                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-scale-in" style={{ animationDelay: '0.3s' }}>
+                                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 md:gap-3 mb-2 sm:mb-3">
+                                        <div className="bg-white p-1.5 sm:p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-100 animate-scale-in" style={{ animationDelay: '0.3s' }}>
                                             <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center mb-3">
                                                 <Activity size={14} />
                                             </div>
                                             <div className="h-3 w-12 bg-gray-100 rounded-full mb-2"></div>
                                             <div className="h-5 w-20 bg-slate-800 rounded-md"></div>
                                         </div>
-                                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-scale-in" style={{ animationDelay: '0.4s' }}>
+                                        <div className="bg-white p-1.5 sm:p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-100 animate-scale-in" style={{ animationDelay: '0.4s' }}>
                                             <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
                                                 <PieChart size={14} />
                                             </div>
@@ -163,7 +163,7 @@ const Landing = () => {
                                     </div>
 
                                     {/* Mock Chart Area */}
-                                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 h-32 w-full flex items-end gap-3 justify-between px-2 pb-2 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
+                                    <div className="bg-white p-1.5 sm:p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-100 h-12 sm:h-16 md:h-20 w-full flex items-end gap-1 sm:gap-2 justify-between px-1 pb-1 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
                                         <div className="w-full bg-blue-100 rounded-t-sm h-[40%]"></div>
                                         <div className="w-full bg-blue-200 rounded-t-sm h-[60%]"></div>
                                         <div className="w-full bg-blue-300 rounded-t-sm h-[30%]"></div>
@@ -173,7 +173,7 @@ const Landing = () => {
                                     </div>
 
                                     {/* Mock List Items - Floating over slightly */}
-                                    <div className="mt-4 bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-3 shadow-lg transform translate-x-4 animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
+                                    <div className="mt-1 sm:mt-2 bg-white p-1.5 sm:p-2 md:p-3 rounded-lg md:rounded-xl border border-gray-100 flex items-center gap-1.5 sm:gap-2 shadow-md transform translate-x-1 sm:translate-x-2 animate-fade-in-up text-[10px] sm:text-xs md:text-sm" style={{ animationDelay: '0.6s' }}>
                                         <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center">
                                             <CheckCircle size={14} />
                                         </div>
@@ -188,13 +188,13 @@ const Landing = () => {
                         </div>
 
                         {/* Floating Badge */}
-                        <div className="absolute -bottom-6 -left-6 bg-white p-4 rounded-xl shadow-xl border border-gray-100 flex items-center gap-3 animate-bounce" style={{ animationDuration: '3s' }}>
-                            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
-                                <Activity size={20} />
+                        <div className="absolute -bottom-2 sm:-bottom-3 -left-2 sm:-left-3 bg-white p-1.5 sm:p-2 rounded-lg shadow-lg border border-gray-100 flex items-center gap-1.5 sm:gap-2 animate-bounce" style={{ animationDuration: '3s' }}>
+                            <div className="w-5 sm:w-6 h-5 sm:h-6 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                                <Activity size={10} className="sm:size-3" />
                             </div>
                             <div>
-                                <p className="text-xs text-gray-400 font-bold uppercase">Real-time</p>
-                                <p className="text-sm font-bold text-gray-800">Data Sync Active</p>
+                                <p className="text-[8px] sm:text-[10px] text-gray-400 font-bold uppercase">Real-time</p>
+                                <p className="text-[9px] sm:text-xs font-bold text-gray-800">Sync Active</p>
                             </div>
                         </div>
                     </div>
@@ -204,10 +204,10 @@ const Landing = () => {
 
 
             {/* Footer */}
-            <footer className="bg-slate-50 border-t border-slate-200 py-10 px-8">
-                <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center opacity-60 hover:opacity-100 transition-opacity">
+            <footer className="bg-slate-50 border-t border-slate-200 py-2 sm:py-3 md:py-4 px-4 sm:px-6 md:px-8 lg:px-12">
+                <div className="w-full mx-auto flex flex-col md:flex-row justify-between items-center opacity-60 hover:opacity-100 transition-opacity text-xs sm:text-sm">
                     <p className="font-bold text-slate-900 tracking-tight">Pydah<span className="text-blue-600">Fees</span> System</p>
-                    <p className="text-sm text-slate-500">© 2025 Pydah Group. Internal Use Only.</p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">© 2025 Pydah Group. Internal Use Only.</p>
                 </div>
             </footer>
         </div>
