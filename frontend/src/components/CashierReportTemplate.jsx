@@ -404,21 +404,24 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
     const cashierSummaries = data.map(cashier => {
         const rawTransactions = cashier.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
+            if (tx.status === 'cancelled') return false;
             if (mode === 'all') return true;
             if (mode === 'Cash') return tx.paymentMode === 'Cash';
             if (mode === 'Online') return tx.paymentMode !== 'Cash';
             return true;
         });
 
-        const cashAmt = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const bankAmt = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const cashAmt       = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const bankAmt       = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
         const concessionAmt = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const totalDebit = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const totalDebit    = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        // Count all active transactions (DEBIT + CREDIT, non-cancelled)
+        const receiptsCount = filteredTransactions.length;
 
         return {
             username: cashier._id || 'N/A',
             empNo: cashier.empNo || 'N/A',
-            receiptsCount: filteredTransactions.length,
+            receiptsCount,
             cashAmt,
             bankAmt,
             concessionAmt,
@@ -430,6 +433,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
     data.forEach(cashier => {
         const rawTransactions = cashier.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
+            if (tx.status === 'cancelled') return false;
             if (mode === 'all') return true;
             if (mode === 'Cash') return tx.paymentMode === 'Cash';
             if (mode === 'Online') return tx.paymentMode !== 'Cash';
@@ -446,7 +450,8 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 cashAmt: 0,
                 bankAmt: 0,
                 concessionAmt: 0,
-                netTotal: 0
+                netTotal: 0,
+                receiptsCount: 0
             };
         }
         
@@ -461,6 +466,8 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         } else if (tx.transactionType === 'CREDIT') {
             collegeSummaryMap[collegeName].concessionAmt += amt;
         }
+        // Count every active transaction regardless of type
+        collegeSummaryMap[collegeName].receiptsCount += 1;
     });
 
     const collegeSummaries = Object.entries(collegeSummaryMap).map(([collegeName, metrics]) => ({
@@ -558,10 +565,11 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 <table className="print-table">
                     <thead>
                         <tr>
-                            <th style={{ width: '40%' }}>College Name</th>
-                            <th style={{ textAlign: 'right', width: '15%' }}>Cash Amount</th>
-                            <th style={{ textAlign: 'right', width: '15%' }}>Bank Amount</th>
-                            <th style={{ textAlign: 'right', width: '15%' }}>Concessions</th>
+                            <th style={{ width: '35%' }}>College Name</th>
+                            <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
+                            <th style={{ textAlign: 'right', width: '13%' }}>Cash Amount</th>
+                            <th style={{ textAlign: 'right', width: '13%' }}>Bank Amount</th>
+                            <th style={{ textAlign: 'right', width: '14%' }}>Concessions</th>
                             <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
                         </tr>
                     </thead>
@@ -569,6 +577,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                         {collegeSummaries.map((summary, idx) => (
                             <tr key={idx} className="compact-row">
                                 <td>{summary.collegeName}</td>
+                                <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
                                 <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString()}</td>
                                 <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString()}</td>
                                 <td style={{ textAlign: 'right' }}>₹{Number(summary.concessionAmt).toLocaleString()}</td>
@@ -577,6 +586,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                         ))}
                         <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                             <td>TOTAL</td>
+                            <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
                             <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>
                             <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>
                             <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.concessionAmt).toLocaleString()}</td>

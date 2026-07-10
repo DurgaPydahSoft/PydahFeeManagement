@@ -2,6 +2,7 @@ const db = require('../config/sqlDb');
 const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
 const FeeStructure = require('../models/FeeStructure');
+const OverallConcessionRequest = require('../models/OverallConcessionRequest');
 const {
   formatConcessionEntry,
   mapStoredEntryForResponse,
@@ -413,9 +414,265 @@ const bulkSaveOverallConcessions = async (req, res) => {
     }
 };
 
+// ---------------------------------------------------------------------------
+// REQUEST WORKFLOW
+// ---------------------------------------------------------------------------
+
+// @desc    Submit a concession request for approval
+// @route   POST /api/overall-concessions/request
+const submitConcessionRequest = async (req, res) => {
+    const {
+        admissionNumber, pinNo, studentName,
+        college, course, branch, batch, category,
+        concessions // [{ feeHeadId, feeHeadCode, studentYear, semester, amount, concessionType }]
+    } = req.body;
+
+    if (!admissionNumber || !Array.isArray(concessions) || concessions.length === 0) {
+        return res.status(400).json({ message: 'admissionNumber and at least one concession entry are required.' });
+    }
+
+    try {
+        const feeHeads = await FeeHead.find({}).lean();
+        const { codeMap } = buildFeeHeadMaps(feeHeads);
+
+        // Normalize incoming entries
+        const normalizedEntries = concessions.map(c => {
+            const sem = normalizeSemester(c.semester);
+            const resolvedId = resolveFeeHeadId(c, codeMap);
+            const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+            return {
+                feeHeadId:      resolvedId,
+                feeHeadCode:    resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
+                studentYear:    Number(c.studentYear),
+                semester:       sem,
+                amount:         getConcessionAmount(c),
+                concessionType: String(c.concessionType || 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION'
+            };
+        });
+
+        // Find existing PENDING request for this student
+        let existingRequest = await OverallConcessionRequest.findOne({
+            admissionNumber,
+            status: 'PENDING'
+        });
+
+        if (existingRequest) {
+            // Merge: same feeHeadId + studentYear combo replaces, new combos are added
+            const mergedMap = {};
+            existingRequest.concessions.forEach(e => {
+                mergedMap[`${e.feeHeadId}_${e.studentYear}_${e.semester ?? 'null'}`] = e;
+            });
+            normalizedEntries.forEach(e => {
+                mergedMap[`${e.feeHeadId}_${e.studentYear}_${e.semester ?? 'null'}`] = e;
+            });
+            existingRequest.concessions = Object.values(mergedMap);
+            existingRequest.requestedBy = req.user?.username || 'Unknown';
+            existingRequest.requestedByName = req.user?.name || '';
+            // Refresh student snapshot fields in case they changed
+            existingRequest.studentName = studentName || existingRequest.studentName;
+            existingRequest.pinNo       = pinNo || existingRequest.pinNo;
+            existingRequest.batch       = batch || existingRequest.batch;
+            existingRequest.category    = category || existingRequest.category;
+            await existingRequest.save();
+            return res.status(200).json({ message: 'Pending request updated with new entries.', request: existingRequest });
+        }
+
+        // No existing pending request — create fresh
+        const newRequest = await OverallConcessionRequest.create({
+            admissionNumber,
+            pinNo:           pinNo || '-',
+            studentName:     studentName || '',
+            college:         college || '',
+            course:          course  || '',
+            branch:          branch  || '',
+            batch:           batch   || '',
+            category:        category || 'Regular',
+            concessions:     normalizedEntries,
+            status:          'PENDING',
+            requestedBy:     req.user?.username || 'Unknown',
+            requestedByName: req.user?.name || ''
+        });
+
+        res.status(201).json({ message: 'Concession request submitted for approval.', request: newRequest });
+    } catch (error) {
+        console.error('Error submitting concession request:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+// @desc    List all concession requests (admin/superadmin only)
+// @route   GET /api/overall-concessions/requests
+const getConcessionRequests = async (req, res) => {
+    try {
+        const { status, college, batch, admissionNumber } = req.query;
+        const filter = {};
+        if (status)          filter.status = status.toUpperCase();
+        if (college)         filter.college = college;
+        if (batch)           filter.batch = batch;
+        if (admissionNumber) filter.admissionNumber = admissionNumber;
+
+        const requests = await OverallConcessionRequest.find(filter)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        // Enrich with fee head names
+        const feeHeads = await FeeHead.find({}).lean();
+        const fhMap = {};
+        feeHeads.forEach(fh => { fhMap[fh._id.toString()] = fh.name; });
+
+        const enriched = requests.map(r => ({
+            ...r,
+            concessions: r.concessions.map(c => ({
+                ...c,
+                feeHeadName: fhMap[c.feeHeadId] || c.feeHeadCode || 'Unknown'
+            }))
+        }));
+
+        res.json(enriched);
+    } catch (error) {
+        console.error('Error fetching concession requests:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+// @desc    Approve a concession request — writes to overall_concessions + syncs StudentFee
+// @route   PUT /api/overall-concessions/requests/:id/approve
+const approveConcessionRequest = async (req, res) => {
+    try {
+        const { concessionGivenBy } = req.body;
+        const request = await OverallConcessionRequest.findById(req.params.id);
+        if (!request) return res.status(404).json({ message: 'Request not found' });
+        if (request.status !== 'PENDING') return res.status(400).json({ message: `Request is already ${request.status}` });
+
+        const { admissionNumber, pinNo, studentName, college, course, branch, batch, category, concessions } = request;
+
+        // Re-use the exact same bulk-save logic -------------------------
+        const feeHeads = await FeeHead.find({}).lean();
+        const { codeMap } = buildFeeHeadMaps(feeHeads);
+
+        // 1. Fetch existing SQL row and merge
+        const [existing] = await db.query(
+            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
+            [admissionNumber]
+        );
+
+        let existingFees = [];
+        if (existing.length > 0) {
+            const raw = existing[0].revised_fees;
+            existingFees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+        }
+
+        // Merge: request entries override matching keys, preserve others
+        const mergedMap = {};
+        existingFees.forEach(e => {
+            const key = `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`;
+            mergedMap[key] = e;
+        });
+        concessions.forEach(c => {
+            const key = `${c.feeHeadId}_${Number(c.studentYear)}_${normalizeSemester(c.semester) ?? 'null'}`;
+            mergedMap[key] = formatConcessionEntry({
+                feeHeadId:      c.feeHeadId,
+                feeHeadCode:    c.feeHeadCode || '',
+                studentYear:    Number(c.studentYear),
+                semester:       normalizeSemester(c.semester),
+                amount:         c.amount,
+                concessionType: c.concessionType
+            });
+        });
+        const mergedFees = Object.values(mergedMap);
+
+        // 2. Persist to MySQL
+        const revisedFeesJson = JSON.stringify(mergedFees);
+        const upsertQuery = `
+            INSERT INTO overall_concessions
+                (admission_number, pin_no, student_name, batch, course, branch, revised_fees)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
+        `;
+        await db.query(upsertQuery, [
+            admissionNumber, pinNo || '-', studentName || '', batch || '', course || '', branch || '', revisedFeesJson,
+            revisedFeesJson, pinNo || '-', studentName || '', batch || '', course || '', branch || ''
+        ]);
+
+        // 3. Re-sync MongoDB StudentFee amounts
+        const standardFeesApplied = await StudentFee.exists({
+            studentId: admissionNumber,
+            academicYear: batch,
+            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+        });
+        if (standardFeesApplied) {
+            const [students] = await db.query(
+                `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
+                 FROM students WHERE admission_number = ?`,
+                [admissionNumber]
+            );
+            if (students.length > 0) {
+                await syncStandardFees(students[0], admissionNumber);
+            }
+        }
+        // ---------------------------------------------------------------
+
+        // 4. Mark request as APPROVED
+        request.status           = 'APPROVED';
+        request.approvedBy       = req.user?.username || 'Unknown';
+        request.approvedByName   = req.user?.name || '';
+        request.concessionGivenBy = concessionGivenBy || '';
+        await request.save();
+
+        // Return enriched concessions for frontend to refresh
+        const updatedList = await db.query(
+            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
+            [admissionNumber]
+        );
+        const updatedRow = updatedList[0]?.[0];
+        const responseConcessions = updatedRow
+            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => ({
+                id: `${updatedRow.id}_${idx}`,
+                ...mapStoredEntryForResponse(c, feeHeads, codeMap)
+            }))
+            : [];
+
+        res.json({
+            message: 'Concession request approved and fees updated.',
+            request,
+            revisedFees: responseConcessions
+        });
+    } catch (error) {
+        console.error('Error approving concession request:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+// @desc    Reject a concession request
+// @route   PUT /api/overall-concessions/requests/:id/reject
+const rejectConcessionRequest = async (req, res) => {
+    try {
+        const { rejectionReason } = req.body;
+        const request = await OverallConcessionRequest.findById(req.params.id);
+        if (!request) return res.status(404).json({ message: 'Request not found' });
+        if (request.status !== 'PENDING') return res.status(400).json({ message: `Request is already ${request.status}` });
+
+        request.status          = 'REJECTED';
+        request.rejectionReason = rejectionReason || '';
+        request.approvedBy      = req.user?.username || 'Unknown';
+        request.approvedByName  = req.user?.name || '';
+        await request.save();
+
+        res.json({ message: 'Concession request rejected.', request });
+    } catch (error) {
+        console.error('Error rejecting concession request:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 module.exports = {
     getOverallConcessions,
     saveOverallConcession,
     deleteOverallConcession,
-    bulkSaveOverallConcessions
+    bulkSaveOverallConcessions,
+    submitConcessionRequest,
+    getConcessionRequests,
+    approveConcessionRequest,
+    rejectConcessionRequest
 };
