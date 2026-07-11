@@ -2,12 +2,6 @@ import React, { forwardRef } from 'react';
 
 const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
     if (!data) return null;
-    console.log(`SingleCashierReport rendering cashier "${data._id}":`, {
-        transactionsCount: data.transactions?.length,
-        cashAmount: data.cashAmount,
-        bankAmount: data.bankAmount,
-        transactions: data.transactions
-    });
     const { mode = 'all', showSummary = true, showDetails = true } = options || {};
 
     // Determine active, cancelled, and edited transactions based on mode selection
@@ -239,6 +233,61 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     )}
                 </div>
             )}
+
+            {/* 3. Fee Head-wise Summary — shown when detailed transactions are hidden (abstract-only mode) */}
+            {showSummary && !showDetails && (() => {
+                const feeHeadMap = {};
+                activeTransactions.filter(tx => tx.transactionType === 'DEBIT').forEach(tx => {
+                    const fhName = tx.feeHead || 'Unknown';
+                    if (!feeHeadMap[fhName]) {
+                        feeHeadMap[fhName] = { cash: 0, bank: 0, total: 0, count: 0 };
+                    }
+                    const amt = tx.amount || 0;
+                    feeHeadMap[fhName].total += amt;
+                    feeHeadMap[fhName].count += 1;
+                    if (tx.paymentMode === 'Cash') feeHeadMap[fhName].cash += amt;
+                    else feeHeadMap[fhName].bank += amt;
+                });
+                const feeHeadRows = Object.entries(feeHeadMap)
+                    .sort((a, b) => b[1].total - a[1].total);
+                if (feeHeadRows.length === 0) return null;
+                return (
+                    <div style={{ marginBottom: '25px' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                            Fee Head-wise Collection
+                        </h3>
+                        <table className="print-table">
+                            <thead>
+                                <tr>
+                                    <th style={{ width: '40%' }}>Fee Head</th>
+                                    <th style={{ textAlign: 'center', width: '15%' }}>Transactions</th>
+                                    <th style={{ textAlign: 'right', width: '15%' }}>Cash</th>
+                                    <th style={{ textAlign: 'right', width: '15%' }}>Bank</th>
+                                    <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {feeHeadRows.map(([fhName, fhData], idx) => (
+                                    <tr key={idx} className="compact-row">
+                                        <td>{fhName}</td>
+                                        <td style={{ textAlign: 'center' }}>{fhData.count}</td>
+                                        <td style={{ textAlign: 'right' }}>₹{Number(fhData.cash).toLocaleString()}</td>
+                                        <td style={{ textAlign: 'right' }}>₹{Number(fhData.bank).toLocaleString()}</td>
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fhData.total).toLocaleString()}</td>
+                                    </tr>
+                                ))}
+                                <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
+                                    <td>TOTAL</td>
+                                    <td style={{ textAlign: 'center' }}>{feeHeadRows.reduce((s, [, d]) => s + d.count, 0)}</td>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            })()}
 
             {/* 4. Individual Transactions Table — Cash first, then Bank */}
             {showDetails && activeTransactions.length > 0 && (() => {
@@ -614,7 +663,6 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
 const CashierReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref) => {
     if (!data) return null;
-    console.log("CashierReportTemplate data received:", data);
     const isArray = Array.isArray(data) && data.length > 0;
 
     return (
