@@ -616,8 +616,8 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                         <tr>
                             <th style={{ width: '35%' }}>College Name</th>
                             <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
-                            <th style={{ textAlign: 'right', width: '13%' }}>Cash Amount</th>
-                            <th style={{ textAlign: 'right', width: '13%' }}>Bank Amount</th>
+                            <th style={{ textAlign: 'right', width: '13%' }}>Cash</th>
+                            <th style={{ textAlign: 'right', width: '13%' }}>Bank</th>
                             <th style={{ textAlign: 'right', width: '14%' }}>Concessions</th>
                             <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
                         </tr>
