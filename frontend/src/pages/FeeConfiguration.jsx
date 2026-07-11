@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
 import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import Sidebar from './Sidebar';
+import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
 
 const FeeConfiguration = () => {
     const [activeTab, setActiveTab] = useState('heads'); // heads, groups, definitions, latefees
@@ -558,7 +559,15 @@ const FeeConfiguration = () => {
                             </form>
                         </div>
                         <div className="md:col-span-2 bg-white p-5 rounded-lg shadow-sm">
-                            <h2 className="font-semibold text-gray-800 mb-3">Existing Heads</h2>
+                            <div className="flex justify-between items-center mb-3">
+                                <h2 className="font-semibold text-gray-800">Existing Heads</h2>
+                                <FeeConfigPrintButton
+                                    variant="heads"
+                                    data={{ reportData: feeHeads }}
+                                    label="Print"
+                                    disabled={feeHeads.length === 0}
+                                />
+                            </div>
                             <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50"><tr><th className="p-2">Name</th><th className="p-2">Code</th><th className="p-2">Desc</th><th className="p-2 text-right">Action</th></tr></thead>
                                 <tbody>{feeHeads.map(h => (
                                     <tr key={h._id} className="border-t hover:bg-gray-50">
@@ -691,7 +700,15 @@ const FeeConfiguration = () => {
 
                         {/* Existing Groups Table */}
                         <div className="md:col-span-2 bg-white p-5 rounded-lg shadow-sm border border-gray-100">
-                            <h2 className="font-semibold text-gray-800 mb-3">Existing Fee Groups</h2>
+                            <div className="flex justify-between items-center mb-3">
+                                <h2 className="font-semibold text-gray-800">Existing Fee Groups</h2>
+                                <FeeConfigPrintButton
+                                    variant="groups"
+                                    data={{ reportData: feeGroups }}
+                                    label="Print"
+                                    disabled={feeGroups.length === 0}
+                                />
+                            </div>
                             {feeGroups.length === 0 ? (
                                 <p className="text-gray-400 italic text-sm">No fee groups defined yet.</p>
                             ) : (
@@ -994,7 +1011,26 @@ const FeeConfiguration = () => {
 
                         {/* Matrix Table */}
                         <div className={`bg-white p-5 rounded-lg shadow-sm overflow-x-auto transition-all duration-500 ease-in-out ${(editingId || isEditingContext) ? 'lg:col-span-1' : 'lg:col-span-2'}`}>
-                            <h2 className="font-semibold text-gray-800 mb-3">Fee Templates (Not Active Dues)</h2>
+                            <div className="flex justify-between items-center mb-3">
+                                <h2 className="font-semibold text-gray-800">Fee Templates (Not Active Dues)</h2>
+                                <FeeConfigPrintButton
+                                    variant="structures"
+                                    data={{
+                                        rows: groupedArray,
+                                        tableYears,
+                                        collegeCodes,
+                                        filters: {
+                                            college: structForm.college || '',
+                                            course: structForm.course || '',
+                                            branch: structForm.branch || '',
+                                            batch: structForm.batch || '',
+                                            feeHeadName: feeHeads.find(h => h._id === structForm.feeHeadId)?.name || '',
+                                        }
+                                    }}
+                                    label="Print"
+                                    disabled={groupedArray.length === 0}
+                                />
+                            </div>
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-gray-50 border-b">
                                     <tr>

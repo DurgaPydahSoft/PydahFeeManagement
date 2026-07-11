@@ -22,6 +22,7 @@ const ConcessionReportPrint = require('../../frontend/src/components/ConcessionR
 const CashierReportTemplate = require('../../frontend/src/components/CashierReportTemplate').default;
 const CollegeReportTemplate = require('../../frontend/src/components/CollegeReportTemplate').default;
 const DailyReportTemplate = require('../../frontend/src/components/DailyReportTemplate').default;
+const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
 
 const renderTemplate = async (templateName, data) => {
     let renderedMarkup = '';
@@ -122,6 +123,19 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = 'Daily_Report';
+
+    } else if (templateName === 'fee-configuration-report') {
+        const { variant = 'heads', reportData = [], rows = [], tableYears = [1, 2, 3, 4], collegeCodes = {}, filters = {} } = data;
+        const element = React.createElement(FeeConfigurationPrint, {
+            variant,
+            reportData,
+            rows,
+            tableYears,
+            collegeCodes,
+            filters,
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = `Fee_Configuration_${variant}`;
 
     } else {
         throw new Error(`Unsupported template: ${templateName}`);
