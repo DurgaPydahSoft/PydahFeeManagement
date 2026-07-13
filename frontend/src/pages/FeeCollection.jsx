@@ -1513,7 +1513,7 @@ const FeeCollection = () => {
                                                         // Build the merged options list:
                                                         // 1. All configured fees for the student (displayedFees)
                                                         // 2. Any global fee heads NOT already covered by configured fees
-                                                        const configuredFeeHeadIds = new Set(feeDetails.map(f => f.feeHeadId));
+                                                        const configuredFeeHeadIds = new Set(feeDetails.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
                                                         const extraGlobalHeads = globalFeeHeads.filter(h => !configuredFeeHeadIds.has(h._id));
 
                                                         return (
@@ -1531,10 +1531,10 @@ const FeeCollection = () => {
                                                                             <option value="">-- Select Fee Head --</option>
 
                                                                             {/* Configured/Structured Fee Dues */}
-                                                                            {displayedFees.filter(f => !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId)).length > 0 && (
+                                                                            {displayedFees.filter(f => f.totalAmount > 0 && !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId)).length > 0 && (
                                                                                 <optgroup label="── Structured Fees ──">
                                                                                     {displayedFees
-                                                                                        .filter(f => !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
+                                                                                        .filter(f => f.totalAmount > 0 && !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
                                                                                         .map(f => (
                                                                                             <option key={f._id} value={f._id}>
                                                                                                 [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
