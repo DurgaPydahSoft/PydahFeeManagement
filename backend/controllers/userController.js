@@ -57,7 +57,7 @@ const updateUserPaymentAccess = async (req, res) => {
 const createUser = async (req, res) => {
   // console.log('\n[USER CREATION DEBUG] -----------------------------------------');
   // console.log('[USER CREATION DEBUG] Received Payload:', req.body);
-  const { name, username, password, role, college, colleges, courses, employeeId, permissions } = req.body;
+  const { name, username, password, role, college, colleges, campuses, courses, employeeId, permissions } = req.body;
 
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
@@ -101,6 +101,7 @@ const createUser = async (req, res) => {
       role,
       college: (colleges && colleges.length > 0) ? colleges[0] : (college || ''),
       colleges: colleges || [],
+      campuses: campuses || [],
       courses: courses || [],
       employeeId, // Link to external employee
       permissions: permissions || [] // Save permissions if provided
@@ -116,6 +117,7 @@ const createUser = async (req, res) => {
         role: user.role,
         college: user.college,
         colleges: user.colleges,
+        campuses: user.campuses,
         courses: user.courses,
         employeeId: user.employeeId,
         permissions: user.permissions
@@ -177,7 +179,7 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const updateUser = async (req, res) => {
-  const { name, username, password, role, college, colleges, courses, permissions } = req.body;
+  const { name, username, password, role, college, colleges, campuses, courses, permissions } = req.body;
 
   try {
     const user = await User.findById(req.params.id);
@@ -199,7 +201,11 @@ const updateUser = async (req, res) => {
       user.colleges = colleges;
       user.college = colleges.length > 0 ? colleges[0] : '';
     } else {
-      user.college = college === '' ? '' : (college || user.college); // Allow clearing college
+      user.college = college === '' ? '' : (college || user.college);
+    }
+
+    if (campuses !== undefined) {
+      user.campuses = campuses;
     }
 
     if (courses) {
@@ -227,6 +233,7 @@ const updateUser = async (req, res) => {
       role: updatedUser.role,
       college: updatedUser.college,
       colleges: updatedUser.colleges,
+      campuses: updatedUser.campuses,
       courses: updatedUser.courses,
       permissions: updatedUser.permissions
     });

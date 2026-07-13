@@ -199,6 +199,10 @@ const authorize = (req, res, next) => {
     return next();
   }
 
+  if (path.startsWith('/api/campuses')) {
+    return next();
+  }
+
   if (path.startsWith('/api/transactions')) {
     if (checkTransactionAccess(req, user)) {
       return next();

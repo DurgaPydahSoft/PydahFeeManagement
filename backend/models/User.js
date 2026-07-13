@@ -30,6 +30,10 @@ const userSchema = mongoose.Schema({
     type: [String],
     default: []
   },
+  campuses: {
+    type: [Number],
+    default: []
+  },
   courses: {
     type: [String],
     default: []

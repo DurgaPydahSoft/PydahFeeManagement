@@ -16,7 +16,8 @@ import {
     CreditCard,
     UserCheck,
     Briefcase,
-    LayoutDashboard
+    LayoutDashboard,
+    Building2
 } from 'lucide-react';
 import {
     AreaChart,
@@ -33,6 +34,7 @@ import {
     Legend,
     ResponsiveContainer
 } from 'recharts';
+import { useCampuses } from '../hooks/useCampuses';
 
 const COLORS = [
     '#6366f1', // Indigo
@@ -96,7 +98,37 @@ const Dashboard = () => {
     });
     const [datePreset, setDatePreset] = useState('Today');
     const [showDropdown, setShowDropdown] = useState(false);
+    const [showCampusDropdown, setShowCampusDropdown] = useState(false);
+    const [selectedCampusId, setSelectedCampusId] = useState(() => {
+        const u = getStoredUser() || {};
+        if (u.campuses?.length === 1) return String(u.campuses[0]);
+        return 'all';
+    });
+    const { campuses } = useCampuses();
     const navigate = useNavigate();
+
+    const activeUser = user || getStoredUser();
+
+    const campusOptions = [
+        {
+            id: 'all',
+            label: activeUser?.role === 'superadmin' || activeUser?.role === 'admin'
+                ? 'All Campuses'
+                : 'All My Campuses',
+        },
+        ...campuses.map((campus) => ({
+            id: String(campus.id),
+            label: `${campus.name} (${campus.code})`,
+        })),
+    ];
+
+    const selectedCampusLabel =
+        campusOptions.find((o) => o.id === String(selectedCampusId))?.label || 'Campus';
+
+    const handleCampusChange = (campusId) => {
+        setSelectedCampusId(campusId);
+        setShowCampusDropdown(false);
+    };
 
     const handlePresetChange = (preset) => {
         const today = new Date();
@@ -152,7 +184,11 @@ const Dashboard = () => {
             setLoading(true);
             try {
                 const res = await api.get(`/reports/dashboard-stats`, {
-                    params: { startDate, endDate }
+                    params: {
+                        startDate,
+                        endDate,
+                        ...(selectedCampusId !== 'all' ? { campusId: selectedCampusId } : {}),
+                    }
                 });
                 setStats(res.data);
             } catch (error) {
@@ -162,7 +198,7 @@ const Dashboard = () => {
             }
         };
         if (user) fetchStats();
-    }, [user, startDate, endDate]);
+    }, [user, startDate, endDate, selectedCampusId]);
 
     if (!user) {
         return (
@@ -293,10 +329,46 @@ const Dashboard = () => {
                         </div>
                         
                         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto relative">
+                            {/* Campus Dropdown */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowDropdown(false);
+                                        setShowCampusDropdown(!showCampusDropdown);
+                                    }}
+                                    className="text-[10px] font-extrabold text-slate-600 bg-white px-3.5 py-2 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-2 hover:bg-slate-50 transition-colors uppercase tracking-wider"
+                                    title="Select Campus"
+                                >
+                                    <Building2 size={13} className="text-indigo-500 shrink-0" />
+                                    <span className="max-w-[140px] truncate">{selectedCampusLabel}</span>
+                                    <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+                                </button>
+
+                                {showCampusDropdown && (
+                                    <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-slate-200/80 rounded-xl shadow-lg z-50 py-1.5 text-xs font-bold text-slate-700 max-h-60 overflow-y-auto">
+                                        {campusOptions.map((option) => (
+                                            <button
+                                                key={option.id}
+                                                type="button"
+                                                onClick={() => handleCampusChange(option.id)}
+                                                className={`w-full text-left px-4 py-2 hover:bg-indigo-50/50 hover:text-indigo-600 transition-colors ${String(selectedCampusId) === option.id ? 'text-indigo-600 bg-indigo-50/20 font-bold' : ''}`}
+                                            >
+                                                {option.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Preset Dropdown Trigger Card */}
                             <div className="relative">
                                 <button 
-                                    onClick={() => setShowDropdown(!showDropdown)}
+                                    type="button"
+                                    onClick={() => {
+                                        setShowCampusDropdown(false);
+                                        setShowDropdown(!showDropdown);
+                                    }}
                                     className="text-[10px] font-extrabold text-slate-600 bg-white px-3.5 py-2 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-2 hover:bg-slate-50 transition-colors uppercase tracking-wider"
                                     title="Select Period"
                                 >

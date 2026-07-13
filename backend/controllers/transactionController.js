@@ -3,6 +3,7 @@ const FeeGroup = require('../models/FeeGroup');
 const Setting = require('../models/Setting');
 const ReceiptSequence = require('../models/ReceiptSequence');
 const db = require('../config/sqlDb');
+const collegeScope = require('../utils/collegeScope');
 
 const getCollectorFromRequest = (req) => ({
   collectedBy: req.user?.username || 'Unknown',
@@ -385,16 +386,16 @@ const getRecentTransactions = async (req, res) => {
 
     // 2. College & Course permissions for non-SuperAdmins
     if (!isSuperAdmin) {
-      const userColleges = req.user?.colleges || (req.user?.college ? [req.user.college] : []);
+      const userColleges = await collegeScope.getUserCollegeNames(req.user);
       const userCourses = req.user?.courses || [];
 
-      if (userColleges.length > 0 || userCourses.length > 0) {
+      if ((userColleges && userColleges.length > 0) || userCourses.length > 0) {
         let sqlQuery = 'SELECT admission_number FROM students WHERE 1=1';
         const params = [];
         
-        if (userColleges.length > 0) {
-          sqlQuery += ' AND college IN (?)';
-          params.push(userColleges);
+        if (userColleges && userColleges.length > 0) {
+          sqlQuery += ` AND college IN (${userColleges.map(() => '?').join(',')})`;
+          params.push(...userColleges);
         }
         
         if (userCourses.length > 0) {

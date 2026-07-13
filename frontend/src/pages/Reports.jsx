@@ -22,6 +22,7 @@ import {
 import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
 import CollegeReportTemplate from '../components/CollegeReportTemplate';
+import { useCampuses } from '../hooks/useCampuses';
 
 // PrintTriggerComponent was removed
 
@@ -390,6 +391,12 @@ const Reports = () => {
     // --- Fee Head Groups Filtering ---
     const [feeGroups, setFeeGroups] = useState([]);
     const [selectedFeeGroupId, setSelectedFeeGroupId] = useState('');
+    const [selectedCampusId, setSelectedCampusId] = useState(() => {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        if (u.campuses?.length === 1) return String(u.campuses[0]);
+        return 'all';
+    });
+    const { campuses } = useCampuses();
 
     const modalPrintRef = useRef(null);
     const handleModalPrint = async () => {
@@ -476,7 +483,12 @@ const Reports = () => {
             else if (activeTab === 'college') groupBy = 'college';
 
             const res = await api.get(`/reports/transactions`, {
-                params: { startDate, endDate, groupBy: groupBy === 'daily' ? 'day' : groupBy }
+                params: {
+                    startDate,
+                    endDate,
+                    groupBy: groupBy === 'daily' ? 'day' : groupBy,
+                    ...(selectedCampusId !== 'all' ? { campusId: selectedCampusId } : {}),
+                }
             });
             setData(res.data);
 
@@ -494,7 +506,9 @@ const Reports = () => {
 
         } catch (error) {
             console.error(error);
-            // alert('Failed to fetch report');
+            if (error.response?.status === 403) {
+                alert('You do not have permission to view this report. Ensure Reports access is enabled in User Management.');
+            }
         } finally {
             setLoading(false);
         }
@@ -505,6 +519,7 @@ const Reports = () => {
     const user = JSON.parse(localStorage.getItem('user')) || {};
     const role = user.role;
     const permissions = user.permissions || [];
+    const isScopedUser = role !== 'superadmin' && role !== 'admin' && (user.campuses?.length > 0 || user.colleges?.length > 0);
 
     const allTabs = [
         { id: 'daily', label: 'Daily Collection', permission: 'reports_daily_collection' },
@@ -512,9 +527,15 @@ const Reports = () => {
         { id: 'college', label: 'College-wise Summary', permission: 'reports_fee_head_summary' },
     ];
 
-    const tabs = role === 'superadmin'
+    const reportSubPermissions = ['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary'];
+    const hasGranularReportPerms = reportSubPermissions.some((p) => permissions.includes(p));
+
+    const tabs = role === 'superadmin' || role === 'admin'
         ? allTabs
-        : allTabs.filter(tab => permissions.includes(tab.permission));
+        : allTabs.filter((tab) =>
+            permissions.includes(tab.permission) ||
+            (permissions.includes('/reports') && !hasGranularReportPerms)
+        );
 
     // Fetch fee groups on mount
     useEffect(() => {
@@ -541,7 +562,7 @@ const Reports = () => {
         if (tabs.length > 0 && tabs.find(t => t.id === activeTab)) {
             fetchReport();
         }
-    }, [activeTab, startDate, endDate]);
+    }, [activeTab, startDate, endDate, selectedCampusId]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -709,6 +730,17 @@ const Reports = () => {
                         )}
                     </div>
 
+                    {tabs.length === 0 ? (
+                        <div className="max-w-[1700px] mx-auto">
+                            <div className="bg-white rounded-xl border border-amber-200 p-8 text-center">
+                                <p className="text-lg font-bold text-gray-900">No report access configured</p>
+                                <p className="text-sm text-gray-500 mt-2">
+                                    Your account can open this page but does not have report permissions. Ask an administrator to enable
+                                    <span className="font-semibold"> Reports &amp; Analytics</span> in User Management.
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
                     <div className="max-w-[1700px] mx-auto space-y-6">
 
                         {/* 1. Stats Cards */}
@@ -766,6 +798,24 @@ const Reports = () => {
                                                 {preset.label}
                                             </button>
                                         ))}
+                                    </div>
+
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <span className="text-[10px] font-bold text-gray-500 uppercase">Campus</span>
+                                        <select
+                                            value={selectedCampusId}
+                                            onChange={(e) => setSelectedCampusId(e.target.value)}
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer"
+                                        >
+                                            {!isScopedUser ? (
+                                                <option value="all">All Campuses</option>
+                                            ) : (
+                                                <option value="all">All My Campuses</option>
+                                            )}
+                                            {campuses.map((campus) => (
+                                                <option key={campus.id} value={campus.id}>{campus.name} ({campus.code})</option>
+                                            ))}
+                                        </select>
                                     </div>
 
                                     <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
@@ -892,6 +942,7 @@ const Reports = () => {
                             </div>
                         </div>
                     </div>
+                    )}
                 </main>
             </div>
         </div>

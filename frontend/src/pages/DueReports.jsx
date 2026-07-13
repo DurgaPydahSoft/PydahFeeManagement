@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { Filter, Download, ArrowRight, DollarSign, Search, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useCampuses, getCollegeNamesForCampuses } from '../hooks/useCampuses';
 
 const DueReports = () => {
     const [metadata, setMetadata] = useState({});
@@ -13,11 +14,14 @@ const DueReports = () => {
 
     // Filters
     const [filters, setFilters] = useState({
+        campusId: 'all',
         college: '',
         course: '',
         branch: '',
         batch: ''
     });
+
+    const { campuses } = useCampuses();
 
     const [reportData, setReportData] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -51,6 +55,19 @@ const DueReports = () => {
     }, []);
 
     // Handle Dependable Dropdowns
+    const handleCampusChange = (e) => {
+        const campusId = e.target.value;
+        setFilters({ campusId, college: '', course: '', branch: '', batch: '' });
+        if (campusId === 'all') {
+            setColleges(Object.keys(metadata));
+        } else {
+            const campusCollegeNames = getCollegeNamesForCampuses(campuses, [Number(campusId)]);
+            setColleges(campusCollegeNames.filter((c) => metadata[c]));
+        }
+        setCourses([]);
+        setBranches([]);
+    };
+
     const handleCollegeChange = (e) => {
         const college = e.target.value;
         setFilters({ ...filters, college, course: '', branch: '', batch: '' });
@@ -86,7 +103,14 @@ const DueReports = () => {
         setCurrentPage(1); // Reset page on new fetch
         try {
             const response = await api.get(`/reports/dues`, {
-                params: { ...filters, search: searchTerm },
+                params: {
+                    college: filters.college,
+                    course: filters.course,
+                    branch: filters.branch,
+                    batch: filters.batch,
+                    search: searchTerm,
+                    ...(filters.campusId !== 'all' ? { campusId: filters.campusId } : {}),
+                },
             });
             setReportData(response.data);
         } catch (error) {
@@ -225,7 +249,17 @@ const DueReports = () => {
                         <div className="bg-white border border-gray-200 rounded shadow-sm p-3">
                             <div className="flex flex-col xl:flex-row gap-3 items-end">
                                 {/* Filters Group */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 w-full xl:w-auto flex-1">
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 w-full xl:w-auto flex-1">
+                                    <select
+                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
+                                        value={filters.campusId}
+                                        onChange={handleCampusChange}
+                                    >
+                                        <option value="all">All Campuses</option>
+                                        {campuses.map((campus) => (
+                                            <option key={campus.id} value={campus.id}>{campus.name}</option>
+                                        ))}
+                                    </select>
                                     <select
                                         className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
                                         value={filters.college}

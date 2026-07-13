@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
 import { Edit2, Trash2, Key } from 'lucide-react';
+import { useCampuses, getCollegeNamesForCampuses } from '../hooks/useCampuses';
 
 
 const UserManagement = () => {
@@ -24,11 +25,20 @@ const UserManagement = () => {
         username: '',
         password: '',
         role: 'office_staff',
+        campuses: [],
         colleges: [],
         courses: [],
         permissions: [],
         employeeId: null
     });
+
+    const { campuses: campusList } = useCampuses();
+
+    const visibleColleges = useMemo(() => {
+        if (!formData.campuses?.length) return [];
+        const campusCollegeNames = getCollegeNamesForCampuses(campusList, formData.campuses);
+        return colleges.filter((c) => campusCollegeNames.includes(c));
+    }, [formData.campuses, campusList, colleges]);
 
     const availablePages = [
         { name: 'Dashboard', path: '/dashboard' },
@@ -117,6 +127,32 @@ const UserManagement = () => {
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData({ ...formData, [name]: value });
+    };
+
+    const handleCampusToggle = (campusId) => {
+        const numericId = Number(campusId);
+        const currentCampuses = (formData.campuses || []).map(Number);
+        const campus = campusList.find((c) => Number(c.id) === numericId);
+        const campusCollegeNames = campus?.colleges?.map((c) => c.name) || [];
+
+        let updatedCampuses;
+        let updatedColleges = [...(formData.colleges || [])];
+        let updatedCourses = [...(formData.courses || [])];
+
+        if (currentCampuses.includes(numericId)) {
+            updatedCampuses = currentCampuses.filter((id) => id !== numericId);
+            updatedColleges = updatedColleges.filter((c) => !campusCollegeNames.includes(c));
+            updatedCourses = updatedCourses.filter((c) => !campusCollegeNames.some((name) => c.startsWith(`${name}|`)));
+        } else {
+            updatedCampuses = [...currentCampuses, numericId];
+        }
+
+        setFormData({
+            ...formData,
+            campuses: updatedCampuses,
+            colleges: updatedColleges,
+            courses: updatedCourses,
+        });
     };
 
     const handleCollegeToggle = (collegeName) => {
@@ -223,7 +259,7 @@ const UserManagement = () => {
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
-            setFormData({ name: '', username: '', password: '', role: 'office_staff', colleges: [], courses: [], permissions: [], employeeId: null });
+            setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null });
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
             setMessage(error.response?.data?.message || 'Error saving user');
@@ -236,9 +272,10 @@ const UserManagement = () => {
         setFormData({
             name: user.name,
             username: user.username,
-            password: '', // Don't prefill password
+            password: '',
             role: user.role,
             college: user.college || '',
+            campuses: user.campuses || [],
             colleges: user.colleges || [],
             courses: user.courses || [],
             employeeId: user.employeeId || null,
@@ -249,7 +286,7 @@ const UserManagement = () => {
     };
 
     const handleCancelEdit = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', colleges: [], courses: [], employeeId: null, permissions: [] });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [] });
         setEditingUserId(null);
     };
 
@@ -453,12 +490,43 @@ const UserManagement = () => {
                             </div>
 
                             <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Campus Selection</label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border p-3 rounded bg-gray-50">
+                                    {campusList.length === 0 ? (
+                                        <p className="text-xs text-gray-500 col-span-full">No campuses loaded.</p>
+                                    ) : (
+                                        campusList.map((campus) => {
+                                            const isChecked = (formData.campuses || []).some((id) => Number(id) === Number(campus.id));
+                                            return (
+                                                <label key={campus.id} className="flex items-start gap-2 cursor-pointer p-2 rounded border bg-white hover:bg-blue-50/40">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => handleCampusToggle(campus.id)}
+                                                        className="rounded text-blue-600 focus:ring-blue-500 mt-0.5"
+                                                    />
+                                                    <div>
+                                                        <span className="text-sm font-bold text-gray-800 block">{campus.name}</span>
+                                                        <span className="text-[10px] font-mono text-blue-600 uppercase">{campus.code}</span>
+                                                        <p className="text-[10px] text-gray-400 mt-0.5">{campus.colleges?.length || 0} colleges</p>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-400 mt-1">Select campus(es) first, then choose colleges within them.</p>
+                            </div>
+
+                            <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">College & Course Scope</label>
                                 <div className="space-y-4 border p-3 rounded bg-gray-50 max-h-80 overflow-y-auto">
-                                    {colleges.length === 0 ? (
-                                        <p className="text-xs text-gray-500">No colleges loaded from metadata.</p>
+                                    {formData.campuses?.length === 0 ? (
+                                        <p className="text-xs text-gray-500 italic">Select at least one campus to assign colleges.</p>
+                                    ) : visibleColleges.length === 0 ? (
+                                        <p className="text-xs text-gray-500">No colleges available for selected campus(es).</p>
                                     ) : (
-                                        colleges.map(collegeName => {
+                                        visibleColleges.map(collegeName => {
                                             const isChecked = (formData.colleges || []).includes(collegeName);
                                             const collegeCourses = hierarchy[collegeName] ? Object.keys(hierarchy[collegeName]) : [];
                                             return (
@@ -805,6 +873,11 @@ const UserManagement = () => {
                                                             </span>
                                                         </td>
                                                         <td className="p-3 text-gray-500">
+                                                            {user.campuses && user.campuses.length > 0 && (
+                                                                <div className="text-[10px] text-indigo-600 font-bold mb-1">
+                                                                    Campuses: {user.campuses.map((id) => campusList.find((c) => c.id === id)?.code || id).join(', ')}
+                                                                </div>
+                                                            )}
                                                             {user.colleges && user.colleges.length > 0 ? (
                                                                 <div className="space-y-1">
                                                                     <div className="font-semibold text-xs text-gray-700">

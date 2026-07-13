@@ -2,16 +2,25 @@ const Transaction = require('../models/Transaction');
 const StudentFee = require('../models/StudentFee');
 const mongoose = require('mongoose');
 const db = require('../config/sqlDb');
+const collegeScope = require('../utils/collegeScope');
+const { buildReportDateFilter } = require('../utils/reportDateFilter');
 
 // @desc    Get Transaction Reports (Daily, Cashier, FeeHead, Mode)
 // @route   GET /api/reports/transactions
 // @access  Public (should be Protected)
 const getTransactionReports = async (req, res) => {
     try {
-        const { startDate, endDate, groupBy, college, feeGroupId } = req.query;
+        const { startDate, endDate, groupBy, college, feeGroupId, campusId } = req.query;
+
+        const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
+        const hasCollegeScope = Array.isArray(allowedColleges) && allowedColleges.length > 0;
 
         // Base matching condition — always exclude cancelled transactions from reports
-        const matchStage = { status: { $ne: 'cancelled' } };
+        let matchStage = { status: { $ne: 'cancelled' } };
+        matchStage = await collegeScope.applyStudentIdFilter(req.user, campusId, matchStage);
+        if (matchStage.studentId?.$in?.[0] === '__none__') {
+            return res.json([]);
+        }
 
         // Filter by Fee Head Group if provided
         if (feeGroupId) {
@@ -29,15 +38,10 @@ const getTransactionReports = async (req, res) => {
             matchStage.collectedBy = req.user.username;
         }
 
-        // Date Filter
-        if (startDate || endDate) {
-            matchStage.createdAt = {};
-            if (startDate) matchStage.createdAt.$gte = new Date(startDate);
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                matchStage.createdAt.$lte = end;
-            }
+        // Date Filter (IST-aligned, same as dashboard stats)
+        const dateFilter = buildReportDateFilter(startDate, endDate);
+        if (dateFilter.createdAt) {
+            matchStage.createdAt = dateFilter.createdAt;
         }
 
         // College Filter (Note: Transaction doesn't have college directly, it's on Student... 
@@ -120,12 +124,14 @@ const getTransactionReports = async (req, res) => {
                 console.error("Error fetching fee heads:", err);
             }
 
-            // 4. Fetch College Info from SQL
-            const collegeMap = {}; // admission_number -> college_name
+            // 4. Fetch College Info from SQL (match by admission number or PIN)
+            const collegeMap = {};
             if (studentIds.size > 0) {
-                const ids = Array.from(studentIds).map(id => `'${id}'`).join(',');
+                const idList = Array.from(studentIds).map((id) => `'${String(id).replace(/'/g, "''")}'`).join(',');
                 try {
-                    const [students] = await db.query(`SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`);
+                    const [students] = await db.query(
+                        `SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${idList}) OR pin_no IN (${idList})`
+                    );
                     students.forEach(s => {
                         const sData = {
                             college: s.college || 'Unknown',
@@ -134,8 +140,14 @@ const getTransactionReports = async (req, res) => {
                             branch: s.branch || 'N/A',
                             current_year: s.current_year || 'N/A'
                         };
-                        collegeMap[String(s.admission_number).trim()] = sData;
-                        collegeMap[String(s.admission_number).trim().toLowerCase()] = sData;
+                        const adm = String(s.admission_number).trim();
+                        collegeMap[adm] = sData;
+                        collegeMap[adm.toLowerCase()] = sData;
+                        if (s.pin_no) {
+                            const pin = String(s.pin_no).trim();
+                            collegeMap[pin] = sData;
+                            collegeMap[pin.toLowerCase()] = sData;
+                        }
                     });
                 } catch (sqlErr) {
                     console.error("SQL Error fetching colleges:", sqlErr);
@@ -151,6 +163,10 @@ const getTransactionReports = async (req, res) => {
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
                 const college = collegeData ? collegeData.college : 'Unknown';
+
+                if (hasCollegeScope && !collegeScope.isCollegeAllowed(college, allowedColleges)) {
+                    return;
+                }
                 const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
                 const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
                 const amount = tx.amount || 0;
@@ -375,12 +391,14 @@ const getTransactionReports = async (req, res) => {
                 console.error("Error fetching fee heads:", err);
             }
 
-            // Fetch College Info from SQL
-            const collegeMap = {}; // admission_number -> college_name
+            // Fetch College Info from SQL (match by admission number or PIN)
+            const collegeMap = {};
             if (studentIds.size > 0) {
-                const ids = Array.from(studentIds).map(id => `'${id}'`).join(',');
+                const idList = Array.from(studentIds).map((id) => `'${String(id).replace(/'/g, "''")}'`).join(',');
                 try {
-                    const [students] = await db.query(`SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`);
+                    const [students] = await db.query(
+                        `SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${idList}) OR pin_no IN (${idList})`
+                    );
                     students.forEach(s => {
                         const sData = {
                             college: s.college || 'Unknown',
@@ -389,8 +407,14 @@ const getTransactionReports = async (req, res) => {
                             branch: s.branch || 'N/A',
                             current_year: s.current_year || 'N/A'
                         };
-                        collegeMap[String(s.admission_number).trim()] = sData;
-                        collegeMap[String(s.admission_number).trim().toLowerCase()] = sData;
+                        const adm = String(s.admission_number).trim();
+                        collegeMap[adm] = sData;
+                        collegeMap[adm.toLowerCase()] = sData;
+                        if (s.pin_no) {
+                            const pin = String(s.pin_no).trim();
+                            collegeMap[pin] = sData;
+                            collegeMap[pin.toLowerCase()] = sData;
+                        }
                     });
                 } catch (sqlErr) {
                     console.error("SQL Error fetching colleges:", sqlErr);
@@ -404,6 +428,10 @@ const getTransactionReports = async (req, res) => {
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
                 const collegeName = collegeData ? collegeData.college : 'Unknown';
+
+                if (hasCollegeScope && !collegeScope.isCollegeAllowed(collegeName, allowedColleges)) {
+                    return;
+                }
                 const cashier = tx.collectedByName || 'Unknown';
                 const cashierUsername = tx.collectedBy || 'Unknown';
                 const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
@@ -681,16 +709,22 @@ const getTransactionReports = async (req, res) => {
 
 const getDueReports = async (req, res) => {
     try {
-        const { college, course, branch, batch, search } = req.query;
+        const { college, course, branch, batch, search, campusId } = req.query;
+        const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
 
         // 1. Build SQL Query for Students
-        // Added pin_no, replaced phone_number with student_mobile
-        let sqlQuery = `SELECT admission_number, student_name, course, branch, current_year, student_mobile, pin_no FROM students WHERE 1=1`;
+        let sqlQuery = `SELECT admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college FROM students WHERE 1=1`;
         const params = [];
 
         if (college) {
+            if (allowedColleges && !allowedColleges.includes(college)) {
+                return res.json([]);
+            }
             sqlQuery += ` AND college = ?`;
             params.push(college);
+        } else if (allowedColleges && allowedColleges.length > 0) {
+            sqlQuery += ` AND college IN (${allowedColleges.map(() => '?').join(',')})`;
+            params.push(...allowedColleges);
         }
         if (course) {
             sqlQuery += ` AND course = ?`;
@@ -858,7 +892,10 @@ const getDueReports = async (req, res) => {
 
 const getDashboardStats = async (req, res) => {
     try {
-        const { startDate, endDate } = req.query;
+        const { startDate, endDate, campusId } = req.query;
+        const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
+        const studentScopeFilter = await collegeScope.applyStudentIdFilter(req.user, campusId, {});
+        const hasNoAccess = studentScopeFilter.studentId?.$in?.[0] === '__none__';
 
         // Base date matching stage - timezone aware for IST (+05:30)
         const dateFilter = {};
@@ -913,11 +950,12 @@ const getDashboardStats = async (req, res) => {
         }
 
         // 1. Collections (DEBIT transactions) within date range
-        const collectionStats = await Transaction.aggregate([
+        const collectionStats = hasNoAccess ? [] : await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
-                    ...dateFilter
+                    ...dateFilter,
+                    ...studentScopeFilter,
                 }
             },
             {
@@ -937,12 +975,21 @@ const getDashboardStats = async (req, res) => {
         const collections = collectionStats[0] || { total: 0, cash: 0, online: 0 };
 
         // 2. Student Count (Regular students from SQL)
-        const [studentCountResult] = await db.query("SELECT COUNT(*) as count FROM students WHERE LOWER(student_status) = 'regular'");
+        let studentCountQuery = "SELECT COUNT(*) as count FROM students WHERE LOWER(student_status) = 'regular'";
+        const studentCountParams = [];
+        if (allowedColleges && allowedColleges.length > 0) {
+            studentCountQuery += ` AND college IN (${allowedColleges.map(() => '?').join(',')})`;
+            studentCountParams.push(...allowedColleges);
+        }
+        const [studentCountResult] = hasNoAccess
+            ? [[{ count: 0 }]]
+            : await db.query(studentCountQuery, studentCountParams);
         const totalStudents = studentCountResult[0]?.count || 0;
 
         // 3. Recent Transactions within date range (exclude cancelled)
-        const recentTransactions = await Transaction.find({
+        const recentTransactions = hasNoAccess ? [] : await Transaction.find({
             ...dateFilter,
+            ...studentScopeFilter,
             status: { $ne: 'cancelled' }
         })
         .populate('feeHead', 'name')
@@ -950,12 +997,13 @@ const getDashboardStats = async (req, res) => {
         .limit(5);
 
         // 4. Collection Trend within date range (with IST timezone representation for calendar alignment)
-        const trendData = await Transaction.aggregate([
+        const trendData = hasNoAccess ? [] : await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
                     status: { $ne: 'cancelled' },
-                    ...trendDateFilter
+                    ...trendDateFilter,
+                    ...studentScopeFilter,
                 }
             },
             {
@@ -968,12 +1016,13 @@ const getDashboardStats = async (req, res) => {
         ]);
 
         // 5. College and Course Wise Breakdown within date range
-        const studentAggregates = await Transaction.aggregate([
+        const studentAggregates = hasNoAccess ? [] : await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
                     status: { $ne: 'cancelled' },
-                    ...dateFilter
+                    ...dateFilter,
+                    ...studentScopeFilter,
                 }
             },
             { $group: { _id: "$studentId", total: { $sum: "$amount" } } }
@@ -1027,11 +1076,12 @@ const getDashboardStats = async (req, res) => {
         }
 
         // 6. Fee Head Wise Breakdown within date range
-        const feeHeadWise = await Transaction.aggregate([
+        const feeHeadWise = hasNoAccess ? [] : await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
-                    ...dateFilter
+                    ...dateFilter,
+                    ...studentScopeFilter,
                 }
             },
             {
@@ -1060,11 +1110,12 @@ const getDashboardStats = async (req, res) => {
         ]);
 
         // 7. User Wise Breakdown within date range
-        const rawUserWise = await Transaction.aggregate([
+        const rawUserWise = hasNoAccess ? [] : await Transaction.aggregate([
             {
                 $match: {
                     transactionType: 'DEBIT',
-                    ...dateFilter
+                    ...dateFilter,
+                    ...studentScopeFilter,
                 }
             },
             {

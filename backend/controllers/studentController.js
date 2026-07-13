@@ -1,13 +1,26 @@
 const db = require('../config/sqlDb');
 const { syncStudentFeesByAdmissionNumber } = require('../services/studentFeeSyncService');
+const collegeScope = require('../utils/collegeScope');
 
 // @desc    Get all students
 // @route   GET /api/students
 const getStudents = async (req, res) => {
   try {
-    const { college, course, branch, batch } = req.query;
+    let { college, course, branch, batch, campusId } = req.query;
 
-    console.log('Attempting to fetch students from SQL...', { college, course, branch, batch });
+    const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
+    if (allowedColleges) {
+      if (college) {
+        const requested = college.split(',').map((c) => c.trim()).filter(Boolean);
+        const scoped = collegeScope.intersectCollegeNames(requested, allowedColleges);
+        college = scoped.join(',');
+        if (!college) return res.json([]);
+      } else {
+        college = allowedColleges.join(',');
+      }
+    }
+
+    console.log('Attempting to fetch students from SQL...', { college, course, branch, batch, campusId });
 
     let query = `
       SELECT 
@@ -61,7 +74,17 @@ const getStudents = async (req, res) => {
 // @route   GET /api/students/metadata
 const getStudentMetadata = async (req, res) => {
   try {
+    const { campusId } = req.query;
+    const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
+
     // Join tables to get valid hierarchy including total_years from courses table
+    let collegeFilterSql = '';
+    const collegeFilterParams = [];
+    if (allowedColleges && allowedColleges.length > 0) {
+      collegeFilterSql = ` AND cl.name IN (${allowedColleges.map(() => '?').join(',')})`;
+      collegeFilterParams.push(...allowedColleges);
+    }
+
     const [rows] = await db.query(`
       SELECT 
         cl.name as college, 
@@ -73,8 +96,9 @@ const getStudentMetadata = async (req, res) => {
       JOIN courses c ON cl.id = c.college_id 
       JOIN course_branches cb ON c.id = cb.course_id
       WHERE cl.is_active = 1 AND c.is_active = 1 AND cb.is_active = 1
+      ${collegeFilterSql}
       ORDER BY cl.name, c.name, cb.name
-    `);
+    `, collegeFilterParams);
 
     // Transform into hierarchical structure
     // { "College A": { "Course X": { branches: ["Branch 1"], total_years: 4 } } }
@@ -151,7 +175,8 @@ const getStudentMetadata = async (req, res) => {
       castes: casteList,
       categoryMapping,
       courseYears,
-      collegeCodes
+      collegeCodes,
+      scopedColleges: allowedColleges,
     });
   } catch (error) {
     console.error('Error fetching metadata:', error);
@@ -163,12 +188,17 @@ const getStudentMetadata = async (req, res) => {
 // @route   GET /api/students/:id
 const getStudentByAdmissionNumber = async (req, res) => {
   try {
-    const { id } = req.params; // admission_number
+    const { id } = req.params;
 
     const [rows] = await db.query(`SELECT * FROM students WHERE admission_number = ?`, [id]);
 
     if (rows.length === 0) {
       return res.status(404).json({ message: 'Student not found' });
+    }
+
+    const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
+    if (allowedColleges && !allowedColleges.includes(rows[0].college)) {
+      return res.status(403).json({ message: 'Access denied for this student' });
     }
 
     // Fire fee sync in the background — does not block the student record response.
@@ -189,16 +219,25 @@ const getStudentByAdmissionNumber = async (req, res) => {
 // @route   GET /api/students/search
 const searchStudents = async (req, res) => {
     try {
-        const { q } = req.query;
-        if (!q || q.length < 3) return res.json([]); // Minimum 3 chars
+        const { q, campusId } = req.query;
+        if (!q || q.length < 3) return res.json([]);
 
+        const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
         const searchTerm = `%${q}%`;
-        const [rows] = await db.query(`
+        let query = `
             SELECT admission_number, student_name, pin_no, caste, college, course, branch, batch, current_year, current_semester, student_photo 
             FROM students 
-            WHERE admission_number LIKE ? OR student_name LIKE ? OR pin_no LIKE ? 
-            LIMIT 20
-        `, [searchTerm, searchTerm, searchTerm]);
+            WHERE (admission_number LIKE ? OR student_name LIKE ? OR pin_no LIKE ?)
+        `;
+        const params = [searchTerm, searchTerm, searchTerm];
+
+        if (allowedColleges && allowedColleges.length > 0) {
+            query += ` AND college IN (${allowedColleges.map(() => '?').join(',')})`;
+            params.push(...allowedColleges);
+        }
+
+        query += ' LIMIT 20';
+        const [rows] = await db.query(query, params);
 
         res.json(rows);
     } catch (error) {

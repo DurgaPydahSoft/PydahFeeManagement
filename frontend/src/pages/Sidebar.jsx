@@ -298,9 +298,12 @@ const Sidebar = () => {
                                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
                                     {role === 'superadmin' 
                                         ? 'Super Admin' 
-                                        : (user.colleges && user.colleges.length > 1 
-                                            ? `${user.college} (+${user.colleges.length - 1})` 
-                                            : (user.college || role)
+                                        : (user.campuses && user.campuses.length > 0
+                                            ? `Campus scope (${user.campuses.length})`
+                                            : (user.colleges && user.colleges.length > 1 
+                                                ? `${user.college} (+${user.colleges.length - 1})` 
+                                                : (user.college || role)
+                                              )
                                           )
                                     }
                                 </p>
