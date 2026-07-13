@@ -260,6 +260,7 @@ const UserManagement = () => {
                 setMessage('User created successfully!');
             }
             setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null });
+            setShowCreateEditModal(false);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
             setMessage(error.response?.data?.message || 'Error saving user');
@@ -282,12 +283,19 @@ const UserManagement = () => {
             permissions: user.permissions || []
         });
         setEditingUserId(user._id);
-        window.scrollTo(0, 0);
+        setShowCreateEditModal(true);
     };
 
     const handleCancelEdit = () => {
         setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [] });
         setEditingUserId(null);
+        setShowCreateEditModal(false);
+    };
+
+    const openCreateModal = () => {
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null });
+        setEditingUserId(null);
+        setShowCreateEditModal(true);
     };
 
     const handleDelete = async (id) => {
@@ -303,6 +311,8 @@ const UserManagement = () => {
 
     // Password Reset Modal State
     const [resetModal, setResetModal] = useState({ show: false, user: null, newPassword: '' });
+    // Create/Edit User Modal State
+    const [showCreateEditModal, setShowCreateEditModal] = useState(false);
 
     const openResetModal = (user) => {
         const currentUser = JSON.parse(localStorage.getItem('user'));
@@ -360,477 +370,19 @@ const UserManagement = () => {
                     </div>
                 </header>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 transition-all duration-500 ease-in-out">
-                    {/* Create/Edit User Form */}
-                    {isSuperAdminUser && (
-                        <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 h-fit transition-all duration-500 ease-in-out ${editingUserId ? 'lg:col-span-2' : 'lg:col-span-1'}`}>
-                        <div className="flex justify-between items-center mb-3 border-b pb-2">
-                            <h2 className="font-bold text-gray-800">{editingUserId ? 'Edit User' : 'Create New User'}</h2>
-                            {editingUserId && (
-                                <button onClick={handleCancelEdit} className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded transition">
-                                    Cancel
-                                </button>
-                            )}
-                        </div>
-                        {message && <div className={`p-2 mb-4 text-sm rounded ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
-
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            {/* Employee Search / Name Input */}
-                            <div className="relative">
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Employee Name</label>
-
-                                {!formData.employeeId ? (
-                                    <>
-                                        <input
-                                            type="text"
-                                            className="w-full border p-2 rounded mt-1"
-                                            placeholder="Search employee by Name or ID..."
-                                            onChange={handleEmployeeSearch}
-                                        />
-                                        {/* Search Results Dropdown */}
-                                        {(searchResults.length > 0 || searchLoading) && (
-                                            <div className="absolute z-10 w-full bg-white border border-gray-200 mt-1 rounded shadow-lg max-h-60 overflow-y-auto">
-                                                {searchLoading && (
-                                                    <div className="p-3 text-center text-gray-500 text-sm flex items-center justify-center gap-2">
-                                                        <svg className="animate-spin h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                                        Searching...
-                                                    </div>
-                                                )}
-                                                {!searchLoading && searchResults.map(emp => (
-                                                    <div
-                                                        key={emp._id}
-                                                        className="p-2 hover:bg-blue-50 cursor-pointer border-b last:border-b-0"
-                                                        onClick={() => selectEmployee(emp)}
-                                                    >
-                                                        <p className="font-bold text-sm text-gray-800">
-                                                            {emp.employee_name} <span className="text-gray-500 font-normal">({emp.emp_no})</span>
-                                                        </p>
-                                                        <p className="text-xs text-gray-500">
-                                                            {emp.designation_id?.designation_name || emp.designation_id?.name || 'N/A'} |
-                                                            {emp.division_id?.division_name || emp.division_id?.name || 'N/A'} |
-                                                            {emp.department_id?.department_name || emp.department_id?.name || 'N/A'}
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                                {!searchLoading && searchResults.length === 0 && (
-                                                    <div className="p-3 text-center text-gray-500 text-sm">No results found</div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </>
-                                ) : (
-                                    <div className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded mt-1">
-                                        <div>
-                                            <p className="font-bold text-sm text-blue-900">{formData.name}</p>
-                                            <p className="text-xs text-blue-700">Emp No: {formData.username}</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={clearSelectedEmployee}
-                                            className="text-red-500 hover:text-red-700 text-xs font-bold px-2"
-                                        >
-                                            Change
-                                        </button>
-                                    </div>
-                                )}
-
-                                {!formData.employeeId && editingUserId && (
-                                    <input
-                                        name="name"
-                                        value={formData.name}
-                                        onChange={handleChange}
-                                        className="w-full border p-2 rounded mt-1"
-                                        placeholder="Or enter name manually (Legacy)"
-                                    />
-                                )}
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Username (Login ID)</label>
-                                <input
-                                    name="username"
-                                    value={formData.username}
-                                    onChange={handleChange}
-                                    className="w-full border p-2 rounded mt-1 bg-gray-50"
-                                    readOnly={!!formData.employeeId} // Read-only if linked
-                                    required
-                                />
-                            </div>
-
-                            {/* Password field - Hidden if Employee Linked */}
-                            {!formData.employeeId && (
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase">Password</label>
-                                    <input
-                                        type="password"
-                                        name="password"
-                                        value={formData.password}
-                                        onChange={handleChange}
-                                        className="w-full border p-2 rounded mt-1"
-                                        required={!editingUserId && !formData.employeeId}
-                                        placeholder={editingUserId ? "Leave blank to keep unchanged" : "Set password"}
-                                    />
-                                </div>
-                            )}
-
-                            {formData.employeeId && (
-                                <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                                    <span className="font-bold">Note:</span> user will login using their Employee DB password.
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
-                                <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white">
-                                    <option value="office_staff">Office Staff</option>
-                                    <option value="cashier">Cashier</option>
-                                    <option value="admin">Admin</option>
-                                    <option value="superadmin">Super Admin</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Campus Selection</label>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border p-3 rounded bg-gray-50">
-                                    {campusList.length === 0 ? (
-                                        <p className="text-xs text-gray-500 col-span-full">No campuses loaded.</p>
-                                    ) : (
-                                        campusList.map((campus) => {
-                                            const isChecked = (formData.campuses || []).some((id) => Number(id) === Number(campus.id));
-                                            return (
-                                                <label key={campus.id} className="flex items-start gap-2 cursor-pointer p-2 rounded border bg-white hover:bg-blue-50/40">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isChecked}
-                                                        onChange={() => handleCampusToggle(campus.id)}
-                                                        className="rounded text-blue-600 focus:ring-blue-500 mt-0.5"
-                                                    />
-                                                    <div>
-                                                        <span className="text-sm font-bold text-gray-800 block">{campus.name}</span>
-                                                        <span className="text-[10px] font-mono text-blue-600 uppercase">{campus.code}</span>
-                                                        <p className="text-[10px] text-gray-400 mt-0.5">{campus.colleges?.length || 0} colleges</p>
-                                                    </div>
-                                                </label>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                                <p className="text-xs text-gray-400 mt-1">Select campus(es) first, then choose colleges within them.</p>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">College & Course Scope</label>
-                                <div className="space-y-4 border p-3 rounded bg-gray-50 max-h-80 overflow-y-auto">
-                                    {formData.campuses?.length === 0 ? (
-                                        <p className="text-xs text-gray-500 italic">Select at least one campus to assign colleges.</p>
-                                    ) : visibleColleges.length === 0 ? (
-                                        <p className="text-xs text-gray-500">No colleges available for selected campus(es).</p>
-                                    ) : (
-                                        visibleColleges.map(collegeName => {
-                                            const isChecked = (formData.colleges || []).includes(collegeName);
-                                            const collegeCourses = hierarchy[collegeName] ? Object.keys(hierarchy[collegeName]) : [];
-                                            return (
-                                                <div key={collegeName} className="border-b last:border-b-0 pb-3 last:pb-0">
-                                                    <label className="flex items-center space-x-2 cursor-pointer p-1 rounded hover:bg-gray-100">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={isChecked}
-                                                            onChange={() => handleCollegeToggle(collegeName)}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-sm font-bold text-gray-800">{collegeName}</span>
-                                                    </label>
-
-                                                    {isChecked && collegeCourses.length > 0 && (
-                                                        <div className="ml-6 mt-2 p-2 bg-white rounded border border-gray-200 space-y-2">
-                                                            <div className="flex items-center justify-between border-b pb-1 mb-1">
-                                                                <span className="text-xs font-semibold text-gray-500">Courses:</span>
-                                                                <div className="flex gap-2">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleSelectAllCourses(collegeName)}
-                                                                        className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline font-bold"
-                                                                    >
-                                                                        Select All
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleClearAllCourses(collegeName)}
-                                                                        className="text-[10px] text-red-600 hover:text-red-800 hover:underline font-bold"
-                                                                    >
-                                                                        Clear
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                            <div className="grid grid-cols-2 gap-1.5">
-                                                                {collegeCourses.map(courseName => {
-                                                                    const courseKey = `${collegeName}|${courseName}`;
-                                                                    const isCourseChecked = (formData.courses || []).includes(courseKey);
-                                                                    return (
-                                                                        <label key={courseName} className="flex items-center space-x-1.5 cursor-pointer p-0.5 rounded hover:bg-gray-50">
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={isCourseChecked}
-                                                                                onChange={() => handleCourseToggle(collegeName, courseName)}
-                                                                                className="rounded text-blue-500 focus:ring-blue-400 w-3.5 h-3.5"
-                                                                            />
-                                                                            <span className="text-xs text-gray-600 font-medium">{courseName}</span>
-                                                                        </label>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                                <p className="text-xs text-gray-400 mt-1">Leave empty (no colleges selected) to allow access to all colleges (e.g. Super Admin).</p>
-                            </div>
-
-                            {/* Permission Checkboxes */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Permissions</label>
-                                <div className="space-y-3 border p-3 rounded bg-gray-50 max-h-[400px] overflow-y-auto">
-                                    {availablePages.map(page => (
-                                        <div key={page.path} className="flex flex-col">
-                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={(formData.permissions || []).includes(page.path)}
-                                                    onChange={(() => {
-                                                        const handlePermissionToggle = (path) => {
-                                                            let currentPermissions = formData.permissions || [];
-                                                            if (currentPermissions.includes(path)) {
-                                                                currentPermissions = currentPermissions.filter(p => p !== path);
-                                                                if (path === '/fee-collection') {
-                                                                    currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
-                                                                }
-                                                                if (path === '/reports') {
-                                                                    currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary');
-                                                                }
-                                                            } else {
-                                                                currentPermissions = [...currentPermissions, path];
-                                                                if (path === '/fee-collection') {
-                                                                    if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
-                                                                    if (formData.role !== 'cashier' && !currentPermissions.includes('fee_collection_concession')) {
-                                                                        currentPermissions.push('fee_collection_concession');
-                                                                    }
-                                                                }
-                                                                if (path === '/reports') {
-                                                                    if (!currentPermissions.includes('reports_daily_collection')) currentPermissions.push('reports_daily_collection');
-                                                                    if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
-                                                                    if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
-                                                                }
-                                                                if (path === '/concessions') {
-                                                                    if (!currentPermissions.includes('concession_approvals')) currentPermissions.push('concession_approvals');
-                                                                    if (formData.role !== 'cashier' && !currentPermissions.includes('concession_approvers')) {
-                                                                        currentPermissions.push('concession_approvers');
-                                                                    }
-                                                                }
-                                                            }
-                                                            setFormData({ ...formData, permissions: currentPermissions });
-                                                        };
-                                                        return () => handlePermissionToggle(page.path);
-                                                    })()}
-                                                    className="rounded text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm text-gray-700 font-medium">{page.name}</span>
-                                            </label>
-
-                                            {/* Sub-Permissions for Fee Collection */}
-                                            {page.path === '/fee-collection' && (formData.permissions || []).includes('/fee-collection') && (
-                                                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('fee_collection_pay')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('fee_collection_pay')) p = p.filter(x => x !== 'fee_collection_pay');
-                                                                    else p = [...p, 'fee_collection_pay'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Enable Fee Collection</span>
-                                                    </label>
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('fee_collection_concession')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('fee_collection_concession')) p = p.filter(x => x !== 'fee_collection_concession');
-                                                                    else p = [...p, 'fee_collection_concession'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Enable Fee Concession</span>
-                                                    </label>
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('fee_collection_edit')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('fee_collection_edit')) p = p.filter(x => x !== 'fee_collection_edit');
-                                                                    else p = [...p, 'fee_collection_edit'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Enable Edit Transaction</span>
-                                                    </label>
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('fee_collection_delete')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('fee_collection_delete')) p = p.filter(x => x !== 'fee_collection_delete');
-                                                                    else p = [...p, 'fee_collection_delete'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-red-600 focus:ring-red-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Enable Delete Transaction</span>
-                                                    </label>
-                                                </div>
-                                            )}
-
-                                            {/* Sub-Permissions for Concessions */}
-                                            {page.path === '/concessions' && (formData.permissions || []).includes('/concessions') && (
-                                                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('concession_approvals')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('concession_approvals')) p = p.filter(x => x !== 'concession_approvals');
-                                                                    else p = [...p, 'concession_approvals'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Enable Approvals</span>
-                                                    </label>
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('concession_approvers')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('concession_approvers')) p = p.filter(x => x !== 'concession_approvers');
-                                                                    else p = [...p, 'concession_approvers'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Manage Approvers</span>
-                                                    </label>
-                                                </div>
-                                            )}
-
-                                            {/* Sub-Permissions for Reports */}
-                                            {page.path === '/reports' && (formData.permissions || []).includes('/reports') && (
-                                                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('reports_daily_collection')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('reports_daily_collection')) p = p.filter(x => x !== 'reports_daily_collection');
-                                                                    else p = [...p, 'reports_daily_collection'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Daily Collection</span>
-                                                    </label>
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('reports_cashier_summary')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('reports_cashier_summary')) p = p.filter(x => x !== 'reports_cashier_summary');
-                                                                    else p = [...p, 'reports_cashier_summary'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">Cashier Summary</span>
-                                                    </label>
-                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={(formData.permissions || []).includes('reports_fee_head_summary')}
-                                                            onChange={(() => {
-                                                                const toggle = () => {
-                                                                    let p = formData.permissions || [];
-                                                                    if (p.includes('reports_fee_head_summary')) p = p.filter(x => x !== 'reports_fee_head_summary');
-                                                                    else p = [...p, 'reports_fee_head_summary'];
-                                                                    setFormData({ ...formData, permissions: p });
-                                                                };
-                                                                return toggle;
-                                                            })()}
-                                                            className="rounded text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <span className="text-xs text-gray-600">College-wise Summary</span>
-                                                    </label>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <button
-                                disabled={isSubmitting}
-                                className={`w-full text-white font-bold py-2 rounded transition flex justify-center items-center gap-2 ${editingUserId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-                            >
-                                {isSubmitting && (
-                                    <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                )}
-                                {isSubmitting ? 'Saving...' : (editingUserId ? 'Update User' : 'Create User')}
-                            </button>
-                        </form>
-                    </div>
-                    )}
-
+                <div className="space-y-4">
                     {/* User List */}
-                    <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out ${!isSuperAdminUser ? 'lg:col-span-3' : (editingUserId ? 'lg:col-span-1' : 'lg:col-span-2')}`}>
+                    <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out">
                         <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h2 className="font-bold text-gray-800">Existing Users</h2>
+                            {isSuperAdminUser && (
+                                <button
+                                    onClick={openCreateModal}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition"
+                                >
+                                    Create New User
+                                </button>
+                            )}
                         </div>
                         {loading ? <p>Loading...</p> : (
                             <div className="overflow-x-auto">
@@ -838,13 +390,9 @@ const UserManagement = () => {
                                     <thead className="bg-gray-50 border-b">
                                         <tr>
                                             <th className="p-3 font-semibold text-gray-600">Name</th>
-                                            {!editingUserId && (
-                                                <>
-                                                    <th className="p-3 font-semibold text-gray-600">Username</th>
-                                                    <th className="p-3 font-semibold text-gray-600">Role</th>
-                                                    <th className="p-3 font-semibold text-gray-600">College Scope</th>
-                                                </>
-                                            )}
+                                            <th className="p-3 font-semibold text-gray-600">Username</th>
+                                            <th className="p-3 font-semibold text-gray-600">Role</th>
+                                            <th className="p-3 font-semibold text-gray-600">College Scope</th>
                                             {isSuperAdminUser && <th className="p-3 font-semibold text-right">Action</th>}
                                         </tr>
                                     </thead>
@@ -860,41 +408,37 @@ const UserManagement = () => {
                                             .map(user => (
                                             <tr key={user._id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-medium text-gray-900">{user.name}</td>
-                                                {!editingUserId && (
-                                                    <>
-                                                        <td className="p-3 text-gray-500 font-mono">{user.username}</td>
-                                                        <td className="p-3">
-                                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
-                                                                user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-                                                                    user.role === 'cashier' ? 'bg-green-100 text-green-700' :
-                                                                        'bg-gray-100 text-gray-700'
-                                                                }`}>
-                                                                {user.role}
-                                                            </span>
-                                                        </td>
-                                                        <td className="p-3 text-gray-500">
-                                                            {user.campuses && user.campuses.length > 0 && (
-                                                                <div className="text-[10px] text-indigo-600 font-bold mb-1">
-                                                                    Campuses: {user.campuses.map((id) => campusList.find((c) => c.id === id)?.code || id).join(', ')}
+                                                <td className="p-3 text-gray-500 font-mono">{user.username}</td>
+                                                <td className="p-3">
+                                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                                        user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                                                            user.role === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                                'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                        {user.role}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-gray-500">
+                                                    {user.campuses && user.campuses.length > 0 && (
+                                                        <div className="text-[10px] text-indigo-600 font-bold mb-1">
+                                                            Campuses: {user.campuses.map((id) => campusList.find((c) => c.id === id)?.code || id).join(', ')}
+                                                        </div>
+                                                    )}
+                                                    {user.colleges && user.colleges.length > 0 ? (
+                                                        <div className="space-y-1">
+                                                            <div className="font-semibold text-xs text-gray-700">
+                                                                {user.colleges.join(', ')}
+                                                            </div>
+                                                            {user.courses && user.courses.length > 0 && (
+                                                                <div className="text-[10px] text-gray-400 max-w-xs truncate" title={user.courses.map(c => c.split('|')[1]).join(', ')}>
+                                                                    Courses: {user.courses.map(c => c.split('|')[1]).join(', ')}
                                                                 </div>
                                                             )}
-                                                            {user.colleges && user.colleges.length > 0 ? (
-                                                                <div className="space-y-1">
-                                                                    <div className="font-semibold text-xs text-gray-700">
-                                                                        {user.colleges.join(', ')}
-                                                                    </div>
-                                                                    {user.courses && user.courses.length > 0 && (
-                                                                        <div className="text-[10px] text-gray-400 max-w-xs truncate" title={user.courses.map(c => c.split('|')[1]).join(', ')}>
-                                                                            Courses: {user.courses.map(c => c.split('|')[1]).join(', ')}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ) : (
-                                                                user.college || 'All Colleges'
-                                                            )}
-                                                        </td>
-                                                    </>
-                                                )}
+                                                        </div>
+                                                    ) : (
+                                                        user.college || 'All Colleges'
+                                                    )}
+                                                </td>
                                                 {isSuperAdminUser && (
                                                     <td className="p-3 text-right whitespace-nowrap">
                                                         <button
@@ -940,6 +484,493 @@ const UserManagement = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Create/Edit User Modal */}
+            {showCreateEditModal && isSuperAdminUser && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto p-6 transform transition-all scale-100">
+                        <div className="flex justify-between items-center mb-3 border-b pb-2">
+                            <h2 className="font-bold text-gray-800 text-xl">{editingUserId ? 'Edit User' : 'Create New User'}</h2>
+                            <button onClick={handleCancelEdit} className="text-gray-500 hover:text-gray-700 text-2xl font-bold">
+                                ×
+                            </button>
+                        </div>
+                        {message && <div className={`p-2 mb-4 text-sm rounded ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
+
+                        <form onSubmit={handleSubmit}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Left Column */}
+                                <div className="space-y-4">
+                                    {/* Employee Search / Name Input */}
+                                    <div className="relative">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Employee Name</label>
+
+                                        {!formData.employeeId ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    className="w-full border p-2 rounded mt-1"
+                                                    placeholder="Search employee by Name or ID..."
+                                                    onChange={handleEmployeeSearch}
+                                                />
+                                                {/* Search Results Dropdown */}
+                                                {(searchResults.length > 0 || searchLoading) && (
+                                                    <div className="absolute z-10 w-full bg-white border border-gray-200 mt-1 rounded shadow-lg max-h-60 overflow-y-auto">
+                                                        {searchLoading && (
+                                                            <div className="p-3 text-center text-gray-500 text-sm flex items-center justify-center gap-2">
+                                                                <svg className="animate-spin h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                                Searching...
+                                                            </div>
+                                                        )}
+                                                        {!searchLoading && searchResults.map(emp => (
+                                                            <div
+                                                                key={emp._id}
+                                                                className="p-2 hover:bg-blue-50 cursor-pointer border-b last:border-b-0"
+                                                                onClick={() => selectEmployee(emp)}
+                                                            >
+                                                                <p className="font-bold text-sm text-gray-800">
+                                                                    {emp.employee_name} <span className="text-gray-500 font-normal">({emp.emp_no})</span>
+                                                                </p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    {emp.designation_id?.designation_name || emp.designation_id?.name || 'N/A'} |
+                                                                    {emp.division_id?.division_name || emp.division_id?.name || 'N/A'} |
+                                                                    {emp.department_id?.department_name || emp.department_id?.name || 'N/A'}
+                                                                </p>
+                                                            </div>
+                                                        ))}
+                                                        {!searchLoading && searchResults.length === 0 && (
+                                                            <div className="p-3 text-center text-gray-500 text-sm">No results found</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <div className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded mt-1">
+                                                <div>
+                                                    <p className="font-bold text-sm text-blue-900">{formData.name}</p>
+                                                    <p className="text-xs text-blue-700">Emp No: {formData.username}</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={clearSelectedEmployee}
+                                                    className="text-red-500 hover:text-red-700 text-xs font-bold px-2"
+                                                >
+                                                    Change
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {!formData.employeeId && editingUserId && (
+                                            <input
+                                                name="name"
+                                                value={formData.name}
+                                                onChange={handleChange}
+                                                className="w-full border p-2 rounded mt-1"
+                                                placeholder="Or enter name manually (Legacy)"
+                                            />
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Username (Login ID)</label>
+                                        <input
+                                            name="username"
+                                            value={formData.username}
+                                            onChange={handleChange}
+                                            className="w-full border p-2 rounded mt-1 bg-gray-50"
+                                            readOnly={!!formData.employeeId} // Read-only if linked
+                                            required
+                                        />
+                                    </div>
+
+                                    {/* Password field - Hidden if Employee Linked */}
+                                    {!formData.employeeId && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">Password</label>
+                                            <input
+                                                type="password"
+                                                name="password"
+                                                value={formData.password}
+                                                onChange={handleChange}
+                                                className="w-full border p-2 rounded mt-1"
+                                                required={!editingUserId && !formData.employeeId}
+                                                placeholder={editingUserId ? "Leave blank to keep unchanged" : "Set password"}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {formData.employeeId && (
+                                        <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                                            <span className="font-bold">Note:</span> user will login using their Employee DB password.
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
+                                        <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white">
+                                            <option value="office_staff">Office Staff</option>
+                                            <option value="cashier">Cashier</option>
+                                            <option value="admin">Admin</option>
+                                            <option value="superadmin">Super Admin</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Campus Selection */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Campus Selection</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border p-3 rounded bg-gray-50">
+                                            {campusList.length === 0 ? (
+                                                <p className="text-xs text-gray-500 col-span-full">No campuses loaded.</p>
+                                            ) : (
+                                                campusList.map((campus) => {
+                                                    const isChecked = (formData.campuses || []).some((id) => Number(id) === Number(campus.id));
+                                                    return (
+                                                        <label key={campus.id} className="flex items-start gap-2 cursor-pointer p-2 rounded border bg-white hover:bg-blue-50/40">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={() => handleCampusToggle(campus.id)}
+                                                                className="rounded text-blue-600 focus:ring-blue-500 mt-0.5"
+                                                            />
+                                                            <div>
+                                                                <span className="text-sm font-bold text-gray-800 block">{campus.name}</span>
+                                                                <span className="text-[10px] font-mono text-blue-600 uppercase">{campus.code}</span>
+                                                                <p className="text-[10px] text-gray-400 mt-0.5">{campus.colleges?.length || 0} colleges</p>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-gray-400 mt-1">Select campus(es) first, then choose colleges within them.</p>
+                                    </div>
+                                </div>
+
+                                {/* Right Column */}
+                                <div className="space-y-4">
+                                    {/* College & Course Scope */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">College & Course Scope</label>
+                                        <div className="space-y-4 border p-3 rounded bg-gray-50 max-h-[40vh] overflow-y-auto">
+                                            {formData.campuses?.length === 0 ? (
+                                                <p className="text-xs text-gray-500 italic">Select at least one campus to assign colleges.</p>
+                                            ) : visibleColleges.length === 0 ? (
+                                                <p className="text-xs text-gray-500">No colleges available for selected campus(es).</p>
+                                            ) : (
+                                                visibleColleges.map(collegeName => {
+                                                    const isChecked = (formData.colleges || []).includes(collegeName);
+                                                    const collegeCourses = hierarchy[collegeName] ? Object.keys(hierarchy[collegeName]) : [];
+                                                    return (
+                                                        <div key={collegeName} className="border-b last:border-b-0 pb-3 last:pb-0">
+                                                            <label className="flex items-center space-x-2 cursor-pointer p-1 rounded hover:bg-gray-100">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked}
+                                                                    onChange={() => handleCollegeToggle(collegeName)}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-sm font-bold text-gray-800">{collegeName}</span>
+                                                            </label>
+
+                                                            {isChecked && collegeCourses.length > 0 && (
+                                                                <div className="ml-6 mt-2 p-2 bg-white rounded border border-gray-200 space-y-2">
+                                                                    <div className="flex items-center justify-between border-b pb-1 mb-1">
+                                                                        <span className="text-xs font-semibold text-gray-500">Courses:</span>
+                                                                        <div className="flex gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleSelectAllCourses(collegeName)}
+                                                                                className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline font-bold"
+                                                                            >
+                                                                                Select All
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleClearAllCourses(collegeName)}
+                                                                                className="text-[10px] text-red-600 hover:text-red-800 hover:underline font-bold"
+                                                                            >
+                                                                                Clear
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-2 gap-1.5">
+                                                                        {collegeCourses.map(courseName => {
+                                                                            const courseKey = `${collegeName}|${courseName}`;
+                                                                            const isCourseChecked = (formData.courses || []).includes(courseKey);
+                                                                            return (
+                                                                                <label key={courseName} className="flex items-center space-x-1.5 cursor-pointer p-0.5 rounded hover:bg-gray-50">
+                                                                                    <input
+                                                                                        type="checkbox"
+                                                                                        checked={isCourseChecked}
+                                                                                        onChange={() => handleCourseToggle(collegeName, courseName)}
+                                                                                        className="rounded text-blue-500 focus:ring-blue-400 w-3.5 h-3.5"
+                                                                                    />
+                                                                                    <span className="text-xs text-gray-600 font-medium">{courseName}</span>
+                                                                                </label>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-gray-400 mt-1">Leave empty (no colleges selected) to allow access to all colleges (e.g. Super Admin).</p>
+                                    </div>
+
+                                    {/* Permission Checkboxes - split into two columns */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Permissions</label>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border p-3 rounded bg-gray-50 max-h-[50vh] overflow-y-auto">
+                                            {availablePages.map(page => (
+                                                <div key={page.path} className="flex flex-col">
+                                                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={(formData.permissions || []).includes(page.path)}
+                                                            onChange={(() => {
+                                                                const handlePermissionToggle = (path) => {
+                                                                    let currentPermissions = formData.permissions || [];
+                                                                    if (currentPermissions.includes(path)) {
+                                                                        currentPermissions = currentPermissions.filter(p => p !== path);
+                                                                        if (path === '/fee-collection') {
+                                                                            currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
+                                                                        }
+                                                                        if (path === '/reports') {
+                                                                            currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary');
+                                                                        }
+                                                                    } else {
+                                                                        currentPermissions = [...currentPermissions, path];
+                                                                        if (path === '/fee-collection') {
+                                                                            if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
+                                                                            if (formData.role !== 'cashier' && !currentPermissions.includes('fee_collection_concession')) {
+                                                                                currentPermissions.push('fee_collection_concession');
+                                                                            }
+                                                                        }
+                                                                        if (path === '/reports') {
+                                                                            if (!currentPermissions.includes('reports_daily_collection')) currentPermissions.push('reports_daily_collection');
+                                                                            if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
+                                                                            if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
+                                                                        }
+                                                                        if (path === '/concessions') {
+                                                                            if (!currentPermissions.includes('concession_approvals')) currentPermissions.push('concession_approvals');
+                                                                            if (formData.role !== 'cashier' && !currentPermissions.includes('concession_approvers')) {
+                                                                                currentPermissions.push('concession_approvers');
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    setFormData({ ...formData, permissions: currentPermissions });
+                                                                };
+                                                                return () => handlePermissionToggle(page.path);
+                                                            })()}
+                                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <span className="text-sm text-gray-700 font-medium">{page.name}</span>
+                                                    </label>
+
+                                                    {/* Sub-Permissions for Fee Collection */}
+                                                    {page.path === '/fee-collection' && (formData.permissions || []).includes('/fee-collection') && (
+                                                        <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('fee_collection_pay')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('fee_collection_pay')) p = p.filter(x => x !== 'fee_collection_pay');
+                                                                            else p = [...p, 'fee_collection_pay'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Fee Collection</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('fee_collection_concession')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('fee_collection_concession')) p = p.filter(x => x !== 'fee_collection_concession');
+                                                                            else p = [...p, 'fee_collection_concession'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Fee Concession</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('fee_collection_edit')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('fee_collection_edit')) p = p.filter(x => x !== 'fee_collection_edit');
+                                                                            else p = [...p, 'fee_collection_edit'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Edit Transaction</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('fee_collection_delete')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('fee_collection_delete')) p = p.filter(x => x !== 'fee_collection_delete');
+                                                                            else p = [...p, 'fee_collection_delete'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-red-600 focus:ring-red-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Delete Transaction</span>
+                                                            </label>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Sub-Permissions for Concessions */}
+                                                    {page.path === '/concessions' && (formData.permissions || []).includes('/concessions') && (
+                                                        <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('concession_approvals')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('concession_approvals')) p = p.filter(x => x !== 'concession_approvals');
+                                                                            else p = [...p, 'concession_approvals'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Approvals</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('concession_approvers')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('concession_approvers')) p = p.filter(x => x !== 'concession_approvers');
+                                                                            else p = [...p, 'concession_approvers'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Manage Approvers</span>
+                                                            </label>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Sub-Permissions for Reports */}
+                                                    {page.path === '/reports' && (formData.permissions || []).includes('/reports') && (
+                                                        <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('reports_daily_collection')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('reports_daily_collection')) p = p.filter(x => x !== 'reports_daily_collection');
+                                                                            else p = [...p, 'reports_daily_collection'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Daily Collection</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('reports_cashier_summary')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('reports_cashier_summary')) p = p.filter(x => x !== 'reports_cashier_summary');
+                                                                            else p = [...p, 'reports_cashier_summary'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Cashier Summary</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('reports_fee_head_summary')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('reports_fee_head_summary')) p = p.filter(x => x !== 'reports_fee_head_summary');
+                                                                            else p = [...p, 'reports_fee_head_summary'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">College-wise Summary</span>
+                                                            </label>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-6">
+                                <button
+                                    type="button"
+                                    onClick={handleCancelEdit}
+                                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 rounded transition"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className={`flex-1 text-white font-bold py-2 rounded transition flex justify-center items-center gap-2 ${editingUserId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                >
+                                    {isSubmitting && (
+                                        <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    )}
+                                    {isSubmitting ? 'Saving...' : (editingUserId ? 'Update User' : 'Create User')}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {/* Password Reset Modal */}
             {resetModal.show && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
