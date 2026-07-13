@@ -47,6 +47,10 @@ const studentFeeSchema = mongoose.Schema({
     type: Number,
     required: true,
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
   remarks: {
     type: String,
   },
