@@ -22,6 +22,7 @@ const FeeCollection = () => {
     const [paymentConfigs, setPaymentConfigs] = useState([]);
     const [receiptSettings, setReceiptSettings] = useState(null);
     const [viewFilterYear, setViewFilterYear] = useState('ALL');
+    const [viewFilterStatus, setViewFilterStatus] = useState('ACTIVE');
     const [globalFeeHeads, setGlobalFeeHeads] = useState([]);
 
     // Multi-Select State
@@ -265,6 +266,7 @@ const FeeCollection = () => {
 
             // Set Default Filter to student's current year to show active dues immediately
             setViewFilterYear(String(found.current_year || 1));
+            setViewFilterStatus('ACTIVE');
 
             // 3. Fetch History
             const histRes = await api.get(`/transactions/student/${found.admission_number}`);
@@ -303,6 +305,7 @@ const FeeCollection = () => {
         setPaymentCategory('Cash');
         setPerRowSplitCash({});
         setSelectedProceeding(null);
+        setViewFilterStatus('ACTIVE');
         await fetchStudentData(selectedStudent);
     };
 
@@ -761,6 +764,12 @@ const FeeCollection = () => {
     const uniqueStudentYears = [...new Set(feeDetails.map(f => f.studentYear))].sort((a, b) => b - a);
 
     const displayedFees = feeDetails.filter(f => {
+        // Status filter: ACTIVE, INACTIVE, ALL
+        const isFeeActive = f.isActive !== false;
+        if (viewFilterStatus === 'ACTIVE' && !isFeeActive) return false;
+        if (viewFilterStatus === 'INACTIVE' && isFeeActive) return false;
+
+        // Year filter
         if (viewFilterYear === 'ALL') return true;
         return Number(f.studentYear) === Number(viewFilterYear);
     });
@@ -769,15 +778,24 @@ const FeeCollection = () => {
         return Math.max(0, ...displayedFees.map(f => f.terms?.length || 0));
     }, [displayedFees]);
 
-    const totalDueAmount = displayedFees.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
-    const globalTotalDue = feeDetails.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
+    const totalDueAmount = displayedFees.reduce((acc, curr) => {
+        const isFeeActive = curr.isActive !== false;
+        if (viewFilterStatus === 'ACTIVE' && !isFeeActive) return acc;
+        return acc + Number(curr.dueAmount || 0);
+    }, 0);
+
+    const globalTotalDue = feeDetails.reduce((acc, curr) => {
+        const isFeeActive = curr.isActive !== false;
+        return isFeeActive ? acc + Number(curr.dueAmount || 0) : acc;
+    }, 0);
 
     // Calculate Scholarship Amounts (Global & Current View)
     // Criteria: isScholarshipApplicable AND (studentScholarStatus is 'eligible', 'yes', or 'true')
     const isScholarshipEligible = (f) => f.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(f.studentScholarStatus || '').toLowerCase());
 
     const globalScholarshipAmount = feeDetails.reduce((acc, curr) => {
-        return isScholarshipEligible(curr) ? acc + Number(curr.dueAmount || 0) : acc;
+        const isFeeActive = curr.isActive !== false;
+        return (isFeeActive && isScholarshipEligible(curr)) ? acc + Number(curr.dueAmount || 0) : acc;
     }, 0);
 
     const currentViewScholarshipAmount = displayedFees.reduce((acc, curr) => {
@@ -1119,6 +1137,7 @@ const FeeCollection = () => {
 
                                         // Add years from feeDetails (in case there are dues for FUTURE years or old years not covered)
                                         feeDetails.forEach(curr => {
+                                            if (curr.isActive === false) return; // Exclude inactive fees from stats cards
                                             const y = curr.studentYear;
                                             if (!yearWiseStats[y]) yearWiseStats[y] = { total: 0, paid: 0, due: 0, year: y };
                                             yearWiseStats[y].total += Number(curr.totalAmount || 0);
@@ -1175,6 +1194,15 @@ const FeeCollection = () => {
                                             {loading && <span className="text-xs text-blue-500 animate-pulse font-medium">Updating...</span>}
                                             <select
                                                 className="text-sm border-gray-200 border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
+                                                value={viewFilterStatus}
+                                                onChange={(e) => setViewFilterStatus(e.target.value)}
+                                            >
+                                                <option value="ACTIVE">Active Fees</option>
+                                                <option value="INACTIVE">Inactive Fees</option>
+                                                <option value="ALL">All Statuses</option>
+                                            </select>
+                                            <select
+                                                className="text-sm border-gray-200 border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
                                                 value={viewFilterYear}
                                                 onChange={(e) => setViewFilterYear(e.target.value)}
                                             >
@@ -1213,15 +1241,15 @@ const FeeCollection = () => {
                                                             return (
                                                                 <tr
                                                                     key={idx}
-                                                                    onClick={() => !isFullyPaid && toggleFeeSelection(fee)}
-                                                                    className={`transition-colors cursor-pointer ${isSelected ? 'bg-blue-100/50 hover:bg-blue-100' : 'hover:bg-blue-50/50 even:bg-gray-50/50'}`}
+                                                                    onClick={() => !isFullyPaid && fee.isActive !== false && toggleFeeSelection(fee)}
+                                                                    className={`transition-colors cursor-pointer ${fee.isActive === false ? 'opacity-60 bg-gray-100 hover:bg-gray-100' : isSelected ? 'bg-blue-100/50 hover:bg-blue-100' : 'hover:bg-blue-50/50 even:bg-gray-50/50'}`}
                                                                 >
                                                                     <td className="py-2 px-4 text-center">
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={isSelected}
                                                                             readOnly
-                                                                            disabled={isFullyPaid}
+                                                                            disabled={isFullyPaid || fee.isActive === false}
                                                                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
                                                                         />
                                                                     </td>
@@ -1271,7 +1299,11 @@ const FeeCollection = () => {
                                                                     <td className="py-2 px-4 text-sm text-right text-purple-600 font-mono font-medium">{fmtAmount(fee.concessionAmount)}</td>
                                                                     <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">{fmtAmount(fee.dueAmount)}</td>
                                                                     <td className="py-2 px-4 text-center">
-                                                                        {isFullyPaid ? (
+                                                                        {fee.isActive === false ? (
+                                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                                                                Inactive
+                                                                            </span>
+                                                                        ) : isFullyPaid ? (
                                                                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                                                                 Paid
                                                                             </span>

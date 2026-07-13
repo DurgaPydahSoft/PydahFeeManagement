@@ -332,6 +332,7 @@ const getStudentFeeDetails = async (req, res) => {
           concessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
+          isActive: fee.isActive !== false,
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
           isTermsDivided: fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false),
@@ -364,6 +365,7 @@ const getStudentFeeDetails = async (req, res) => {
           concessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
+          isActive: true,
           isScholarshipApplicable: fs.isScholarshipApplicable || false,
           isTermsDivided: fs.isTermsDivided || false,
           terms: fs.isTermsDivided ? (fs.terms || []) : []
@@ -399,6 +401,7 @@ const getStudentFeeDetails = async (req, res) => {
             concessionAmount: 0,
             paidAmount: 0,
             dueAmount: 0,
+            isActive: true,
             terms: matchedStructure ? matchedStructure.terms : []
           };
         }
