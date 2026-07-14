@@ -386,11 +386,51 @@ const Reports = () => {
     const [summary, setSummary] = useState({ totalConfirm: 0, count: 0 });
     const [expandedRows, setExpandedRows] = useState([]);
     const [printModalData, setPrintModalData] = useState(null);
-    const [printOptions, setPrintOptions] = useState({ mode: 'all', showSummary: true, showDetails: true });
+    const [printOptions, setPrintOptions] = useState({
+        mode: 'all',
+        showSummary: true,
+        showDetails: true,
+        includeCash: true,
+        includeBank: true,
+    });
 
     // --- Fee Head Groups Filtering ---
     const [feeGroups, setFeeGroups] = useState([]);
     const [selectedFeeGroupId, setSelectedFeeGroupId] = useState('');
+
+    const buildPrintOptions = () => {
+        const includeCash = printOptions.includeCash !== false;
+        const includeBank = printOptions.includeBank !== false;
+        let mode = 'all';
+        if (includeCash && !includeBank) mode = 'Cash';
+        else if (!includeCash && includeBank) mode = 'Online';
+        else if (!includeCash && !includeBank) mode = 'none';
+
+        const selectedGroup = feeGroups.find((g) => g._id === selectedFeeGroupId);
+        return {
+            ...printOptions,
+            mode,
+            includeCash,
+            includeBank,
+            selectedGroupName: selectedGroup?.name,
+            allowedFeeHeads: selectedGroup
+                ? selectedGroup.feeHeads.map((fh) => (fh.name || fh).toString().trim().toLowerCase())
+                : null,
+        };
+    };
+
+    const updatePaymentFilter = (key, checked) => {
+        setPrintOptions((prev) => {
+            const next = { ...prev, [key]: checked };
+            const includeCash = key === 'includeCash' ? checked : next.includeCash !== false;
+            const includeBank = key === 'includeBank' ? checked : next.includeBank !== false;
+            if (includeCash && includeBank) next.mode = 'all';
+            else if (includeCash) next.mode = 'Cash';
+            else if (includeBank) next.mode = 'Online';
+            else next.mode = 'none';
+            return next;
+        });
+    };
     const [selectedCampusId, setSelectedCampusId] = useState(() => {
         const u = JSON.parse(localStorage.getItem('user') || '{}');
         if (u.campuses?.length === 1) return String(u.campuses[0]);
@@ -403,14 +443,11 @@ const Reports = () => {
         if (!printModalData) return;
         try {
             const template = activeTab === 'college' ? 'college-report' : 'cashier-report';
-            const options = activeTab === 'college' ? {
-                ...printOptions,
-                selectedGroupName: feeGroups.find(g => g._id === selectedFeeGroupId)?.name,
-                allowedFeeHeads: (() => {
-                    const g = feeGroups.find(g => g._id === selectedFeeGroupId);
-                    return g ? g.feeHeads.map(fh => (fh.name || '').trim().toLowerCase()) : null;
-                })()
-            } : printOptions;
+            const options = buildPrintOptions();
+            if (options.mode === 'none') {
+                alert('Select at least Cash or Bank/Online to generate the report.');
+                return;
+            }
 
             const response = await api.post('/print', {
                 template,
@@ -619,7 +656,7 @@ const Reports = () => {
                                                     ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : 'Combined College Summaries') 
                                                     : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : `College: ${printModalData.row?._id || 'N/A'}`)}
                                             </p>
-                                            {activeTab === 'college' && selectedFeeGroupId && (
+                                            {selectedFeeGroupId && (
                                                 <span className="inline-flex mt-1.5 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200 uppercase tracking-wider">
                                                     Group: {feeGroups.find(g => g._id === selectedFeeGroupId)?.name}
                                                 </span>
@@ -663,8 +700,8 @@ const Reports = () => {
                                                  </label>
                                              </div>
 
-                                             {/* Fee Head Group Option */}
-                                             {activeTab === 'college' && feeGroups.length > 0 && (
+                                             {/* Fee Head Group Option — college & cashier */}
+                                             {feeGroups.length > 0 && (
                                                  <div className="space-y-2 pt-2 border-t border-gray-100">
                                                      <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">Filter by Fee Group</label>
                                                      <select
@@ -679,6 +716,37 @@ const Reports = () => {
                                                      </select>
                                                  </div>
                                              )}
+
+                                             {/* Payment mode filters */}
+                                             <div className="space-y-2 pt-2 border-t border-gray-100">
+                                                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">Payment Mode</label>
+                                                 <div className="grid grid-cols-2 gap-3">
+                                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                         <input
+                                                             type="checkbox"
+                                                             id="printCashOpt"
+                                                             checked={printOptions.includeCash !== false}
+                                                             onChange={e => updatePaymentFilter('includeCash', e.target.checked)}
+                                                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                                         />
+                                                         <label htmlFor="printCashOpt" className="cursor-pointer flex-1">
+                                                             <p className="text-sm font-bold text-gray-800">Cash</p>
+                                                         </label>
+                                                     </div>
+                                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                         <input
+                                                             type="checkbox"
+                                                             id="printBankOpt"
+                                                             checked={printOptions.includeBank !== false}
+                                                             onChange={e => updatePaymentFilter('includeBank', e.target.checked)}
+                                                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                                         />
+                                                         <label htmlFor="printBankOpt" className="cursor-pointer flex-1">
+                                                             <p className="text-sm font-bold text-gray-800">Bank / Online</p>
+                                                         </label>
+                                                     </div>
+                                                 </div>
+                                             </div>
                                          </div>
                                      </div>
                                  </div>
@@ -692,8 +760,8 @@ const Reports = () => {
                                      </button>
                                      <button
                                          onClick={handleModalPrint}
-                                         disabled={!printOptions.showSummary && !printOptions.showDetails}
-                                         className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${(!printOptions.showSummary && !printOptions.showDetails) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                         disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!printOptions.includeCash && !printOptions.includeBank)}
+                                         className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
                                      >
                                          <Printer size={16} /> Generate Print
                                      </button>
@@ -709,21 +777,14 @@ const Reports = () => {
                                 <CollegeReportTemplate
                                     ref={modalPrintRef}
                                     data={printModalData.isAll ? printModalData.rows : printModalData.row}
-                                    options={{ 
-                                        ...printOptions, 
-                                        selectedGroupName: feeGroups.find(g => g._id === selectedFeeGroupId)?.name,
-                                        allowedFeeHeads: (() => {
-                                            const g = feeGroups.find(g => g._id === selectedFeeGroupId);
-                                            return g ? g.feeHeads.map(fh => (fh.name || '').trim().toLowerCase()) : null;
-                                        })()
-                                    }}
+                                    options={buildPrintOptions()}
                                     dateRange={printModalData.dateRange}
                                 />
                             ) : (
                                 <CashierReportTemplate
                                     ref={modalPrintRef}
                                     data={printModalData.isAll ? printModalData.rows : printModalData.row}
-                                    options={printOptions}
+                                    options={buildPrintOptions()}
                                     dateRange={printModalData.dateRange}
                                 />
                             )
