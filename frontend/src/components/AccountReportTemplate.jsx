@@ -1,0 +1,417 @@
+import React, { forwardRef } from 'react';
+
+const paymentVisibility = (options = {}) => {
+    const { mode = 'all', includeCash, includeBank } = options;
+    const showCash = includeCash !== undefined ? !!includeCash : (mode === 'all' || mode === 'Cash');
+    const showBank = includeBank !== undefined ? !!includeBank : (mode === 'all' || mode === 'Online');
+    return { showCash, showBank };
+};
+
+const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
+    if (!data) return null;
+    const { mode = 'all', showSummary = true, showDetails = true, allowedFeeHeads } = options || {};
+    const { showCash, showBank } = paymentVisibility(options);
+
+    const rawTransactions = data.transactions || [];
+    const filteredTransactions = rawTransactions.filter(tx => {
+        // Payment Mode Filter
+        if (mode === 'none') return false;
+        if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+        if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+
+        // Fee Head Group Filter
+        if (allowedFeeHeads && allowedFeeHeads.length > 0) {
+            const fhName = (tx.feeHead || '').trim().toLowerCase();
+            if (!allowedFeeHeads.includes(fhName)) return false;
+        }
+
+        return true;
+    });
+
+    const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
+    const cancelledTransactions = filteredTransactions.filter(tx => tx.status === 'cancelled');
+
+    // Recompute fee head summary based on active transactions for this account
+    const feeHeadData = {};
+    activeTransactions.forEach(tx => {
+        if (tx.transactionType === 'DEBIT') {
+            const fhName = tx.feeHead || 'Unknown';
+            const amount = tx.amount || 0;
+            const isCash = tx.paymentMode === 'Cash';
+
+            if (!feeHeadData[fhName]) {
+                feeHeadData[fhName] = {
+                    name: fhName,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0
+                };
+            }
+            const entry = feeHeadData[fhName];
+            entry.netTotal += amount;
+            if (isCash) entry.cashAmt += amount;
+            else entry.bankAmt += amount;
+        }
+    });
+    const sortedFeeHeads = Object.values(feeHeadData).sort((a, b) => b.netTotal - a.netTotal);
+
+    // Totals for this account
+    const displayData = {
+        totalCount: activeTransactions.length,
+        debitAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        creditAmount: activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        cashAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        bankAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+    };
+
+    return (
+        <div className="p-8 font-sans text-black bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
+            <style type="text/css" media="print">
+                {`
+                    @page { size: A4; margin: 10mm; }
+                    body { -webkit-print-color-adjust: exact; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
+                    .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
+                    .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
+                    .compact-row { line-height: 1.2; }
+                `}
+            </style>
+
+            {/* Header */}
+            <div className="print-header">
+                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
+                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>ACCOUNT COLLECTION SUMMARY REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && mode !== 'none' && `(${mode === 'Online' ? 'BANK / ONLINE' : mode.toUpperCase()})`}</p>
+            </div>
+
+            {/* Info Row */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: '15px', fontSize: '11px', borderBottom: '1px solid #ccc', paddingBottom: '8px', gap: '10px' }}>
+                <div>
+                    <strong>Account Name:</strong> <span style={{ textTransform: 'uppercase' }}>{data.account_name}</span>
+                </div>
+                <div>
+                    <strong>Bank/Branch:</strong> {data.bank_name} {data.account_number !== 'N/A' && `(${data.account_number})`}
+                </div>
+                <div>
+                    <strong>Scope:</strong> {data.college !== 'N/A' ? `${data.college} (${data.course})` : 'General/Direct'}
+                </div>
+                <div>
+                    <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
+                </div>
+                {!hideGeneratedInfo && (
+                    <div style={{ color: '#4b5563' }}>
+                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </div>
+                )}
+            </div>
+
+            {/* Account Collection Summary Card */}
+            {showSummary && (
+                <div style={{ marginBottom: '20px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Account Collection Abstract {mode !== 'all' && `[${mode}]`}
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ textAlign: 'center', width: '20%' }}>Total Receipts</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '20%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '20%' }}>Bank (Online)</th>}
+                                <th style={{ textAlign: 'right', width: '20%' }}>Concessions</th>
+                                <th style={{ textAlign: 'right', width: '20%', fontWeight: 'bold' }}>Net Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style={{ textAlign: 'center' }}>{displayData.totalCount}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Fee Head-wise Breakdown */}
+            {showSummary && sortedFeeHeads.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Fee Head-wise Collections
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ width: '5%' }}>S.No</th>
+                                <th style={{ width: '50%' }}>Fee Head Name</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '15%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '15%' }}>Bank</th>}
+                                <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedFeeHeads.map((fh, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{fh.name}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>}
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                </tr>
+                            ))}
+                            <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
+                                <td colSpan={2}>TOTAL</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Detailed Transaction Listing */}
+            {showDetails && activeTransactions.length > 0 && (() => {
+                const cashTxs = activeTransactions.filter(tx => tx.paymentMode === 'Cash');
+                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash');
+                const txTableHead = (
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Receipt #</th>
+                            <th>Student Name</th>
+                            <th>Pin No</th>
+                            <th>Course/Branch</th>
+                            <th>Year</th>
+                            <th>Fee Head</th>
+                            <th>Cashier</th>
+                            <th style={{ textAlign: 'right' }}>Amount</th>
+                        </tr>
+                    </thead>
+                );
+                const txRow = (tx, idx) => (
+                    <tr key={idx} className="compact-row">
+                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                        <td>{tx.receiptNo}</td>
+                        <td>{tx.studentName}</td>
+                        <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                        <td>{tx.course} - {tx.branch}</td>
+                        <td>{tx.studentYear}</td>
+                        <td>{tx.feeHead}</td>
+                        <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                            {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                        </td>
+                    </tr>
+                );
+                return (
+                    <div style={{ marginTop: '20px' }}>
+                        {showCash && cashTxs.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                </h3>
+                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                    {txTableHead}
+                                    <tbody>{cashTxs.map(txRow)}</tbody>
+                                </table>
+                            </div>
+                        )}
+                        {showBank && bankTxs.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                </h3>
+                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                    {txTableHead}
+                                    <tbody>{bankTxs.map(txRow)}</tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
+
+            {/* Cancelled Transactions */}
+            {showDetails && cancelledTransactions.length > 0 && (
+                <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Cancelled Transactions
+                    </h3>
+                    <table className="print-table" style={{ fontSize: '8px' }}>
+                        <thead>
+                            <tr>
+                                <th>S.No</th>
+                                <th>Receipt #</th>
+                                <th>Student Name</th>
+                                <th>Pin No</th>
+                                <th>Course/Branch</th>
+                                <th>Fee Head</th>
+                                <th>Cancelled By</th>
+                                <th>Cancellation Reason</th>
+                                <th style={{ textAlign: 'right' }}>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {cancelledTransactions.map((tx, idx) => (
+                                <tr key={idx} className="compact-row" style={{ color: 'red', textDecoration: 'line-through' }}>
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{tx.receiptNo}</td>
+                                    <td>{tx.studentName}</td>
+                                    <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                                    <td>{tx.course} - {tx.branch}</td>
+                                    <td>{tx.feeHead}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{tx.cancelledByName || tx.cancelledBy}</td>
+                                    <td>{tx.cancellationReason || '-'}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                        ₹{Number(tx.amount).toLocaleString()}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Signatures */}
+            {!hideGeneratedInfo && (
+                <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-around', fontSize: '12px', pageBreakInside: 'avoid' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>AO / Manager Signature</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Authorized Signature</p>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const AccountGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
+    const { mode = 'all' } = options || {};
+    const { showCash, showBank } = paymentVisibility(options);
+
+    const activeRows = data.filter(Boolean);
+
+    // Calculate totals across all active rows
+    const globalTotals = activeRows.reduce((acc, curr) => {
+        acc.receiptsCount += curr.count || 0;
+        acc.cashAmt += curr.cashAmount || 0;
+        acc.bankAmt += curr.bankAmount || 0;
+        acc.netTotal += curr.debitAmount || 0;
+        return acc;
+    }, { receiptsCount: 0, cashAmt: 0, bankAmt: 0, netTotal: 0 });
+
+    return (
+        <div className="p-8 font-sans text-black bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
+            <style type="text/css" media="print">
+                {`
+                    @page { size: A4; margin: 10mm; }
+                    body { -webkit-print-color-adjust: exact; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table th, .print-table td { border: 1.5px solid #000; padding: 6px 8px; }
+                    .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
+                    .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
+                    .compact-row { line-height: 1.2; }
+                `}
+            </style>
+
+            <div className="print-header">
+                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
+                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>CONSOLIDATED ACCOUNT COLLECTION REPORT {mode !== 'all' && `(${mode === 'Online' ? 'BANK / ONLINE' : mode.toUpperCase()})`}</p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', fontSize: '12px' }}>
+                <div>
+                    <strong>Report Type:</strong> Account-wise Collection Summary
+                </div>
+                <div>
+                    <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
+                </div>
+                <div style={{ color: '#4b5563' }}>
+                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                </div>
+            </div>
+
+            <div style={{ marginBottom: '25px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '10px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    Account Summary Listing
+                </h3>
+                <table className="print-table">
+                    <thead>
+                        <tr>
+                            <th style={{ width: '5%' }}>S.No</th>
+                            <th style={{ width: '25%' }}>Account Name</th>
+                            <th style={{ width: '25%' }}>Bank & Number</th>
+                            <th style={{ width: '15%' }}>College / Course</th>
+                            <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
+                            {showCash && <th style={{ textAlign: 'right', width: '10%' }}>Cash</th>}
+                            {showBank && <th style={{ textAlign: 'right', width: '10%' }}>Bank (Online)</th>}
+                            <th style={{ textAlign: 'right', width: '10%', fontWeight: 'bold' }}>Collection</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {activeRows.map((row, idx) => (
+                            <tr key={idx} className="compact-row">
+                                <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                <td style={{ fontWeight: 'bold' }}>{row.account_name}</td>
+                                <td>{row.bank_name} {row.account_number !== 'N/A' && `(${row.account_number})`}</td>
+                                <td style={{ fontSize: '10px' }}>{row.college !== 'N/A' ? `${row.college} - ${row.course}` : 'General / Direct'}</td>
+                                <td style={{ textAlign: 'center' }}>{row.count}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(row.cashAmount || 0).toLocaleString()}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(row.bankAmount || 0).toLocaleString()}</td>}
+                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(row.debitAmount || 0).toLocaleString()}</td>
+                            </tr>
+                        ))}
+                        <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
+                            <td colSpan={4}>TOTAL</td>
+                            <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
+                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>}
+                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>}
+                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const AccountReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref) => {
+    if (!data) return null;
+    const isArray = Array.isArray(data) && data.length > 0;
+
+    return (
+        <div ref={ref}>
+            {isArray ? (
+                <>
+                    {/* Consolidated summary page */}
+                    <div style={{ pageBreakAfter: 'always' }}>
+                        <AccountGlobalSummaryPage data={data} dateRange={dateRange} options={options} />
+                    </div>
+                    {/* Individual account reports */}
+                    {data.filter(Boolean).map((accountRow, index) => (
+                        <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
+                            <SingleAccountReport data={accountRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} />
+                        </div>
+                    ))}
+                </>
+            ) : (
+                <SingleAccountReport data={data} dateRange={dateRange} options={options} />
+            )}
+        </div>
+    );
+});
+
+export default AccountReportTemplate;

@@ -22,6 +22,7 @@ import {
 import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
 import CollegeReportTemplate from '../components/CollegeReportTemplate';
+import AccountReportTemplate from '../components/AccountReportTemplate';
 import { useCampuses } from '../hooks/useCampuses';
 
 // PrintTriggerComponent was removed
@@ -63,6 +64,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
             } else if (activeTab === 'college') {
                 template = 'college-report';
                 data = { displayData: row, dateRange, options: { mode: 'all' } };
+            } else if (activeTab === 'account') {
+                template = 'account-report';
+                data = { displayData: row, dateRange, options: { mode: 'all' } };
             } else if (activeTab === 'daily') {
                 template = 'daily-report';
                 data = { reportData: row };
@@ -77,7 +81,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     };
 
     const isExpanded = expandedRows.includes(idx);
-    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'college' ? Landmark : Calendar;
+    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'college' ? Landmark : activeTab === 'account' ? CreditCard : Calendar;
     const formattedDate = row._id?.day ? `${row._id.day}-${row._id.month}-${row._id.year}` : 'Date';
 
     // Label determination logic
@@ -85,7 +89,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
         ? <span className="font-mono text-gray-700 tracking-tight font-bold">{formattedDate}</span>
         : activeTab === 'college'
             ? (row._id || 'Unknown College')
-            : (row.name || row._id || 'Unknown');
+            : activeTab === 'account'
+                ? (row.account_name || 'Direct / Unassigned')
+                : (row.name || row._id || 'Unknown');
 
     // Calculate Net Total (Cash + Bank) - equivalent to debitAmount
     const netTotal = (row.cashAmount || 0) + (row.bankAmount || 0);
@@ -93,7 +99,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     return (
         <React.Fragment>
             <tr
-                onClick={() => (activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && toggleRow(idx)}
+                onClick={() => (activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && toggleRow(idx)}
                 className={`
                     group border-b border-gray-100 transition-all duration-200 text-sm
                     ${isExpanded ? 'bg-blue-50/60' : 'hover:bg-gray-50 cursor-pointer'}
@@ -101,17 +107,29 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
             >
                 {/* Identifier */}
                 <td className="py-4 px-6 md:w-1/4">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-start gap-3">
                         <div className={`
-                            p-2 rounded-lg transition-colors duration-200
+                            p-2 rounded-lg transition-colors duration-200 mt-0.5
                             ${isExpanded ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500 group-hover:bg-white border border-transparent group-hover:border-gray-200'}
                         `}>
                             <RowIcon size={16} strokeWidth={2} />
                         </div>
                         <div>
                             <p className="font-bold text-gray-800">{rowLabel}</p>
-                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && (
-                                <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 mt-0.5 group-hover:text-blue-500 transition-colors uppercase tracking-wide">
+                            {activeTab === 'account' && (
+                                <div className="mt-1 space-y-0.5 text-[11px] text-gray-500">
+                                    {row.bank_name !== 'Cash / General' ? (
+                                        <>
+                                            <div className="font-semibold text-gray-700">{row.bank_name} <span className="font-mono text-[10px]">({row.account_number})</span></div>
+                                            <div className="text-[9px] text-blue-600 bg-blue-50 border border-blue-100 px-1 py-0.5 rounded inline-block font-bold mt-0.5">{row.college} - {row.course}</div>
+                                        </>
+                                    ) : (
+                                        <div className="text-[9px] text-gray-500 bg-gray-100 border border-gray-200 px-1 py-0.5 rounded inline-block font-bold mt-0.5">General Cash/Other Collections</div>
+                                    )}
+                                </div>
+                            )}
+                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && (
+                                <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 mt-1 group-hover:text-blue-500 transition-colors uppercase tracking-wide">
                                     {isExpanded ? 'Collapse' : 'Click for Details'}
                                 </div>
                             )}
@@ -149,12 +167,12 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                 </td>
 
                 {/* Actions */}
-                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && (
+                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && (
                     <td className="py-4 px-6 text-right">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (activeTab === 'cashier' || activeTab === 'college') {
+                                if (activeTab === 'cashier' || activeTab === 'college' || activeTab === 'account') {
                                     setPrintModalData({ row, dateRange });
                                 } else {
                                     handlePrint();
@@ -171,6 +189,8 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                 <CashierReportTemplate ref={printRef} data={row} dateRange={dateRange} />
                             ) : activeTab === 'college' ? (
                                 <CollegeReportTemplate ref={printRef} data={row} dateRange={dateRange} />
+                            ) : activeTab === 'account' ? (
+                                <AccountReportTemplate ref={printRef} data={row} dateRange={dateRange} />
                             ) : (
                                 <DailyReportTemplate ref={printRef} data={row} />
                             )}
@@ -315,8 +335,8 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                 </tr>
             )}
 
-            {/* EXPANDED CONTENT: Daily Transactions List */}
-            {activeTab === 'daily' && row.transactions && isExpanded && (
+            {/* EXPANDED CONTENT: Daily/Account Transactions List */}
+            {(activeTab === 'daily' || activeTab === 'account') && row.transactions && isExpanded && (
                 <tr className="bg-blue-50/40">
                     <td colSpan="100%" className="p-0">
                         <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">
@@ -442,7 +462,7 @@ const Reports = () => {
     const handleModalPrint = async () => {
         if (!printModalData) return;
         try {
-            const template = activeTab === 'college' ? 'college-report' : 'cashier-report';
+            const template = activeTab === 'college' ? 'college-report' : activeTab === 'account' ? 'account-report' : 'cashier-report';
             const options = buildPrintOptions();
             if (options.mode === 'none') {
                 alert('Select at least Cash or Bank/Online to generate the report.');
@@ -518,6 +538,7 @@ const Reports = () => {
             if (activeTab === 'daily') groupBy = 'day';
             else if (activeTab === 'cashier') groupBy = 'cashier';
             else if (activeTab === 'college') groupBy = 'college';
+            else if (activeTab === 'account') groupBy = 'account';
 
             const res = await api.get(`/reports/transactions`, {
                 params: {
@@ -562,9 +583,10 @@ const Reports = () => {
         { id: 'daily', label: 'Daily Collection', permission: 'reports_daily_collection' },
         { id: 'cashier', label: 'Cashier Summary', permission: 'reports_cashier_summary' },
         { id: 'college', label: 'College-wise Summary', permission: 'reports_fee_head_summary' },
+        { id: 'account', label: 'Account-wise Summary', permission: 'reports_account_wise' },
     ];
 
-    const reportSubPermissions = ['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary'];
+    const reportSubPermissions = ['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary', 'reports_account_wise'];
     const hasGranularReportPerms = reportSubPermissions.some((p) => permissions.includes(p));
 
     const tabs = role === 'superadmin' || role === 'admin'
@@ -648,13 +670,13 @@ const Reports = () => {
                                         <div>
                                             <h3 className="text-lg font-bold text-gray-900">
                                                 {printModalData.isAll 
-                                                    ? (activeTab === 'cashier' ? 'Print All Cashier Reports' : 'Print All College Reports') 
-                                                    : (activeTab === 'cashier' ? 'Print Cashier Report' : 'Print College Report')}
+                                                    ? (activeTab === 'cashier' ? 'Print All Cashier Reports' : activeTab === 'college' ? 'Print All College Reports' : 'Print All Account Reports') 
+                                                    : (activeTab === 'cashier' ? 'Print Cashier Report' : activeTab === 'college' ? 'Print College Report' : 'Print Account Report')}
                                             </h3>
                                             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
                                                 {printModalData.isAll 
-                                                    ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : 'Combined College Summaries') 
-                                                    : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : `College: ${printModalData.row?._id || 'N/A'}`)}
+                                                    ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : activeTab === 'college' ? 'Combined College Summaries' : 'Combined Account Summaries') 
+                                                    : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : activeTab === 'college' ? `College: ${printModalData.row?._id || 'N/A'}` : `Account: ${printModalData.row?.account_name || 'N/A'}`)}
                                             </p>
                                             {selectedFeeGroupId && (
                                                 <span className="inline-flex mt-1.5 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200 uppercase tracking-wider">
@@ -780,6 +802,13 @@ const Reports = () => {
                                     options={buildPrintOptions()}
                                     dateRange={printModalData.dateRange}
                                 />
+                            ) : activeTab === 'account' ? (
+                                <AccountReportTemplate
+                                    ref={modalPrintRef}
+                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    options={buildPrintOptions()}
+                                    dateRange={printModalData.dateRange}
+                                />
                             ) : (
                                 <CashierReportTemplate
                                     ref={modalPrintRef}
@@ -898,12 +927,12 @@ const Reports = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {(activeTab === 'cashier' || activeTab === 'college') && data.length > 0 && (
+                                    {(activeTab === 'cashier' || activeTab === 'college' || activeTab === 'account') && data.length > 0 && (
                                         <button
                                             onClick={() => setPrintModalData({ isAll: true, rows: data, dateRange: { start: startDate, end: endDate } })}
                                             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
                                         >
-                                            <Printer size={14} /> {activeTab === 'cashier' ? 'Print All Cashiers' : 'Print All Colleges'}
+                                            <Printer size={14} /> {activeTab === 'cashier' ? 'Print All Cashiers' : activeTab === 'college' ? 'Print All Colleges' : 'Print All Accounts'}
                                         </button>
                                     )}
                                     <button
@@ -995,7 +1024,7 @@ const Reports = () => {
                                                     {Number(summary.totalConfirm).toLocaleString()}
                                                 </td>
 
-                                                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && <td></td>}
+                                                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && <td></td>}
                                             </tr>
                                         </tfoot>
                                     )}

@@ -22,6 +22,7 @@ const ConcessionReportPrint = require('../../frontend/src/components/ConcessionR
 const CashierReportTemplate = require('../../frontend/src/components/CashierReportTemplate').default;
 const CollegeReportTemplate = require('../../frontend/src/components/CollegeReportTemplate').default;
 const DailyReportTemplate = require('../../frontend/src/components/DailyReportTemplate').default;
+const AccountReportTemplate = require('../../frontend/src/components/AccountReportTemplate').default;
 const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
 
 const renderTemplate = async (templateName, data) => {
@@ -115,6 +116,17 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = 'College_Report';
+
+    } else if (templateName === 'account-report') {
+        const { displayData, dateRange, options, hideGeneratedInfo } = data;
+        const element = React.createElement(AccountReportTemplate, {
+            data: displayData,
+            dateRange: dateRange,
+            options: options,
+            hideGeneratedInfo: hideGeneratedInfo
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = 'Account_Report';
 
     } else if (templateName === 'daily-report') {
         const { reportData } = data;
