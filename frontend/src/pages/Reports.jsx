@@ -581,9 +581,9 @@ const Reports = () => {
 
     const allTabs = [
         { id: 'daily', label: 'Daily Collection', permission: 'reports_daily_collection' },
-        { id: 'cashier', label: 'Cashier Summary', permission: 'reports_cashier_summary' },
-        { id: 'college', label: 'College-wise Summary', permission: 'reports_fee_head_summary' },
-        { id: 'account', label: 'Account-wise Summary', permission: 'reports_account_wise' },
+        { id: 'cashier', label: 'Cashiers', permission: 'reports_cashier_summary' },
+        { id: 'college', label: 'College-wise', permission: 'reports_fee_head_summary' },
+        { id: 'account', label: 'Account-wise', permission: 'reports_account_wise' },
     ];
 
     const reportSubPermissions = ['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary', 'reports_account_wise'];
