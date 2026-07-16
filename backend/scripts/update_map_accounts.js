@@ -108,6 +108,10 @@ async function run() {
             );
         }
 
+        if (matches.length === 0) {
+            matches = configs.filter(c => c.is_global);
+        }
+
         if (matches.length === 0) return null;
 
         const activeMatches = matches.filter(c => c.is_active);

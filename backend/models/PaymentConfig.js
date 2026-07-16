@@ -3,11 +3,11 @@ const mongoose = require('mongoose');
 const paymentConfigSchema = mongoose.Schema({
     college: {
         type: String,
-        required: true
+        required: function() { return !this.is_global; }
     },
     course: {
         type: String,
-        required: true
+        required: function() { return !this.is_global; }
     },
     account_name: {
         type: String, // e.g., "College Fees Account"
@@ -40,6 +40,10 @@ const paymentConfigSchema = mongoose.Schema({
     is_active: {
         type: Boolean,
         default: true
+    },
+    is_global: {
+        type: Boolean,
+        default: false
     }
 }, {
     timestamps: true

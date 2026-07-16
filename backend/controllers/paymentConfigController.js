@@ -17,22 +17,31 @@ const getConfigs = async (req, res) => {
 // @access  Private
 const createConfig = async (req, res) => {
     try {
-        const { college, course, account_name, bank_name, account_number, ifsc_code, upi_id, razorpay_key_id, razorpay_key_secret } = req.body;
+        const { college, course, account_name, bank_name, account_number, ifsc_code, upi_id, razorpay_key_id, razorpay_key_secret, is_global } = req.body;
 
-        if (!college || !course || !account_name || !bank_name || !account_number) {
-            return res.status(400).json({ message: 'Please add all required fields (including College and Course)' });
+        const isGlobalBool = !!is_global;
+
+        if (isGlobalBool) {
+            if (!account_name || !bank_name || !account_number) {
+                return res.status(400).json({ message: 'Please add all required bank details' });
+            }
+        } else {
+            if (!college || !course || !account_name || !bank_name || !account_number) {
+                return res.status(400).json({ message: 'Please add all required fields (including College and Course)' });
+            }
         }
 
         const config = await PaymentConfig.create({
-            college,
-            course,
+            college: isGlobalBool ? '' : college,
+            course: isGlobalBool ? '' : course,
             account_name,
             bank_name,
             account_number,
             ifsc_code,
             upi_id,
             razorpay_key_id,
-            razorpay_key_secret
+            razorpay_key_secret,
+            is_global: isGlobalBool
         });
 
         res.status(201).json(config);
@@ -52,9 +61,16 @@ const updateConfig = async (req, res) => {
             return res.status(404).json({ message: 'Configuration not found' });
         }
 
-        const updatedConfig = await PaymentConfig.findByIdAndUpdate(req.params.id, req.body, {
-            new: true,
-        });
+        // Apply updates
+        Object.assign(config, req.body);
+
+        // Reset college/course if config is global
+        if (config.is_global) {
+            config.college = '';
+            config.course = '';
+        }
+
+        const updatedConfig = await config.save();
 
         res.status(200).json(updatedConfig);
     } catch (error) {
@@ -73,16 +89,17 @@ const deleteConfig = async (req, res) => {
             return res.status(404).json({ message: 'Configuration not found' });
         }
 
-        // Soft delete: Toggle is_active or set to false. 
-        // Here we'll set to false as "delete".
-        const updatedConfig = await PaymentConfig.findByIdAndUpdate(req.params.id, { is_active: false }, {
-            new: true,
-        });
-        
-        // Alternatively, if the user really wants to delete:
-        // await config.remove();
+        // If the configuration is already inactive, perform a HARD delete!
+        if (!config.is_active) {
+            await PaymentConfig.findByIdAndDelete(req.params.id);
+            return res.status(200).json({ id: req.params.id, message: 'Configuration permanently deleted', deleted: true });
+        }
 
-        res.status(200).json({ id: req.params.id, message: 'Configuration deactivated', config: updatedConfig });
+        // Otherwise, perform a SOFT delete (deactivate)
+        config.is_active = false;
+        const updatedConfig = await config.save();
+
+        res.status(200).json({ id: req.params.id, message: 'Configuration deactivated', config: updatedConfig, deleted: false });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

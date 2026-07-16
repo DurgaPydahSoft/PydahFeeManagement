@@ -112,6 +112,10 @@ async function run() {
             );
         }
 
+        if (matches.length === 0) {
+            matches = configs.filter(c => c.is_global);
+        }
+
         if (matches.length === 0) return null;
 
         // If multiple matches, prioritize active ones

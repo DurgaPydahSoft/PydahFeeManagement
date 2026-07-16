@@ -648,7 +648,7 @@ const getTransactionReports = async (req, res) => {
 
             // Initialize groups for all configured payment accounts that are allowed for the user
             configs.forEach(config => {
-                if (hasCollegeScope && !collegeScope.isCollegeAllowed(config.college, allowedColleges)) {
+                if (hasCollegeScope && !config.is_global && !collegeScope.isCollegeAllowed(config.college, allowedColleges)) {
                     return;
                 }
                 accountGroups[config._id.toString()] = {
