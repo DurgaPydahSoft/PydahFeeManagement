@@ -55,6 +55,7 @@ const UserManagement = () => {
         { name: 'Settings', path: '/settings' },
         { name: 'Reminder Config', path: '/reminders' },
         { name: 'Academic Calendar', path: '/academic-calendar' },
+        { name: 'Caution Deposit', path: '/caution-deposit' },
         { name: 'User Management', path: '/user-management' },
         { name: 'Permissions', path: '/permissions' }
     ];

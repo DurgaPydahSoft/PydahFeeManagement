@@ -19,7 +19,8 @@ const {
   deleteHostelFeeStructure,
   bulkUpsertHostelFeeStructures,
   deleteHostelFeeStructureByRow,
-  applyHostelFee
+  applyHostelFee,
+  getCautionDeposit
 } = require('../controllers/hostelController');
 
 // Hostels (base path when mounted: /api/hostels)
@@ -44,6 +45,7 @@ router.delete('/fee-structures/by-row', deleteHostelFeeStructureByRow);
 router.post('/fee-structures', createHostelFeeStructure);
 router.put('/fee-structures/:id', updateHostelFeeStructure);
 router.delete('/fee-structures/:id', deleteHostelFeeStructure);
+router.get('/caution-deposit', getCautionDeposit);
 
 // Hostel update/delete (parametric last)
 router.put('/:id', updateHostel);

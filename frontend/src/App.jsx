@@ -11,6 +11,7 @@ import FeeCollection from './pages/FeeCollection';
 import UserManagement from './pages/UserManagement';
 import TransportConfiguration from './pages/TransportConfiguration';
 import HostelConfiguration from './pages/HostelConfiguration';
+import CautionDeposit from './pages/CautionDeposit';
 import PaymentConfiguration from './pages/PaymentConfiguration';
 import ReminderConfiguration from './pages/ReminderConfiguration';
 import AcademicCalendar from './pages/AcademicCalendar';
@@ -102,6 +103,7 @@ function App() {
           <Route path="/user-management" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
           <Route path="/transport-config" element={<ProtectedRoute><TransportConfiguration /></ProtectedRoute>} />
           <Route path="/hostel-config" element={<ProtectedRoute><HostelConfiguration /></ProtectedRoute>} />
+          <Route path="/caution-deposit" element={<ProtectedRoute><CautionDeposit /></ProtectedRoute>} />
           <Route path="/payment-config" element={<ProtectedRoute><PaymentConfiguration /></ProtectedRoute>} />
           <Route path="/reminders" element={<ProtectedRoute><ReminderConfiguration /></ProtectedRoute>} />
           <Route path="/academic-calendar" element={<ProtectedRoute><AcademicCalendar /></ProtectedRoute>} />
