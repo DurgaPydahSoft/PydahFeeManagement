@@ -516,6 +516,22 @@ const FeeCollection = () => {
             return;
         }
 
+        if (paymentCategory === 'Bank' || paymentCategory === 'Split') {
+            if (relevantConfigs.length === 0) {
+                showToastMessage("No bank accounts are linked to this student's college and course. Cannot process bank payment.", 'error');
+                return;
+            }
+            if (!paymentForm.paymentConfigId) {
+                showToastMessage('Please select a target account.', 'error');
+                return;
+            }
+            const configExists = relevantConfigs.some(c => c._id === paymentForm.paymentConfigId);
+            if (!configExists) {
+                showToastMessage('Selected target account is invalid for this student.', 'error');
+                return;
+            }
+        }
+
         if (isEditMode) {
             setShowConfirmModal(true);
             return;
@@ -1735,9 +1751,9 @@ const FeeCollection = () => {
 
                                                                 {/* Target Account Selection */}
                                                                 <div>
-                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Target Account</label>
+                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Target Account *</label>
                                                                     <select
-                                                                        className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
+                                                                        className={`w-full border p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none ${(paymentCategory === 'Bank' || paymentCategory === 'Split') && !paymentForm.paymentConfigId ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-300'}`}
                                                                         value={paymentForm.paymentConfigId}
                                                                         onChange={e => {
                                                                             const selected = paymentConfigs.find(c => c._id === e.target.value);
@@ -1747,6 +1763,7 @@ const FeeCollection = () => {
                                                                                 bankName: selected ? selected.bank_name : paymentForm.bankName
                                                                             });
                                                                         }}
+                                                                        required
                                                                     >
                                                                         <option value="">-- Select Account --</option>
                                                                         {relevantConfigs.map(c => (
