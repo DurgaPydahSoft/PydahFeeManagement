@@ -601,12 +601,11 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                         <tr>
                             <th style={{ width: '5%' }}>S.No</th>
                             <th style={{ width: '10%' }}>User ID</th>
-                            <th style={{ width: '30%' }}>Cashier Name</th>
+                            <th style={{ width: '35%' }}>Cashier Name</th>
                             <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
-                            {showCash && <th style={{ textAlign: 'right', width: '11%' }}>Cash</th>}
-                            {showBank && <th style={{ textAlign: 'right', width: '11%' }}>Bank</th>}
-                            <th style={{ textAlign: 'right', width: '11%' }}>Concessions</th>
-                            <th style={{ textAlign: 'right', width: '12%', fontWeight: 'bold' }}>Collection</th>
+                            {showCash && <th style={{ textAlign: 'right', width: '12%' }}>Cash</th>}
+                            {showBank && <th style={{ textAlign: 'right', width: '12%' }}>Bank</th>}
+                            <th style={{ textAlign: 'right', width: '16%', fontWeight: 'bold' }}>Collection</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -618,7 +617,6 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                                 <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
                                 {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString()}</td>}
                                 {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString()}</td>}
-                                <td style={{ textAlign: 'right' }}>₹{Number(summary.concessionAmt).toLocaleString()}</td>
                                 <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString()}</td>
                             </tr>
                         ))}
@@ -627,7 +625,6 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                             <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
                             {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>}
                             {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>}
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.concessionAmt).toLocaleString()}</td>
                             <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
                         </tr>
                     </tbody>

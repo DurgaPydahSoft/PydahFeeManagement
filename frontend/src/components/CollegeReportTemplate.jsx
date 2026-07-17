@@ -482,6 +482,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
     // Recompute global fee head summary based on all transactions across all colleges
     // Recompute global course-wise summary based on all transactions across all colleges
     const globalCourseData = {};
+    const globalCashierData = {};
     data.forEach(college => {
         const rawTransactions = college.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
@@ -500,7 +501,36 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         });
 
         filteredTransactions.forEach(tx => {
-            if (tx.transactionType === 'DEBIT') {
+            if (tx.status !== 'cancelled') {
+                const cashierUsername = tx.collectedBy || 'Unknown';
+                const cashierName = tx.collectedByName || tx.collectedBy || 'Unknown';
+                const empNo = tx.empNo || cashierUsername;
+                const amount = tx.amount || 0;
+                const isCash = tx.paymentMode === 'Cash';
+
+                if (!globalCashierData[cashierUsername]) {
+                    globalCashierData[cashierUsername] = {
+                        username: cashierName,
+                        empNo: empNo,
+                        receiptsCount: 0,
+                        cashAmt: 0,
+                        bankAmt: 0,
+                        concessionAmt: 0,
+                        netTotal: 0
+                    };
+                }
+                const cashierEntry = globalCashierData[cashierUsername];
+                cashierEntry.receiptsCount++;
+                if (tx.transactionType === 'DEBIT') {
+                    cashierEntry.netTotal += amount;
+                    if (isCash) cashierEntry.cashAmt += amount;
+                    else cashierEntry.bankAmt += amount;
+                } else if (tx.transactionType === 'CREDIT') {
+                    cashierEntry.concessionAmt += amount;
+                }
+            }
+
+            if (tx.transactionType === 'DEBIT' && tx.status !== 'cancelled') {
                 const courseName = tx.course || 'Unknown Course';
                 const amount = tx.amount || 0;
                 const isCash = tx.paymentMode === 'Cash';
@@ -521,6 +551,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         });
     });
     const sortedGlobalCourses = Object.values(globalCourseData).sort((a, b) => b.netTotal - a.netTotal);
+    const sortedGlobalCashiers = Object.values(globalCashierData).sort((a, b) => b.netTotal - a.netTotal);
 
     const collegeSummaries = data.map(college => {
         const rawTransactions = college.transactions || [];
@@ -630,6 +661,48 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                     </tbody>
                 </table>
             </div>
+
+            {/* User-wise Consolidated Collections (Added before Course-wise) */}
+            {sortedGlobalCashiers.length > 0 && (
+                <div style={{ marginBottom: '25px', pageBreakInside: 'avoid' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        User-wise Consolidated Collections
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ width: '5%' }}>S.No</th>
+                                <th style={{ width: '10%' }}>User ID</th>
+                                <th style={{ width: '35%' }}>Cashier Name</th>
+                                <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '12%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '12%' }}>Bank</th>}
+                                <th style={{ textAlign: 'right', width: '16%', fontWeight: 'bold' }}>Collection</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedGlobalCashiers.map((summary, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{summary.empNo || 'N/A'}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{summary.username}</td>
+                                    <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString()}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString()}</td>}
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString()}</td>
+                                </tr>
+                            ))}
+                            <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
+                                <td colSpan={3}>TOTAL</td>
+                                <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
 
             {/* 2. Global Course-wise collections (SECOND) */}
             {sortedGlobalCourses.length > 0 && (
