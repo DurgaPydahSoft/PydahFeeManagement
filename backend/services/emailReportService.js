@@ -215,7 +215,8 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
             year: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
-            hour12: true
+            hour12: true,
+            timeZone: 'Asia/Kolkata'
         });
 
         const infoY = doc.y;

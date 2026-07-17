@@ -120,7 +120,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
                 {!hideGeneratedInfo && (
                     <div style={{ color: '#4b5563' }}>
-                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                     </div>
                 )}
             </div>
@@ -587,7 +587,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
                 <div style={{ color: '#4b5563' }}>
-                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                 </div>
             </div>
 
