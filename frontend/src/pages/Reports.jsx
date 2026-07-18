@@ -335,8 +335,39 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                 </tr>
             )}
 
-            {/* EXPANDED CONTENT: Daily/Account Transactions List */}
-            {(activeTab === 'daily' || activeTab === 'account') && row.transactions && isExpanded && (
+            {/* EXPANDED CONTENT: Account Fee Head Breakdown */}
+            {activeTab === 'account' && row.transactions && isExpanded && (
+                <tr className="bg-blue-50/40">
+                    <td colSpan="100%" className="p-0">
+                        <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">
+                            <div className="bg-white rounded-lg border border-blue-100 p-4 shadow-sm">
+                                <h4 className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-widest mb-4">
+                                    <FileText size={14} /> Fee Head Breakdown
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                    {Object.entries(
+                                        (row.transactions || [])
+                                            .filter(tx => tx.transactionType === 'DEBIT' && tx.status !== 'cancelled')
+                                            .reduce((acc, curr) => {
+                                                const fhName = curr.feeHead || 'Unknown';
+                                                acc[fhName] = (acc[fhName] || 0) + (curr.amount || 0);
+                                                return acc;
+                                            }, {})
+                                    ).map(([name, amount], i) => (
+                                        <div key={i} className="flex flex-col p-3 rounded bg-gray-50 border border-gray-100">
+                                            <span className="text-[10px] text-gray-500 font-bold uppercase truncate mb-1" title={name}>{name}</span>
+                                            <span className="text-sm font-bold text-gray-800">₹{Number(amount).toLocaleString()}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            )}
+
+            {/* EXPANDED CONTENT: Daily Transactions List */}
+            {activeTab === 'daily' && row.transactions && isExpanded && (
                 <tr className="bg-blue-50/40">
                     <td colSpan="100%" className="p-0">
                         <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">

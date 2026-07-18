@@ -731,6 +731,10 @@ const getTransactionReports = async (req, res) => {
                 if (configId && accountGroups[configId]) {
                     group = accountGroups[configId];
                 } else if (!configId) {
+                    // Skip unassigned Cash transactions in account-wise report
+                    if (tx.paymentMode === 'Cash') {
+                        return;
+                    }
                     // Filter unassigned by student's college if under scope
                     if (hasCollegeScope && !collegeScope.isCollegeAllowed(studentCollege, allowedColleges)) {
                         return;
@@ -794,9 +798,7 @@ const getTransactionReports = async (req, res) => {
             });
 
             const finalResults = Object.values(accountGroups);
-            if (unassignedGroup.transactions.length > 0) {
-                finalResults.push(unassignedGroup);
-            }
+            finalResults.push(unassignedGroup);
 
             finalResults.forEach(g => {
                 g.totalAmount = g.debitAmount;

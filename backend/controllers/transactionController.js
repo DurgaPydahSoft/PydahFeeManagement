@@ -55,17 +55,51 @@ const addTransaction = async (req, res) => {
       if (studentRows && studentRows.length > 0) {
         const studentCollege = studentRows[0].college;
         const studentCourse = studentRows[0].course;
-        courseCode = (studentCourse || 'GEN').toUpperCase().trim();
 
         if (studentCollege) {
           const [collegeRows] = await db.query(
-            'SELECT code FROM colleges WHERE name = ?',
+            'SELECT id, code FROM colleges WHERE name = ?',
             [studentCollege]
           );
-          if (collegeRows && collegeRows.length > 0 && collegeRows[0].code) {
-            collegeCode = collegeRows[0].code.toUpperCase().trim();
+          let collegeId = null;
+          if (collegeRows && collegeRows.length > 0) {
+            collegeCode = (collegeRows[0].code || 'GEN').toUpperCase().trim();
+            collegeId = collegeRows[0].id;
           } else {
             collegeCode = studentCollege.toUpperCase().trim();
+          }
+
+          if (studentCourse) {
+            let courseRows = [];
+            if (collegeId) {
+              [courseRows] = await db.query(
+                'SELECT code FROM courses WHERE name = ? AND college_id = ?',
+                [studentCourse, collegeId]
+              );
+            }
+            if (courseRows.length === 0) {
+              [courseRows] = await db.query(
+                'SELECT code FROM courses WHERE name = ?',
+                [studentCourse]
+              );
+            }
+            if (courseRows && courseRows.length > 0 && courseRows[0].code) {
+              courseCode = courseRows[0].code.toUpperCase().trim();
+            } else {
+              courseCode = studentCourse.toUpperCase().trim();
+            }
+          }
+        } else {
+          if (studentCourse) {
+            const [courseRows] = await db.query(
+              'SELECT code FROM courses WHERE name = ?',
+              [studentCourse]
+            );
+            if (courseRows && courseRows.length > 0 && courseRows[0].code) {
+              courseCode = courseRows[0].code.toUpperCase().trim();
+            } else {
+              courseCode = studentCourse.toUpperCase().trim();
+            }
           }
         }
       }
@@ -256,17 +290,51 @@ const previewSequence = async (req, res) => {
     if (studentRows && studentRows.length > 0) {
       const studentCollege = studentRows[0].college;
       const studentCourse = studentRows[0].course;
-      courseCode = (studentCourse || 'GEN').toUpperCase().trim();
 
       if (studentCollege) {
         const [collegeRows] = await db.query(
-          'SELECT code FROM colleges WHERE name = ?',
+          'SELECT id, code FROM colleges WHERE name = ?',
           [studentCollege]
         );
-        if (collegeRows && collegeRows.length > 0 && collegeRows[0].code) {
-          collegeCode = collegeRows[0].code.toUpperCase().trim();
+        let collegeId = null;
+        if (collegeRows && collegeRows.length > 0) {
+          collegeCode = (collegeRows[0].code || 'GEN').toUpperCase().trim();
+          collegeId = collegeRows[0].id;
         } else {
           collegeCode = studentCollege.toUpperCase().trim();
+        }
+
+        if (studentCourse) {
+          let courseRows = [];
+          if (collegeId) {
+            [courseRows] = await db.query(
+              'SELECT code FROM courses WHERE name = ? AND college_id = ?',
+              [studentCourse, collegeId]
+            );
+          }
+          if (courseRows.length === 0) {
+            [courseRows] = await db.query(
+              'SELECT code FROM courses WHERE name = ?',
+              [studentCourse]
+            );
+          }
+          if (courseRows && courseRows.length > 0 && courseRows[0].code) {
+            courseCode = courseRows[0].code.toUpperCase().trim();
+          } else {
+            courseCode = studentCourse.toUpperCase().trim();
+          }
+        }
+      } else {
+        if (studentCourse) {
+          const [courseRows] = await db.query(
+            'SELECT code FROM courses WHERE name = ?',
+            [studentCourse]
+          );
+          if (courseRows && courseRows.length > 0 && courseRows[0].code) {
+            courseCode = courseRows[0].code.toUpperCase().trim();
+          } else {
+            courseCode = studentCourse.toUpperCase().trim();
+          }
         }
       }
     }
