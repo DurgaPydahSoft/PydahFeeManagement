@@ -7,7 +7,7 @@ const paymentVisibility = (options = {}) => {
     return { showCash, showBank };
 };
 
-const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
+const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false, hideSignatures = false }) => {
     if (!data) return null;
     const { mode = 'all', showSummary = true, showDetails = true, allowedFeeHeads } = options || {};
     const { showCash, showBank } = paymentVisibility(options);
@@ -459,18 +459,20 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Signatures */}
-            <div style={{ marginTop: '45px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Cashier</p>
+            {/* Signatures — hidden on combined "print all" documents */}
+            {!hideSignatures && (
+                <div style={{ marginTop: '45px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Cashier</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
+                    </div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
-                </div>
-            </div>
+            )}
         </div>
     );
 };
@@ -741,15 +743,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 </div>
             )}
 
-            {/* Signatures */}
-            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
-                </div>
-            </div>
+            {/* No signatures on the all-colleges summary page */}
         </div>
     );
 };
@@ -769,7 +763,7 @@ const CollegeReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref
                     {/* Individual college reports */}
                     {data.filter(Boolean).map((collegeRow, index) => (
                         <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
-                            <SingleCollegeReport data={collegeRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} />
+                            <SingleCollegeReport data={collegeRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} hideSignatures={true} />
                         </div>
                     ))}
                 </>

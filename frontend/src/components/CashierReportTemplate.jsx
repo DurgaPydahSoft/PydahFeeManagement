@@ -25,7 +25,7 @@ const paymentVisibility = (options = {}) => {
     return { showCash, showBank };
 };
 
-const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
+const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false, hideSignatures = false }) => {
     if (!data) return null;
     const { mode = 'all', showSummary = true, showDetails = true, allowedFeeHeads, selectedGroupName } = options || {};
     const { showCash, showBank } = paymentVisibility(options);
@@ -269,8 +269,8 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* 3. Fee Head-wise Summary — shown when detailed transactions are hidden (abstract-only mode) */}
-            {showSummary && !showDetails && (() => {
+            {/* 3. Fee Head-wise Summary — shown only when abstract is selected and detailed transactions are hidden */}
+            {showSummary && showDetails === false && (() => {
                 const feeHeadMap = {};
                 activeTransactions.filter(tx => tx.transactionType === 'DEBIT').forEach(tx => {
                     const fhName = tx.feeHead || 'Unknown';
@@ -466,18 +466,20 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Footer Signatures */}
-            <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Cashier</p>
+            {/* Footer Signatures — hidden on combined "print all" documents */}
+            {!hideSignatures && (
+                <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Cashier</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Accountant/AO</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Principal/Director</p>
+                    </div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Accountant</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Principal/Director</p>
-                </div>
-            </div>
+            )}
         </div>
     );
 };
@@ -670,18 +672,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 </table>
             </div>
 
-            {/* Footer Signatures */}
-            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Cashier Representative</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Accountant</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Principal/Director</p>
-                </div>
-            </div>
+            {/* No signatures on the global summary page — signatures appear on individual cashier pages only */}
         </div>
     );
 };
@@ -701,7 +692,7 @@ const CashierReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref
                     {/* Individual reports */}
                     {data.filter(Boolean).map((cashierRow, index) => (
                         <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
-                            <SingleCashierReport data={cashierRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} />
+                            <SingleCashierReport data={cashierRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} hideSignatures={true} />
                         </div>
                     ))}
                 </>
