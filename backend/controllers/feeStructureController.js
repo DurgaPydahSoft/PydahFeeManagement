@@ -4,7 +4,7 @@ const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const db = require('../config/sqlDb');
-const { syncClubFees, syncStandardFees } = require('../services/studentFeeSyncService');
+const { syncClubFees, syncTransportFees, syncStandardFees } = require('../services/studentFeeSyncService');
 const {
   resolveStudentFeeAmount,
   buildFeeHeadMaps,
@@ -260,6 +260,7 @@ const getStudentFeeDetails = async (req, res) => {
     if (student) {
       try {
         await syncClubFees(student, admissionNo);
+        await syncTransportFees(student, admissionNo);
         await syncStandardFees(student, admissionNo);
       } catch (syncError) {
         console.error('Fee sync error:', syncError);
@@ -300,6 +301,9 @@ const getStudentFeeDetails = async (req, res) => {
       const semKey = semester ? `S${semester}` : 'Y';
       if (feeCode === 'CF' || feeCode === 'SSF') {
         return `${headId}-${year}-${semKey}-${remarks || 'General'}`;
+      }
+      if (feeCode === 'TRN' || feeCode === 'TRN01') {
+        return `${headId}-${year}-transport`;
       }
       return `${headId}-${year}-${semKey}`;
     };

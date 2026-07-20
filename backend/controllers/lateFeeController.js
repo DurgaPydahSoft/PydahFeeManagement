@@ -56,21 +56,30 @@ const deleteConfig = async (req, res) => {
 // @route   POST /api/late-fees/process (Can be triggered manually or by scheduler)
 const processLateFees = async (req, res) => {
   try {
-    // 1. Fetch all Fee Structures that have at least one term with a late fee configured
-    const structures = await FeeStructure.find({ 
-      'terms.lateFeeAmount': { $gt: 0 } 
-    }).populate('feeHead').populate('lateFeeHead');
+    // Optional: sync a single structure (manual test from UI)
+    const structureId = req?.body?.structureId || req?.query?.structureId || null;
+
+    const filter = { 'terms.lateFeeAmount': { $gt: 0 } };
+    if (structureId) {
+      filter._id = structureId;
+    }
+
+    const structures = await FeeStructure.find(filter)
+      .populate('feeHead')
+      .populate('lateFeeHead');
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const results = [];
+    let skipped = 0;
 
     for (const struct of structures) {
       // Use the late fee head saved on the structure (not a hardcoded code)
       const demandHead = struct.lateFeeHead;
       if (!demandHead) {
         console.warn(`Skipping structure ${struct._id}: lateFeeHead not configured`);
+        skipped += 1;
         continue;
       }
 
@@ -83,11 +92,12 @@ const processLateFees = async (req, res) => {
         SELECT s.year_of_study, s.semester_number, s.start_date, s.end_date, s.batch, cl.name as college_name
         FROM semesters s
         JOIN courses c ON s.course_id = c.id
-        LEFT JOIN colleges cl ON s.college_id = cl.id
+        JOIN colleges cl ON s.college_id = cl.id
         WHERE c.name = ?
           AND s.batch = ?
           AND s.year_of_study = ?
-          AND (cl.name IS NULL OR cl.name = ?)
+          AND cl.name = ?
+          AND s.college_id IS NOT NULL
       `;
       const [semesters] = await db.query(query, [
         struct.course,
@@ -99,25 +109,42 @@ const processLateFees = async (req, res) => {
       for (const term of struct.terms) {
         if (!term.lateFeeAmount || term.lateFeeAmount <= 0) continue;
 
-        // Find matching semester date based on term's referenceSemester
-        // Fallback to structure's semester or semester_number from SQL if not specified
-        const targetSem = term.referenceSemester || struct.semester || 1;
-        
-        const semMatch = semesters.find(s => 
-          Number(s.semester_number) === Number(targetSem) &&
-          s.start_date
-        );
+        let dueDate = null;
+        const mode = term.dueDateMode === 'fixed' ? 'fixed' : 'offset';
 
-        if (!semMatch) continue;
+        if (mode === 'fixed') {
+          if (!term.fixedDueDate) continue;
+          const raw = term.fixedDueDate instanceof Date
+            ? term.fixedDueDate.toISOString().slice(0, 10)
+            : String(term.fixedDueDate).slice(0, 10);
+          const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (!parts) continue;
+          dueDate = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+          dueDate.setHours(0, 0, 0, 0);
+        } else {
+          // Semester start + offset days
+          const targetSem = term.referenceSemester || struct.semester || 1;
+          const semMatch = semesters.find(s =>
+            Number(s.semester_number) === Number(targetSem) &&
+            s.start_date
+          );
+          if (!semMatch) continue;
 
-        // Note: The user image shows "Days from Semester Start". 
-        // We'll use start_date as the reference.
-        const eventDateStr = semMatch.start_date;
-        if (!eventDateStr) continue;
+          const eventDateStr = semMatch.start_date;
+          if (!eventDateStr) continue;
 
-        const dueDate = new Date(eventDateStr);
-        dueDate.setDate(dueDate.getDate() + (term.dueOffsetDays || 0));
-        dueDate.setHours(0, 0, 0, 0);
+          const raw = String(eventDateStr).slice(0, 10);
+          const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (parts) {
+            dueDate = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+          } else {
+            dueDate = new Date(eventDateStr);
+          }
+          dueDate.setDate(dueDate.getDate() + (term.dueOffsetDays || 0));
+          dueDate.setHours(0, 0, 0, 0);
+        }
+
+        if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
 
         if (today > dueDate) {
           // TERM IS OVERDUE!
@@ -197,7 +224,14 @@ const processLateFees = async (req, res) => {
       }
     }
 
-    if (res) res.json({ message: 'Late fee processing completed', results });
+    if (res) {
+      res.json({
+        message: 'Late fee processing completed',
+        generated: results.length,
+        skippedWithoutLateFeeHead: skipped,
+        results
+      });
+    }
   } catch (error) {
     if (res) res.status(500).json({ message: 'Error processing late fees', error: error.message });
     console.error('Late Fee Processing Error:', error);

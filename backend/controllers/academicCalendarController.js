@@ -22,10 +22,10 @@ const getAcademicYears = async (req, res) => {
                 ay.year_label
             FROM semesters s
             LEFT JOIN courses c ON s.course_id = c.id
-            LEFT JOIN colleges cl ON (s.college_id = cl.id OR (s.college_id IS NULL AND c.college_id = cl.id))
+            LEFT JOIN colleges cl ON cl.id = COALESCE(s.college_id, c.college_id)
             LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
         `;
-        const conditions = [];
+        const conditions = ['s.college_id IS NOT NULL'];
         const params = [];
 
         if (college) {
@@ -41,11 +41,11 @@ const getAcademicYears = async (req, res) => {
             params.push(course);
         }
 
-        if (conditions.length > 0) {
-            query += ` WHERE ${conditions.join(' AND ')}`;
-        }
+        query += ` WHERE ${conditions.join(' AND ')}`;
 
-        query += ` ORDER BY s.batch DESC, ay.year_label DESC, c.name, s.year_of_study, s.semester_number`;
+        // Prefer filled dates first so duplicates are easier to spot
+        query += ` ORDER BY s.batch DESC, c.name, s.year_of_study, s.semester_number,
+                   (s.start_date IS NULL), ay.year_label DESC, s.id`;
 
         const [rows] = await db.query(query, params);
         res.json(rows);

@@ -15,6 +15,8 @@ const FeeCollection = () => {
     const [loading, setLoading] = useState(false); // General loading (initial fetch)
     const [error, setError] = useState('');
     const [isDashLoading, setIsDashLoading] = useState(false); // Loading for student dashboard data
+    const [isSyncingFees, setIsSyncingFees] = useState(false);
+    const [expandedFeeRows, setExpandedFeeRows] = useState(new Set());
 
 
     // --- FEE & PAYMENT STATE ---
@@ -283,6 +285,46 @@ const FeeCollection = () => {
         }
     };
 
+    const syncStudentFees = async () => {
+        if (!student?.admission_number || isSyncingFees) return;
+        setIsSyncingFees(true);
+        try {
+            const { data } = await api.post(`/students/${student.admission_number}/sync-fees`);
+            await fetchStudentData(student);
+            const created = (data.standardFeesCreated || 0)
+                + (data.clubFeesCreated || 0)
+                + (data.transportFeesCreated || 0);
+            const updated = (data.standardFeesUpdated || 0) + (data.transportFeesUpdated || 0);
+            const matched = (data.structuresMatched || 0) + (data.transportRequestsMatched || 0);
+            if (created === 0 && updated === 0) {
+                showToastMessage(
+                    `Fees already in sync (${matched} structure/request(s) matched).`,
+                    'success'
+                );
+            } else {
+                showToastMessage(
+                    `Synced: ${created} created, ${updated} updated (${matched} structure/request(s)).`,
+                    'success'
+                );
+            }
+        } catch (err) {
+            console.error(err);
+            showToastMessage(err.response?.data?.message || 'Failed to sync student fees.', 'error');
+        } finally {
+            setIsSyncingFees(false);
+        }
+    };
+
+    const toggleFeeRowExpand = (feeId, e) => {
+        e.stopPropagation();
+        setExpandedFeeRows(prev => {
+            const next = new Set(prev);
+            if (next.has(feeId)) next.delete(feeId);
+            else next.add(feeId);
+            return next;
+        });
+    };
+
     const selectStudent = async (selectedStudent) => {
         setSearchQuery(''); // Clear search on select to show student details
         setFeeDetails([]); // Clear previous student's fees
@@ -305,6 +347,7 @@ const FeeCollection = () => {
         setPaymentCategory('Cash');
         setPerRowSplitCash({});
         setSelectedProceeding(null);
+        setExpandedFeeRows(new Set());
         setViewFilterStatus('ACTIVE');
         await fetchStudentData(selectedStudent);
     };
@@ -1059,9 +1102,9 @@ const FeeCollection = () => {
 
                                 {/* Student Profile Card - Compact Professional Design */}
                                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-4">
-                                    <div className="bg-blue-600 p-4 text-white flex flex-col md:flex-row items-center md:items-start gap-4">
+                                    <div className="bg-blue-600 p-3 text-white flex flex-col md:flex-row items-center md:items-start gap-3">
                                         {/* Photo */}
-                                        <div className="h-14 w-14 rounded-full border-2 border-white/20 shadow-md overflow-hidden shrink-0 bg-white">
+                                        <div className="h-12 w-12 rounded-full border-2 border-white/20 shadow-md overflow-hidden shrink-0 bg-white">
                                             {student.student_photo ? (
                                                 <img
                                                     src={student.student_photo.startsWith('data:') ? student.student_photo : `data:image/jpeg;base64,${student.student_photo}`}
@@ -1071,58 +1114,58 @@ const FeeCollection = () => {
                                                     onClick={() => setShowPhotoPopup(true)}
                                                 />
                                             ) : (
-                                                <div className="h-full w-full flex items-center justify-center text-xl font-bold text-gray-400">
+                                                <div className="h-full w-full flex items-center justify-center text-base font-bold text-gray-400">
                                                     {student.student_name?.charAt(0)}
                                                 </div>
                                             )}
                                         </div>                                        {/* Info & Tags (Combined for flex-1) */}
                                         <div className="flex-1">
-                                            <div className="flex flex-col md:flex-row md:items-baseline md:gap-3">
-                                                <h2 className="text-lg font-bold truncate">{student.student_name}</h2>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/20">
+                                            <div className="flex flex-col md:flex-row md:items-baseline md:gap-2">
+                                                <h2 className="text-sm font-bold truncate">{student.student_name}</h2>
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="bg-white/20 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/20">
                                                         {student.course}
                                                     </span>
-                                                    <span className="bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/10">
+                                                    <span className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/10">
                                                         {student.branch}
                                                     </span>
                                                 </div>
                                             </div>
 
-                                            <div className="flex flex-wrap justify-center md:justify-start gap-2 text-xs mt-1">
-                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Adm:</span>
+                                            <div className="flex flex-wrap justify-center md:justify-start gap-1.5 text-[11px] mt-1">
+                                                <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Adm:</span>
                                                     <span className="font-mono font-bold">{student.admission_number}</span>
                                                 </div>
-                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Pin:</span>
+                                                <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Pin:</span>
                                                     <span className="font-mono font-bold">{student.pin_no || '-'}</span>
                                                 </div>
-                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Yr:</span>
+                                                <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Yr:</span>
                                                     <span className="font-bold">{student.current_year} (S{student.current_semester})</span>
                                                 </div>
-                                                <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                    <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Quota:</span>
+                                                <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
+                                                    <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Quota:</span>
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
                                                 {student.scholar_status && (
-                                                    <div className={`px-2 py-0.5 rounded flex items-center ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-blue-700'}`}>
-                                                        <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Scholar:</span>
+                                                    <div className={`px-1.5 py-0.5 rounded flex items-center ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-blue-700'}`}>
+                                                        <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Scholar:</span>
                                                         <span className={`font-bold uppercase ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'text-yellow-400' : 'text-white'}`}>
                                                             {student.scholar_status}
                                                         </span>
                                                     </div>
                                                 )}
                                                 {student.caste && (
-                                                    <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                        <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Caste:</span>
+                                                    <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
+                                                        <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Caste:</span>
                                                         <span className="font-bold text-orange-300 uppercase">{student.caste}</span>
                                                     </div>
                                                 )}
                                                 {student.student_status && (
-                                                    <div className="bg-blue-700 px-2 py-0.5 rounded flex items-center">
-                                                        <span className="text-blue-100 mr-1.5 uppercase text-[10px] font-bold">Status</span>
+                                                    <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
+                                                        <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Status</span>
                                                         <span className="font-bold text-orange-300 uppercase">{student.student_status}</span>
                                                     </div>
                                                 )}
@@ -1130,11 +1173,11 @@ const FeeCollection = () => {
                                         </div>
 
                                         {/* Status / Balance - Reverted to simpler original style for right-alignment */}
-                                        <div className="flex flex-col gap-1 text-right shrink-0">
-                                            <div className="text-[10px] text-blue-200 uppercase font-bold">Total Due</div>
-                                            <div className="text-xl font-bold text-white leading-none">{fmtAmount(globalTotalDue)}</div>
+                                        <div className="flex flex-col gap-0.5 text-right shrink-0">
+                                            <div className="text-[9px] text-blue-200 uppercase font-bold">Total Due</div>
+                                            <div className="text-base font-bold text-white leading-none">{fmtAmount(globalTotalDue)}</div>
                                             {globalScholarshipAmount > 0 && (
-                                                <div className="text-[10px] text-yellow-300 font-medium mt-1" title="Amount covered by Scholarship">
+                                                <div className="text-[9px] text-yellow-300 font-medium mt-0.5" title="Amount covered by Scholarship">
                                                     (Scholarship: {fmtAmount(globalScholarshipAmount)})
                                                 </div>
                                             )}
@@ -1199,17 +1242,33 @@ const FeeCollection = () => {
                                     })()}
                                 </div>
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                            <div className="bg-blue-100 p-1.5 rounded text-blue-600">
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                    <div className="px-5 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                        <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                                            <div className="bg-blue-100 p-1 rounded text-blue-600">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                                             </div>
                                             Fee Dues Breakdown
+                                            <button
+                                                type="button"
+                                                onClick={syncStudentFees}
+                                                disabled={isSyncingFees || isDashLoading}
+                                                title="Sync fees from matching fee structures"
+                                                className="ml-0.5 p-1 rounded-md text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <svg
+                                                    className={`w-4 h-4 ${isSyncingFees ? 'animate-spin' : ''}`}
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                </svg>
+                                            </button>
                                         </h3>
-                                        <div className="flex items-center gap-3">
-                                            {loading && <span className="text-xs text-blue-500 animate-pulse font-medium">Updating...</span>}
+                                        <div className="flex items-center gap-2">
+                                            {loading && <span className="text-[10px] text-blue-500 animate-pulse font-medium">Updating...</span>}
                                             <select
-                                                className="text-sm border-gray-200 border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
+                                                className="text-xs border-gray-200 border rounded-lg px-2.5 py-1 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
                                                 value={viewFilterStatus}
                                                 onChange={(e) => setViewFilterStatus(e.target.value)}
                                             >
@@ -1218,7 +1277,7 @@ const FeeCollection = () => {
                                                 <option value="ALL">All Statuses</option>
                                             </select>
                                             <select
-                                                className="text-sm border-gray-200 border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
+                                                className="text-xs border-gray-200 border rounded-lg px-2.5 py-1 bg-white focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
                                                 value={viewFilterYear}
                                                 onChange={(e) => setViewFilterYear(e.target.value)}
                                             >
@@ -1228,64 +1287,80 @@ const FeeCollection = () => {
                                         </div>
                                     </div>
                                     <div className="overflow-x-auto">
-                                        <table className="w-full text-left">
+                                        <table className="w-full text-left text-xs">
                                             <thead>
                                                 <tr className="border-b-2 border-gray-200 bg-gray-100/80">
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center w-10">Select</th>
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider">Fee Head / Year</th>
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Total Fee</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-gray-600 uppercase tracking-wider text-center w-10">Select</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-gray-600 uppercase tracking-wider">Fee Head / Year</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-gray-600 uppercase tracking-wider text-right">Total Fee</th>
                                                     {/* Dynamic Term Headers */}
                                                     {[...Array(maxTerms)].map((_, i) => (
-                                                        <th key={i} className="py-3 px-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-right bg-blue-50/30">T{i + 1} Due</th>
+                                                        <th key={i} className="py-2 px-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider text-right bg-blue-50/30">T{i + 1} Due</th>
                                                     ))}
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right">Paid</th>
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-purple-600 uppercase tracking-wider text-right">Concession</th>
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-right font-bold">Balance</th>
-                                                    <th className="py-3 px-4 text-[11px] font-bold text-gray-600 uppercase tracking-wider text-center">Status</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-gray-600 uppercase tracking-wider text-right">Paid</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-purple-600 uppercase tracking-wider text-right">Concession</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-gray-600 uppercase tracking-wider text-right">Balance</th>
+                                                    <th className="py-2 px-3 text-[10px] font-bold text-gray-600 uppercase tracking-wider text-center">Status</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-50">
                                                 {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0).length === 0 ? (
-                                                    <tr><td colSpan={6 + maxTerms} className="py-6 text-center text-gray-500 italic text-sm">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
+                                                    <tr><td colSpan={6 + maxTerms} className="py-5 text-center text-gray-500 italic text-xs">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
                                                 ) : (
                                                     <>
                                                         {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0).map((fee, idx) => {
                                                             const isFullyPaid = fee.dueAmount <= 0;
                                                             const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
                                                             const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
+                                                            const rowKey = fee._id || `fee-${idx}`;
+                                                            const isExpanded = expandedFeeRows.has(rowKey);
+                                                            const hasDetails = Boolean(fee.remarks);
+                                                            const detailColSpan = 7 + maxTerms;
 
                                                             return (
+                                                                <React.Fragment key={rowKey}>
                                                                 <tr
-                                                                    key={idx}
                                                                     onClick={() => !isFullyPaid && fee.isActive !== false && toggleFeeSelection(fee)}
                                                                     className={`transition-colors cursor-pointer ${fee.isActive === false ? 'opacity-60 bg-gray-100 hover:bg-gray-100' : isSelected ? 'bg-blue-100/50 hover:bg-blue-100' : 'hover:bg-blue-50/50 even:bg-gray-50/50'}`}
                                                                 >
-                                                                    <td className="py-2 px-4 text-center">
+                                                                    <td className="py-1.5 px-3 text-center">
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={isSelected}
                                                                             readOnly
                                                                             disabled={isFullyPaid || fee.isActive === false}
-                                                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                                                                            className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
                                                                         />
                                                                     </td>
-                                                                    <td className="py-2 px-4 text-sm font-medium text-gray-700">
-                                                                        <div className="flex items-center gap-2">
-                                                                            {fee.feeHeadName}
+                                                                    <td className="py-1.5 px-3 text-xs font-medium text-gray-700">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span>{fee.feeHeadName}</span>
+                                                                            {hasDetails && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => toggleFeeRowExpand(rowKey, e)}
+                                                                                    className="p-0.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors shrink-0"
+                                                                                    title={isExpanded ? 'Hide details' : 'Show details'}
+                                                                                >
+                                                                                    <svg
+                                                                                        className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                                                                        fill="none"
+                                                                                        stroke="currentColor"
+                                                                                        viewBox="0 0 24 24"
+                                                                                    >
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                                                    </svg>
+                                                                                </button>
+                                                                            )}
                                                                             {fee.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(fee.studentScholarStatus || '').toLowerCase()) && (
-                                                                                <span title="Scholarship Applicable" className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 font-bold uppercase tracking-wider">
+                                                                                <span title="Scholarship Applicable" className="text-[9px] bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded border border-yellow-200 font-bold uppercase tracking-wider">
                                                                                     Sch
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        <div className="text-[10px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
-                                                                        {fee.remarks && (
-                                                                            <div className="text-[10px] font-medium text-blue-600 mt-0.5 bg-blue-50/50 px-1.5 py-0.5 rounded border border-blue-100/50 inline-block">
-                                                                                {fee.remarks}
-                                                                            </div>
-                                                                        )}
+                                                                        <div className="text-[9px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
                                                                     </td>
-                                                                    <td className="py-2 px-4 text-sm text-right text-gray-600 font-mono">{fmtAmount(fee.totalAmount)}</td>
+                                                                    <td className="py-1.5 px-3 text-xs text-right text-gray-600 font-mono">{fmtAmount(fee.totalAmount)}</td>
 
                                                                     {/* Dynamic Term Columns */}
                                                                     {(() => {
@@ -1300,50 +1375,61 @@ const FeeCollection = () => {
                                                                                 remainingPaid = Math.max(0, remainingPaid - termPaid);
 
                                                                                 termCells.push(
-                                                                                    <td key={i} className={`py-2 px-4 text-xs text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                                                                                    <td key={i} className={`py-1.5 px-3 text-[11px] text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
                                                                                         {termBalance > 0 ? fmtAmount(termBalance) : '—'}
                                                                                     </td>
                                                                                 );
                                                                             } else {
-                                                                                termCells.push(<td key={i} className="py-2 px-4 text-right text-gray-400 bg-gray-50/20 text-xs">- - -</td>);
+                                                                                termCells.push(<td key={i} className="py-1.5 px-3 text-right text-gray-400 bg-gray-50/20 text-[11px]">- - -</td>);
                                                                             }
                                                                         }
                                                                         return termCells;
                                                                     })()}
 
-                                                                    <td className="py-2 px-4 text-sm text-right text-green-600 font-mono font-medium">{fmtAmount(fee.paidAmount)}</td>
-                                                                    <td className="py-2 px-4 text-sm text-right text-purple-600 font-mono font-medium">{fmtAmount(fee.concessionAmount)}</td>
-                                                                    <td className="py-2 px-4 text-sm text-right font-bold text-gray-800 font-mono">{fmtAmount(fee.dueAmount)}</td>
-                                                                    <td className="py-2 px-4 text-center">
+                                                                    <td className="py-1.5 px-3 text-xs text-right text-green-600 font-mono font-medium">{fmtAmount(fee.paidAmount)}</td>
+                                                                    <td className="py-1.5 px-3 text-xs text-right text-purple-600 font-mono font-medium">{fmtAmount(fee.concessionAmount)}</td>
+                                                                    <td className="py-1.5 px-3 text-xs text-right font-bold text-gray-800 font-mono">{fmtAmount(fee.dueAmount)}</td>
+                                                                    <td className="py-1.5 px-3 text-center">
                                                                         {fee.isActive === false ? (
-                                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
                                                                                 Inactive
                                                                             </span>
                                                                         ) : isFullyPaid ? (
-                                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800">
                                                                                 Paid
                                                                             </span>
                                                                         ) : isPartial ? (
-                                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-yellow-100 text-yellow-800">
                                                                                 Partial
                                                                             </span>
                                                                         ) : (
                                                                             <div className="flex flex-col items-center">
-                                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800">
                                                                                     Unpaid
                                                                                 </span>
                                                                             </div>
                                                                         )}
                                                                     </td>
                                                                 </tr>
+                                                                {hasDetails && isExpanded && (
+                                                                    <tr className="bg-blue-50/40 border-b border-blue-100/60">
+                                                                        <td colSpan={detailColSpan} className="py-2 px-4">
+                                                                            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Details</div>
+                                                                            <div className="text-[11px] text-gray-700 leading-relaxed whitespace-pre-wrap">
+                                                                                {fee.remarks}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                                </React.Fragment>
                                                             );
                                                         })}
                                                         {/* Total Row */}
                                                         <tr className="bg-gray-50/50 border-t border-gray-200">
-                                                            <td className="py-2.5 px-4" colSpan={4 + maxTerms}>
+                                                            <td className="py-2 px-3" colSpan={4 + maxTerms}>
                                                                 <div className="flex justify-between items-center">
                                                                     {/* Left: Stats */}
-                                                                    <div className="flex flex-wrap gap-2">
+                                                                    <div className="flex flex-wrap gap-1.5">
                                                                         {(() => {
                                                                             const yearBreakdown = displayedFees.reduce((acc, curr) => {
                                                                                 if (Number(curr.dueAmount || 0) > 0) {
@@ -1356,10 +1442,10 @@ const FeeCollection = () => {
 
                                                                             const sortedYears = Object.keys(yearBreakdown).sort((a, b) => Number(a) - Number(b));
 
-                                                                            if (sortedYears.length === 0) return <span className="text-[10px] text-gray-400 italic">No Dues</span>;
+                                                                            if (sortedYears.length === 0) return <span className="text-[9px] text-gray-400 italic">No Dues</span>;
 
                                                                             return sortedYears.map(yr => (
-                                                                                <div key={yr} className="flex items-center text-xs bg-white border border-gray-200 px-2 py-0.5 rounded-full shadow-sm">
+                                                                                <div key={yr} className="flex items-center text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded-full shadow-sm">
                                                                                     <span className="text-gray-500 font-bold mr-1">Yr {yr}:</span>
                                                                                     <span className="font-mono font-medium text-red-600">{fmtAmount(yearBreakdown[yr])}</span>
                                                                                 </div>
@@ -1368,15 +1454,15 @@ const FeeCollection = () => {
                                                                     </div>
 
                                                                     {/* Right: Label */}
-                                                                    <span className="text-sm font-bold text-gray-800 uppercase tracking-wide">
+                                                                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wide">
                                                                         Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):
                                                                     </span>
                                                                 </div>
                                                             </td>
-                                                            <td className="py-2.5 px-4 text-right">
-                                                                <div className="text-base font-extrabold text-red-600 font-mono">{fmtAmount(totalDueAmount)}</div>
+                                                            <td className="py-2 px-3 text-right">
+                                                                <div className="text-sm font-extrabold text-red-600 font-mono">{fmtAmount(totalDueAmount)}</div>
                                                                 {currentViewScholarshipAmount > 0 && (
-                                                                    <div className="text-[10px] text-yellow-600 font-bold mt-0.5">
+                                                                    <div className="text-[9px] text-yellow-600 font-bold mt-0.5">
                                                                         (Sch: {fmtAmount(currentViewScholarshipAmount)})
                                                                     </div>
                                                                 )}
@@ -1392,15 +1478,15 @@ const FeeCollection = () => {
 
                                 {/* Payment History */}
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                            <div className="bg-green-100 p-1.5 rounded text-green-600">
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    <div className="px-5 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                        <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                                            <div className="bg-green-100 p-1 rounded text-green-600">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             </div>
                                             Transaction History
                                         </h3>
-                                        <div className="flex gap-2 text-xs">
-                                            <select className="border border-gray-200 rounded-lg px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm" value={historyFilter.mode} onChange={e => setHistoryFilter({ ...historyFilter, mode: e.target.value })}>
+                                        <div className="flex gap-1.5 text-[11px]">
+                                            <select className="border border-gray-200 rounded-lg px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm text-[11px]" value={historyFilter.mode} onChange={e => setHistoryFilter({ ...historyFilter, mode: e.target.value })}>
                                                 <option value="">All Modes</option>
                                                 <option>Cash</option>
                                                 <option>UPI</option>
@@ -1408,29 +1494,29 @@ const FeeCollection = () => {
                                                 <option>DD</option>
                                                 <option>Waiver</option>
                                             </select>
-                                            <select className="border border-gray-200 rounded-lg px-2 py-1 max-w-[150px] bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm" value={historyFilter.feeHead} onChange={e => setHistoryFilter({ ...historyFilter, feeHead: e.target.value })}>
+                                            <select className="border border-gray-200 rounded-lg px-2 py-1 max-w-[150px] bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm text-[11px]" value={historyFilter.feeHead} onChange={e => setHistoryFilter({ ...historyFilter, feeHead: e.target.value })}>
                                                 <option value="">All Fee Heads</option>
                                                 {uniqueFeeHeads.map(fh => <option key={fh} value={fh}>{fh}</option>)}
                                             </select>
                                         </div>
                                     </div>
                                     <div className="overflow-x-auto max-h-[400px]">
-                                        <table className="w-full text-left">
+                                        <table className="w-full text-left text-xs">
                                             <thead className="bg-gray-50/50 border-b border-gray-100 sticky top-0 z-10">
                                                 <tr>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">Date</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Description</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">Receipt No</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Mode</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Year / Sem</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider text-right">Amount</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Remarks</th>
-                                                    <th className="py-2 px-4 text-[11px] font-bold text-right text-gray-400 uppercase tracking-wider">Action</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">Date</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Description</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">Receipt No</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Mode</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Year / Sem</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Amount</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Remarks</th>
+                                                    <th className="py-1.5 px-3 text-[10px] font-bold text-right text-gray-400 uppercase tracking-wider">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-50">
                                                 {filteredTransactions.length === 0 ? (
-                                                    <tr><td colSpan="8" className="py-8 text-center text-gray-500 italic">No matching transactions found.</td></tr>
+                                                    <tr><td colSpan="8" className="py-6 text-center text-gray-500 italic text-xs">No matching transactions found.</td></tr>
                                                 ) : (
                                                     filteredTransactions.map((t, i) => (
                                                         <TransactionRow
@@ -2146,68 +2232,68 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
 
     return (
         <tr className={`transition-colors group ${isCancelled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'}`}>
-            <td className="py-3 px-4 text-xs text-gray-500 whitespace-nowrap">
+            <td className="py-1.5 px-3 text-[11px] text-gray-500 whitespace-nowrap">
                 {new Date(transaction.createdAt).toLocaleDateString()}
-                <div className="text-[10px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="text-[9px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 {transaction.referenceDate && (
-                    <div className="text-[10px] text-blue-600 mt-1" title="Original Transfer Date">
+                    <div className="text-[9px] text-blue-600 mt-0.5" title="Original Transfer Date">
                         Ref: {new Date(transaction.referenceDate).toLocaleDateString()}
                     </div>
                 )}
             </td>
-            <td className="py-3 px-4 text-xs font-medium text-gray-800">
+            <td className="py-1.5 px-3 text-[11px] font-medium text-gray-800">
                 <span className={isCancelled ? 'line-through text-gray-400' : ''}>{transaction.feeHead ? transaction.feeHead.name : 'Unknown Fee'}</span>
                 {isCancelled && (
-                    <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-600 border border-red-200 uppercase tracking-wide">Cancelled</span>
+                    <span className="ml-1.5 inline-block px-1 py-0.5 rounded text-[8px] font-bold bg-red-100 text-red-600 border border-red-200 uppercase tracking-wide">Cancelled</span>
                 )}
             </td>
-            <td className="py-3 px-4 text-xs text-gray-500 font-mono whitespace-nowrap">
+            <td className="py-1.5 px-3 text-[11px] text-gray-500 font-mono whitespace-nowrap">
                 <span className={isCancelled ? 'line-through text-gray-400' : ''}>{transaction.receiptNumber}</span>
             </td>
-            <td className="py-3 px-4 text-center">
-                <span className="px-2 py-0.5 rounded text-[10px] border border-gray-200 bg-white text-gray-600">
+            <td className="py-1.5 px-3 text-center">
+                <span className="px-1.5 py-0.5 rounded text-[9px] border border-gray-200 bg-white text-gray-600">
                     {transaction.paymentMode}
                 </span>
                 {transaction.referenceNo && (
-                    <div className="text-[10px] text-gray-500 mt-1 max-w-[100px] truncate mx-auto" title={`Ref No: ${transaction.referenceNo}`}>
+                    <div className="text-[9px] text-gray-500 mt-0.5 max-w-[100px] truncate mx-auto" title={`Ref No: ${transaction.referenceNo}`}>
                         {transaction.referenceNo}
                     </div>
                 )}
             </td>
-            <td className="py-3 px-4 text-center text-xs text-gray-500">
+            <td className="py-1.5 px-3 text-center text-[11px] text-gray-500">
                 {transaction.studentYear ? `Yr ${transaction.studentYear}` : '-'}
             </td>
-            <td className={`py-3 px-4 text-xs font-bold text-right font-mono ${isCancelled ? 'line-through text-gray-400' : transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
+            <td className={`py-1.5 px-3 text-[11px] font-bold text-right font-mono ${isCancelled ? 'line-through text-gray-400' : transaction.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-green-600'}`}>
                 {transaction.transactionType === 'CREDIT' ? '-' : '+'}{fmtAmount(transaction.amount)}
             </td>
-            <td className="py-3 px-4 text-xs text-gray-500 max-w-[150px] truncate" title={transaction.remarks}>
+            <td className="py-1.5 px-3 text-[11px] text-gray-500 max-w-[150px] truncate" title={transaction.remarks}>
                 {transaction.remarks || '-'}
             </td>
-            <td className="py-3 px-4 text-right whitespace-nowrap">
+            <td className="py-1.5 px-3 text-right whitespace-nowrap">
                 {showEditButton && (
                     <button
                         onClick={() => onEdit(transaction)}
-                        className="text-amber-600 hover:text-amber-800 hover:bg-amber-50 p-1.5 rounded transition mr-1"
+                        className="text-amber-600 hover:text-amber-800 hover:bg-amber-50 p-1 rounded transition mr-0.5"
                         title="Edit Transaction Payment Mode"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                     </button>
                 )}
                 {showDeleteButton && (
                     <button
                         onClick={() => onDelete(transaction)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition mr-1"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition mr-0.5"
                         title="Delete Transaction"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                     </button>
                 )}
                 <button
                     onClick={() => setShowPreview(true)}
-                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded transition"
+                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded transition"
                     title="Print Receipt"
                 >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
                 </button>
 
                 {/* Hidden Print Template */}

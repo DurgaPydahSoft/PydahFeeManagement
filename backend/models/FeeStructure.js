@@ -59,8 +59,11 @@ const feeStructureSchema = mongoose.Schema({
     amount: { type: Number, required: true },
     // Late Fee Config (per term)
     lateFeeAmount: { type: Number, default: 0 },
-    referenceSemester: { type: Number }, // 1 or 2
+    // 'offset' = semester start + dueOffsetDays; 'fixed' = use fixedDueDate directly
+    dueDateMode: { type: String, enum: ['offset', 'fixed'], default: 'offset' },
+    referenceSemester: { type: Number }, // 1 or 2 (offset mode)
     dueOffsetDays: { type: Number, default: 0 },
+    fixedDueDate: { type: Date }, // fixed mode
     dueDescription: { type: String, default: '' }
   }],
   history: [{

@@ -3,6 +3,36 @@ import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { Calendar, Loader2, Activity, Plus, Pencil, Trash2, X, AlertCircle } from 'lucide-react';
 
+/** Format MySQL DATE without UTC shift (avoids off-by-one in IST). */
+const toDateParts = (value) => {
+    if (value == null || value === '') return null;
+    if (typeof value === 'string') {
+        const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
+    }
+    if (value instanceof Date && !isNaN(value.getTime())) {
+        // mysql2 DATE values are typically midnight UTC for the calendar day
+        return { y: value.getUTCFullYear(), m: value.getUTCMonth() + 1, d: value.getUTCDate() };
+    }
+    const asString = String(value);
+    const match = asString.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
+    return null;
+};
+
+const formatSqlDate = (value, options = { year: 'numeric', month: 'short', day: 'numeric' }) => {
+    const parts = toDateParts(value);
+    if (!parts) return '—';
+    return new Date(parts.y, parts.m - 1, parts.d).toLocaleDateString(undefined, options);
+};
+
+/** Keep YYYY-MM-DD for <input type="date"> without timezone conversion. */
+const toDateInputValue = (value) => {
+    const parts = toDateParts(value);
+    if (!parts) return '';
+    return `${parts.y}-${String(parts.m).padStart(2, '0')}-${String(parts.d).padStart(2, '0')}`;
+};
+
 const AcademicCalendar = () => {
     const [academicYears, setAcademicYears] = useState([]);
     const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
@@ -12,6 +42,7 @@ const AcademicCalendar = () => {
         course: '',
         branch: ''
     });
+    const [hideEmptyDates, setHideEmptyDates] = useState(false);
 
     // Student & Academic Metadata for Filters
     const [studentsMetadata, setStudentsMetadata] = useState({});
@@ -81,6 +112,7 @@ const AcademicCalendar = () => {
         setIsFetchingCalendar(true);
         try {
             const params = new URLSearchParams();
+            if (filters.college) params.append('college', filters.college);
             if (filters.batch) params.append('batch', filters.batch);
             if (filters.course) params.append('course', filters.course);
             const res = await api.get(`/academic-calendar/academic-years?${params.toString()}`);
@@ -107,10 +139,12 @@ const AcademicCalendar = () => {
             setFormData({
                 academic_year_id: entry.academic_year_id || '',
                 course_id: entry.course_id || '',
-                year_of_study: entry.year_of_study.toString(),
-                semester_number: entry.semester_number.toString(),
-                start_date: new Date(entry.start_date).toISOString().split('T')[0],
-                end_date: new Date(entry.end_date).toISOString().split('T')[0]
+                year_of_study: entry.year_of_study != null ? entry.year_of_study.toString() : '1',
+                semester_number: entry.semester_number != null ? entry.semester_number.toString() : '1',
+                start_date: toDateInputValue(entry.start_date),
+                end_date: toDateInputValue(entry.end_date),
+                batch: entry.batch || '',
+                college_id: entry.college_id || ''
             });
         } else {
             setEditingId(null);
@@ -120,7 +154,9 @@ const AcademicCalendar = () => {
                 year_of_study: '1',
                 semester_number: '1',
                 start_date: '',
-                end_date: ''
+                end_date: '',
+                batch: '',
+                college_id: ''
             });
         }
         setError('');
@@ -205,13 +241,20 @@ const AcademicCalendar = () => {
     }, [calendarFilters.college, calendarFilters.course, studentsMetadata]);
 
     const filteredCalendarData = React.useMemo(() => {
-        const collegeCourses = calendarFilters.college && studentsMetadata[calendarFilters.college] 
-            ? Object.keys(studentsMetadata[calendarFilters.college]) 
+        const normalizeBatch = (b) => String(b || '').split('-')[0].trim();
+        const collegeCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
+            ? Object.keys(studentsMetadata[calendarFilters.college])
             : null;
 
         return academicYears.filter(item => {
             const itemBatch = item.batch || item.year_label;
-            if (calendarFilters.batch && String(itemBatch) !== String(calendarFilters.batch)) return false;
+            if (calendarFilters.batch) {
+                const filterBatch = normalizeBatch(calendarFilters.batch);
+                const rowBatch = normalizeBatch(itemBatch);
+                if (rowBatch !== filterBatch && String(itemBatch) !== String(calendarFilters.batch)) {
+                    return false;
+                }
+            }
             if (calendarFilters.course) {
                 if (item.course_name !== calendarFilters.course) return false;
             } else if (collegeCourses) {
@@ -221,9 +264,10 @@ const AcademicCalendar = () => {
                     return false;
                 }
             }
+            if (hideEmptyDates && !item.start_date && !item.end_date) return false;
             return true;
         });
-    }, [academicYears, calendarFilters, studentsMetadata]);
+    }, [academicYears, calendarFilters, studentsMetadata, hideEmptyDates]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -248,7 +292,7 @@ const AcademicCalendar = () => {
 
                 <main className="flex-1 overflow-hidden p-6 pt-2 flex flex-col">
                     {/* Table Filters Bar matching Fee Structures page */}
-                    <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-[1.6fr_1fr_1fr_1fr_auto] gap-3 items-end shadow-xs shrink-0">
+                    <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-[1.6fr_1fr_1fr_1fr_auto_auto] gap-3 items-end shadow-xs shrink-0">
                         <div>
                             <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
                             <select 
@@ -299,6 +343,16 @@ const AcademicCalendar = () => {
                             </select>
                         </div>
 
+                        <label className="flex items-center gap-2 text-[11px] font-bold text-gray-600 cursor-pointer pb-2 whitespace-nowrap">
+                            <input
+                                type="checkbox"
+                                className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                checked={hideEmptyDates}
+                                onChange={e => setHideEmptyDates(e.target.checked)}
+                            />
+                            Hide empty dates
+                        </label>
+
                         <div className="shrink-0">
                             {(calendarFilters.college || calendarFilters.batch || calendarFilters.course || calendarFilters.branch) ? (
                                 <button
@@ -320,51 +374,61 @@ const AcademicCalendar = () => {
                                 <table className="w-full text-left text-xs border-collapse">
                                     <thead className="bg-gray-50/80 border-b border-gray-200 sticky top-0 z-20 shadow-xs">
                                         <tr>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Course</th>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Batch</th>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Year</th>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Semester</th>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Start Date</th>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider">End Date</th>
-                                            <th className="px-6 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">College</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Course</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Batch</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Academic Year</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Year</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Semester</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Start Date</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">End Date</th>
+                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {isFetchingCalendar ? (
                                             Array.from({ length: 5 }).map((_, idx) => (
                                                 <tr key={idx} className="animate-pulse">
-                                                    <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
-                                                    <td className="px-6 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
-                                                    <td className="px-6 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
-                                                    <td className="px-6 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
-                                                    <td className="px-6 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
-                                                    <td className="px-6 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
-                                                    <td className="px-6 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
+                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
+                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
+                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
+                                                    <td className="px-4 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
+                                                    <td className="px-4 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
+                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
+                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
+                                                    <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
                                                 </tr>
                                             ))
                                         ) : filteredCalendarData.length > 0 ? (
                                             filteredCalendarData.map((item) => {
                                                 return (
                                                     <tr key={item.id} className="hover:bg-gray-50/80 transition-colors group text-xs">
-                                                        <td className="px-6 py-3.5 font-semibold text-blue-800">
+                                                        <td className="px-4 py-3.5 text-gray-700 font-medium">
+                                                            {item.college_name || <span className="text-gray-400 italic">No college</span>}
+                                                        </td>
+                                                        <td className="px-4 py-3.5 font-semibold text-blue-800">
                                                             {item.course_name}
                                                         </td>
-                                                        <td className="px-6 py-3.5 font-bold text-gray-900">
-                                                            {item.batch || item.year_label}
+                                                        <td className="px-4 py-3.5 font-bold text-gray-900">
+                                                            {item.batch || '—'}
                                                         </td>
-                                                        <td className="px-6 py-3.5 text-center">
+                                                        <td className="px-4 py-3.5 text-gray-600 font-medium">
+                                                            {item.year_label || '—'}
+                                                        </td>
+                                                        <td className="px-4 py-3.5 text-center">
                                                             <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {item.year_of_study}</span>
                                                         </td>
-                                                        <td className="px-6 py-3.5 text-center">
+                                                        <td className="px-4 py-3.5 text-center">
                                                             <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-md font-bold text-[11px]">Sem {item.semester_number}</span>
                                                         </td>
-                                                        <td className="px-6 py-3.5 text-gray-700 font-medium font-mono">
-                                                            {new Date(item.start_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                                        <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">
+                                                            {formatSqlDate(item.start_date)}
                                                         </td>
-                                                        <td className="px-6 py-3.5 text-gray-700 font-medium font-mono">
-                                                            {new Date(item.end_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                                                        <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">
+                                                            {formatSqlDate(item.end_date)}
                                                         </td>
-                                                        <td className="px-6 py-3.5 text-right">
+                                                        <td className="px-4 py-3.5 text-right">
                                                             <div className="flex justify-end gap-2">
                                                                 <button 
                                                                     onClick={() => handleOpenModal(item)}
@@ -387,7 +451,7 @@ const AcademicCalendar = () => {
                                             })
                                         ) : (
                                             <tr>
-                                                <td colSpan="7" className="px-6 py-16 text-center text-gray-400 italic">
+                                                <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
                                                     <div className="flex flex-col items-center justify-center gap-2">
                                                         <Calendar size={36} className="text-gray-300" />
                                                         <span>No academic calendar records found for selected filters.</span>
