@@ -48,6 +48,11 @@ const feeStructureSchema = mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Fee head under which late fee demands are created (selected in Late Fees config)
+  lateFeeHead: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FeeHead',
+  },
   terms: [{
     termNumber: { type: Number, required: true },
     percentage: { type: Number, required: true },

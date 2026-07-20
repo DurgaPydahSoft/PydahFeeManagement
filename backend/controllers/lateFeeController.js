@@ -1,5 +1,4 @@
 const LateFeeConfig = require('../models/LateFeeConfig');
-const FeeHead = require('../models/FeeHead');
 const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
@@ -60,14 +59,7 @@ const processLateFees = async (req, res) => {
     // 1. Fetch all Fee Structures that have at least one term with a late fee configured
     const structures = await FeeStructure.find({ 
       'terms.lateFeeAmount': { $gt: 0 } 
-    }).populate('feeHead');
-
-    const lateFeeHead = await FeeHead.findOne({ code: 'LF01' });
-
-    if (!lateFeeHead) {
-      if (res) return res.status(500).json({ message: 'Late Fee head (LF01) not found.' });
-      return;
-    }
+    }).populate('feeHead').populate('lateFeeHead');
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -75,15 +67,34 @@ const processLateFees = async (req, res) => {
     const results = [];
 
     for (const struct of structures) {
-      // Fetch semester dates for this struct's context
+      // Use the late fee head saved on the structure (not a hardcoded code)
+      const demandHead = struct.lateFeeHead;
+      if (!demandHead) {
+        console.warn(`Skipping structure ${struct._id}: lateFeeHead not configured`);
+        continue;
+      }
+
+      // semesters.batch stores admission year ("2023"); structure batch may be "2023" or "2023-2027"
+      const batchKey = String(struct.batch || '').split('-')[0].trim();
+      if (!batchKey) continue;
+
+      // Match by course + batch + year_of_study (and college when present on the semester row)
       const query = `
-        SELECT s.student_year, s.semester_number, s.start_date, s.end_date, ay.year_label
+        SELECT s.year_of_study, s.semester_number, s.start_date, s.end_date, s.batch, cl.name as college_name
         FROM semesters s
-        JOIN academic_years ay ON s.academic_year_id = ay.id
         JOIN courses c ON s.course_id = c.id
-        WHERE c.name = ? AND ay.year_label LIKE ?
+        LEFT JOIN colleges cl ON s.college_id = cl.id
+        WHERE c.name = ?
+          AND s.batch = ?
+          AND s.year_of_study = ?
+          AND (cl.name IS NULL OR cl.name = ?)
       `;
-      const [semesters] = await db.query(query, [struct.course, `${struct.batch}%`]);
+      const [semesters] = await db.query(query, [
+        struct.course,
+        batchKey,
+        struct.studentYear,
+        struct.college
+      ]);
 
       for (const term of struct.terms) {
         if (!term.lateFeeAmount || term.lateFeeAmount <= 0) continue;
@@ -93,8 +104,8 @@ const processLateFees = async (req, res) => {
         const targetSem = term.referenceSemester || struct.semester || 1;
         
         const semMatch = semesters.find(s => 
-          Number(s.student_year) === Number(struct.studentYear) && 
-          Number(s.semester_number) === Number(targetSem)
+          Number(s.semester_number) === Number(targetSem) &&
+          s.start_date
         );
 
         if (!semMatch) continue;
@@ -147,7 +158,7 @@ const processLateFees = async (req, res) => {
               // Check if already applied using structureId and termNumber (More robust than checking remarks)
               let existingLateFee = await StudentFee.findOne({
                 studentId: student.admission_number,
-                feeHead: lateFeeHead._id,
+                feeHead: demandHead._id,
                 studentYear: struct.studentYear,
                 semester: struct.semester,
                 structureId: struct._id,
@@ -156,7 +167,7 @@ const processLateFees = async (req, res) => {
               if (!existingLateFee) {
                 existingLateFee = await StudentFee.findOne({
                   studentId: student.admission_number,
-                  feeHead: lateFeeHead._id,
+                  feeHead: demandHead._id,
                   remarks: remarks // Matches the current description exactly
                 });
               }
@@ -165,7 +176,7 @@ const processLateFees = async (req, res) => {
                 await StudentFee.create({
                   studentId: student.admission_number,
                   studentName: student.student_name,
-                  feeHead: lateFeeHead._id,
+                  feeHead: demandHead._id,
                   structureId: struct._id,
                   termNumber: term.termNumber,
                   college: student.college,
