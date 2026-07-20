@@ -5,11 +5,14 @@ const db = require('../config/sqlDb');
 const getAcademicYears = async (req, res) => {
     try {
         const query = `
-            SELECT s.id, s.academic_year_id, s.course_id, ay.year_label, c.name as course_name, s.year_of_study, s.semester_number, s.start_date, s.end_date
+            SELECT s.id, s.academic_year_id, s.course_id, s.college_id, s.batch,
+                   ay.year_label, c.name as course_name, cl.name as college_name,
+                   s.year_of_study, s.semester_number, s.start_date, s.end_date
             FROM semesters s
             JOIN academic_years ay ON s.academic_year_id = ay.id
             JOIN courses c ON s.course_id = c.id
-            ORDER BY ay.year_label DESC, c.name, s.year_of_study, s.semester_number
+            LEFT JOIN colleges cl ON s.college_id = cl.id
+            ORDER BY ay.year_label DESC, c.name, s.batch DESC, s.year_of_study, s.semester_number
         `;
         const [rows] = await db.query(query);
         res.json(rows);

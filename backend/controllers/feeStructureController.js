@@ -229,7 +229,10 @@ const createFeeStructure = async (req, res) => {
 // @route   GET /api/fee-structures
 const getFeeStructures = async (req, res) => {
   try {
-    const structures = await FeeStructure.find().populate('feeHead', 'name code').sort({ createdAt: -1 });
+    const structures = await FeeStructure.find()
+      .populate('feeHead', 'name code')
+      .populate('lateFeeHead', 'name code')
+      .sort({ createdAt: -1 });
     res.json(structures);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -465,7 +468,7 @@ const getStudentFeeDetails = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms, lateFeeHead } = req.body;
   const user = req.user ? req.user.username : 'system';
 
   try {
@@ -482,6 +485,16 @@ const updateFeeStructure = async (req, res) => {
     const fHead = feeHeadId || req.body.feeHead;
     const finalFeeHead = mongoose.Types.ObjectId.isValid(fHead) ? new mongoose.Types.ObjectId(fHead) : (fHead?._id || fHead);
 
+    let finalLateFeeHead = existing.lateFeeHead;
+    if (lateFeeHead !== undefined) {
+      if (!lateFeeHead) {
+        finalLateFeeHead = null;
+      } else {
+        const lfHead = lateFeeHead?._id || lateFeeHead;
+        finalLateFeeHead = mongoose.Types.ObjectId.isValid(lfHead) ? new mongoose.Types.ObjectId(lfHead) : lfHead;
+      }
+    }
+
     const updatedStructure = await FeeStructure.findByIdAndUpdate(
       id,
       {
@@ -497,6 +510,7 @@ const updateFeeStructure = async (req, res) => {
         description,
         isScholarshipApplicable,
         isTermsDivided: isTermsDivided || false,
+        lateFeeHead: finalLateFeeHead,
         terms: (isTermsDivided && terms) ? terms : [],
         $push: { history: historyEntry }
       },

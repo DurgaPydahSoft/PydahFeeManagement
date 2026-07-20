@@ -50,6 +50,7 @@ const FeeConfiguration = () => {
         semester: '',
         categories: [],
         feeHead: '',
+        lateFeeHead: '',
         termMappings: [],
         penaltyType: 'Fixed',
         penaltyValue: 0
@@ -489,31 +490,25 @@ const FeeConfiguration = () => {
     const tableYearsCount = tableMeta ? (tableMeta.total_years || 4) : 4;
     const tableYears = Array.from({ length: tableYearsCount }, (_, i) => i + 1);
 
+    // semesters.batch is admission year ("2023"); fee/student batch may be "2023" or "2023-2027"
+    const normalizeBatch = (batch) => String(batch || '').split('-')[0].trim();
+
     const findCalendarDate = (tm) => {
         if (!lateFeeForm.batch || !lateFeeForm.course || !calendarData.length) return null;
-        const batchYear = parseInt(lateFeeForm.batch.split('-')[0]);
-        if (isNaN(batchYear)) return null;
-
-        const targetStartYear = batchYear + tm.studentYear - 1;
-        const targetEndYear = targetStartYear + 1;
-        const targetLabel = `${targetStartYear}-${targetEndYear}`;
+        const targetBatch = normalizeBatch(lateFeeForm.batch);
+        if (!targetBatch) return null;
 
         const item = calendarData.find(ay =>
-            ay.year_label === targetLabel &&
+            normalizeBatch(ay.batch) === targetBatch &&
             ay.course_name === lateFeeForm.course &&
-            ay.year_number === Number(tm.studentYear) &&
-            (!tm.semester || Number(ay.semester_number) === Number(tm.semester))
+            Number(ay.year_of_study) === Number(tm.studentYear) &&
+            (!tm.semester || Number(ay.semester_number) === Number(tm.semester)) &&
+            (!ay.college_name || !lateFeeForm.college || ay.college_name === lateFeeForm.college) &&
+            (tm.dueEventType === 'END_DATE' ? ay.end_date : ay.start_date)
         );
 
         if (!item) return null;
         return tm.dueEventType === 'START_DATE' ? item.start_date : item.end_date;
-    };
-
-    const findAYLabel = (studentYear) => {
-        if (!lateFeeForm.batch) return '';
-        const batchYear = parseInt(lateFeeForm.batch.split('-')[0]);
-        if (isNaN(batchYear)) return '';
-        return `${batchYear + studentYear - 1}-${batchYear + studentYear}`;
     };
 
     return (
@@ -1221,11 +1216,12 @@ const FeeConfiguration = () => {
                                                 setLateFeeForm({
                                                     ...lateFeeForm,
                                                     feeHead: hId,
+                                                    lateFeeHead: struct.lateFeeHead?._id || struct.lateFeeHead || '',
                                                     termMappings: struct.terms || [],
                                                     _id: struct._id // Store current structure ID
                                                 });
                                             } else {
-                                                setLateFeeForm({ ...lateFeeForm, feeHead: hId, termMappings: [], _id: null });
+                                                setLateFeeForm({ ...lateFeeForm, feeHead: hId, lateFeeHead: '', termMappings: [], _id: null });
                                             }
                                         }}
                                     >
@@ -1325,6 +1321,25 @@ const FeeConfiguration = () => {
                                                     </div>
 
                                                     <div>
+                                                        <label className="text-[10px] font-bold text-gray-400 uppercase">Added Under Fee Head</label>
+                                                        <select
+                                                            className="w-full border border-gray-200 bg-gray-50 rounded-lg p-2 text-sm font-bold text-gray-800 focus:bg-white focus:border-blue-300 outline-none transition-all"
+                                                            value={lateFeeForm.lateFeeHead || ''}
+                                                            onChange={e => setLateFeeForm({ ...lateFeeForm, lateFeeHead: e.target.value })}
+                                                        >
+                                                            <option value="">Select late fee head...</option>
+                                                            {feeHeads
+                                                                .filter(h => /late\s*fee/i.test(`${h.name || ''} ${h.code || ''}`))
+                                                                .map(h => (
+                                                                    <option key={h._id} value={h._id}>
+                                                                        {h.name}{h.code ? ` (${h.code})` : ''}
+                                                                    </option>
+                                                                ))}
+                                                        </select>
+                                                        <p className="text-[9px] text-gray-400 mt-1">Demand is created under this fee head when overdue</p>
+                                                    </div>
+
+                                                    <div>
                                                         <label className="text-[10px] font-bold text-gray-400 uppercase">Late Fee (₹)</label>
                                                         <div className="relative">
                                                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
@@ -1351,7 +1366,7 @@ const FeeConfiguration = () => {
                                     <button
                                         className="bg-white border border-gray-200 text-gray-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all shadow-sm"
                                         onClick={() => {
-                                            setLateFeeForm({ ...lateFeeForm, feeHead: '', termMappings: [], _id: null });
+                                            setLateFeeForm({ ...lateFeeForm, feeHead: '', lateFeeHead: '', termMappings: [], _id: null });
                                         }}
                                     >
                                         Cancel
@@ -1361,6 +1376,10 @@ const FeeConfiguration = () => {
                                         disabled={isSavingLateFee}
                                         onClick={async () => {
                                             if (!lateFeeForm._id) return alert("No structure selected");
+                                            const hasLateFeeAmount = lateFeeForm.termMappings.some(t => Number(t.lateFeeAmount) > 0);
+                                            if (hasLateFeeAmount && !lateFeeForm.lateFeeHead) {
+                                                return alert("Please select the fee head under which late fees should be added");
+                                            }
                                             setIsSavingLateFee(true);
                                             try {
                                                 const originalStruct = structures.find(s => s._id === lateFeeForm._id);
@@ -1368,6 +1387,7 @@ const FeeConfiguration = () => {
                                                     const payload = {
                                                         ...originalStruct,
                                                         feeHead: originalStruct.feeHead?._id || originalStruct.feeHead,
+                                                        lateFeeHead: lateFeeForm.lateFeeHead || null,
                                                         terms: lateFeeForm.termMappings
                                                     };
                                                     await api.put(`/fee-structures/${lateFeeForm._id}`, payload);
