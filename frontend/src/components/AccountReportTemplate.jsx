@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, Fragment } from 'react';
 
 const paymentVisibility = (options = {}) => {
     const { mode = 'all', includeCash, includeBank } = options;
@@ -55,6 +55,85 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     });
     const sortedFeeHeads = Object.values(feeHeadData).sort((a, b) => b.netTotal - a.netTotal);
 
+    // Treat as global when flagged OR when no specific college is bound (e.g. "All Courses")
+    const normalizeScope = (v) => String(v ?? '').trim().toLowerCase();
+    const collegeVal = normalizeScope(data.college);
+    const isScopedCollege = Boolean(
+        collegeVal &&
+        !['n/a', 'na', 'all', 'all colleges', 'any', 'general', 'null', 'undefined'].includes(collegeVal)
+    );
+    const isGlobalAccount = !!data.is_global || !isScopedCollege;
+
+    // College → Course → Fee Head hierarchy for global accounts
+    const collegeHierarchy = {};
+    if (isGlobalAccount) {
+        activeTransactions.forEach(tx => {
+            if (tx.transactionType !== 'DEBIT') return;
+            const collegeName = tx.college || 'Unknown College';
+            const courseName = tx.course || 'Unknown Course';
+            const fhName = tx.feeHead || 'Unknown';
+            const amount = tx.amount || 0;
+            const isCash = tx.paymentMode === 'Cash';
+
+            if (!collegeHierarchy[collegeName]) {
+                collegeHierarchy[collegeName] = {
+                    collegeName,
+                    receiptsCount: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0,
+                    courses: {}
+                };
+            }
+            const collegeEntry = collegeHierarchy[collegeName];
+            collegeEntry.receiptsCount += 1;
+            collegeEntry.netTotal += amount;
+            if (isCash) collegeEntry.cashAmt += amount;
+            else collegeEntry.bankAmt += amount;
+
+            if (!collegeEntry.courses[courseName]) {
+                collegeEntry.courses[courseName] = {
+                    courseName,
+                    receiptsCount: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0,
+                    feeHeads: {}
+                };
+            }
+            const courseEntry = collegeEntry.courses[courseName];
+            courseEntry.receiptsCount += 1;
+            courseEntry.netTotal += amount;
+            if (isCash) courseEntry.cashAmt += amount;
+            else courseEntry.bankAmt += amount;
+
+            if (!courseEntry.feeHeads[fhName]) {
+                courseEntry.feeHeads[fhName] = {
+                    name: fhName,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0
+                };
+            }
+            const fhEntry = courseEntry.feeHeads[fhName];
+            fhEntry.netTotal += amount;
+            if (isCash) fhEntry.cashAmt += amount;
+            else fhEntry.bankAmt += amount;
+        });
+    }
+
+    const sortedColleges = Object.values(collegeHierarchy)
+        .map(college => ({
+            ...college,
+            courses: Object.values(college.courses)
+                .map(course => ({
+                    ...course,
+                    feeHeads: Object.values(course.feeHeads).sort((a, b) => b.netTotal - a.netTotal)
+                }))
+                .sort((a, b) => b.netTotal - a.netTotal)
+        }))
+        .sort((a, b) => b.netTotal - a.netTotal);
+
     // Totals for this account
     const displayData = {
         totalCount: activeTransactions.length,
@@ -93,7 +172,10 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     <strong>Bank/Branch:</strong> {data.bank_name} {data.account_number !== 'N/A' && `(${data.account_number})`}
                 </div>
                 <div>
-                    <strong>Scope:</strong> {data.college !== 'N/A' ? `${data.college} (${data.course})` : 'General/Direct'}
+                    <strong>Scope:</strong>{' '}
+                    {isGlobalAccount
+                        ? 'Global / All Courses'
+                        : `${data.college} (${data.course || 'All Courses'})`}
                 </div>
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
@@ -128,6 +210,74 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                 {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
                                 <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
                                 <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* College → Course → Fee Head (Global accounts only) — before overall fee heads */}
+            {showSummary && isGlobalAccount && sortedColleges.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        College-wise Consolidated Collections
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ width: '5%' }}>S.No</th>
+                                <th style={{ width: '45%' }}>College / Course / Fee Head</th>
+                                <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '13%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '13%' }}>Bank</th>}
+                                <th style={{ textAlign: 'right', width: '14%', fontWeight: 'bold' }}>Collection</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedColleges.map((college, cIdx) => (
+                                <Fragment key={`college-${cIdx}`}>
+                                    <tr className="compact-row" style={{ backgroundColor: '#e8e8e8', fontWeight: 'bold' }}>
+                                        <td style={{ textAlign: 'center' }}>{cIdx + 1}</td>
+                                        <td style={{ textTransform: 'uppercase' }}>{college.collegeName}</td>
+                                        <td style={{ textAlign: 'center' }}>{college.receiptsCount}</td>
+                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(college.cashAmt).toLocaleString()}</td>}
+                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(college.bankAmt).toLocaleString()}</td>}
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(college.netTotal).toLocaleString()}</td>
+                                    </tr>
+                                    {college.courses.map((course, courseIdx) => (
+                                        <Fragment key={`course-${cIdx}-${courseIdx}`}>
+                                            <tr className="compact-row" style={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>
+                                                <td></td>
+                                                <td style={{ paddingLeft: '14px', textTransform: 'uppercase', fontSize: '10px' }}>
+                                                    - {course.courseName}
+                                                </td>
+                                                <td style={{ textAlign: 'center', fontSize: '10px' }}>{course.receiptsCount}</td>
+                                                {showCash && <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(course.cashAmt).toLocaleString()}</td>}
+                                                {showBank && <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(course.bankAmt).toLocaleString()}</td>}
+                                                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '10px' }}>₹{Number(course.netTotal).toLocaleString()}</td>
+                                            </tr>
+                                            {course.feeHeads.map((fh, fhIdx) => (
+                                                <tr key={`fh-${cIdx}-${courseIdx}-${fhIdx}`} className="compact-row">
+                                                    <td></td>
+                                                    <td style={{ paddingLeft: '28px', fontSize: '9px', color: '#333' }}>
+                                                        - {fh.name}
+                                                    </td>
+                                                    <td></td>
+                                                    {showCash && <td style={{ textAlign: 'right', fontSize: '9px' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>}
+                                                    {showBank && <td style={{ textAlign: 'right', fontSize: '9px' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>}
+                                                    <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '9px' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                                </tr>
+                                            ))}
+                                        </Fragment>
+                                    ))}
+                                </Fragment>
+                            ))}
+                            <tr style={{ backgroundColor: '#d0d0d0', fontWeight: 'bold' }}>
+                                <td colSpan={2}>TOTAL</td>
+                                <td style={{ textAlign: 'center' }}>{sortedColleges.reduce((s, c) => s + c.receiptsCount, 0)}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -358,7 +508,7 @@ const AccountGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                                 <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                                 <td style={{ fontWeight: 'bold' }}>{row.account_name}</td>
                                 <td>{row.bank_name} {row.account_number !== 'N/A' && `(${row.account_number})`}</td>
-                                <td style={{ fontSize: '10px' }}>{row.college !== 'N/A' ? `${row.college} - ${row.course}` : 'General / Direct'}</td>
+                                <td style={{ fontSize: '10px' }}>{row.is_global ? 'Global' : (row.college && row.college !== 'N/A' ? `${row.college} - ${row.course}` : 'General / Direct')}</td>
                                 <td style={{ textAlign: 'center' }}>{row.count}</td>
                                 {showCash && <td style={{ textAlign: 'right' }}>₹{Number(row.cashAmount || 0).toLocaleString()}</td>}
                                 {showBank && <td style={{ textAlign: 'right' }}>₹{Number(row.bankAmount || 0).toLocaleString()}</td>}

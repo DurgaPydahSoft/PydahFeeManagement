@@ -3,6 +3,7 @@ const db = require('../config/sqlDb');
 const mongoose = require('mongoose');
 const PDFDocument = require('pdfkit');
 const sendReportEmail = require('../utils/sendReportEmail');
+const campusService = require('./campusService');
 
 /**
  * Compiles aggregated collection summary stats dynamically.
@@ -57,7 +58,7 @@ const compileDailyReportData = async () => {
         }
     }
 
-    // 3. Aggregate collections dynamically by college and course
+    // 3. Aggregate collections dynamically by college (with users) and course
     const collegeGroups = {};
     const globalCourseGroups = {};
 
@@ -69,6 +70,9 @@ const compileDailyReportData = async () => {
         const amount = tx.amount || 0;
         const isDebit = tx.transactionType === 'DEBIT';
         const isCash = tx.paymentMode === 'Cash';
+        const username = tx.collectedBy || 'Unknown';
+        const displayName = tx.collectedByName || tx.collectedBy || 'Unknown';
+        const empNo = tx.empNo || username;
 
         // College-wise aggregation
         if (!collegeGroups[collegeName]) {
@@ -77,19 +81,36 @@ const compileDailyReportData = async () => {
                 receiptsCount: 0,
                 cashAmt: 0,
                 bankAmt: 0,
-                netTotal: 0
+                netTotal: 0,
+                usersMap: {}
             };
         }
 
         const colGroup = collegeGroups[collegeName];
         colGroup.receiptsCount++;
 
+        if (!colGroup.usersMap[username]) {
+            colGroup.usersMap[username] = {
+                username: displayName,
+                empNo,
+                receiptsCount: 0,
+                cashAmt: 0,
+                bankAmt: 0,
+                netTotal: 0
+            };
+        }
+        const userEntry = colGroup.usersMap[username];
+        userEntry.receiptsCount += 1;
+
         if (isDebit) {
             colGroup.netTotal += amount;
+            userEntry.netTotal += amount;
             if (isCash) {
                 colGroup.cashAmt += amount;
+                userEntry.cashAmt += amount;
             } else {
                 colGroup.bankAmt += amount;
+                userEntry.bankAmt += amount;
             }
 
             // Global Course-wise aggregation
@@ -111,14 +132,85 @@ const compileDailyReportData = async () => {
         }
     });
 
+    const collegeSummaries = Object.values(collegeGroups).map(group => {
+        const users = Object.values(group.usersMap || {}).sort((a, b) => b.netTotal - a.netTotal);
+        delete group.usersMap;
+        return { ...group, users };
+    }).sort((a, b) => b.netTotal - a.netTotal);
+
+    // 4. Campus-wise hierarchy (campus → colleges → users)
+    const campusGroups = {};
+    try {
+        const campuses = await campusService.getAllCampuses();
+        const collegeToCampus = {};
+        campuses.forEach(campus => {
+            (campus.colleges || []).forEach(college => {
+                if (college?.name) {
+                    collegeToCampus[String(college.name).trim().toLowerCase()] = {
+                        id: campus.id,
+                        name: campus.name,
+                        code: campus.code
+                    };
+                }
+            });
+        });
+
+        collegeSummaries.forEach(summary => {
+            const key = String(summary.collegeName || '').trim().toLowerCase();
+            const campus = collegeToCampus[key];
+            const campusName = campus ? campus.name : 'Unassigned Campus';
+            const campusCode = campus ? campus.code : '';
+
+            if (!campusGroups[campusName]) {
+                campusGroups[campusName] = {
+                    campusName,
+                    campusCode,
+                    receiptsCount: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0,
+                    colleges: []
+                };
+            }
+            const cg = campusGroups[campusName];
+            cg.receiptsCount += summary.receiptsCount || 0;
+            cg.cashAmt += summary.cashAmt || 0;
+            cg.bankAmt += summary.bankAmt || 0;
+            cg.netTotal += summary.netTotal || 0;
+            cg.colleges.push(summary);
+        });
+    } catch (campusErr) {
+        console.error('[emailReportService] Campus aggregation failed:', campusErr);
+        // Fallback: put all colleges under one unassigned campus bucket
+        campusGroups['Unassigned Campus'] = {
+            campusName: 'Unassigned Campus',
+            campusCode: '',
+            receiptsCount: collegeSummaries.reduce((s, c) => s + (c.receiptsCount || 0), 0),
+            cashAmt: collegeSummaries.reduce((s, c) => s + (c.cashAmt || 0), 0),
+            bankAmt: collegeSummaries.reduce((s, c) => s + (c.bankAmt || 0), 0),
+            netTotal: collegeSummaries.reduce((s, c) => s + (c.netTotal || 0), 0),
+            colleges: collegeSummaries
+        };
+    }
+
+    const campusSummaries = Object.values(campusGroups)
+        .map(campus => ({
+            ...campus,
+            collegesCount: (campus.colleges || []).length,
+            colleges: (campus.colleges || []).sort((a, b) => b.netTotal - a.netTotal)
+        }))
+        .sort((a, b) => b.netTotal - a.netTotal);
+
     return {
-        collegeSummaries: Object.values(collegeGroups),
+        campusSummaries,
+        collegeSummaries,
         globalCourses: Object.values(globalCourseGroups).sort((a, b) => b.netTotal - a.netTotal)
     };
 };
 
 /**
  * Draws a clean, structured table on a PDFKit document.
+ * Supports indented / muted sub-rows via row.isSubRow.
  */
 const drawPdfTableFlex = (doc, startY, headers, rows, columnWidths, alignRight = []) => {
     let currentY = startY;
@@ -164,12 +256,27 @@ const drawPdfTableFlex = (doc, startY, headers, rows, columnWidths, alignRight =
         }
 
         const isTotal = row.isTotal === true;
+        const isSubRow = row.isSubRow === true;
+        const isGroup = row.isGroup === true;
+        const isCampus = row.isCampus === true;
         const cells = row.cells;
 
         if (isTotal) {
             doc.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a');
             doc.strokeColor('#475569').lineWidth(0.8);
             doc.moveTo(40, currentY).lineTo(555, currentY).stroke();
+        } else if (isCampus) {
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
+            doc.fillColor('#1e3a8a');
+            doc.rect(40, currentY, 515, 15).fill();
+            doc.fillColor('#ffffff');
+        } else if (isGroup) {
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a');
+            doc.fillColor('#f1f5f9');
+            doc.rect(40, currentY, 515, 15).fill();
+            doc.fillColor('#0f172a');
+        } else if (isSubRow) {
+            doc.font('Helvetica').fontSize(7.5).fillColor('#475569');
         } else {
             doc.font('Helvetica').fontSize(8).fillColor('#334155');
         }
@@ -178,7 +285,12 @@ const drawPdfTableFlex = (doc, startY, headers, rows, columnWidths, alignRight =
         cells.forEach((cell, cellIdx) => {
             const width = columnWidths[cellIdx];
             const align = alignRight.includes(cellIdx) ? 'right' : 'left';
-            doc.text(String(cell ?? ''), rx, currentY + 4, { width, align });
+            let padLeft = 0;
+            if (isGroup && cellIdx === 1) padLeft = 8;
+            if (isSubRow && cellIdx === 1) padLeft = 18;
+            const textColor = isCampus ? '#ffffff' : null;
+            if (textColor) doc.fillColor(textColor);
+            doc.text(String(cell ?? ''), rx + padLeft, currentY + 4, { width: width - padLeft, align });
             rx += width;
         });
 
@@ -205,7 +317,7 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
 
         // 1. Title Header
         doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e3a8a').text('PYDAH GROUP OF COLLEGES', 40, doc.y, { align: 'center', width: 515 });
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#475569').text('ALL COLLEGES DAILY FEE COLLECTION REPORT', 40, doc.y, { align: 'center', width: 515 });
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#475569').text('CAMPUS-WISE DAILY FEE COLLECTION REPORT', 40, doc.y, { align: 'center', width: 515 });
         doc.moveDown(0.8);
 
         // 2. Info Row
@@ -229,29 +341,38 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
         doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke();
         doc.moveDown(1);
 
-        // 3. College-wise abstract table
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('College-wise Consolidated Collections', 40, doc.y, { align: 'left', width: 515 });
+        let currentY;
+
+        // 3. Campus-wise abstract (summary totals only)
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('Campus-wise Consolidated Abstract', 40, doc.y, { align: 'left', width: 515 });
         doc.moveDown(0.4);
 
-        const collegeHeaders = ['S.No', 'College Name', 'Receipts', 'Cash Amount', 'Bank Amount', 'Net Collection'];
-        const collegeColWidths = [30, 205, 50, 70, 75, 85];
-        const collegeAlignRight = [2, 3, 4, 5];
+        const campusHeaders = ['S.No', 'Campus Name', 'Colleges', 'Receipts', 'Cash Amount', 'Bank Amount', 'Net Collection'];
+        const campusColWidths = [30, 155, 50, 50, 70, 75, 85];
+        const campusAlignRight = [2, 3, 4, 5, 6];
 
-        let totalReceipts = 0;
-        let totalCash = 0;
-        let totalBank = 0;
-        let totalNet = 0;
+        let campusReceipts = 0;
+        let campusCash = 0;
+        let campusBank = 0;
+        let campusNet = 0;
+        let campusColleges = 0;
 
-        const collegeRows = data.collegeSummaries.map((summary, idx) => {
-            totalReceipts += summary.receiptsCount;
-            totalCash += summary.cashAmt;
-            totalBank += summary.bankAmt;
-            totalNet += summary.netTotal;
+        const campusAbstractRows = (data.campusSummaries || []).map((summary, idx) => {
+            campusReceipts += summary.receiptsCount;
+            campusCash += summary.cashAmt;
+            campusBank += summary.bankAmt;
+            campusNet += summary.netTotal;
+            campusColleges += summary.collegesCount || (summary.colleges || []).length || 0;
+
+            const label = summary.campusCode
+                ? `${String(summary.campusName).toUpperCase()} (${summary.campusCode})`
+                : String(summary.campusName).toUpperCase();
 
             return {
                 cells: [
                     idx + 1,
-                    String(summary.collegeName).toUpperCase(),
+                    label,
+                    summary.collegesCount || (summary.colleges || []).length || 0,
                     summary.receiptsCount,
                     `Rs. ${Number(summary.cashAmt).toLocaleString('en-IN')}`,
                     `Rs. ${Number(summary.bankAmt).toLocaleString('en-IN')}`,
@@ -260,8 +381,96 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
             };
         });
 
-        // Add overall total row
-        collegeRows.push({
+        campusAbstractRows.push({
+            isTotal: true,
+            cells: [
+                '',
+                'TOTAL',
+                campusColleges,
+                campusReceipts,
+                `Rs. ${Number(campusCash).toLocaleString('en-IN')}`,
+                `Rs. ${Number(campusBank).toLocaleString('en-IN')}`,
+                `Rs. ${Number(campusNet).toLocaleString('en-IN')}`
+            ]
+        });
+
+        currentY = drawPdfTableFlex(doc, doc.y, campusHeaders, campusAbstractRows, campusColWidths, campusAlignRight);
+        doc.y = currentY + 20;
+
+        // 4. Campus → College → User detail breakdown
+        if (doc.y > 620) {
+            doc.addPage();
+            doc.y = 40;
+        }
+
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('Campus-wise Detail (Campus / College / User)', 40, doc.y, { align: 'left', width: 515 });
+        doc.moveDown(0.4);
+
+        const detailHeaders = ['S.No', 'Campus / College / User', 'Receipts', 'Cash Amount', 'Bank Amount', 'Net Collection'];
+        const detailColWidths = [30, 205, 50, 70, 75, 85];
+        const detailAlignRight = [2, 3, 4, 5];
+
+        let totalReceipts = 0;
+        let totalCash = 0;
+        let totalBank = 0;
+        let totalNet = 0;
+        const detailRows = [];
+
+        (data.campusSummaries || []).forEach((campus, campusIdx) => {
+            totalReceipts += campus.receiptsCount || 0;
+            totalCash += campus.cashAmt || 0;
+            totalBank += campus.bankAmt || 0;
+            totalNet += campus.netTotal || 0;
+
+            const campusLabel = campus.campusCode
+                ? `${String(campus.campusName).toUpperCase()} (${campus.campusCode})`
+                : String(campus.campusName).toUpperCase();
+
+            detailRows.push({
+                isCampus: true,
+                cells: [
+                    campusIdx + 1,
+                    campusLabel,
+                    campus.receiptsCount || 0,
+                    `Rs. ${Number(campus.cashAmt || 0).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(campus.bankAmt || 0).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(campus.netTotal || 0).toLocaleString('en-IN')}`
+                ]
+            });
+
+            (campus.colleges || []).forEach((college, collegeIdx) => {
+                detailRows.push({
+                    isGroup: true,
+                    cells: [
+                        `${campusIdx + 1}.${collegeIdx + 1}`,
+                        String(college.collegeName).toUpperCase(),
+                        college.receiptsCount || 0,
+                        `Rs. ${Number(college.cashAmt || 0).toLocaleString('en-IN')}`,
+                        `Rs. ${Number(college.bankAmt || 0).toLocaleString('en-IN')}`,
+                        `Rs. ${Number(college.netTotal || 0).toLocaleString('en-IN')}`
+                    ]
+                });
+
+                (college.users || []).forEach(user => {
+                    const userLabel = user.empNo
+                        ? `- ${String(user.username).toUpperCase()} (${user.empNo})`
+                        : `- ${String(user.username).toUpperCase()}`;
+                    detailRows.push({
+                        isSubRow: true,
+                        cells: [
+                            '',
+                            userLabel,
+                            user.receiptsCount || 0,
+                            `Rs. ${Number(user.cashAmt || 0).toLocaleString('en-IN')}`,
+                            `Rs. ${Number(user.bankAmt || 0).toLocaleString('en-IN')}`,
+                            `Rs. ${Number(user.netTotal || 0).toLocaleString('en-IN')}`
+                        ]
+                    });
+                });
+            });
+        });
+
+        detailRows.push({
             isTotal: true,
             cells: [
                 '',
@@ -273,10 +482,10 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
             ]
         });
 
-        let currentY = drawPdfTableFlex(doc, doc.y, collegeHeaders, collegeRows, collegeColWidths, collegeAlignRight);
+        currentY = drawPdfTableFlex(doc, doc.y, detailHeaders, detailRows, detailColWidths, detailAlignRight);
         doc.y = currentY + 20;
 
-        // 4. Course-wise Consolidated Collections Table (Flat list of courses)
+        // 5. Course-wise Consolidated Collections Table (Flat list of courses)
         if (doc.y > 600) {
             doc.addPage();
             doc.y = 40;
@@ -324,7 +533,7 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
         currentY = drawPdfTableFlex(doc, doc.y, courseHeaders, courseRows, courseColWidths, courseAlignRight);
         doc.y = currentY + 35;
 
-        // 5. Signatures
+        // 6. Signatures
         if (doc.y > 680) {
             doc.addPage();
             doc.y = 50;
@@ -366,12 +575,12 @@ const sendDailyAllCollegesReportEmail = async (recipients) => {
 
         // Convert the generated PDF buffer to base64 attachment format for Brevo transactional email
         const base64Content = pdfBuffer.toString('base64');
-        const filename = `All_Colleges_Daily_Report_${formattedDate}.pdf`;
+        const filename = `Campus_Wise_Daily_Report_${formattedDate}.pdf`;
 
         const emailOptions = {
             email: recipients,
-            subject: `Daily Collection Report - All Colleges - ${formattedDate}`,
-            message: `Please find attached the All Colleges Daily Collection Report for ${formattedDate}.\n\nThis is an automated system-generated report.`,
+            subject: `Daily Collection Report - Campus Wise - ${formattedDate}`,
+            message: `Please find attached the Campus-wise Daily Fee Collection Report for ${formattedDate}.\n\nThis is an automated system-generated report.`,
             attachments: [
                 {
                     content: base64Content,

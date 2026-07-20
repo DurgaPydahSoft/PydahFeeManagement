@@ -94,7 +94,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 {`
                     @page { size: A4; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 10px; border: 2px solid #000; }
                     .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
@@ -104,14 +104,14 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
 
             {/* Header */}
             <div className="print-header">
-                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
+                <p style={{ margin: '4px 0', fontSize: '11px', fontWeight: 'bold' }}>
                     CASHIER COLLECTION SUMMARY REPORT {selectedGroupName ? `[${selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && mode !== 'none' && `(${mode === 'Online' ? 'BANK / ONLINE' : mode.toUpperCase()})`}
                 </p>
             </div>
 
             {/* Info Row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '12px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '11px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
                 <div>
                     <strong>Cashier:</strong> <span style={{ textTransform: 'uppercase' }}>{typeof data._id === 'string' ? data._id : 'N/A'}</span> {data.empNo && `(${data.empNo})`}
                 </div>
@@ -128,7 +128,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* 1. Overall Summary Section (Abstract - Single Row) */}
             {showSummary && (
                 <div style={{ marginBottom: '20px' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Transaction Summary {mode !== 'all' && `[${mode}]`}
                     </h3>
                     <table className="print-table">
@@ -157,7 +157,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 <div style={{ marginBottom: '25px' }}>
                     {sortedColleges.length > 0 ? (
                         <div>
-                            <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                            <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                                 College-wise Breakdown
                             </h3>
                             <table className="print-table">
@@ -288,7 +288,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 if (feeHeadRows.length === 0) return null;
                 return (
                     <div style={{ marginBottom: '25px' }}>
-                        <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                             Fee Head-wise Collection
                         </h3>
                         <table className="print-table">
@@ -360,10 +360,10 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     <div style={{ marginTop: '20px' }}>
                         {showCash && cashTxs.length > 0 && (
                             <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                                     Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
                                 </h3>
-                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
                                     <tbody>{cashTxs.map(txRow)}</tbody>
                                 </table>
@@ -371,10 +371,10 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         )}
                         {showBank && bankTxs.length > 0 && (
                             <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                                     Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
                                 </h3>
-                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
                                     <tbody>{bankTxs.map(txRow)}</tbody>
                                 </table>
@@ -387,10 +387,10 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Cancelled Transactions Breakdown */}
             {cancelledTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Cancelled Transactions
                     </h3>
-                    <table className="print-table" style={{ fontSize: '8px' }}>
+                    <table className="print-table" style={{ fontSize: '7.5px' }}>
                         <thead>
                             <tr>
                                 <th>S.No</th>
@@ -428,10 +428,10 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Edited Transactions Breakdown */}
             {editedTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Edited Transactions
                     </h3>
-                    <table className="print-table" style={{ fontSize: '8px' }}>
+                    <table className="print-table" style={{ fontSize: '7.5px' }}>
                         <thead>
                             <tr>
                                 <th>S.No</th>
@@ -468,7 +468,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
 
             {/* Footer Signatures — hidden on combined "print all" documents */}
             {!hideSignatures && (
-                <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
                     <div style={{ textAlign: 'center' }}>
                         <p style={{ borderTop: '1px solid #000', width: '120px', paddingTop: '5px' }}>Cashier</p>
                     </div>
@@ -567,7 +567,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 {`
                     @page { size: A4; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 10px; border: 2px solid #000; }
                     .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
@@ -577,14 +577,14 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
             {/* Header */}
             <div className="print-header">
-                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
+                <p style={{ margin: '4px 0', fontSize: '11px', fontWeight: 'bold' }}>
                     ALL CASHIERS DAILY FEE COLLECTION REPORT {selectedGroupName ? `[${selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && mode !== 'none' && `(${mode === 'Online' ? 'BANK / ONLINE' : mode.toUpperCase()})`}
                 </p>
             </div>
 
             {/* Info Row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '12px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '11px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
@@ -595,7 +595,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
             {/* Table 1: Cashier-wise Summary */}
             <div style={{ marginBottom: '25px' }}>
-                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                     Cashier-wise Consolidated Collections
                 </h3>
                 <table className="print-table">
@@ -635,7 +635,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
             {/* Table 2: College-wise Summary */}
             <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                     College-wise Breakdown
                 </h3>
                 <table className="print-table">
