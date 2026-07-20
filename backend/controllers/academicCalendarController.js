@@ -4,17 +4,6 @@ const db = require('../config/sqlDb');
 // @route   GET /api/academic-calendar/academic-years
 const getAcademicYears = async (req, res) => {
     try {
-<<<<<<< HEAD
-        const query = `
-            SELECT s.id, s.academic_year_id, s.course_id, s.college_id, s.batch,
-                   ay.year_label, c.name as course_name, cl.name as college_name,
-                   s.year_of_study, s.semester_number, s.start_date, s.end_date
-            FROM semesters s
-            JOIN academic_years ay ON s.academic_year_id = ay.id
-            JOIN courses c ON s.course_id = c.id
-            LEFT JOIN colleges cl ON s.college_id = cl.id
-            ORDER BY ay.year_label DESC, c.name, s.batch DESC, s.year_of_study, s.semester_number
-=======
         const { college, course, batch } = req.query;
         let query = `
             SELECT 
@@ -35,7 +24,6 @@ const getAcademicYears = async (req, res) => {
             LEFT JOIN courses c ON s.course_id = c.id
             LEFT JOIN colleges cl ON (s.college_id = cl.id OR (s.college_id IS NULL AND c.college_id = cl.id))
             LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
->>>>>>> 2b1694549886cb81f5805e520fb864162ff15fac
         `;
         const conditions = [];
         const params = [];

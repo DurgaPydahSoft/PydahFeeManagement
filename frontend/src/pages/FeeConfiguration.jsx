@@ -524,15 +524,6 @@ const FeeConfiguration = () => {
         return tm.dueEventType === 'START_DATE' ? item.start_date : item.end_date;
     };
 
-<<<<<<< HEAD
-=======
-    const findAYLabel = (studentYear) => {
-        if (!lateFeeForm.batch) return '';
-        const batchYear = parseInt(lateFeeForm.batch.split('-')[0]);
-        if (isNaN(batchYear)) return '';
-        return `${batchYear + studentYear - 1}-${batchYear + studentYear}`;
-    };
-
     const TAB_TITLES = {
         heads: { title: 'Fee Heads', desc: 'Manage fee heads.' },
         groups: { title: 'Fee Groups', desc: 'Manage fee groups and head mappings.' },
@@ -540,7 +531,6 @@ const FeeConfiguration = () => {
         latefees: { title: 'Late Fees', desc: 'Manage late fee rules and penalty settings.' }
     };
 
->>>>>>> 2b1694549886cb81f5805e520fb864162ff15fac
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
