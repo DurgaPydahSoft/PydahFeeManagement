@@ -137,8 +137,12 @@ const renderTemplate = async (templateName, data) => {
         pageTitle = 'Daily_Report';
 
     } else if (templateName === 'fee-configuration-report') {
+        try {
+            delete require.cache[require.resolve('../../frontend/src/components/FeeConfigurationPrint')];
+        } catch (e) {}
+        const DynamicFeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
         const { variant = 'heads', reportData = [], rows = [], tableYears = [1, 2, 3, 4], collegeCodes = {}, filters = {} } = data;
-        const element = React.createElement(FeeConfigurationPrint, {
+        const element = React.createElement(DynamicFeeConfigurationPrint, {
             variant,
             reportData,
             rows,

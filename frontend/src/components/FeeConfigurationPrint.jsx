@@ -2,22 +2,24 @@ import React, { forwardRef } from 'react';
 
 const PRINT_STYLES = `
     @page { size: A4; margin: 10mm; }
-    body { -webkit-print-color-adjust: exact; }
-    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
-    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
-    .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
-    .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
-    .compact-row { line-height: 1.2; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: 'Segoe UI', Arial, sans-serif; }
+    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1.5px solid #0f172a; }
+    .print-table th { background-color: #e2e8f0; color: #0f172a; font-weight: 700; text-transform: uppercase; font-size: 10px; border: 1px solid #475569; padding: 6px 8px; text-align: left; }
+    .print-table td { border: 1px solid #64748b; padding: 6px 8px; vertical-align: top; color: #0f172a; }
+    .print-table tr:nth-child(even) { background-color: #f8fafc; }
+    .print-header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; }
+    .compact-row { line-height: 1.3; }
 `;
 
 const PRINT_STYLES_LANDSCAPE = `
-    @page { size: A4 landscape; margin: 10mm; }
-    body { -webkit-print-color-adjust: exact; }
-    .print-table { width: 100%; border-collapse: collapse; font-size: 10px; border: 2px solid #000; }
-    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
-    .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
-    .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
-    .compact-row { line-height: 1.2; }
+    @page { size: A4 landscape; margin: 8mm; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: 'Segoe UI', Arial, sans-serif; }
+    .print-table { width: 100%; border-collapse: collapse; font-size: 10px; border: 1.5px solid #0f172a; }
+    .print-table th { background-color: #e2e8f0; color: #0f172a; font-weight: 700; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.3px; border: 1px solid #475569; padding: 5px 7px; text-align: left; }
+    .print-table td { border: 1px solid #64748b; padding: 5px 7px; vertical-align: top; color: #0f172a; }
+    .print-table tr:nth-child(even) { background-color: #f8fafc; }
+    .print-header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; }
+    .compact-row { line-height: 1.3; }
 `;
 
 const VARIANT_CONFIG = {
@@ -108,12 +110,38 @@ const FeeGroupsTable = ({ data }) => (
     </table>
 );
 
+const renderYearCell = (items) => {
+    if (!items || items.length === 0) return <span style={{ color: '#94a3b8' }}>-</span>;
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {items.map((item, idx) => (
+                <div key={idx} style={{ fontSize: '9.5px', lineHeight: '1.3' }}>
+                    <div>
+                        {item.semester ? <span style={{ fontWeight: '700', color: '#475569' }}>S{item.semester}: </span> : null}
+                        <span style={{ fontWeight: '700', color: '#0f172a' }}>₹{(item.amount || 0).toLocaleString()}</span>
+                        {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                            <span style={{ marginLeft: '3px', fontSize: '8.5px', fontWeight: '700', color: '#1e40af' }}>
+                                ({item.terms.length} Terms)
+                            </span>
+                        )}
+                    </div>
+                    {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                        <div style={{ fontSize: '8.5px', color: '#475569', paddingLeft: '4px', borderLeft: '1.5px solid #94a3b8', marginTop: '1px' }}>
+                            {item.terms.map(t => `T${t.termNumber}: ₹${(t.amount || 0).toLocaleString()}`).join(', ')}
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+};
+
 const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
     <table className="print-table">
         <thead>
             <tr>
-                <th style={{ width: '18%' }}>Fee Head</th>
-                <th style={{ width: '22%' }}>Context</th>
+                <th style={{ width: '20%' }}>Context</th>
+                <th style={{ width: '22%' }}>Fee Head</th>
                 <th style={{ width: '12%' }}>Category</th>
                 {tableYears.map(y => (
                     <th key={y} style={{ textAlign: 'center' }}>Yr {y}</th>
@@ -122,21 +150,32 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
         </thead>
         <tbody>
             {rows.map((row, idx) => (
-                <tr key={idx} className="compact-row">
-                    <td style={{ fontWeight: 'bold', verticalAlign: 'top' }}>
-                        {row.feeHeadName}
-                        {row.feeHeadCode && <span style={{ fontWeight: 'normal', color: '#4b5563' }}> ({row.feeHeadCode})</span>}
-                        {row.isScholarshipApplicable && <span style={{ marginLeft: '4px', fontSize: '9px' }}>[Scholarship]</span>}
+                <tr key={idx}>
+                    <td>
+                        <div style={{ fontWeight: '700', fontSize: '10.5px', color: '#0f172a' }}>
+                            {(collegeCodes[row.college] || row.college)} - {row.batch}
+                        </div>
+                        <div style={{ color: '#475569', fontSize: '9.5px', marginTop: '1px' }}>
+                            {row.course} - {row.branch}
+                        </div>
                     </td>
-                    <td style={{ verticalAlign: 'top' }}>
-                        <div style={{ fontWeight: 'bold' }}>{row.course} - {row.branch}</div>
-                        <div style={{ textTransform: 'uppercase', color: '#4b5563' }}>{collegeCodes[row.college] || row.college}</div>
-                        <div style={{ fontWeight: 'bold' }}>Batch: {row.batch}</div>
+                    <td>
+                        <div style={{ fontWeight: '700', fontSize: '10.5px', color: '#1e3a8a' }}>
+                            {row.feeHeadName}
+                            {row.feeHeadCode && <span style={{ fontWeight: 'normal', color: '#475569', fontSize: '9.5px' }}> ({row.feeHeadCode})</span>}
+                        </div>
+                        {row.isScholarshipApplicable && (
+                            <div style={{ fontSize: '8.5px', fontWeight: '700', color: '#92400e', marginTop: '2px' }}>
+                                [Scholarship Eligible]
+                            </div>
+                        )}
                     </td>
-                    <td style={{ fontWeight: 'bold', verticalAlign: 'top' }}>{row.category}</td>
+                    <td style={{ fontWeight: '700', color: '#1e293b' }}>
+                        {row.category}
+                    </td>
                     {tableYears.map(y => (
-                        <td key={y} style={{ textAlign: 'center', verticalAlign: 'top' }}>
-                            {formatYearCell(row.years?.[y])}
+                        <td key={y} style={{ textAlign: 'center' }}>
+                            {renderYearCell(row.years?.[y])}
                         </td>
                     ))}
                 </tr>
@@ -159,9 +198,10 @@ const FeeConfigurationPrint = forwardRef(({
     const filterLabels = variant === 'structures'
         ? [
             filters.college && `College: ${filters.college}`,
+            filters.batch && `Batch: ${filters.batch}`,
             filters.course && `Course: ${filters.course}`,
             filters.branch && `Branch: ${filters.branch}`,
-            filters.batch && `Batch: ${filters.batch}`,
+            filters.category && `Category: ${filters.category}`,
             filters.feeHeadName && `Fee Head: ${filters.feeHeadName}`,
         ].filter(Boolean)
         : [];
