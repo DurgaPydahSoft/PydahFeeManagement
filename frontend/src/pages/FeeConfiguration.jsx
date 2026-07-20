@@ -822,7 +822,7 @@ const FeeConfiguration = () => {
                         {/* Full-width Fee Templates Table Card */}
                         <div className="w-full bg-white p-5 md:p-6 rounded-xl shadow-sm border border-gray-100">
                             {/* Table Filters Bar */}
-                            <div className="bg-gray-50/90 p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 items-end">
+                            <div className="bg-gray-50/90 p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1fr_1fr_auto] gap-3 items-end">
                                 <div>
                                     <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
                                     <select 
@@ -897,17 +897,17 @@ const FeeConfiguration = () => {
                                     </select>
                                 </div>
 
-                                <div>
+                                <div className="shrink-0">
                                     {(tableFilters.college || tableFilters.batch || tableFilters.course || tableFilters.branch || tableFilters.category || tableFilters.feeHeadId) ? (
                                         <button
                                             type="button"
                                             onClick={() => setTableFilters({ college: '', batch: '', course: '', branch: '', category: '', feeHeadId: '' })}
-                                            className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold py-2 px-3 rounded-lg transition text-center"
+                                            className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold rounded-lg transition text-center shrink-0 w-auto"
                                         >
-                                            Reset Filters
+                                           Clear
                                         </button>
                                     ) : (
-                                        <div className="text-[11px] text-gray-400 font-medium py-2 px-1 text-center italic">No filters active</div>
+                                        <div className="text-[11px] text-gray-400 font-medium py-2 px-1 text-center italic whitespace-nowrap">No filters active</div>
                                     )}
                                 </div>
                             </div>
@@ -916,8 +916,8 @@ const FeeConfiguration = () => {
                                 <table className="w-full text-left text-sm border-collapse">
                                     <thead className="bg-gray-50/80 border-b border-gray-100 text-gray-600 font-semibold">
                                         <tr>
-                                            <th className="p-3">Fee Head</th>
                                             <th className="p-3">Context</th>
+                                            <th className="p-3">Fee Head</th>
                                             <th className="p-3">Category</th>
                                             {tableYears.map(y => (
                                                 <th key={y} className="p-3 text-center">Yr {y}</th>
@@ -929,8 +929,8 @@ const FeeConfiguration = () => {
                                         {isLoadingStructures ? (
                                             Array.from({ length: 5 }).map((_, idx) => (
                                                 <tr key={idx} className="animate-pulse">
+                                                    <td className="p-3"><div className="h-4 bg-slate-200 rounded w-36 mb-1"></div><div className="h-3 bg-slate-100 rounded w-24"></div></td>
                                                     <td className="p-3"><div className="h-4 bg-slate-200 rounded w-28 mb-1"></div><div className="h-3 bg-slate-100 rounded w-16"></div></td>
-                                                    <td className="p-3"><div className="h-4 bg-slate-200 rounded w-36 mb-1"></div><div className="h-3 bg-slate-100 rounded w-20 mb-1"></div><div className="h-3 bg-slate-100 rounded w-24"></div></td>
                                                     <td className="p-3"><div className="h-6 bg-slate-200 rounded-full w-20"></div></td>
                                                     {tableYears.map(y => (
                                                         <td key={y} className="p-3 text-center"><div className="h-8 bg-slate-100 rounded-lg w-16 mx-auto"></div></td>
@@ -953,16 +953,15 @@ const FeeConfiguration = () => {
                                         ) : (
                                             groupedArray.map((row, i) => (
                                                 <tr key={i} className="hover:bg-gray-50/70 transition-colors group/row">
-                                                    <td className="p-3 font-medium text-blue-800 relative">
-                                                        {row.feeHeadName} <span className="text-xs text-gray-400">({row.feeHeadCode || '-'})</span>
-                                                        {row.isScholarshipApplicable && (
-                                                            <span title="Scholarship Eligible" className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200">🎓</span>
-                                                        )}
+                                                    <td className="p-3 text-xs text-gray-700">
+                                                        <div className="font-bold text-gray-900">{collegeCodes[row.college] || row.college} - {row.batch}</div>
+                                                        <div className="text-gray-500 font-medium mt-0.5">{row.course} - {row.branch}</div>
                                                     </td>
-                                                    <td className="p-3 text-xs text-gray-500">
-                                                        <div className="font-bold text-gray-800">{row.course} - {row.branch}</div>
-                                                        <div className="text-[10px] uppercase bg-gray-100 text-gray-600 font-semibold w-fit px-1.5 py-0.5 rounded mt-0.5">{collegeCodes[row.college] || row.college}</div>
-                                                        <div className="mt-1 text-gray-700 font-semibold">Batch: {row.batch}</div>
+                                                    <td className="p-3 font-semibold text-blue-800 text-sm relative">
+                                                        {row.feeHeadName} <span className="text-xs text-gray-400 font-normal">({row.feeHeadCode || '-'})</span>
+                                                        {row.isScholarshipApplicable && (
+                                                            <span title="Scholarship Eligible" className="ml-1.5 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 font-normal">🎓</span>
+                                                        )}
                                                     </td>
                                                     <td className="p-3">
                                                         <span className="bg-purple-100 text-purple-800 text-xs px-2.5 py-1 rounded-full font-medium">{row.category}</span>

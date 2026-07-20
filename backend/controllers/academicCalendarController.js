@@ -4,14 +4,50 @@ const db = require('../config/sqlDb');
 // @route   GET /api/academic-calendar/academic-years
 const getAcademicYears = async (req, res) => {
     try {
-        const query = `
-            SELECT s.id, s.academic_year_id, s.course_id, ay.year_label, c.name as course_name, s.year_of_study, s.semester_number, s.start_date, s.end_date
+        const { college, course, batch } = req.query;
+        let query = `
+            SELECT 
+                s.id, 
+                s.college_id, 
+                s.course_id, 
+                s.academic_year_id, 
+                s.batch,
+                s.year_of_study, 
+                s.semester_number, 
+                s.start_date, 
+                s.end_date,
+                cl.name as college_name,
+                cl.code as college_code,
+                c.name as course_name,
+                ay.year_label
             FROM semesters s
-            JOIN academic_years ay ON s.academic_year_id = ay.id
-            JOIN courses c ON s.course_id = c.id
-            ORDER BY ay.year_label DESC, c.name, s.year_of_study, s.semester_number
+            LEFT JOIN courses c ON s.course_id = c.id
+            LEFT JOIN colleges cl ON (s.college_id = cl.id OR (s.college_id IS NULL AND c.college_id = cl.id))
+            LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
         `;
-        const [rows] = await db.query(query);
+        const conditions = [];
+        const params = [];
+
+        if (college) {
+            conditions.push('(cl.name = ? OR cl.code = ?)');
+            params.push(college, college);
+        }
+        if (batch) {
+            conditions.push('(s.batch = ? OR ay.year_label = ?)');
+            params.push(batch, batch);
+        }
+        if (course) {
+            conditions.push('c.name = ?');
+            params.push(course);
+        }
+
+        if (conditions.length > 0) {
+            query += ` WHERE ${conditions.join(' AND ')}`;
+        }
+
+        query += ` ORDER BY s.batch DESC, ay.year_label DESC, c.name, s.year_of_study, s.semester_number`;
+
+        const [rows] = await db.query(query, params);
         res.json(rows);
     } catch (error) {
         console.error('Error fetching academic years:', error);
@@ -35,18 +71,18 @@ const getCalendarMetadata = async (req, res) => {
 // @desc    Create a new Academic Calendar record (Semester)
 // @route   POST /api/academic-calendar/academic-years
 const createAcademicYear = async (req, res) => {
-    const { academic_year_id, course_id, year_of_study, semester_number, start_date, end_date } = req.body;
+    const { academic_year_id, course_id, year_of_study, semester_number, start_date, end_date, batch, college_id } = req.body;
     
-    if (!academic_year_id || !course_id || !year_of_study || !semester_number || !start_date || !end_date) {
+    if (!academic_year_id || !course_id || !year_of_study || !semester_number) {
         return res.status(400).json({ message: 'Missing required fields' });
     }
 
     try {
         const query = `
-            INSERT INTO semesters (academic_year_id, course_id, year_of_study, semester_number, start_date, end_date)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO semesters (academic_year_id, course_id, year_of_study, semester_number, start_date, end_date, batch, college_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        const [result] = await db.query(query, [academic_year_id, course_id, year_of_study, semester_number, start_date, end_date]);
+        const [result] = await db.query(query, [academic_year_id, course_id, year_of_study, semester_number, start_date || null, end_date || null, batch || null, college_id || null]);
         res.status(201).json({ id: result.insertId, message: 'Calendar entry created successfully' });
     } catch (error) {
         console.error('Error creating academic year:', error);
@@ -58,15 +94,15 @@ const createAcademicYear = async (req, res) => {
 // @route   PUT /api/academic-calendar/academic-years/:id
 const updateAcademicYear = async (req, res) => {
     const { id } = req.params;
-    const { academic_year_id, course_id, year_of_study, semester_number, start_date, end_date } = req.body;
+    const { academic_year_id, course_id, year_of_study, semester_number, start_date, end_date, batch, college_id } = req.body;
 
     try {
         const query = `
             UPDATE semesters 
-            SET academic_year_id = ?, course_id = ?, year_of_study = ?, semester_number = ?, start_date = ?, end_date = ?
+            SET academic_year_id = ?, course_id = ?, year_of_study = ?, semester_number = ?, start_date = ?, end_date = ?, batch = ?, college_id = ?
             WHERE id = ?
         `;
-        await db.query(query, [academic_year_id, course_id, year_of_study, semester_number, start_date, end_date, id]);
+        await db.query(query, [academic_year_id, course_id, year_of_study, semester_number, start_date || null, end_date || null, batch || null, college_id || null, id]);
         res.json({ message: 'Calendar entry updated successfully' });
     } catch (error) {
         console.error('Error updating academic year:', error);
