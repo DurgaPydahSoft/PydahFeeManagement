@@ -65,13 +65,28 @@ const Sidebar = () => {
         { name: 'Email Reports',           hash: 'email-reports' },
     ];
 
+    // Fee Configuration sub-items (hash-based navigation within /fee-config)
+    const FEE_CONFIG_SUB_ITEMS = [
+        { name: 'Fee Heads',     hash: 'heads' },
+        { name: 'Fee Groups',    hash: 'groups' },
+        { name: 'Fee Structures',hash: 'definitions' },
+        { name: 'Late Fees',     hash: 'latefees' },
+    ];
+
     const isSettingsActive = location.pathname === '/settings';
     const [settingsExpanded, setSettingsExpanded] = React.useState(isSettingsActive);
 
-    // Auto-expand settings group when navigating to /settings
+    const isFeeConfigActive = location.pathname === '/fee-config';
+    const [feeConfigExpanded, setFeeConfigExpanded] = React.useState(isFeeConfigActive);
+
+    // Auto-expand groups when navigating to their respective routes
     React.useEffect(() => {
         if (isSettingsActive) setSettingsExpanded(true);
     }, [isSettingsActive]);
+
+    React.useEffect(() => {
+        if (isFeeConfigActive) setFeeConfigExpanded(true);
+    }, [isFeeConfigActive]);
 
     const settingsIcon = <svg className="w-5 h-5 icon-settings transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
@@ -94,7 +109,7 @@ const Sidebar = () => {
         { section: 'Reports', name: 'Due Reports', path: '/due-reports', icon: icons.DueReports },
 
         // Configuration
-        { section: 'Configuration', name: 'Fee Configuration', path: '/fee-config', icon: icons.Config },
+        { section: 'Configuration', name: '__FEE_CONFIG__', path: '/fee-config', icon: icons.Config },
         { section: 'Configuration', name: 'Payment Config', path: '/payment-config', icon: icons.PaymentConfig },
         { section: 'Configuration', name: '__SETTINGS__', path: '/settings', icon: settingsIcon },
         { section: 'Configuration', name: 'Reminder Config', path: '/reminders', icon: icons.Reminders },
@@ -196,6 +211,59 @@ const Sidebar = () => {
                         )}
                         <div className="space-y-0.5">
                             {(Array.isArray(items) ? items : []).map((item, index) => {
+                                // ── Special: Fee Configuration expandable group ──
+                                if (item.name === '__FEE_CONFIG__') {
+                                    const isActive = isFeeConfigActive;
+                                    return (
+                                        <div key={index}>
+                                            <button
+                                                onClick={() => {
+                                                    if (isCollapsed) {
+                                                        expandSidebar();
+                                                    }
+                                                    setFeeConfigExpanded(prev => !prev);
+                                                }}
+                                                className={`sidebar-link w-full flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                                    isActive
+                                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
+                                                        : 'text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                } ${isCollapsed ? 'justify-center' : ''}`}
+                                                title={isCollapsed ? 'Fee Configuration' : ''}
+                                            >
+                                                <span className={`text-xl shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`}>{item.icon}</span>
+                                                {!isCollapsed && (
+                                                    <>
+                                                        <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Fee Configuration</span>
+                                                        <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${feeConfigExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+                                                    </>
+                                                )}
+                                            </button>
+                                            {/* Sub-items */}
+                                            {!isCollapsed && feeConfigExpanded && (
+                                                <div className="ml-3 mt-0.5 pl-3 border-l border-indigo-100 space-y-0.5">
+                                                    {FEE_CONFIG_SUB_ITEMS.map(sub => {
+                                                        const subActive = isFeeConfigActive && (location.hash === `#${sub.hash}` || (!location.hash && sub.hash === 'heads'));
+                                                        return (
+                                                            <Link
+                                                                key={sub.hash}
+                                                                to={`/fee-config#${sub.hash}`}
+                                                                className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                                                    subActive
+                                                                        ? 'bg-blue-50 text-blue-700 font-bold'
+                                                                        : 'text-slate-500 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                                }`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full mr-2 shrink-0 ${subActive ? 'bg-blue-600' : 'bg-slate-300'}`}></span>
+                                                                {sub.name}
+                                                            </Link>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }
+
                                 // ── Special: Settings expandable group ──────
                                 if (item.name === '__SETTINGS__') {
                                     const isActive = isSettingsActive;
@@ -207,9 +275,6 @@ const Sidebar = () => {
                                                         expandSidebar();
                                                     }
                                                     setSettingsExpanded(prev => !prev);
-                                                    if (!isSettingsActive) {
-                                                        window.location.href = '/settings#appearance';
-                                                    }
                                                 }}
                                                 className={`sidebar-link w-full flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                                                     isActive
@@ -222,7 +287,7 @@ const Sidebar = () => {
                                                 {!isCollapsed && (
                                                     <>
                                                         <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Settings</span>
-                                                        <svg className={`w-3.5 h-3.5 transition-transform ${settingsExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+                                                        <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${settingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
                                                     </>
                                                 )}
                                             </button>
@@ -230,7 +295,7 @@ const Sidebar = () => {
                                             {!isCollapsed && settingsExpanded && (
                                                 <div className="ml-3 mt-0.5 pl-3 border-l border-indigo-100 space-y-0.5">
                                                     {SETTINGS_SUB_ITEMS.map(sub => {
-                                                        const subActive = isSettingsActive && location.hash === `#${sub.hash}`;
+                                                        const subActive = isSettingsActive && (location.hash === `#${sub.hash}` || (!location.hash && sub.hash === 'appearance'));
                                                         return (
                                                             <Link
                                                                 key={sub.hash}

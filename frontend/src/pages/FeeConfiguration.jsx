@@ -1,11 +1,30 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
 
 const FeeConfiguration = () => {
-    const [activeTab, setActiveTab] = useState('heads'); // heads, groups, definitions, latefees
+    const location = useLocation();
+    const VALID_TABS = ['heads', 'groups', 'definitions', 'latefees'];
+
+    const getTabFromHash = (hash) => {
+        const cleaned = (hash || '').replace('#', '');
+        return VALID_TABS.includes(cleaned) ? cleaned : 'heads';
+    };
+
+    const [activeTab, setActiveTab] = useState(() => getTabFromHash(location.hash));
+
+    useEffect(() => {
+        const tab = getTabFromHash(location.hash);
+        setActiveTab(tab);
+    }, [location.hash]);
+
+    const handleTabChange = (tabId) => {
+        setActiveTab(tabId);
+        window.location.hash = tabId;
+    };
 
     // --- SHARED STATE ---
     const [feeHeads, setFeeHeads] = useState([]);
@@ -501,39 +520,11 @@ const FeeConfiguration = () => {
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6">
-                {/* Header & Tabs Row */}
+                {/* Header Row */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 pb-2 border-b border-gray-200 gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-800">Fee Configuration</h1>
-                        <p className="text-sm text-gray-500 mt-1">Manage fee heads and structure definitions.</p>
-                    </div>
-
-                    {/* TABS */}
-                    <div className="flex space-x-2 md:space-x-4">
-                        <button 
-                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'heads' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
-                            onClick={() => setActiveTab('heads')}
-                        >
-                            1. Fee Heads
-                        </button>
-                        <button 
-                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'groups' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
-                            onClick={() => setActiveTab('groups')}
-                        >
-                            2. Fee Groups
-                        </button>
-                        <button 
-                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'definitions' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
-                            onClick={() => setActiveTab('definitions')}
-                        >
-                            3. Fee Structures (Definitions)
-                        </button>
-                        <button 
-                            className={`pb-2 px-3 md:px-4 font-medium text-xs md:text-sm transition ${activeTab === 'latefees' ? 'text-blue-600 border-b-2 border-blue-600 -mb-[10px]' : 'text-gray-500 hover:text-gray-700'}`} 
-                            onClick={() => setActiveTab('latefees')}
-                        >
-                            4. Late Fees
-                        </button>
+                        <p className="text-sm text-gray-500 mt-1">Manage fee heads, groups, structure definitions, and late fees.</p>
                     </div>
                 </div>
 
