@@ -64,6 +64,16 @@ const FeeConfiguration = () => {
 
     // --- TAB 2: DEFINITIONS (Fee Structures) ---
     const [structures, setStructures] = useState([]);
+    const [isLoadingStructures, setIsLoadingStructures] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [tableFilters, setTableFilters] = useState({
+        college: '',
+        batch: '',
+        course: '',
+        branch: '',
+        category: '',
+        feeHeadId: ''
+    });
     const [structForm, setStructForm] = useState({
         feeHeadId: '', college: '', course: '', branch: '',
         batch: '', categories: [], studentYear: '', amount: '', // Replaced category with categories
@@ -138,10 +148,12 @@ const FeeConfiguration = () => {
     };
 
     const fetchStructures = async () => {
+        setIsLoadingStructures(true);
         try {
             const response = await api.get(`/fee-structures`);
             setStructures(response.data);
         } catch (error) { console.error(error); }
+        finally { setIsLoadingStructures(false); }
     };
 
 
@@ -369,6 +381,7 @@ const FeeConfiguration = () => {
             setBulkAmounts({});
             setEditingId(null);
             setIsEditingContext(false);
+            setIsModalOpen(false);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) { setMessage(error.response?.data?.message || 'Error saving structure'); }
         finally { setIsSavingDefinition(false); }
@@ -417,7 +430,7 @@ const FeeConfiguration = () => {
 
         setEditingId(null);
         setIsEditingContext(true);
-        window.scrollTo(0, 0);
+        setIsModalOpen(true);
         setMessage('Context loaded. Use "All Years" to edit multiple years at once.');
     };
 
@@ -439,6 +452,7 @@ const FeeConfiguration = () => {
         setBulkAmounts({});
         setBulkTerms({});
         setIsEditingContext(false);
+        setIsModalOpen(false);
         setMessage('');
     };
 
@@ -455,13 +469,13 @@ const FeeConfiguration = () => {
     // Definitions Grouping
     const grouped = {};
     structures.filter(s => {
-        // Dynamic Filtering based on Form Selections
-        if (structForm.college && s.college !== structForm.college) return false;
-        if (structForm.course && s.course !== structForm.course) return false;
-        if (structForm.branch && s.branch !== structForm.branch) return false;
-        if (structForm.feeHeadId && s.feeHead?._id !== structForm.feeHeadId) return false; // Filter by Fee Head
-        // Handle Batch Filtering: structForm.batch might be '2022-2026', s.batch might be same
-        if (structForm.batch && String(s.batch) !== String(structForm.batch)) return false;
+        // Dynamic Filtering based on Table Filters
+        if (tableFilters.college && s.college !== tableFilters.college) return false;
+        if (tableFilters.batch && String(s.batch) !== String(tableFilters.batch)) return false;
+        if (tableFilters.course && s.course !== tableFilters.course) return false;
+        if (tableFilters.branch && s.branch !== tableFilters.branch) return false;
+        if (tableFilters.category && s.category !== tableFilters.category) return false;
+        if (tableFilters.feeHeadId && s.feeHead?._id !== tableFilters.feeHeadId) return false;
 
         return true;
     }).forEach(st => {
@@ -483,9 +497,8 @@ const FeeConfiguration = () => {
     });
     const groupedArray = Object.values(grouped);
 
-    // Calculate dynamic years for the Table
-    // If a specific course is filtered (via Form), use its duration. Else default to 4.
-    const tableMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
+    // Calculate dynamic years for the Table based on Table Filters
+    const tableMeta = (tableFilters.college && tableFilters.course) ? metadata[tableFilters.college]?.[tableFilters.course] : null;
     const tableYearsCount = tableMeta ? (tableMeta.total_years || 4) : 4;
     const tableYears = Array.from({ length: tableYearsCount }, (_, i) => i + 1);
 
@@ -516,16 +529,60 @@ const FeeConfiguration = () => {
         return `${batchYear + studentYear - 1}-${batchYear + studentYear}`;
     };
 
+    const TAB_TITLES = {
+        heads: { title: 'Fee Heads', desc: 'Manage fee heads.' },
+        groups: { title: 'Fee Groups', desc: 'Manage fee groups and head mappings.' },
+        definitions: { title: 'Fee Structures', desc: 'Manage fee structure definitions.' },
+        latefees: { title: 'Late Fees', desc: 'Manage late fee rules and penalty settings.' }
+    };
+
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-4 md:p-6">
                 {/* Header Row */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 pb-2 border-b border-gray-200 gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 pb-2 border-b border-gray-200 gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-800">Fee Configuration</h1>
-                        <p className="text-sm text-gray-500 mt-1">Manage fee heads, groups, structure definitions, and late fees.</p>
+                        <h1 className="text-2xl font-bold text-gray-800">
+                            Fee Configuration {TAB_TITLES[activeTab] ? `- ${TAB_TITLES[activeTab].title}` : ''}
+                        </h1>
+                        <p className="text-sm text-gray-500 mt-1">
+                            {TAB_TITLES[activeTab]?.desc || 'Manage fee configuration settings.'}
+                        </p>
                     </div>
+                    {activeTab === 'definitions' && (
+                        <div className="flex items-center gap-3 shrink-0 self-start sm:self-auto">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    handleCancelEditContext();
+                                    setIsModalOpen(true);
+                                }}
+                                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs md:text-sm font-bold px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all duration-200 flex items-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                                Create Fee Structure
+                            </button>
+                            <FeeConfigPrintButton
+                                variant="structures"
+                                data={{
+                                    rows: groupedArray,
+                                    tableYears,
+                                    collegeCodes,
+                                    filters: {
+                                        college: tableFilters.college || '',
+                                        course: tableFilters.course || '',
+                                        branch: tableFilters.branch || '',
+                                        batch: tableFilters.batch || '',
+                                        category: tableFilters.category || '',
+                                        feeHeadName: feeHeads.find(h => h._id === tableFilters.feeHeadId)?.name || '',
+                                    }
+                                }}
+                                label="Print"
+                                disabled={groupedArray.length === 0}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
@@ -761,367 +818,507 @@ const FeeConfiguration = () => {
 
                 {/* --- TAB 2: DEFINITIONS --- */}
                 {activeTab === 'definitions' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 transition-all duration-500 ease-in-out">
-                        {/* Edit Form (Simplified for brevity, logic same as before) */}
-                        <div className={`bg-white p-5 rounded-lg shadow-sm border border-gray-100 h-fit transition-all duration-500 ease-in-out ${(editingId || isEditingContext) ? 'lg:col-span-2' : 'lg:col-span-1'}`}>
-                            <div className="flex justify-between mb-3">
-                                <h2 className="font-semibold text-gray-800">
-                                    {(editingId || isEditingContext) ? 'Edit Standard Fees' : 'Define Standard Fees'}
-                                </h2>
-                                {(editingId || isEditingContext) && (
-                                    <button 
-                                        type="button" 
-                                        onClick={editingId ? () => setEditingId(null) : handleCancelEditContext} 
-                                        className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded transition font-medium"
+                    <div className="space-y-6">
+                        {/* Full-width Fee Templates Table Card */}
+                        <div className="w-full bg-white p-5 md:p-6 rounded-xl shadow-sm border border-gray-100">
+                            {/* Table Filters Bar */}
+                            <div className="bg-gray-50/90 p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 items-end">
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                        value={tableFilters.college} 
+                                        onChange={e => setTableFilters({ ...tableFilters, college: e.target.value, course: '', branch: '' })}
                                     >
-                                        Cancel
-                                    </button>
-                                )}
+                                        <option value="">All Colleges</option>
+                                        {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Batch</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                        value={tableFilters.batch} 
+                                        onChange={e => setTableFilters({ ...tableFilters, batch: e.target.value })}
+                                    >
+                                        <option value="">All Batches</option>
+                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Course</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" 
+                                        value={tableFilters.course} 
+                                        onChange={e => setTableFilters({ ...tableFilters, course: e.target.value, branch: '' })}
+                                        disabled={!tableFilters.college}
+                                    >
+                                        <option value="">All Courses</option>
+                                        {(tableFilters.college ? Object.keys(metadata[tableFilters.college] || {}) : []).map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Branch</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" 
+                                        value={tableFilters.branch} 
+                                        onChange={e => setTableFilters({ ...tableFilters, branch: e.target.value })}
+                                        disabled={!tableFilters.course}
+                                    >
+                                        <option value="">All Branches</option>
+                                        {(tableFilters.college && tableFilters.course ? (metadata[tableFilters.college]?.[tableFilters.course]?.branches || []) : []).map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Category</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                        value={tableFilters.category} 
+                                        onChange={e => setTableFilters({ ...tableFilters, category: e.target.value })}
+                                    >
+                                        <option value="">All Categories</option>
+                                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Fee Head</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                        value={tableFilters.feeHeadId} 
+                                        onChange={e => setTableFilters({ ...tableFilters, feeHeadId: e.target.value })}
+                                    >
+                                        <option value="">All Fee Heads</option>
+                                        {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    {(tableFilters.college || tableFilters.batch || tableFilters.course || tableFilters.branch || tableFilters.category || tableFilters.feeHeadId) ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setTableFilters({ college: '', batch: '', course: '', branch: '', category: '', feeHeadId: '' })}
+                                            className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold py-2 px-3 rounded-lg transition text-center"
+                                        >
+                                            Reset Filters
+                                        </button>
+                                    ) : (
+                                        <div className="text-[11px] text-gray-400 font-medium py-2 px-1 text-center italic">No filters active</div>
+                                    )}
+                                </div>
                             </div>
-                            <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
-                                {/* Context Selection */}
 
-                                {/* Row 1: Primary Filters (College, Batch) */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="group">
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">College</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '', categories: [] }); }} required>
-                                            <option value="">Select College</option>
-                                            {colleges.map(c => <option key={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="group">
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Batch</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value, categories: [] })} required>
-                                            <option value="">Select Batch</option>
-                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {/* Row 2: Academic Context (Course, Branch, Fee Head) */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div className="group">
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Course</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '', categories: [] }); }} required disabled={!structForm.college}>
-                                            <option value="">Select Course</option>
-                                            {(structForm.college ? Object.keys(metadata[structForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="group">
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Branch</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}>
-                                            <option value="">Select Branch</option>
-                                            {(metadata[structForm.college]?.[structForm.course]?.branches || []).map(b => <option key={b}>{b}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div className="group">
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Fee Head</label>
-                                        <select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required>
-                                            <option value="">Select Fee Head</option>
-                                            {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {structForm.college && structForm.batch && structForm.feeHeadId && structForm.course && structForm.branch && (
-                                    <div className="bg-gray-50 p-3 rounded border border-gray-200">
-                                        <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                            {categories.map(c => (
-                                                <label key={c} className={`flex items-center gap-2 cursor-pointer p-2 rounded border transition ${structForm.categories.includes(c) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={structForm.categories.includes(c)}
-                                                        onChange={e => {
-                                                            const isChecked = e.target.checked;
-                                                            let newCategories = [...structForm.categories];
-                                                            if (isChecked) newCategories.push(c);
-                                                            else newCategories = newCategories.filter(cat => cat !== c);
-                                                            setStructForm({ ...structForm, categories: newCategories });
-                                                        }}
-                                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                    />
-                                                    <span className={`text-sm ${structForm.categories.includes(c) ? 'font-semibold text-blue-700' : 'text-gray-600'}`}>{c}</span>
-                                                </label>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm border-collapse">
+                                    <thead className="bg-gray-50/80 border-b border-gray-100 text-gray-600 font-semibold">
+                                        <tr>
+                                            <th className="p-3">Fee Head</th>
+                                            <th className="p-3">Context</th>
+                                            <th className="p-3">Category</th>
+                                            {tableYears.map(y => (
+                                                <th key={y} className="p-3 text-center">Yr {y}</th>
                                             ))}
-                                        </div>
-                                        {structForm.categories.length === 0 && <p className="text-xs text-red-500 mt-1">Please select at least one category.</p>}
-                                    </div>
-                                )}
-
-                                <div className="flex flex-wrap items-center gap-6 mb-3">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            id="scholarshipCheck"
-                                            checked={structForm.isScholarshipApplicable}
-                                            onChange={e => setStructForm({ ...structForm, isScholarshipApplicable: e.target.checked })}
-                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                        />
-                                        <label htmlFor="scholarshipCheck" className="text-sm font-bold text-gray-700 cursor-pointer">Eligible for Scholarship</label>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            id="termsDividedCheck"
-                                            checked={structForm.isTermsDivided}
-                                            onChange={e => setStructForm({ ...structForm, isTermsDivided: e.target.checked })}
-                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                        />
-                                        <label htmlFor="termsDividedCheck" className="text-sm font-bold text-gray-700 cursor-pointer">Terms Divided</label>
-                                    </div>
-                                </div>
-
-                                {/* Amount Section */}
-                                {editingId ? (
-                                    <input type="number" className="w-full border p-2 rounded" value={structForm.amount} onChange={e => setStructForm({ ...structForm, amount: e.target.value })} placeholder="Amount" />
-                                ) : (
-                                    <div className="bg-blue-50 p-3 rounded space-y-3">
-                                        <div className="flex gap-4 border-b border-blue-200 pb-2">
-                                            <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                                <input type="radio" checked={feeType === 'Yearly'} onChange={() => setFeeType('Yearly')} /> Yearly
-                                            </label>
-                                            <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                                <input type="radio" checked={feeType === 'Semester'} onChange={() => setFeeType('Semester')} /> Semester-wise
-                                            </label>
-                                        </div>
-
-                                        {/* Amount Inputs Logic (Always All Years) */}
-                                        <div className="space-y-2">
-                                            <p className="text-xs font-bold text-gray-500">Enter Amounts per Year:</p>
-                                            {(() => {
-                                                const selectedMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
-                                                const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 0;
-
-                                                if (yearsCount === 0) {
-                                                    return <p className="text-xs text-gray-400 italic">Select College and Course above to configure years.</p>;
-                                                }
-
-                                                return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
-                                                    <div key={y} className="p-3 bg-white border border-gray-100 rounded space-y-2 mb-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="w-12 text-xs font-bold text-gray-600">Yr {y}:</span>
-                                                            {feeType === 'Yearly' ? (
-                                                                <>
-                                                                    <div className="flex-1 flex gap-2">
-                                                                        <input className="flex-1 border p-1 rounded text-sm" placeholder="Total Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-Y`, e.target.value)} />
-                                                                        {structForm.isTermsDivided && (
-                                                                            <select className="border p-1 rounded text-xs w-24" value={bulkTerms[`${y}-Y`]?.count || ''} onChange={e => handleTermChange(`${y}-Y`, e.target.value)}>
-                                                                                <option value="">Terms</option>
-                                                                                {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} Terms</option>)}
-                                                                            </select>
-                                                                        )}
-                                                                    </div>
-                                                                </>
-                                                            ) : (
-                                                                <div className="grid grid-cols-2 gap-4 flex-1">
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <div className="flex gap-1">
-                                                                            <input className="flex-1 border p-1 rounded text-xs" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S1`, e.target.value)} />
-                                                                            {structForm.isTermsDivided && (
-                                                                                <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S1`]?.count || ''} onChange={e => handleTermChange(`${y}-S1`, e.target.value)}>
-                                                                                    <option value="">T</option>
-                                                                                    {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
-                                                                                </select>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <div className="flex gap-1">
-                                                                            <input className="flex-1 border p-1 rounded text-xs" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S2`, e.target.value)} />
-                                                                            {structForm.isTermsDivided && (
-                                                                                <select className="border p-1 rounded text-[10px] w-16" value={bulkTerms[`${y}-S2`]?.count || ''} onChange={e => handleTermChange(`${y}-S2`, e.target.value)}>
-                                                                                    <option value="">T</option>
-                                                                                    {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
-                                                                                </select>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Terms Details Display */}
-                                                        {structForm.isTermsDivided && (
-                                                            feeType === 'Yearly' ? (
-                                                                bulkTerms[`${y}-Y`] && (
-                                                                    <div className="ml-14 grid grid-cols-3 gap-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
-                                                                        {bulkTerms[`${y}-Y`].data.map((term, idx) => (
-                                                                            <div key={idx} className="flex flex-col">
-                                                                                <label className="text-[10px] text-gray-500 font-bold uppercase">Term {idx + 1} (%)</label>
-                                                                                <div className="flex items-center gap-1">
-                                                                                    <input type="number" className="w-full border p-1 rounded text-xs" value={term.p} onChange={e => updateTermPercentage(`${y}-Y`, idx, e.target.value)} />
-                                                                                    <span className="text-[10px] text-blue-600 font-bold">₹{term.a}</span>
+                                            <th className="p-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {isLoadingStructures ? (
+                                            Array.from({ length: 5 }).map((_, idx) => (
+                                                <tr key={idx} className="animate-pulse">
+                                                    <td className="p-3"><div className="h-4 bg-slate-200 rounded w-28 mb-1"></div><div className="h-3 bg-slate-100 rounded w-16"></div></td>
+                                                    <td className="p-3"><div className="h-4 bg-slate-200 rounded w-36 mb-1"></div><div className="h-3 bg-slate-100 rounded w-20 mb-1"></div><div className="h-3 bg-slate-100 rounded w-24"></div></td>
+                                                    <td className="p-3"><div className="h-6 bg-slate-200 rounded-full w-20"></div></td>
+                                                    {tableYears.map(y => (
+                                                        <td key={y} className="p-3 text-center"><div className="h-8 bg-slate-100 rounded-lg w-16 mx-auto"></div></td>
+                                                    ))}
+                                                    <td className="p-3 text-right"><div className="h-8 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
+                                                </tr>
+                                            ))
+                                        ) : groupedArray.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4 + tableYears.length} className="p-10 text-center text-gray-400 italic">
+                                                    <div className="flex flex-col items-center justify-center gap-2">
+                                                        <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                                        <span>No fee templates found for selected filters.</span>
+                                                        <button onClick={() => { handleCancelEditContext(); setIsModalOpen(true); }} className="text-xs text-blue-600 font-semibold hover:underline mt-1">
+                                                            + Define Standard Fees Now
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            groupedArray.map((row, i) => (
+                                                <tr key={i} className="hover:bg-gray-50/70 transition-colors group/row">
+                                                    <td className="p-3 font-medium text-blue-800 relative">
+                                                        {row.feeHeadName} <span className="text-xs text-gray-400">({row.feeHeadCode || '-'})</span>
+                                                        {row.isScholarshipApplicable && (
+                                                            <span title="Scholarship Eligible" className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200">🎓</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-3 text-xs text-gray-500">
+                                                        <div className="font-bold text-gray-800">{row.course} - {row.branch}</div>
+                                                        <div className="text-[10px] uppercase bg-gray-100 text-gray-600 font-semibold w-fit px-1.5 py-0.5 rounded mt-0.5">{collegeCodes[row.college] || row.college}</div>
+                                                        <div className="mt-1 text-gray-700 font-semibold">Batch: {row.batch}</div>
+                                                    </td>
+                                                    <td className="p-3">
+                                                        <span className="bg-purple-100 text-purple-800 text-xs px-2.5 py-1 rounded-full font-medium">{row.category}</span>
+                                                    </td>
+                                                    {tableYears.map(y => (
+                                                        <td key={y} className="p-2 text-center text-gray-700 align-top">
+                                                            {row.years[y] ? (
+                                                                <div className="flex flex-col gap-1">
+                                                                    {row.years[y].map((item, idx) => (
+                                                                        <div key={idx} className="text-xs bg-gray-50 p-1.5 rounded border border-gray-100 relative group/term text-left">
+                                                                            <div className="flex justify-between items-center gap-2">
+                                                                                <div>
+                                                                                    {item.semester && <span className="font-bold text-gray-500">S{item.semester}: </span>}
+                                                                                    <span className="font-semibold text-gray-800">₹{item.amount.toLocaleString()}</span>
                                                                                 </div>
+                                                                                {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                                                                                    <span 
+                                                                                        className="bg-blue-50 text-blue-700 text-[9px] px-1 py-0.5 rounded-md font-bold uppercase border border-blue-100 cursor-help"
+                                                                                        title={item.terms.map(t => `Term ${t.termNumber}: ₹${t.amount.toLocaleString()} (${t.percentage}%)`).join('\n')}
+                                                                                    >
+                                                                                        {item.terms.length}T
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
-                                                                        ))}
-                                                                        <div className="col-span-3 text-[10px] text-right font-bold text-gray-400">Total: {bulkTerms[`${y}-Y`].data.reduce((acc, t) => acc + t.p, 0)}%</div>
-                                                                    </div>
-                                                                )
-                                                            ) : (
-                                                                <div className="ml-14 grid grid-cols-2 gap-4">
-                                                                    {['S1', 'S2'].map(s => bulkTerms[`${y}-${s}`] && (
-                                                                        <div key={s} className="grid grid-cols-2 gap-1 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
-                                                                            {bulkTerms[`${y}-${s}`].data.map((term, idx) => (
-                                                                                <div key={idx} className="flex flex-col">
-                                                                                    <div className="flex items-center gap-1">
-                                                                                        <input type="number" className="w-10 border p-1 rounded text-[10px]" value={term.p} onChange={e => updateTermPercentage(`${y}-${s}`, idx, e.target.value)} />
-                                                                                        <span className="text-[10px] text-blue-600 font-bold whitespace-nowrap">₹{term.a}</span>
-                                                                                    </div>
+                                                                            {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                                                                                <div className="hidden group-hover/term:block absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 bg-gray-900 text-white text-[9px] rounded-lg p-2 shadow-lg min-w-[125px] pointer-events-none">
+                                                                                    {item.terms.map(t => (
+                                                                                        <div key={t.termNumber} className="flex justify-between gap-3 border-b border-gray-800/60 last:border-0 py-0.5 whitespace-nowrap">
+                                                                                            <span className="text-gray-300">Term {t.termNumber}:</span>
+                                                                                            <span className="font-bold text-blue-400">₹{t.amount.toLocaleString()} ({t.percentage}%)</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900"></div>
                                                                                 </div>
-                                                                            ))}
+                                                                            )}
                                                                         </div>
                                                                     ))}
                                                                 </div>
-                                                            )
-                                                        )}
-                                                    </div>
-                                                ));
-                                            })()}
-                                        </div>
-                                    </div>
-                                )}
-                                <button
-                                    disabled={isSavingDefinition}
-                                    className={`w-full text-white py-2 rounded font-bold flex items-center justify-center gap-2 ${isSavingDefinition ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                                >
-                                    {isSavingDefinition ? (
-                                        <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                            Saving...
-                                        </>
-                                    ) : 'Save Definition'}
-                                </button>
-                            </form>
+                                                            ) : '-'}
+                                                        </td>
+                                                    ))}
+                                                    <td className="p-3 text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    handleEditRow(row);
+                                                                    setIsModalOpen(true);
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition"
+                                                                title="Edit Context"
+                                                            >
+                                                                <Pencil size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={async () => {
+                                                                    if (!window.confirm(`Delete ALL definitions for ${row.course}?`)) return;
+                                                                    try {
+                                                                        await Promise.all(row.allIds.map(id => api.delete(`/fee-structures/${id}`)));
+                                                                        fetchStructures();
+                                                                    } catch (e) { alert('Delete failed'); }
+                                                                }}
+                                                                className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition"
+                                                                title="Delete Row"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
-                        {/* Matrix Table */}
-                        <div className={`bg-white p-5 rounded-lg shadow-sm overflow-x-auto transition-all duration-500 ease-in-out ${(editingId || isEditingContext) ? 'lg:col-span-1' : 'lg:col-span-2'}`}>
-                            <div className="flex justify-between items-center mb-3">
-                                <h2 className="font-semibold text-gray-800">Fee Templates (Not Active Dues)</h2>
-                                <FeeConfigPrintButton
-                                    variant="structures"
-                                    data={{
-                                        rows: groupedArray,
-                                        tableYears,
-                                        collegeCodes,
-                                        filters: {
-                                            college: structForm.college || '',
-                                            course: structForm.course || '',
-                                            branch: structForm.branch || '',
-                                            batch: structForm.batch || '',
-                                            feeHeadName: feeHeads.find(h => h._id === structForm.feeHeadId)?.name || '',
-                                        }
-                                    }}
-                                    label="Print"
-                                    disabled={groupedArray.length === 0}
-                                />
-                            </div>
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-gray-50 border-b">
-                                    <tr>
-                                        <th className="p-3">Fee Head</th>
-                                        {!(editingId || isEditingContext) && <th className="p-3">Context</th>}
-                                        {!(editingId || isEditingContext) && <th className="p-3">Category</th>}
-                                        {!(editingId || isEditingContext) && tableYears.map(y => <th key={y} className="p-3 text-center">Yr {y}</th>)}
-                                        <th className="p-3 text-right">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
-                                    {groupedArray.map((row, i) => (
-                                        <tr key={i} className="hover:bg-gray-50 group/row">
-                                            <td className="p-3 font-medium text-blue-800 relative">
-                                                {row.feeHeadName} <span className="text-xs text-gray-400">({row.feeHeadCode || '-'})</span>
-                                                {row.isScholarshipApplicable && (
-                                                    <span title="Scholarship Eligible" className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-200">🎓</span>
-                                                )}
-                                            </td>
-                                            {!(editingId || isEditingContext) && (
-                                                <td className="p-3 text-xs text-gray-500">
-                                                    <div className="font-bold">{row.course} - {row.branch}</div>
-                                                    <div className="text-[10px] uppercase bg-gray-100 w-fit px-1 rounded">{collegeCodes[row.college] || row.college}</div>
-                                                    <div className="mt-1 text-black font-semibold">Batch: {row.batch}</div>
-                                                </td>
-                                            )}
-                                            {!(editingId || isEditingContext) && (
-                                                <td className="p-3">
-                                                    <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full font-medium">{row.category}</span>
-                                                </td>
-                                            )}
-                                            {!(editingId || isEditingContext) && tableYears.map(y => (
-                                                <td key={y} className="p-2 text-center text-gray-700 align-top">
-                                                    {row.years[y] ? (
-                                                        <div className="flex flex-col gap-1">
-                                                            {row.years[y].map((item, idx) => (
-                                                                <div key={idx} className="text-xs bg-gray-50 p-1.5 rounded border relative group/term text-left">
-                                                                    <div className="flex justify-between items-center gap-2">
-                                                                        <div>
-                                                                            {item.semester && <span className="font-bold text-gray-500">S{item.semester}: </span>}
-                                                                            <span className="font-semibold text-gray-800">₹{item.amount.toLocaleString()}</span>
+                        {/* Modal Popup for "Define Standard Fees" */}
+                        {isModalOpen && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+                                <div className="relative bg-white w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-2xl border border-gray-100 overflow-y-auto p-6 md:p-8 my-auto">
+                                    {/* Modal Header */}
+                                    <div className="flex justify-between items-center pb-4 mb-5 border-b border-gray-100">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-gray-800">
+                                                {(editingId || isEditingContext) ? 'Edit Standard Fees' : 'Define Standard Fees'}
+                                            </h2>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                Configure fee structures and term distribution across batches and categories.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                handleCancelEditContext();
+                                                setIsModalOpen(false);
+                                            }}
+                                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                            title="Close"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+
+                                    {/* Form Content in 2 Columns: Left Side (5 Selectors) & Right Side (Categories & Amounts) */}
+                                    <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                            {/* LEFT SIDE: 5 Selectors & Applicable Categories */}
+                                            <div className="space-y-4 bg-gray-50/70 p-4 rounded-xl border border-gray-100">
+                                                <h3 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider mb-2 border-b border-gray-200/60 pb-1.5">
+                                                    Academic Context & Categories
+                                                </h3>
+
+                                                {/* 1. College */}
+                                                <div className="group">
+                                                    <label className="text-xs font-bold text-gray-700 block mb-1">College</label>
+                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '', categories: [] }); }} required>
+                                                        <option value="">Select College</option>
+                                                        {colleges.map(c => <option key={c}>{c}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                {/* 2. Batch */}
+                                                <div className="group">
+                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Batch</label>
+                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value, categories: [] })} required>
+                                                        <option value="">Select Batch</option>
+                                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                {/* 3. Course */}
+                                                <div className="group">
+                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Course</label>
+                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '', categories: [] }); }} required disabled={!structForm.college}>
+                                                        <option value="">Select Course</option>
+                                                        {(structForm.college ? Object.keys(metadata[structForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                {/* 4. Branch */}
+                                                <div className="group">
+                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Branch</label>
+                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}>
+                                                        <option value="">Select Branch</option>
+                                                        {(metadata[structForm.college]?.[structForm.course]?.branches || []).map(b => <option key={b}>{b}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                {/* 5. Fee Head */}
+                                                <div className="group">
+                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Fee Head</label>
+                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required>
+                                                        <option value="">Select Fee Head</option>
+                                                        {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                {/* Applicable Categories - Left Bottom */}
+                                                <div className="pt-2 border-t border-gray-200/80">
+                                                    <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
+                                                    {structForm.college && structForm.batch && structForm.feeHeadId && structForm.course && structForm.branch ? (
+                                                        <div>
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                {categories.map(c => (
+                                                                    <label key={c} className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg border transition ${structForm.categories.includes(c) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={structForm.categories.includes(c)}
+                                                                            onChange={e => {
+                                                                                const isChecked = e.target.checked;
+                                                                                let newCategories = [...structForm.categories];
+                                                                                if (isChecked) newCategories.push(c);
+                                                                                else newCategories = newCategories.filter(cat => cat !== c);
+                                                                                setStructForm({ ...structForm, categories: newCategories });
+                                                                            }}
+                                                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                                        />
+                                                                        <span className={`text-xs ${structForm.categories.includes(c) ? 'font-semibold text-blue-700' : 'text-gray-600'}`}>{c}</span>
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                            {structForm.categories.length === 0 && <p className="text-xs text-red-500 mt-1">Please select at least one category.</p>}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-amber-50 p-3 rounded-lg border border-amber-200/60 text-xs text-amber-800 flex items-start gap-2">
+                                                            <span className="text-amber-600 font-bold">ℹ</span>
+                                                            <span>Select College, Batch, Course, Branch, and Fee Head above to configure categories.</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* RIGHT SIDE: Checkboxes, Amounts & Terms */}
+                                            <div className="space-y-4">
+
+                                                {/* Checkboxes */}
+                                                <div className="flex flex-wrap items-center gap-6 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            id="scholarshipCheckModal"
+                                                            checked={structForm.isScholarshipApplicable}
+                                                            onChange={e => setStructForm({ ...structForm, isScholarshipApplicable: e.target.checked })}
+                                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                        />
+                                                        <label htmlFor="scholarshipCheckModal" className="text-xs font-bold text-gray-700 cursor-pointer">Eligible for Scholarship</label>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            id="termsDividedCheckModal"
+                                                            checked={structForm.isTermsDivided}
+                                                            onChange={e => setStructForm({ ...structForm, isTermsDivided: e.target.checked })}
+                                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                        />
+                                                        <label htmlFor="termsDividedCheckModal" className="text-xs font-bold text-gray-700 cursor-pointer">Terms Divided</label>
+                                                    </div>
+                                                </div>
+
+                                                {/* Amount Section */}
+                                                {editingId ? (
+                                                    <input type="number" className="w-full border border-gray-200 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={structForm.amount} onChange={e => setStructForm({ ...structForm, amount: e.target.value })} placeholder="Amount" />
+                                                ) : (
+                                                    <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-100 space-y-3">
+                                                        <div className="flex gap-4 border-b border-blue-200/80 pb-2">
+                                                            <label className="flex items-center gap-2 text-xs font-bold text-blue-900 cursor-pointer">
+                                                                <input type="radio" checked={feeType === 'Yearly'} onChange={() => setFeeType('Yearly')} /> Yearly
+                                                            </label>
+                                                            <label className="flex items-center gap-2 text-xs font-bold text-blue-900 cursor-pointer">
+                                                                <input type="radio" checked={feeType === 'Semester'} onChange={() => setFeeType('Semester')} /> Semester-wise
+                                                            </label>
+                                                        </div>
+
+                                                        {/* Amount Inputs Logic */}
+                                                        <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                                                            <p className="text-xs font-bold text-gray-600">Enter Amounts per Year:</p>
+                                                            {(() => {
+                                                                const selectedMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
+                                                                const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 0;
+
+                                                                if (yearsCount === 0) {
+                                                                    return <p className="text-xs text-gray-400 italic">Select College and Course on the left to configure amounts.</p>;
+                                                                }
+
+                                                                return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
+                                                                    <div key={y} className="p-3 bg-white border border-gray-200/80 rounded-lg space-y-2 mb-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="w-12 text-xs font-bold text-gray-700">Yr {y}:</span>
+                                                                            {feeType === 'Yearly' ? (
+                                                                                <div className="flex-1 flex gap-2">
+                                                                                    <input className="flex-1 border border-gray-200 p-1.5 rounded-md text-xs font-medium" placeholder="Total Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-Y`, e.target.value)} />
+                                                                                    {structForm.isTermsDivided && (
+                                                                                        <select className="border border-gray-200 p-1.5 rounded-md text-xs w-24" value={bulkTerms[`${y}-Y`]?.count || ''} onChange={e => handleTermChange(`${y}-Y`, e.target.value)}>
+                                                                                            <option value="">Terms</option>
+                                                                                            {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} Terms</option>)}
+                                                                                        </select>
+                                                                                    )}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="grid grid-cols-2 gap-2 flex-1">
+                                                                                    <div className="flex gap-1">
+                                                                                        <input className="flex-1 border border-gray-200 p-1 rounded text-xs" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S1`, e.target.value)} />
+                                                                                        {structForm.isTermsDivided && (
+                                                                                            <select className="border border-gray-200 p-1 rounded text-[10px] w-14" value={bulkTerms[`${y}-S1`]?.count || ''} onChange={e => handleTermChange(`${y}-S1`, e.target.value)}>
+                                                                                                <option value="">T</option>
+                                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
+                                                                                            </select>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="flex gap-1">
+                                                                                        <input className="flex-1 border border-gray-200 p-1 rounded text-xs" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S2`, e.target.value)} />
+                                                                                        {structForm.isTermsDivided && (
+                                                                                            <select className="border border-gray-200 p-1 rounded text-[10px] w-14" value={bulkTerms[`${y}-S2`]?.count || ''} onChange={e => handleTermChange(`${y}-S2`, e.target.value)}>
+                                                                                                <option value="">T</option>
+                                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
+                                                                                            </select>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
-                                                                        {item.isTermsDivided && item.terms && item.terms.length > 0 && (
-                                                                            <span 
-                                                                                className="bg-blue-50 text-blue-700 text-[9px] px-1 py-0.5 rounded-md font-bold uppercase border border-blue-100 cursor-help"
-                                                                                title={item.terms.map(t => `Term ${t.termNumber}: ₹${t.amount.toLocaleString()} (${t.percentage}%)`).join('\n')}
-                                                                            >
-                                                                                {item.terms.length}T
-                                                                            </span>
+
+                                                                        {/* Terms Details Display */}
+                                                                        {structForm.isTermsDivided && (
+                                                                            feeType === 'Yearly' ? (
+                                                                                bulkTerms[`${y}-Y`] && (
+                                                                                    <div className="ml-12 grid grid-cols-3 gap-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                                                                        {bulkTerms[`${y}-Y`].data.map((term, idx) => (
+                                                                                            <div key={idx} className="flex flex-col">
+                                                                                                <label className="text-[9px] text-gray-500 font-bold uppercase">Term {idx + 1} (%)</label>
+                                                                                                <div className="flex items-center gap-1">
+                                                                                                    <input type="number" className="w-full border p-1 rounded text-xs" value={term.p} onChange={e => updateTermPercentage(`${y}-Y`, idx, e.target.value)} />
+                                                                                                    <span className="text-[10px] text-blue-600 font-bold">₹{term.a}</span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                        <div className="col-span-3 text-[10px] text-right font-bold text-gray-400">Total: {bulkTerms[`${y}-Y`].data.reduce((acc, t) => acc + t.p, 0)}%</div>
+                                                                                    </div>
+                                                                                )
+                                                                            ) : (
+                                                                                <div className="ml-12 grid grid-cols-2 gap-2">
+                                                                                    {['S1', 'S2'].map(s => bulkTerms[`${y}-${s}`] && (
+                                                                                        <div key={s} className="grid grid-cols-2 gap-1 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                                                                            {bulkTerms[`${y}-${s}`].data.map((term, idx) => (
+                                                                                                <div key={idx} className="flex flex-col">
+                                                                                                    <div className="flex items-center gap-1">
+                                                                                                        <input type="number" className="w-10 border p-1 rounded text-[10px]" value={term.p} onChange={e => updateTermPercentage(`${y}-${s}`, idx, e.target.value)} />
+                                                                                                        <span className="text-[10px] text-blue-600 font-bold whitespace-nowrap">₹{term.a}</span>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )
                                                                         )}
                                                                     </div>
-                                                                    {item.isTermsDivided && item.terms && item.terms.length > 0 && (
-                                                                        <div className="hidden group-hover/term:block absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 bg-gray-900 text-white text-[9px] rounded-lg p-2 shadow-lg min-w-[125px] pointer-events-none">
-                                                                            {item.terms.map(t => (
-                                                                                <div key={t.termNumber} className="flex justify-between gap-3 border-b border-gray-800/60 last:border-0 py-0.5 whitespace-nowrap">
-                                                                                    <span className="text-gray-300">Term {t.termNumber}:</span>
-                                                                                    <span className="font-bold text-blue-400">₹{t.amount.toLocaleString()} ({t.percentage}%)</span>
-                                                                                </div>
-                                                                            ))}
-                                                                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900"></div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
+                                                                ));
+                                                            })()}
                                                         </div>
-                                                    ) : '-'}
-                                                </td>
-                                            ))}
-                                            <td className="p-3 text-right">
-                                                <div className="flex justify-end gap-2">
-                                                    <button
-                                                        onClick={() => handleEditRow(row)}
-                                                        className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded transition"
-                                                        title="Edit Context"
-                                                    >
-                                                        <Pencil size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={async () => {
-                                                            if (!window.confirm(`Delete ALL definitions for ${row.course}?`)) return;
-                                                            try {
-                                                                await Promise.all(row.allIds.map(id => api.delete(`/fee-structures/${id}`)));
-                                                                fetchStructures();
-                                                            } catch (e) { alert('Delete failed'); }
-                                                        }}
-                                                        className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded transition"
-                                                        title="Delete Row"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Modal Footer Actions */}
+                                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-6">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    handleCancelEditContext();
+                                                    setIsModalOpen(false);
+                                                }}
+                                                className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                disabled={isSavingDefinition}
+                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition flex items-center gap-2 ${isSavingDefinition ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-200'}`}
+                                            >
+                                                {isSavingDefinition ? (
+                                                    <>
+                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                                        Saving...
+                                                    </>
+                                                ) : (editingId ? 'Update Definition' : 'Save Definition')}
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                )
-                }
+                )}
 
                 {/* --- TAB 3: LATE FEES --- */}
                 
