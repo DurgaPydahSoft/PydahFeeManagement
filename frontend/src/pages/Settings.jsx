@@ -56,6 +56,14 @@ const Settings = () => {
     // Email Reports list and manual sending states
     const [emailList, setEmailList] = useState(['']);
     const [sendingReport, setSendingReport] = useState(false);
+    const [sendingRowIdx, setSendingRowIdx] = useState(null);
+
+    // Report Date Range Selection Modal state
+    const [sendModalOpen, setSendModalOpen] = useState(false);
+    const [sendTargetEmail, setSendTargetEmail] = useState(null);
+    const [sendRowIdx, setSendRowIdx] = useState(null);
+    const [reportStartDate, setReportStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [reportEndDate, setReportEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
 
     const showMsg = (text, type = 'success') => {
@@ -125,21 +133,47 @@ const Settings = () => {
         }
     };
 
-    const handleSendManualReport = async () => {
-        const recipientsStr = emailList.map(e => e.trim()).filter(Boolean).join(',');
+    const openSendModal = (targetEmail = null, rowIdx = null) => {
+        setSendTargetEmail(targetEmail);
+        setSendRowIdx(rowIdx);
+        setSendModalOpen(true);
+    };
+
+    const handleSendManualReport = async (targetEmail = null, rowIdx = null, startDate = null, endDate = null) => {
+        const recipientsStr = targetEmail ? targetEmail.trim() : emailList.map(e => e.trim()).filter(Boolean).join(',');
         if (!recipientsStr) {
-            showMsg('Please add at least one recipient email address.', 'error');
+            showMsg('Please add a valid recipient email address.', 'error');
             return;
         }
-        setSendingReport(true);
+
+        if (startDate && endDate && startDate > endDate) {
+            showMsg('Start date cannot be after End date.', 'error');
+            return;
+        }
+
+        if (rowIdx !== null) {
+            setSendingRowIdx(rowIdx);
+        } else {
+            setSendingReport(true);
+        }
+
         try {
-            const res = await api.post('/settings/send-test-report', { recipients: recipientsStr });
-            showMsg(res.data?.message || 'Report generated and emailed successfully!');
+            const res = await api.post('/settings/send-test-report', {
+                recipients: recipientsStr,
+                startDate,
+                endDate
+            });
+            showMsg(res.data?.message || `Report generated and emailed successfully!`);
+            setSendModalOpen(false);
         } catch (error) {
             console.error('[ManualReport] Error:', error);
             showMsg(error.response?.data?.message || 'Failed to trigger report email', 'error');
         } finally {
-            setSendingReport(false);
+            if (rowIdx !== null) {
+                setSendingRowIdx(null);
+            } else {
+                setSendingReport(false);
+            }
         }
     };
 
@@ -522,7 +556,7 @@ const Settings = () => {
                         <div className="border-t border-gray-100 pt-6 space-y-3">
                             <label className="block text-sm font-bold text-gray-700">Recipient Email Addresses</label>
                             
-                            <div className="space-y-2">
+                            <div className="space-y-2.5">
                                 {emailList.map((email, idx) => (
                                     <div key={idx} className="flex items-center gap-2">
                                         <input 
@@ -537,6 +571,29 @@ const Settings = () => {
                                             placeholder="e.g. director@pydah.edu"
                                             required
                                         />
+                                        
+                                        <button
+                                            onClick={() => openSendModal(email, idx)}
+                                            disabled={sendingRowIdx === idx || sendingReport || !email.trim()}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-bold transition disabled:opacity-40 flex items-center gap-1.5 shrink-0 shadow-sm"
+                                            type="button"
+                                            title={email.trim() ? `Send test report to ${email}` : 'Enter a valid email address first'}
+                                        >
+                                            {sendingRowIdx === idx ? (
+                                                <>
+                                                    <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent inline-block"></span>
+                                                    <span>Sending…</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                                    </svg>
+                                                    <span>Send</span>
+                                                </>
+                                            )}
+                                        </button>
+
                                         {emailList.length > 1 && (
                                             <button 
                                                 onClick={() => {
@@ -570,21 +627,21 @@ const Settings = () => {
                             </span>
                         </div>
 
-                        {/* Send Manually Action Card */}
+                        {/* Send to All Manual Action Card */}
                         <div className="border-t border-gray-100 pt-6">
                             <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                                 <div>
-                                    <h4 className="font-bold text-gray-800 text-sm">Send Collection Report Manually</h4>
-                                    <p className="text-xs text-gray-500 mt-0.5">Generate the summary PDF and email it immediately to the configured recipients.</p>
+                                    <h4 className="font-bold text-gray-800 text-sm">Send Collection Report to All Recipients</h4>
+                                    <p className="text-xs text-gray-500 mt-0.5">Generate the summary PDF and email it immediately to all configured recipient email addresses above.</p>
                                 </div>
                                 <button
-                                    onClick={handleSendManualReport}
-                                    disabled={sendingReport}
+                                    onClick={() => openSendModal(null, null)}
+                                    disabled={sendingReport || sendingRowIdx !== null}
                                     className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm shrink-0"
                                     type="button"
                                 >
                                     {sendingReport && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>}
-                                    {sendingReport ? 'Sending Report...' : 'Send Report Now'}
+                                    {sendingReport ? 'Sending Report...' : 'Send to All Now'}
                                 </button>
                             </div>
                         </div>
@@ -618,6 +675,128 @@ const Settings = () => {
                     </div>
                 )}
             </div>
+
+            {/* Date Selection Modal Popup */}
+            {sendModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-md w-full overflow-hidden transform transition-all">
+                        <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-blue-50/80 to-indigo-50/50">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-base font-bold text-gray-900">Select Date Range</h3>
+                                        <p className="text-xs text-gray-500 font-medium">Choose report period for email dispatch</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setSendModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            {/* Target Email Badge */}
+                            <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 flex items-center gap-2 text-xs font-semibold text-blue-900">
+                                <svg className="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
+                                <span className="truncate">
+                                    Recipient: <strong className="font-bold underline">{sendTargetEmail || `All Recipients (${emailList.filter(Boolean).length})`}</strong>
+                                </span>
+                            </div>
+
+                            {/* Quick Date Presets */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Quick Presets</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const t = new Date().toISOString().split('T')[0];
+                                            setReportStartDate(t);
+                                            setReportEndDate(t);
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition text-gray-700"
+                                    >
+                                        Today
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const y = new Date();
+                                            y.setDate(y.getDate() - 1);
+                                            const yStr = y.toISOString().split('T')[0];
+                                            setReportStartDate(yStr);
+                                            setReportEndDate(yStr);
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition text-gray-700"
+                                    >
+                                        Yesterday
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const past = new Date();
+                                            past.setDate(now.getDate() - 6);
+                                            setReportStartDate(past.toISOString().split('T')[0]);
+                                            setReportEndDate(now.toISOString().split('T')[0]);
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition text-gray-700"
+                                    >
+                                        Last 7 Days
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Date Range Inputs */}
+                            <div className="grid grid-cols-2 gap-4 pt-1">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Start Date</label>
+                                    <input
+                                        type="date"
+                                        value={reportStartDate}
+                                        onChange={e => setReportStartDate(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-xs font-semibold text-gray-800"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 mb-1.5">End Date</label>
+                                    <input
+                                        type="date"
+                                        value={reportEndDate}
+                                        onChange={e => setReportEndDate(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-xs font-semibold text-gray-800"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setSendModalOpen(false)}
+                                disabled={sendingReport || sendingRowIdx !== null}
+                                className="px-4 py-2 text-xs font-bold text-gray-600 hover:text-gray-800 transition rounded-lg"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSendManualReport(sendTargetEmail, sendRowIdx, reportStartDate, reportEndDate)}
+                                disabled={sendingReport || sendingRowIdx !== null}
+                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {(sendingReport || sendingRowIdx !== null) && (
+                                    <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent inline-block"></span>
+                                )}
+                                {(sendingReport || sendingRowIdx !== null) ? 'Sending Report...' : 'Send Report Now'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Floating Toast — same style as FeeCollection */}
             {toast && (

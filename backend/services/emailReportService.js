@@ -1,4 +1,6 @@
 const Transaction = require('../models/Transaction');
+const User = require('../models/User');
+const getEmployeeModel = require('../models/Employee');
 const db = require('../config/sqlDb');
 const mongoose = require('mongoose');
 const PDFDocument = require('pdfkit');
@@ -6,21 +8,76 @@ const sendReportEmail = require('../utils/sendReportEmail');
 const campusService = require('./campusService');
 
 /**
- * Compiles aggregated collection summary stats dynamically.
+ * Fetches cashier profiles to build a lookup map resolving usernames, User ObjectIds, and full names to emp_no.
  */
-const compileDailyReportData = async () => {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+const fetchCashierEmpNoMap = async () => {
+    const cashierEmpNoMap = {};
+    try {
+        const Employee = getEmployeeModel();
+        const usersList = await User.find({}).lean();
+        const employeeIds = usersList.map(u => u.employeeId).filter(Boolean);
+        const employeeMap = {};
+        if (employeeIds.length > 0 && Employee) {
+            const employees = await Employee.find({ _id: { $in: employeeIds } }).select('emp_no').lean();
+            employees.forEach(emp => {
+                employeeMap[String(emp._id)] = emp.emp_no;
+            });
+        }
+        usersList.forEach(u => {
+            const empNo = u.employeeId ? (employeeMap[String(u.employeeId)] || u.username) : u.username;
+            if (u._id) {
+                cashierEmpNoMap[String(u._id).toLowerCase()] = empNo;
+            }
+            if (u.username) {
+                cashierEmpNoMap[u.username.toLowerCase()] = empNo;
+            }
+            if (u.name) {
+                cashierEmpNoMap[u.name.toLowerCase()] = empNo;
+                const normalizedName = u.name.replace(/\s+/g, ' ').trim().toLowerCase();
+                cashierEmpNoMap[normalizedName] = empNo;
+            }
+        });
+    } catch (err) {
+        console.error('[emailReportService] Failed to fetch cashier emp_no map:', err);
+    }
+    return cashierEmpNoMap;
+};
 
-    // 1. Fetch today's transactions (excluding cancelled ones)
+/**
+ * Compiles aggregated collection summary stats dynamically.
+ * Supports custom date range filtering (startDate, endDate).
+ */
+const compileDailyReportData = async (startDate = null, endDate = null) => {
+    let startOfPeriod;
+    let endOfPeriod;
+
+    if (startDate && endDate) {
+        startOfPeriod = new Date(startDate);
+        startOfPeriod.setHours(0, 0, 0, 0);
+        endOfPeriod = new Date(endDate);
+        endOfPeriod.setHours(23, 59, 59, 999);
+    } else if (startDate) {
+        startOfPeriod = new Date(startDate);
+        startOfPeriod.setHours(0, 0, 0, 0);
+        endOfPeriod = new Date(startDate);
+        endOfPeriod.setHours(23, 59, 59, 999);
+    } else {
+        startOfPeriod = new Date();
+        startOfPeriod.setHours(0, 0, 0, 0);
+        endOfPeriod = new Date();
+        endOfPeriod.setHours(23, 59, 59, 999);
+    }
+
+    // 1. Fetch transactions within the specified date range (excluding cancelled ones)
     const transactions = await Transaction.find({
         status: { $ne: 'cancelled' },
-        createdAt: { $gte: startOfToday, $lte: endOfToday }
+        createdAt: { $gte: startOfPeriod, $lte: endOfPeriod }
     }).lean();
 
-    // 2. Pull student profiles to map colleges and courses
+    // 2. Fetch cashier profiles to resolve emp_no
+    const cashierEmpNoMap = await fetchCashierEmpNoMap();
+
+    // 3. Pull student profiles to map colleges and courses
     const studentIds = new Set();
     const feeHeadIds = new Set();
     transactions.forEach(tx => {
@@ -58,9 +115,29 @@ const compileDailyReportData = async () => {
         }
     }
 
-    // 3. Aggregate collections dynamically by college (with users) and course
+    // 4. Fetch Campuses for mapping
+    const collegeToCampus = {};
+    try {
+        const campuses = await campusService.getAllCampuses();
+        campuses.forEach(campus => {
+            (campus.colleges || []).forEach(college => {
+                if (college?.name) {
+                    collegeToCampus[String(college.name).trim().toLowerCase()] = {
+                        id: campus.id,
+                        name: campus.name,
+                        code: campus.code
+                    };
+                }
+            });
+        });
+    } catch (campusErr) {
+        console.error('[emailReportService] Campus lookup failed:', campusErr);
+    }
+
+    // 5. Aggregate collections dynamically by college (with users), course, and user-wise campus
     const collegeGroups = {};
-    const globalCourseGroups = {};
+    const campusUserMap = {};
+    const campusCourseMap = {};
 
     transactions.forEach(tx => {
         const sId = String(tx.studentId || '').trim().toLowerCase();
@@ -72,7 +149,20 @@ const compileDailyReportData = async () => {
         const isCash = tx.paymentMode === 'Cash';
         const username = tx.collectedBy || 'Unknown';
         const displayName = tx.collectedByName || tx.collectedBy || 'Unknown';
-        const empNo = tx.empNo || username;
+        
+        const normalizedUsername = String(username).replace(/\s+/g, ' ').trim().toLowerCase();
+        const normalizedDisplayName = String(displayName).replace(/\s+/g, ' ').trim().toLowerCase();
+
+        const empNo = cashierEmpNoMap[normalizedUsername] ||
+                      cashierEmpNoMap[normalizedDisplayName] ||
+                      tx.empNo ||
+                      username;
+
+        // Lookup campus info for this college
+        const collegeKey = String(collegeName || '').trim().toLowerCase();
+        const campusInfo = collegeToCampus[collegeKey];
+        const campusName = campusInfo ? campusInfo.name : 'Unassigned Campus';
+        const campusCode = campusInfo ? campusInfo.code : '';
 
         // College-wise aggregation
         if (!collegeGroups[collegeName]) {
@@ -89,8 +179,8 @@ const compileDailyReportData = async () => {
         const colGroup = collegeGroups[collegeName];
         colGroup.receiptsCount++;
 
-        if (!colGroup.usersMap[username]) {
-            colGroup.usersMap[username] = {
+        if (!colGroup.usersMap[empNo]) {
+            colGroup.usersMap[empNo] = {
                 username: displayName,
                 empNo,
                 receiptsCount: 0,
@@ -99,36 +189,83 @@ const compileDailyReportData = async () => {
                 netTotal: 0
             };
         }
-        const userEntry = colGroup.usersMap[username];
+        const userEntry = colGroup.usersMap[empNo];
         userEntry.receiptsCount += 1;
+
+        // Campus User-wise aggregation
+        if (!campusUserMap[campusName]) {
+            campusUserMap[campusName] = {
+                campusName,
+                campusCode,
+                receiptsCount: 0,
+                cashAmt: 0,
+                bankAmt: 0,
+                netTotal: 0,
+                usersMap: {}
+            };
+        }
+        const cUserGroup = campusUserMap[campusName];
+        cUserGroup.receiptsCount += 1;
+
+        if (!cUserGroup.usersMap[empNo]) {
+            cUserGroup.usersMap[empNo] = {
+                username: displayName,
+                empNo,
+                receiptsCount: 0,
+                cashAmt: 0,
+                bankAmt: 0,
+                netTotal: 0
+            };
+        }
+        const cuEntry = cUserGroup.usersMap[empNo];
+        cuEntry.receiptsCount += 1;
 
         if (isDebit) {
             colGroup.netTotal += amount;
             userEntry.netTotal += amount;
+            cUserGroup.netTotal += amount;
+            cuEntry.netTotal += amount;
+
             if (isCash) {
                 colGroup.cashAmt += amount;
                 userEntry.cashAmt += amount;
+                cUserGroup.cashAmt += amount;
+                cuEntry.cashAmt += amount;
             } else {
                 colGroup.bankAmt += amount;
                 userEntry.bankAmt += amount;
+                cUserGroup.bankAmt += amount;
+                cuEntry.bankAmt += amount;
             }
 
-            // Global Course-wise aggregation
-            if (!globalCourseGroups[courseName]) {
-                globalCourseGroups[courseName] = {
-                    courseName: courseName,
+            // Campus Course-wise aggregation
+            if (!campusCourseMap[campusName]) {
+                campusCourseMap[campusName] = {
+                    campusName,
+                    campusCode,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0,
+                    coursesMap: {}
+                };
+            }
+            const cCourseGroup = campusCourseMap[campusName];
+            cCourseGroup.netTotal += amount;
+            if (isCash) cCourseGroup.cashAmt += amount;
+            else cCourseGroup.bankAmt += amount;
+
+            if (!cCourseGroup.coursesMap[courseName]) {
+                cCourseGroup.coursesMap[courseName] = {
+                    courseName,
                     cashAmt: 0,
                     bankAmt: 0,
                     netTotal: 0
                 };
             }
-            const cGroup = globalCourseGroups[courseName];
-            cGroup.netTotal += amount;
-            if (isCash) {
-                cGroup.cashAmt += amount;
-            } else {
-                cGroup.bankAmt += amount;
-            }
+            const ccEntry = cCourseGroup.coursesMap[courseName];
+            ccEntry.netTotal += amount;
+            if (isCash) ccEntry.cashAmt += amount;
+            else ccEntry.bankAmt += amount;
         }
     });
 
@@ -138,60 +275,32 @@ const compileDailyReportData = async () => {
         return { ...group, users };
     }).sort((a, b) => b.netTotal - a.netTotal);
 
-    // 4. Campus-wise hierarchy (campus → colleges → users)
+    // 5. Campus-wise hierarchy (campus → colleges → users)
     const campusGroups = {};
-    try {
-        const campuses = await campusService.getAllCampuses();
-        const collegeToCampus = {};
-        campuses.forEach(campus => {
-            (campus.colleges || []).forEach(college => {
-                if (college?.name) {
-                    collegeToCampus[String(college.name).trim().toLowerCase()] = {
-                        id: campus.id,
-                        name: campus.name,
-                        code: campus.code
-                    };
-                }
-            });
-        });
+    collegeSummaries.forEach(summary => {
+        const key = String(summary.collegeName || '').trim().toLowerCase();
+        const campus = collegeToCampus[key];
+        const campusName = campus ? campus.name : 'Unassigned Campus';
+        const campusCode = campus ? campus.code : '';
 
-        collegeSummaries.forEach(summary => {
-            const key = String(summary.collegeName || '').trim().toLowerCase();
-            const campus = collegeToCampus[key];
-            const campusName = campus ? campus.name : 'Unassigned Campus';
-            const campusCode = campus ? campus.code : '';
-
-            if (!campusGroups[campusName]) {
-                campusGroups[campusName] = {
-                    campusName,
-                    campusCode,
-                    receiptsCount: 0,
-                    cashAmt: 0,
-                    bankAmt: 0,
-                    netTotal: 0,
-                    colleges: []
-                };
-            }
-            const cg = campusGroups[campusName];
-            cg.receiptsCount += summary.receiptsCount || 0;
-            cg.cashAmt += summary.cashAmt || 0;
-            cg.bankAmt += summary.bankAmt || 0;
-            cg.netTotal += summary.netTotal || 0;
-            cg.colleges.push(summary);
-        });
-    } catch (campusErr) {
-        console.error('[emailReportService] Campus aggregation failed:', campusErr);
-        // Fallback: put all colleges under one unassigned campus bucket
-        campusGroups['Unassigned Campus'] = {
-            campusName: 'Unassigned Campus',
-            campusCode: '',
-            receiptsCount: collegeSummaries.reduce((s, c) => s + (c.receiptsCount || 0), 0),
-            cashAmt: collegeSummaries.reduce((s, c) => s + (c.cashAmt || 0), 0),
-            bankAmt: collegeSummaries.reduce((s, c) => s + (c.bankAmt || 0), 0),
-            netTotal: collegeSummaries.reduce((s, c) => s + (c.netTotal || 0), 0),
-            colleges: collegeSummaries
-        };
-    }
+        if (!campusGroups[campusName]) {
+            campusGroups[campusName] = {
+                campusName: campusName,
+                campusCode: campusCode,
+                receiptsCount: 0,
+                cashAmt: 0,
+                bankAmt: 0,
+                netTotal: 0,
+                colleges: []
+            };
+        }
+        const cg = campusGroups[campusName];
+        cg.receiptsCount += summary.receiptsCount || 0;
+        cg.cashAmt += summary.cashAmt || 0;
+        cg.bankAmt += summary.bankAmt || 0;
+        cg.netTotal += summary.netTotal || 0;
+        cg.colleges.push(summary);
+    });
 
     const campusSummaries = Object.values(campusGroups)
         .map(campus => ({
@@ -201,10 +310,23 @@ const compileDailyReportData = async () => {
         }))
         .sort((a, b) => b.netTotal - a.netTotal);
 
+    const campusUserSummaries = Object.values(campusUserMap).map(cg => {
+        const users = Object.values(cg.usersMap || {}).sort((a, b) => b.netTotal - a.netTotal);
+        delete cg.usersMap;
+        return { ...cg, users };
+    }).sort((a, b) => b.netTotal - a.netTotal);
+
+    const campusCourseSummaries = Object.values(campusCourseMap).map(cg => {
+        const courses = Object.values(cg.coursesMap || {}).sort((a, b) => b.netTotal - a.netTotal);
+        delete cg.coursesMap;
+        return { ...cg, courses };
+    }).sort((a, b) => b.netTotal - a.netTotal);
+
     return {
         campusSummaries,
         collegeSummaries,
-        globalCourses: Object.values(globalCourseGroups).sort((a, b) => b.netTotal - a.netTotal)
+        campusUserSummaries,
+        campusCourseSummaries
     };
 };
 
@@ -261,24 +383,58 @@ const drawPdfTableFlex = (doc, startY, headers, rows, columnWidths, alignRight =
         const isCampus = row.isCampus === true;
         const cells = row.cells;
 
+        // Set font & size first before calculating text heights
+        if (isTotal || isCampus || isGroup) {
+            doc.font('Helvetica-Bold').fontSize(8);
+        } else if (isSubRow) {
+            doc.font('Helvetica').fontSize(7.5);
+        } else {
+            doc.font('Helvetica').fontSize(8);
+        }
+
+        // Calculate dynamic row height based on content
+        let maxRowHeight = 15;
+        cells.forEach((cell, cellIdx) => {
+            const width = columnWidths[cellIdx];
+            if (cell !== undefined && cell !== null && String(cell).trim() !== '') {
+                let padLeft = 0;
+                if (isGroup && cellIdx === 1) padLeft = 8;
+                if (isSubRow && cellIdx === 1) padLeft = 18;
+
+                let effectiveWidth = width;
+                if (isCampus && cellIdx === 1 && (!cells[2] || String(cells[2]).trim() === '')) {
+                    effectiveWidth = columnWidths[1] + (columnWidths[2] || 0);
+                }
+
+                const h = doc.heightOfString(String(cell), { width: effectiveWidth - padLeft - 2 });
+                if (h + 6 > maxRowHeight) {
+                    maxRowHeight = Math.ceil(h + 6);
+                }
+            }
+        });
+
+        // Draw background rectangle matching exact maxRowHeight
         if (isTotal) {
-            doc.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a');
+            doc.fillColor('#0f172a');
             doc.strokeColor('#475569').lineWidth(0.8);
             doc.moveTo(40, currentY).lineTo(555, currentY).stroke();
         } else if (isCampus) {
-            doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff');
             doc.fillColor('#1e3a8a');
-            doc.rect(40, currentY, 515, 15).fill();
-            doc.fillColor('#ffffff');
+            doc.rect(40, currentY, 515, maxRowHeight).fill();
         } else if (isGroup) {
-            doc.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a');
             doc.fillColor('#f1f5f9');
-            doc.rect(40, currentY, 515, 15).fill();
-            doc.fillColor('#0f172a');
+            doc.rect(40, currentY, 515, maxRowHeight).fill();
+        }
+
+        // Set text color for cell drawing
+        if (isCampus) {
+            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
+        } else if (isTotal || isGroup) {
+            doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8);
         } else if (isSubRow) {
-            doc.font('Helvetica').fontSize(7.5).fillColor('#475569');
+            doc.fillColor('#475569').font('Helvetica').fontSize(7.5);
         } else {
-            doc.font('Helvetica').fontSize(8).fillColor('#334155');
+            doc.fillColor('#334155').font('Helvetica').fontSize(8);
         }
 
         let rx = 40;
@@ -288,16 +444,28 @@ const drawPdfTableFlex = (doc, startY, headers, rows, columnWidths, alignRight =
             let padLeft = 0;
             if (isGroup && cellIdx === 1) padLeft = 8;
             if (isSubRow && cellIdx === 1) padLeft = 18;
-            const textColor = isCampus ? '#ffffff' : null;
-            if (textColor) doc.fillColor(textColor);
-            doc.text(String(cell ?? ''), rx + padLeft, currentY + 4, { width: width - padLeft, align });
+
+            let cellWidth = width;
+            if (isCampus && cellIdx === 1 && (!cells[2] || String(cells[2]).trim() === '')) {
+                cellWidth = columnWidths[1] + (columnWidths[2] || 0);
+            }
+
+            if (cell !== undefined && cell !== null && String(cell) !== '') {
+                doc.text(String(cell), rx + padLeft, currentY + 3, {
+                    width: cellWidth - padLeft - 2,
+                    align: align
+                });
+            }
             rx += width;
         });
 
-        // Draw light bottom border
-        doc.strokeColor('#e2e8f0').lineWidth(0.5);
-        doc.moveTo(40, currentY + 15).lineTo(555, currentY + 15).stroke();
-        currentY += 15;
+        // Draw light bottom border matching maxRowHeight
+        if (!isTotal) {
+            doc.strokeColor('#e2e8f0').lineWidth(0.5);
+            doc.moveTo(40, currentY + maxRowHeight).lineTo(555, currentY + maxRowHeight).stroke();
+        }
+
+        currentY += maxRowHeight;
     });
 
     return currentY;
@@ -485,53 +653,149 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
         currentY = drawPdfTableFlex(doc, doc.y, detailHeaders, detailRows, detailColWidths, detailAlignRight);
         doc.y = currentY + 20;
 
-        // 5. Course-wise Consolidated Collections Table (Flat list of courses)
-        if (doc.y > 600) {
-            doc.addPage();
-            doc.y = 40;
+        // 5. User-wise Consolidated Collections (Campus-wise)
+        if (data.campusUserSummaries && data.campusUserSummaries.length > 0) {
+            if (doc.y > 600) {
+                doc.addPage();
+                doc.y = 40;
+            }
+
+            doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('User-wise Consolidated Collections (Campus-wise)', 40, doc.y, { align: 'left', width: 515 });
+            doc.moveDown(0.4);
+
+            const userHeaders = ['S.No', 'User ID', 'Cashier Name', 'Receipts', 'Cash Amount', 'Bank Amount', 'Net Collection'];
+            const userColWidths = [40, 65, 175, 55, 60, 60, 60];
+            const userAlignRight = [3, 4, 5, 6];
+
+            let totalUserReceipts = 0;
+            let totalUserCash = 0;
+            let totalUserBank = 0;
+            let totalUserNet = 0;
+            const userRows = [];
+
+            data.campusUserSummaries.forEach((campus, campusIdx) => {
+                totalUserReceipts += campus.receiptsCount || 0;
+                totalUserCash += campus.cashAmt || 0;
+                totalUserBank += campus.bankAmt || 0;
+                totalUserNet += campus.netTotal || 0;
+
+                const campusLabel = campus.campusCode
+                    ? `${String(campus.campusName).toUpperCase()} (${campus.campusCode})`
+                    : String(campus.campusName).toUpperCase();
+
+                userRows.push({
+                    isCampus: true,
+                    cells: [
+                        campusIdx + 1,
+                        campusLabel,
+                        '',
+                        campus.receiptsCount || 0,
+                        `Rs. ${Number(campus.cashAmt || 0).toLocaleString('en-IN')}`,
+                        `Rs. ${Number(campus.bankAmt || 0).toLocaleString('en-IN')}`,
+                        `Rs. ${Number(campus.netTotal || 0).toLocaleString('en-IN')}`
+                    ]
+                });
+
+                (campus.users || []).forEach((u, uIdx) => {
+                    userRows.push({
+                        isSubRow: true,
+                        cells: [
+                            `${campusIdx + 1}.${uIdx + 1}`,
+                            u.empNo || 'N/A',
+                            String(u.username).toUpperCase(),
+                            u.receiptsCount || 0,
+                            `Rs. ${Number(u.cashAmt || 0).toLocaleString('en-IN')}`,
+                            `Rs. ${Number(u.bankAmt || 0).toLocaleString('en-IN')}`,
+                            `Rs. ${Number(u.netTotal || 0).toLocaleString('en-IN')}`
+                        ]
+                    });
+                });
+            });
+
+            userRows.push({
+                isTotal: true,
+                cells: [
+                    '',
+                    'TOTAL',
+                    '',
+                    totalUserReceipts,
+                    `Rs. ${Number(totalUserCash).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(totalUserBank).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(totalUserNet).toLocaleString('en-IN')}`
+                ]
+            });
+
+            currentY = drawPdfTableFlex(doc, doc.y, userHeaders, userRows, userColWidths, userAlignRight);
+            doc.y = currentY + 20;
         }
 
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('Course-wise Consolidated Collections', 40, doc.y, { align: 'left', width: 515 });
-        doc.moveDown(0.4);
+        // 6. Course-wise Consolidated Collections Table (Campus-wise)
+        if (data.campusCourseSummaries && data.campusCourseSummaries.length > 0) {
+            if (doc.y > 600) {
+                doc.addPage();
+                doc.y = 40;
+            }
 
-        const courseHeaders = ['S.No', 'Course Name', 'Cash Amount', 'Bank Amount', 'Net Collection'];
-        const courseColWidths = [40, 225, 80, 80, 90];
-        const courseAlignRight = [2, 3, 4];
+            doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a8a').text('Course-wise Consolidated Collections (Campus-wise)', 40, doc.y, { align: 'left', width: 515 });
+            doc.moveDown(0.4);
 
-        let totalCourseCash = 0;
-        let totalCourseBank = 0;
-        let totalCourseNet = 0;
+            const courseHeaders = ['S.No', 'Course Name', 'Cash Amount', 'Bank Amount', 'Net Collection'];
+            const courseColWidths = [40, 225, 80, 80, 90];
+            const courseAlignRight = [2, 3, 4];
 
-        const courseRows = data.globalCourses.map((c, idx) => {
-            totalCourseCash += c.cashAmt;
-            totalCourseBank += c.bankAmt;
-            totalCourseNet += c.netTotal;
+            let totalCourseCash = 0;
+            let totalCourseBank = 0;
+            let totalCourseNet = 0;
+            const courseRows = [];
 
-            return {
+            data.campusCourseSummaries.forEach((campus, campusIdx) => {
+                totalCourseCash += campus.cashAmt || 0;
+                totalCourseBank += campus.bankAmt || 0;
+                totalCourseNet += campus.netTotal || 0;
+
+                const campusLabel = campus.campusCode
+                    ? `${String(campus.campusName).toUpperCase()} (${campus.campusCode})`
+                    : String(campus.campusName).toUpperCase();
+
+                courseRows.push({
+                    isCampus: true,
+                    cells: [
+                        campusIdx + 1,
+                        campusLabel,
+                        `Rs. ${Number(campus.cashAmt || 0).toLocaleString('en-IN')}`,
+                        `Rs. ${Number(campus.bankAmt || 0).toLocaleString('en-IN')}`,
+                        `Rs. ${Number(campus.netTotal || 0).toLocaleString('en-IN')}`
+                    ]
+                });
+
+                (campus.courses || []).forEach((c, cIdx) => {
+                    courseRows.push({
+                        isSubRow: true,
+                        cells: [
+                            `${campusIdx + 1}.${cIdx + 1}`,
+                            String(c.courseName).toUpperCase(),
+                            `Rs. ${Number(c.cashAmt || 0).toLocaleString('en-IN')}`,
+                            `Rs. ${Number(c.bankAmt || 0).toLocaleString('en-IN')}`,
+                            `Rs. ${Number(c.netTotal || 0).toLocaleString('en-IN')}`
+                        ]
+                    });
+                });
+            });
+
+            courseRows.push({
+                isTotal: true,
                 cells: [
-                    idx + 1,
-                    String(c.courseName).toUpperCase(),
-                    `Rs. ${Number(c.cashAmt).toLocaleString('en-IN')}`,
-                    `Rs. ${Number(c.bankAmt).toLocaleString('en-IN')}`,
-                    `Rs. ${Number(c.netTotal).toLocaleString('en-IN')}`
+                    '',
+                    'TOTAL',
+                    `Rs. ${Number(totalCourseCash).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(totalCourseBank).toLocaleString('en-IN')}`,
+                    `Rs. ${Number(totalCourseNet).toLocaleString('en-IN')}`
                 ]
-            };
-        });
+            });
 
-        // Add overall totals row
-        courseRows.push({
-            isTotal: true,
-            cells: [
-                '',
-                'TOTAL',
-                `Rs. ${Number(totalCourseCash).toLocaleString('en-IN')}`,
-                `Rs. ${Number(totalCourseBank).toLocaleString('en-IN')}`,
-                `Rs. ${Number(totalCourseNet).toLocaleString('en-IN')}`
-            ]
-        });
-
-        currentY = drawPdfTableFlex(doc, doc.y, courseHeaders, courseRows, courseColWidths, courseAlignRight);
-        doc.y = currentY + 35;
+            currentY = drawPdfTableFlex(doc, doc.y, courseHeaders, courseRows, courseColWidths, courseAlignRight);
+            doc.y = currentY + 35;
+        }
 
         // 6. Signatures
         if (doc.y > 680) {
@@ -559,28 +823,40 @@ const generateDailyReportPdfBuffer = async (data, formattedDate) => {
  *
  * @param {string} recipients - Comma-separated list of emails
  */
-const sendDailyAllCollegesReportEmail = async (recipients) => {
+const sendDailyAllCollegesReportEmail = async (recipients, startDate = null, endDate = null) => {
     try {
-        console.log('[emailReportService] Aggregating daily collections report data...');
-        const data = await compileDailyReportData();
+        console.log('[emailReportService] Aggregating daily collections report data for period:', startDate, 'to', endDate);
+        const data = await compileDailyReportData(startDate, endDate);
 
-        const formattedDate = new Date().toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        }).replace(/\//g, '-');
+        const formatDateStr = (dateVal) => {
+            const d = new Date(dateVal);
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}-${month}-${year}`;
+        };
 
-        console.log('[emailReportService] Generating report PDF document...');
+        let formattedDate;
+        if (startDate && endDate && startDate !== endDate) {
+            formattedDate = `${formatDateStr(startDate)} to ${formatDateStr(endDate)}`;
+        } else if (startDate) {
+            formattedDate = formatDateStr(startDate);
+        } else {
+            formattedDate = formatDateStr(new Date());
+        }
+
+        console.log('[emailReportService] Generating report PDF document for:', formattedDate);
         const pdfBuffer = await generateDailyReportPdfBuffer(data, formattedDate);
 
         // Convert the generated PDF buffer to base64 attachment format for Brevo transactional email
         const base64Content = pdfBuffer.toString('base64');
-        const filename = `Campus_Wise_Daily_Report_${formattedDate}.pdf`;
+        const safeFileDate = formattedDate.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `Campus_Wise_Collection_Report_${safeFileDate}.pdf`;
 
         const emailOptions = {
             email: recipients,
-            subject: `Daily Collection Report - Campus Wise - ${formattedDate}`,
-            message: `Please find attached the Campus-wise Daily Fee Collection Report for ${formattedDate}.\n\nThis is an automated system-generated report.`,
+            subject: `Fee Collection Report - Campus Wise (${formattedDate})`,
+            message: `Please find attached the Campus-wise Fee Collection Report for ${formattedDate}.\n\nThis is an automated system-generated report.`,
             attachments: [
                 {
                     content: base64Content,
@@ -594,6 +870,7 @@ const sendDailyAllCollegesReportEmail = async (recipients) => {
         console.log('[emailReportService] Daily report email completed successfully.');
     } catch (error) {
         console.error('[emailReportService] Error generating and sending daily report:', error);
+        throw error;
     }
 };
 

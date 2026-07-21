@@ -124,14 +124,14 @@ const updateSettings = async (req, res) => {
 // @route   POST /api/settings/send-test-report
 // @access  Private
 const sendManualReport = async (req, res) => {
-  const { recipients } = req.body;
+  const { recipients, startDate, endDate } = req.body;
   if (!recipients || recipients.trim() === '') {
     return res.status(400).json({ message: 'No email recipients provided.' });
   }
   try {
     const { sendDailyAllCollegesReportEmail } = require('../services/emailReportService');
-    console.log('[ManualReport] Triggering manual Daily Report email to:', recipients);
-    await sendDailyAllCollegesReportEmail(recipients);
+    console.log('[ManualReport] Triggering manual Daily Report email to:', recipients, 'Period:', startDate, 'to', endDate);
+    await sendDailyAllCollegesReportEmail(recipients, startDate, endDate);
     res.json({ message: 'Report generated and emailed successfully!' });
   } catch (error) {
     console.error('[ManualReport] Failed to trigger manual report:', error);
