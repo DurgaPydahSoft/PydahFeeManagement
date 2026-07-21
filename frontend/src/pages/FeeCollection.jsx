@@ -5,7 +5,7 @@ import Sidebar from './Sidebar';
 import ReceiptTemplate from '../components/ReceiptTemplate';
 import { printHtmlDocument } from '../utils/printService';
 
-const fmtAmount = (value) => Number(value ?? 0).toLocaleString();
+const fmtAmount = (value) => Number(value ?? 0).toLocaleString('en-IN');
 
 const FeeCollection = () => {
     // --- SEARCH & DATA STATE ---
@@ -2116,7 +2116,7 @@ const FeeCollection = () => {
                                     </div>
                                     <div className="flex justify-between border-t border-gray-200 pt-2 mt-1">
                                         <span className="text-gray-500 font-semibold">Amount:</span>
-                                        <span className={`font-extrabold text-base ${isSeqEnabled ? 'text-orange-600' : 'text-red-600'}`}>₹{Number(txToDelete.amount).toLocaleString()}</span>
+                                        <span className={`font-extrabold text-base ${isSeqEnabled ? 'text-orange-600' : 'text-red-600'}`}>₹{Number(txToDelete.amount).toLocaleString('en-IN')}</span>
                                     </div>
                                     {isSeqEnabled && (
                                         <div className="space-y-1 mt-3 text-left">

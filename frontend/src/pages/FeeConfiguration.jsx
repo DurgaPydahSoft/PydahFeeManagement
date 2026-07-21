@@ -112,6 +112,422 @@ const FeeConfiguration = () => {
     const [batches, setBatches] = useState([]);
     const [isSavingDefinition, setIsSavingDefinition] = useState(false);
 
+    // --- STEPPER WIZARD STATE FOR FEE STRUCTURE REDESIGN ---
+    const [wizardStep, setWizardStep] = useState(1); // 1: Context Selection, 2: Quota Breakdown
+    const [wizardContext, setWizardContext] = useState({
+        college: '',
+        batch: '',
+        course: '',
+        branch: '',
+        feeType: 'Yearly'
+    });
+    const [activeQuotaIndex, setActiveQuotaIndex] = useState(0);
+    const [quotaConfigs, setQuotaConfigs] = useState({}); // { [quotaName]: { columns: [...], amounts: {...}, terms: {...} } }
+    const [savedQuotas, setSavedQuotas] = useState({}); // { [quotaName]: boolean }
+    const [isSavingQuota, setIsSavingQuota] = useState(false);
+    const [wizardError, setWizardError] = useState('');
+
+    // --- MAIN TABLE & QUOTA EXPAND/COLLAPSE STATE ---
+    const [expandedRows, setExpandedRows] = useState({});
+    const [expandedQuotas, setExpandedQuotas] = useState({});
+
+    const toggleRowExpand = (rowKey) => {
+        setExpandedRows(prev => ({
+            ...prev,
+            [rowKey]: !prev[rowKey]
+        }));
+    };
+
+    const toggleQuotaExpand = (quotaKey) => {
+        setExpandedQuotas(prev => ({
+            ...prev,
+            [quotaKey]: !prev[quotaKey]
+        }));
+    };
+
+    // --- LOCAL STORAGE DRAFT PERSISTENCE ---
+    const WIZARD_DRAFT_KEY = 'pydah_fee_wizard_draft_v1';
+
+    // Auto-save draft to localStorage whenever wizard state updates
+    useEffect(() => {
+        if (isModalOpen || wizardContext.college || Object.keys(quotaConfigs).length > 0) {
+            const draftData = {
+                wizardStep,
+                wizardContext,
+                activeQuotaIndex,
+                quotaConfigs,
+                savedQuotas
+            };
+            localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(draftData));
+        }
+    }, [wizardStep, wizardContext, activeQuotaIndex, quotaConfigs, savedQuotas, isModalOpen]);
+
+    // Load draft from localStorage
+    const loadWizardDraft = () => {
+        try {
+            const saved = localStorage.getItem(WIZARD_DRAFT_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed && (parsed.wizardContext?.college || Object.keys(parsed.quotaConfigs || {}).length > 0)) {
+                    if (parsed.wizardStep) setWizardStep(parsed.wizardStep);
+                    if (parsed.wizardContext) setWizardContext(parsed.wizardContext);
+                    if (parsed.activeQuotaIndex !== undefined) setActiveQuotaIndex(parsed.activeQuotaIndex);
+                    if (parsed.quotaConfigs) setQuotaConfigs(parsed.quotaConfigs);
+                    if (parsed.savedQuotas) setSavedQuotas(parsed.savedQuotas);
+                    return true;
+                }
+            }
+        } catch (e) {
+            console.error("Error reading wizard draft from localStorage", e);
+        }
+        return false;
+    };
+
+    // Clear draft from localStorage
+    const clearWizardDraft = () => {
+        localStorage.removeItem(WIZARD_DRAFT_KEY);
+        setWizardStep(1);
+        setWizardContext({ college: '', batch: '', course: '', branch: '', feeType: 'Yearly' });
+        setActiveQuotaIndex(0);
+        setQuotaConfigs({});
+        setSavedQuotas({});
+    };
+
+    // Auto-load draft when component mounts
+    useEffect(() => {
+        loadWizardDraft();
+    }, []);
+
+    // Available categories/quotas for current context
+    const availableQuotas = React.useMemo(() => {
+        if (categories && categories.length > 0) return categories;
+        return ['Convenor (A-Category)', 'Management (B-Category)', 'NRI (C-Category)', 'Spot Admission'];
+    }, [categories]);
+
+    // Open wizard for new fee structure creation
+    const handleOpenCreateWizard = () => {
+        const hasDraft = loadWizardDraft();
+        if (!hasDraft) {
+            setWizardStep(1);
+            setWizardContext({
+                college: tableFilters.college || '',
+                batch: tableFilters.batch || '',
+                course: tableFilters.course || '',
+                branch: tableFilters.branch || '',
+                feeType: 'Yearly'
+            });
+            setActiveQuotaIndex(0);
+            setQuotaConfigs({});
+            setSavedQuotas({});
+        }
+        setIsEditingContext(false);
+        setEditingId(null);
+        setIsModalOpen(true);
+    };
+
+    // Helper: Initialize/Retrieve configuration for a specific quota
+    const getQuotaConfig = (quotaName) => {
+        if (quotaConfigs[quotaName]) return quotaConfigs[quotaName];
+        // Default 3 extendable columns for Fee Head selection (unchecked by default)
+        const defaultCols = [
+            { id: 'col_1', feeHeadId: feeHeads[0]?._id || '', isLateFeeApplicable: false, isScholarshipApplicable: false, termsCount: 0 },
+            { id: 'col_2', feeHeadId: feeHeads[1]?._id || '', isLateFeeApplicable: false, isScholarshipApplicable: false, termsCount: 0 },
+            { id: 'col_3', feeHeadId: feeHeads[2]?._id || '', isLateFeeApplicable: false, isScholarshipApplicable: false, termsCount: 0 },
+        ];
+        return {
+            columns: defaultCols,
+            amounts: {},
+            terms: {}
+        };
+    };
+
+    // Column Manipulation Actions
+    const addColumnToActiveQuota = (quotaName) => {
+        const currentConfig = getQuotaConfig(quotaName);
+        const usedHeadIds = currentConfig.columns.map(c => c.feeHeadId);
+        const unusedHead = feeHeads.find(h => !usedHeadIds.includes(h._id));
+        const newCol = {
+            id: `col_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+            feeHeadId: unusedHead ? unusedHead._id : '',
+            isLateFeeApplicable: false,
+            isScholarshipApplicable: false,
+            termsCount: 0
+        };
+        setQuotaConfigs(prev => ({
+            ...prev,
+            [quotaName]: {
+                ...currentConfig,
+                columns: [...currentConfig.columns, newCol]
+            }
+        }));
+    };
+
+    const removeColumnFromActiveQuota = (quotaName, colId) => {
+        const currentConfig = getQuotaConfig(quotaName);
+        if (currentConfig.columns.length <= 1) return;
+        setQuotaConfigs(prev => ({
+            ...prev,
+            [quotaName]: {
+                ...currentConfig,
+                columns: currentConfig.columns.filter(c => c.id !== colId)
+            }
+        }));
+    };
+
+    const updateColumnInActiveQuota = (quotaName, colId, field, val) => {
+        const currentConfig = getQuotaConfig(quotaName);
+        const updatedCols = currentConfig.columns.map(c => {
+            if (c.id === colId) {
+                const updated = { ...c, [field]: val };
+                if (field === 'termsCount') {
+                    updated.isLateFeeApplicable = Number(val) > 0;
+                } else if (field === 'isLateFeeApplicable') {
+                    if (val && (!c.termsCount || c.termsCount === 0)) {
+                        updated.termsCount = 3;
+                    } else if (!val) {
+                        updated.termsCount = 0;
+                    }
+                }
+                return updated;
+            }
+            return c;
+        });
+
+        // Re-calculate terms breakdown for non-zero amounts if termsCount or late fee applicability changed
+        const colObj = updatedCols.find(c => c.id === colId);
+        const count = colObj?.termsCount || 0;
+        let updatedTerms = { ...currentConfig.terms };
+
+        Object.keys(currentConfig.amounts).forEach(amtKey => {
+            if (amtKey.endsWith(`_${colId}`)) {
+                const numAmount = Number(currentConfig.amounts[amtKey]) || 0;
+                if (colObj?.isLateFeeApplicable && count > 0 && numAmount > 0) {
+                    let defaultPcts = [];
+                    if (count === 1) defaultPcts = [100];
+                    else if (count === 2) defaultPcts = [50, 50];
+                    else if (count === 3) defaultPcts = [40, 30, 30];
+                    else {
+                        const equalP = Math.floor(100 / count);
+                        defaultPcts = Array(count).fill(equalP);
+                        const sum = equalP * count;
+                        defaultPcts[count - 1] += (100 - sum);
+                    }
+
+                    let sumA = 0;
+                    const termData = defaultPcts.map((p, idx) => {
+                        if (idx === count - 1) {
+                            return { p, a: numAmount - sumA };
+                        } else {
+                            const a = Math.round(numAmount * (p / 100));
+                            sumA += a;
+                            return { p, a };
+                        }
+                    });
+
+                    updatedTerms[amtKey] = { count, data: termData };
+                }
+            }
+        });
+
+        setQuotaConfigs(prev => ({
+            ...prev,
+            [quotaName]: {
+                ...currentConfig,
+                columns: updatedCols,
+                terms: updatedTerms
+            }
+        }));
+    };
+
+    // Amount & Terms Update Handlers
+    const updateAmountInActiveQuota = (quotaName, rowKey, colId, amountVal) => {
+        const currentConfig = getQuotaConfig(quotaName);
+        const key = `${rowKey}_${colId}`;
+        const numAmount = Number(amountVal) || 0;
+        
+        let updatedTerms = { ...currentConfig.terms };
+        const colObj = currentConfig.columns.find(c => c.id === colId);
+        const count = colObj?.termsCount || (colObj?.isLateFeeApplicable ? 3 : 0);
+
+        if (colObj?.isLateFeeApplicable && count > 0 && numAmount > 0) {
+            let defaultPcts = [];
+            if (count === 1) defaultPcts = [100];
+            else if (count === 2) defaultPcts = [50, 50];
+            else if (count === 3) defaultPcts = [40, 30, 30];
+            else {
+                const equalP = Math.floor(100 / count);
+                defaultPcts = Array(count).fill(equalP);
+                const sum = equalP * count;
+                defaultPcts[count - 1] += (100 - sum);
+            }
+
+            let sumA = 0;
+            const termData = defaultPcts.map((p, idx) => {
+                if (idx === count - 1) {
+                    return { p, a: numAmount - sumA };
+                } else {
+                    const a = Math.round(numAmount * (p / 100));
+                    sumA += a;
+                    return { p, a };
+                }
+            });
+
+            updatedTerms[key] = {
+                count,
+                data: termData
+            };
+        }
+
+        setQuotaConfigs(prev => ({
+            ...prev,
+            [quotaName]: {
+                ...currentConfig,
+                amounts: { ...currentConfig.amounts, [key]: amountVal },
+                terms: updatedTerms
+            }
+        }));
+    };
+
+    const updateTermPctInActiveQuota = (quotaName, rowKey, colId, termIdx, pctVal) => {
+        const currentConfig = getQuotaConfig(quotaName);
+        const key = `${rowKey}_${colId}`;
+        const totalAmt = Number(currentConfig.amounts[key]) || 0;
+        const currentTermObj = currentConfig.terms[key] 
+            ? JSON.parse(JSON.stringify(currentConfig.terms[key])) 
+            : { count: 3, data: [{ p: 40, a: 0 }, { p: 30, a: 0 }, { p: 30, a: 0 }] };
+        
+        currentTermObj.data[termIdx].p = Number(pctVal);
+        let sumA = 0;
+        currentTermObj.data.forEach((t, i) => {
+            if (i === currentTermObj.data.length - 1) {
+                t.a = totalAmt - sumA;
+            } else {
+                t.a = Math.round(totalAmt * (t.p / 100));
+                sumA += t.a;
+            }
+        });
+
+        setQuotaConfigs(prev => ({
+            ...prev,
+            [quotaName]: {
+                ...currentConfig,
+                terms: { ...currentConfig.terms, [key]: currentTermObj }
+            }
+        }));
+    };
+
+    // Save Active Quota & Advance to Next
+    const handleSaveQuotaAndNext = async (quotaName, isLastQuota) => {
+        setWizardError('');
+        if (!wizardContext.college || !wizardContext.batch || !wizardContext.course || !wizardContext.branch) {
+            setWizardError('Please select complete academic context first.');
+            return;
+        }
+
+        const config = getQuotaConfig(quotaName);
+        if (!config.columns || config.columns.length === 0) {
+            setWizardError('Please add at least one Fee Head column.');
+            return;
+        }
+
+        // 1. Validation: Every present column must have a Fee Head selected
+        for (let i = 0; i < config.columns.length; i++) {
+            if (!config.columns[i].feeHeadId) {
+                setWizardError(`Please select a Fee Head for Column ${i + 1}, or remove unused columns.`);
+                return;
+            }
+        }
+
+        const selectedMeta = metadata[wizardContext.college]?.[wizardContext.course];
+        const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 4;
+
+        const matrixRows = [];
+        for (let y = 1; y <= yearsCount; y++) {
+            if (wizardContext.feeType === 'Yearly') {
+                matrixRows.push({ year: y, semester: null, rowKey: `${y}-Y` });
+            } else {
+                matrixRows.push({ year: y, semester: 1, rowKey: `${y}-S1` });
+                matrixRows.push({ year: y, semester: 2, rowKey: `${y}-S2` });
+            }
+        }
+
+        // 2. Validation: Every present column MUST have an amount > 0 entered in at least one year/period
+        for (let i = 0; i < config.columns.length; i++) {
+            const col = config.columns[i];
+            const hasValueInAnyYear = matrixRows.some(row => {
+                const amtKey = `${row.rowKey}_${col.id}`;
+                const val = config.amounts[amtKey];
+                return val !== undefined && val !== '' && !isNaN(Number(val)) && Number(val) > 0;
+            });
+
+            if (!hasValueInAnyYear) {
+                const fh = feeHeads.find(h => h._id === col.feeHeadId);
+                setWizardError(`Column ${i + 1} (${fh?.name || 'Selected Fee Head'}) does not have a fee amount entered. Please enter a fee amount in at least one year/period for every column.`);
+                return;
+            }
+        }
+
+        setIsSavingQuota(true);
+        try {
+            const requests = [];
+            for (const col of config.columns) {
+                for (const row of matrixRows) {
+                    const amtKey = `${row.rowKey}_${col.id}`;
+                    const rawAmt = config.amounts[amtKey];
+                    if (rawAmt !== undefined && rawAmt !== '' && !isNaN(Number(rawAmt)) && Number(rawAmt) > 0) {
+                        const amt = Number(rawAmt);
+                        const termObj = config.terms[amtKey];
+                        const termsData = (col.isLateFeeApplicable && termObj) ? termObj.data.map((t, idx) => ({
+                            termNumber: idx + 1,
+                            percentage: t.p,
+                            amount: t.a
+                        })) : [];
+
+                        requests.push(api.post('/fee-structures', {
+                            feeHeadId: col.feeHeadId,
+                            college: wizardContext.college,
+                            course: wizardContext.course,
+                            branch: wizardContext.branch,
+                            batch: wizardContext.batch,
+                            category: quotaName,
+                            studentYear: row.year,
+                            semester: row.semester,
+                            amount: amt,
+                            isScholarshipApplicable: col.isScholarshipApplicable || false,
+                            isTermsDivided: col.isLateFeeApplicable || false,
+                            terms: col.isLateFeeApplicable ? termsData : []
+                        }));
+                    }
+                }
+            }
+
+            if (requests.length === 0) {
+                setWizardError('Please enter at least one fee amount before saving this quota.');
+                setIsSavingQuota(false);
+                return;
+            }
+
+            await Promise.all(requests);
+
+            setSavedQuotas(prev => ({ ...prev, [quotaName]: true }));
+            fetchStructures();
+
+            if (isLastQuota) {
+                clearWizardDraft();
+                setMessage(`All quota fee structures saved successfully for ${wizardContext.course} - ${wizardContext.branch}!`);
+                setIsModalOpen(false);
+                setTimeout(() => setMessage(''), 4000);
+            } else {
+                setActiveQuotaIndex(prev => prev + 1);
+            }
+        } catch (err) {
+            console.error('Error saving quota fee structure:', err);
+            setWizardError(err.response?.data?.message || 'Failed to save fee structure for this quota.');
+        } finally {
+            setIsSavingQuota(false);
+        }
+    };
+
     // Reset selected categories when primary context changes in Late Fees
     useEffect(() => {
         setLateFeeForm(prev => ({ ...prev, categories: [] }));
@@ -498,11 +914,6 @@ const FeeConfiguration = () => {
 
     // --- RENDER HELPERS ---
     const colleges = Object.keys(metadata);
-    const [expandedRows, setExpandedRows] = useState({});
-
-    const toggleRowExpand = (key) => {
-        setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }));
-    };
 
     // Definitions Grouping (Grouped by Context + Quota/Category)
     const grouped = {};
@@ -517,7 +928,7 @@ const FeeConfiguration = () => {
 
         return true;
     }).forEach(st => {
-        const key = `${st.college}|${st.batch}|${st.course}|${st.branch}|${st.category}`;
+        const key = `${st.college}|${st.batch}|${st.course}|${st.branch}`;
         if (!grouped[key]) {
             grouped[key] = {
                 key,
@@ -525,38 +936,53 @@ const FeeConfiguration = () => {
                 batch: st.batch,
                 course: st.course,
                 branch: st.branch,
-                category: st.category,
-                feeHeadsMap: {}, // feeHeadId -> { _id, name, code, isScholarshipApplicable }
-                matrix: {}, // year -> feeHeadId -> []
-                years: {}, // year -> items array (for edit compat)
+                quotasMap: {}, // category -> { category, feeHeadsMap, matrix, allIds, grandTotal, yearTotals, feeHeadTotals }
+                categories: [],
+                allIds: [],
+                grandTotal: 0
+            };
+        }
+
+        const grp = grouped[key];
+        const cat = st.category || 'General';
+        if (!grp.quotasMap[cat]) {
+            grp.quotasMap[cat] = {
+                category: cat,
+                feeHeadsMap: {},
+                matrix: {},
                 allIds: [],
                 grandTotal: 0,
                 yearTotals: {},
                 feeHeadTotals: {}
             };
+            grp.categories.push(cat);
         }
 
-        const grp = grouped[key];
+        const qGrp = grp.quotasMap[cat];
         const fhId = st.feeHead?._id || 'unknown';
         const fhName = st.feeHead?.name || 'Unnamed';
         const fhCode = st.feeHead?.code || '';
         const yr = st.studentYear;
 
         // Register fee head
-        if (!grp.feeHeadsMap[fhId]) {
-            grp.feeHeadsMap[fhId] = {
+        if (!qGrp.feeHeadsMap[fhId]) {
+            qGrp.feeHeadsMap[fhId] = {
                 _id: fhId,
                 name: fhName,
                 code: fhCode,
-                isScholarshipApplicable: st.isScholarshipApplicable
+                isScholarshipApplicable: st.isScholarshipApplicable,
+                isTermsDivided: st.isTermsDivided,
+                termsCount: st.terms?.length || 0
             };
-        } else if (st.isScholarshipApplicable) {
-            grp.feeHeadsMap[fhId].isScholarshipApplicable = true;
+        } else {
+            if (st.isScholarshipApplicable) qGrp.feeHeadsMap[fhId].isScholarshipApplicable = true;
+            if (st.isTermsDivided) qGrp.feeHeadsMap[fhId].isTermsDivided = true;
+            if (st.terms?.length) qGrp.feeHeadsMap[fhId].termsCount = Math.max(qGrp.feeHeadsMap[fhId].termsCount || 0, st.terms.length);
         }
 
         // Register matrix cell
-        if (!grp.matrix[yr]) grp.matrix[yr] = {};
-        if (!grp.matrix[yr][fhId]) grp.matrix[yr][fhId] = [];
+        if (!qGrp.matrix[yr]) qGrp.matrix[yr] = {};
+        if (!qGrp.matrix[yr][fhId]) qGrp.matrix[yr][fhId] = [];
 
         const item = {
             id: st._id,
@@ -567,22 +993,19 @@ const FeeConfiguration = () => {
             isScholarshipApplicable: st.isScholarshipApplicable
         };
 
-        grp.matrix[yr][fhId].push(item);
-
-        // Legacy year map for handleEditRow
-        if (!grp.years[yr]) grp.years[yr] = [];
-        grp.years[yr].push(item);
-
+        qGrp.matrix[yr][fhId].push(item);
+        qGrp.allIds.push(st._id);
         grp.allIds.push(st._id);
 
         // Totals
         const amt = Number(st.amount) || 0;
+        qGrp.grandTotal += amt;
+        qGrp.yearTotals[yr] = (qGrp.yearTotals[yr] || 0) + amt;
+        qGrp.feeHeadTotals[fhId] = (qGrp.feeHeadTotals[fhId] || 0) + amt;
         grp.grandTotal += amt;
-        grp.yearTotals[yr] = (grp.yearTotals[yr] || 0) + amt;
-        grp.feeHeadTotals[fhId] = (grp.feeHeadTotals[fhId] || 0) + amt;
     });
 
-    // Hierarchical Sorting: College -> Batch -> Course -> Branch -> Category
+    // Hierarchical Sorting: College -> Batch -> Course -> Branch
     const groupedArray = Object.values(grouped).sort((a, b) => {
         // 1. College wise
         const collegeA = String(a.college || '').toLowerCase();
@@ -602,12 +1025,7 @@ const FeeConfiguration = () => {
         // 4. Branch wise
         const branchA = String(a.branch || '').toLowerCase();
         const branchB = String(b.branch || '').toLowerCase();
-        if (branchA !== branchB) return branchA.localeCompare(branchB);
-
-        // 5. Category / Quota wise
-        const catA = String(a.category || '').toLowerCase();
-        const catB = String(b.category || '').toLowerCase();
-        return catA.localeCompare(catB);
+        return branchA.localeCompare(branchB);
     });
 
     // Calculate dynamic years for the Table based on Table Filters
@@ -679,10 +1097,7 @@ const FeeConfiguration = () => {
                         <div className="flex items-center gap-3 shrink-0 self-start sm:self-auto">
                             <button
                                 type="button"
-                                onClick={() => {
-                                    handleCancelEditContext();
-                                    setIsModalOpen(true);
-                                }}
+                                onClick={handleOpenCreateWizard}
                                 className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs md:text-sm font-bold px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all duration-200 flex items-center gap-2"
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
@@ -1044,7 +1459,6 @@ const FeeConfiguration = () => {
                                             <th className="p-3">College / Batch</th>
                                             <th className="p-3">Course & Branch</th>
                                             <th className="p-3">Category (Quota)</th>
-                                            <th className="p-3">Total Structure Fee</th>
                                             <th className="p-3 text-right">Actions</th>
                                         </tr>
                                     </thead>
@@ -1055,17 +1469,16 @@ const FeeConfiguration = () => {
                                                     <td className="p-3"><div className="h-4 bg-slate-200 rounded w-36 mb-1"></div><div className="h-3 bg-slate-100 rounded w-24"></div></td>
                                                     <td className="p-3"><div className="h-4 bg-slate-200 rounded w-28 mb-1"></div><div className="h-3 bg-slate-100 rounded w-16"></div></td>
                                                     <td className="p-3"><div className="h-6 bg-slate-200 rounded-full w-20"></div></td>
-                                                    <td className="p-3"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
                                                     <td className="p-3 text-right"><div className="h-8 bg-slate-200 rounded-lg w-24 ml-auto"></div></td>
                                                 </tr>
                                             ))
                                         ) : groupedArray.length === 0 ? (
                                             <tr>
-                                                <td colSpan={5} className="p-10 text-center text-gray-400 italic">
+                                                <td colSpan={4} className="p-10 text-center text-gray-400 italic">
                                                     <div className="flex flex-col items-center justify-center gap-2">
                                                         <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                                         <span>No fee templates found for selected filters.</span>
-                                                        <button onClick={() => { handleCancelEditContext(); setIsModalOpen(true); }} className="text-xs text-blue-600 font-semibold hover:underline mt-1">
+                                                        <button onClick={handleOpenCreateWizard} className="text-xs text-blue-600 font-semibold hover:underline mt-1">
                                                             + Define Standard Fees Now
                                                         </button>
                                                     </div>
@@ -1074,7 +1487,6 @@ const FeeConfiguration = () => {
                                         ) : (
                                             groupedArray.map((row, i) => {
                                                 const isExpanded = !!expandedRows[row.key];
-                                                const feeHeadsList = Object.values(row.feeHeadsMap || {});
 
                                                 return (
                                                     <React.Fragment key={row.key || i}>
@@ -1100,47 +1512,48 @@ const FeeConfiguration = () => {
                                                                 </div>
                                                             </td>
 
-                                                            {/* 3. Category (Quota) */}
+                                                            {/* 3. Category (Quota) - All Quotas */}
                                                             <td className="p-3">
-                                                                <span className="bg-purple-100 text-purple-800 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wide border border-purple-200">
-                                                                    {row.category}
-                                                                </span>
-                                                            </td>
-
-                                                            {/* 4. Total Structure Fee */}
-                                                            <td className="p-3">
-                                                                <div className="font-bold text-slate-900 font-mono text-sm">
-                                                                    ₹{row.grandTotal.toLocaleString()}
-                                                                </div>
-                                                                <div className="text-[10px] text-gray-400 font-medium">
-                                                                    {feeHeadsList.length} Fee Head{feeHeadsList.length !== 1 ? 's' : ''}
+                                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                                    {row.categories.map(cat => (
+                                                                        <span key={cat} className="bg-purple-100 text-purple-800 text-xs px-2.5 py-0.5 rounded-full font-bold border border-purple-200">
+                                                                            {cat}
+                                                                        </span>
+                                                                    ))}
                                                                 </div>
                                                             </td>
 
-                                                            {/* 5. Actions */}
+                                                            {/* 4. Actions */}
                                                             <td className="p-3 text-right">
                                                                 <div className="flex justify-end items-center gap-2" onClick={e => e.stopPropagation()}>
                                                                     <button
                                                                         onClick={() => {
-                                                                            handleEditRow(row);
+                                                                            setWizardContext({
+                                                                                college: row.college,
+                                                                                batch: row.batch,
+                                                                                course: row.course,
+                                                                                branch: row.branch,
+                                                                                feeType: 'Yearly'
+                                                                            });
+                                                                            setWizardStep(2);
                                                                             setIsModalOpen(true);
                                                                         }}
                                                                         className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition"
-                                                                        title="Edit Context"
+                                                                        title="Edit Fee Structure"
                                                                     >
                                                                         <Pencil size={16} />
                                                                     </button>
 
                                                                     <button
                                                                         onClick={async () => {
-                                                                            if (!window.confirm(`Delete ALL fee definitions for ${row.category} (${row.course} - ${row.branch})?`)) return;
+                                                                            if (!window.confirm(`Delete ALL fee definitions for ${row.course} - ${row.branch} (${row.batch})?`)) return;
                                                                             try {
                                                                                 await Promise.all(row.allIds.map(id => api.delete(`/fee-structures/${id}`)));
                                                                                 fetchStructures();
                                                                             } catch (e) { alert('Delete failed'); }
                                                                         }}
                                                                         className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition"
-                                                                        title="Delete Quota Structure"
+                                                                        title="Delete Fee Structure"
                                                                     >
                                                                         <Trash2 size={16} />
                                                                     </button>
@@ -1148,112 +1561,140 @@ const FeeConfiguration = () => {
                                                             </td>
                                                         </tr>
 
-                                                        {/* EXPANDABLE SECTION MATRIX */}
+                                                        {/* EXPANDABLE SECTION FOR QUOTAS - MATCHING CREATION MATRIX TABLES */}
                                                         {isExpanded && (
                                                             <tr>
-                                                                <td colSpan={5} className="p-0 bg-slate-50/70 border-y-2 border-blue-100">
-                                                                    <div className="p-3 md:p-4">
-                                                                        {/* Matrix Inner Table */}
-                                                                        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-                                                                            <table className="w-full text-left text-xs border-collapse">
-                                                                                <thead className="bg-slate-100 text-gray-700 font-bold border-b border-gray-200">
-                                                                                    <tr>
-                                                                                        <th className="p-2.5 w-24 border-r border-gray-200 bg-slate-200/60">Year</th>
-                                                                                        {feeHeadsList.map(fh => (
-                                                                                            <th key={fh._id} className="p-2.5 border-r border-gray-200 min-w-[130px]">
-                                                                                                <div className="font-bold text-blue-900">{fh.name}</div>
-                                                                                                {fh.code && <div className="text-[10px] text-gray-400 font-mono font-normal">({fh.code})</div>}
-                                                                                                {fh.isScholarshipApplicable && (
-                                                                                                    <span title="Scholarship Eligible" className="text-[9px] bg-yellow-100 text-yellow-800 px-1 py-0.2 rounded border border-yellow-200 font-normal">🎓 Scholarship</span>
-                                                                                                )}
-                                                                                            </th>
-                                                                                        ))}
-                                                                                        <th className="p-2.5 text-right font-bold text-slate-900 bg-slate-100 border-l border-gray-200 min-w-[120px]">
-                                                                                            Total Year Fee
-                                                                                        </th>
-                                                                                    </tr>
-                                                                                </thead>
-                                                                                <tbody className="divide-y divide-gray-100">
-                                                                                    {tableYears.map(y => {
-                                                                                        const yearTotal = row.yearTotals[y] || 0;
-                                                                                        return (
-                                                                                            <tr key={y} className="hover:bg-slate-50/80 transition-colors">
-                                                                                                {/* Row Header: Year */}
-                                                                                                <td className="p-2.5 font-bold text-gray-800 bg-slate-50 border-r border-gray-200 whitespace-nowrap">
-                                                                                                    Yr {y}
-                                                                                                </td>
+                                                                <td colSpan={4} className="p-0 bg-slate-50/70 border-y-2 border-blue-100">
+                                                                    <div className="p-4 space-y-4">
+                                                                        {row.categories.map(catName => {
+                                                                            const quotaKey = `${row.key}|${catName}`;
+                                                                            const isQuotaExpanded = !!expandedQuotas[quotaKey];
+                                                                            const qData = row.quotasMap[catName];
+                                                                            if (!qData) return null;
+                                                                            const qFeeHeads = Object.values(qData.feeHeadsMap || {});
 
-                                                                                                {/* Fee Head Columns */}
-                                                                                                {feeHeadsList.map(fh => {
-                                                                                                    const items = row.matrix[y]?.[fh._id] || [];
-                                                                                                    return (
-                                                                                                        <td key={fh._id} className="p-2.5 border-r border-gray-200 align-top">
-                                                                                                            {items.length > 0 ? (
-                                                                                                                <div className="space-y-1">
-                                                                                                                    {items.map((item, idx) => (
-                                                                                                                        <div key={idx} className="bg-gray-50/90 p-1.5 rounded border border-gray-200/80 relative group/term">
-                                                                                                                            <div className="flex justify-between items-center gap-1">
-                                                                                                                                <div>
-                                                                                                                                    {item.semester && <span className="font-bold text-gray-500 text-[10px]">S{item.semester}: </span>}
-                                                                                                                                    <span className="font-bold text-gray-800">₹{item.amount.toLocaleString()}</span>
-                                                                                                                                </div>
-                                                                                                                                {item.isTermsDivided && item.terms && item.terms.length > 0 && (
-                                                                                                                                    <span 
-                                                                                                                                        className="bg-blue-50 text-blue-700 text-[9px] px-1 py-0.5 rounded font-bold border border-blue-100 cursor-help"
-                                                                                                                                        title={item.terms.map(t => `Term ${t.termNumber}: ₹${t.amount.toLocaleString()} (${t.percentage}%)`).join('\n')}
-                                                                                                                                    >
-                                                                                                                                        {item.terms.length}T
-                                                                                                                                    </span>
-                                                                                                                                )}
+                                                                            const selectedMeta = metadata[row.college]?.[row.course];
+                                                                            const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 4;
+                                                                            const hasSemesters = Object.values(qData.matrix).some(yrMap => 
+                                                                                Object.values(yrMap).some(items => items.some(it => it.semester))
+                                                                            );
+
+                                                                            const matrixRows = [];
+                                                                            for (let y = 1; y <= yearsCount; y++) {
+                                                                                if (!hasSemesters) {
+                                                                                    matrixRows.push({ year: y, semester: null, rowKey: `${y}-Y`, label: `Year ${y}` });
+                                                                                } else {
+                                                                                    matrixRows.push({ year: y, semester: 1, rowKey: `${y}-S1`, label: `Yr ${y} Sem 1` });
+                                                                                    matrixRows.push({ year: y, semester: 2, rowKey: `${y}-S2`, label: `Yr ${y} Sem 2` });
+                                                                                }
+                                                                            }
+
+                                                                            return (
+                                                                                <div key={catName} className="border border-gray-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all duration-200">
+                                                                                    {/* Quota Header Bar - Click to Expand / Collapse */}
+                                                                                    <div 
+                                                                                        onClick={() => toggleQuotaExpand(quotaKey)}
+                                                                                        className={`px-4 py-2.5 flex items-center justify-between cursor-pointer select-none transition-colors ${isQuotaExpanded ? 'bg-slate-100/90 border-b border-gray-200 hover:bg-slate-200/60' : 'bg-white hover:bg-gray-50'}`}
+                                                                                    >
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <ChevronRight size={16} className={`text-gray-500 transition-transform duration-200 shrink-0 ${isQuotaExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                                            <span className="font-bold text-gray-800 text-xs md:text-sm">{catName}</span>
+                                                                                            <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-200">
+                                                                                                Quota
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-3 text-xs text-gray-600 font-medium">
+                                                                                            <span>Quota Total: <span className="font-mono font-bold text-blue-900">₹{qData.grandTotal.toLocaleString('en-IN')}</span></span>
+                                                                                            <ChevronDown size={16} className={`text-gray-400 transition-transform duration-200 ${isQuotaExpanded ? 'rotate-180 text-blue-600' : ''}`} />
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Quota Matrix Table - Expandable & Collapsible (Closed by Default) */}
+                                                                                    {isQuotaExpanded && (
+                                                                                        <div className="overflow-x-auto">
+                                                                                            <table className="w-full text-center text-xs border-collapse">
+                                                                                                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                                                                    <tr>
+                                                                                                        <th className="p-2.5 border-r border-gray-200 w-28 font-bold bg-gray-100/70 text-center">Period</th>
+                                                                                                        {qFeeHeads.map(fh => (
+                                                                                                            <th key={fh._id} className="p-2.5 border-r border-gray-200 min-w-[220px] align-top bg-gray-50 text-center">
+                                                                                                                <div className="flex items-center justify-center gap-2 whitespace-nowrap">
+                                                                                                                    <div className="font-bold text-gray-900 text-xs">{fh.name}</div>
+                                                                                                                    <div className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                                                                                                                        {fh.isTermsDivided && (
+                                                                                                                            <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold border border-blue-200">
+                                                                                                                                Terms: {fh.termsCount || 'Divided'}
+                                                                                                                            </span>
+                                                                                                                        )}
+                                                                                                                        {fh.isScholarshipApplicable && (
+                                                                                                                            <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold border border-amber-200">
+                                                                                                                                Scholarship
+                                                                                                                            </span>
+                                                                                                                        )}
+                                                                                                                    </div>
+                                                                                                                </div>
+                                                                                                            </th>
+                                                                                                        ))}
+                                                                                                    </tr>
+                                                                                                </thead>
+                                                                                                <tbody className="divide-y divide-gray-100">
+                                                                                                    {matrixRows.map(rowInfo => {
+                                                                                                        return (
+                                                                                                            <tr key={rowInfo.rowKey} className="hover:bg-gray-50/80">
+                                                                                                                <td className="p-2.5 font-semibold text-gray-800 bg-gray-50 border-r border-gray-200 whitespace-nowrap text-center">
+                                                                                                                    {rowInfo.label}
+                                                                                                                </td>
+                                                                                                                {qFeeHeads.map(fh => {
+                                                                                                                    const items = qData.matrix[rowInfo.year]?.[fh._id] || [];
+                                                                                                                    const matchItem = items.find(it => rowInfo.semester ? Number(it.semester) === Number(rowInfo.semester) : !it.semester);
+                                                                                                                    const amt = matchItem ? matchItem.amount : 0;
+                                                                                                                    const terms = matchItem?.terms || [];
+
+                                                                                                                    return (
+                                                                                                                        <td key={fh._id} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
+                                                                                                                            <div className="font-mono font-bold text-gray-800 text-xs">
+                                                                                                                                {amt > 0 ? `₹${amt.toLocaleString('en-IN')}` : <span className="text-gray-300 font-normal italic">-</span>}
                                                                                                                             </div>
-                                                                                                                            {item.isTermsDivided && item.terms && item.terms.length > 0 && (
-                                                                                                                                <div className="hidden group-hover/term:block absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 bg-gray-900 text-white text-[9px] rounded-lg p-2 shadow-lg min-w-[130px] pointer-events-none">
-                                                                                                                                    {item.terms.map(t => (
-                                                                                                                                        <div key={t.termNumber} className="flex justify-between gap-3 border-b border-gray-800/60 last:border-0 py-0.5 whitespace-nowrap">
-                                                                                                                                            <span className="text-gray-300">Term {t.termNumber}:</span>
-                                                                                                                                            <span className="font-bold text-blue-400">₹{t.amount.toLocaleString()} ({t.percentage}%)</span>
-                                                                                                                                        </div>
-                                                                                                                                    ))}
-                                                                                                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900"></div>
+
+                                                                                                                            {matchItem?.isTermsDivided && terms.length > 0 && (
+                                                                                                                                <div className="p-1.5 bg-blue-50/50 rounded border border-blue-100 text-[10px] space-y-1 mt-1">
+                                                                                                                                    <span className="font-bold text-blue-900 block text-center">Terms Breakdown ({terms.length} Terms)</span>
+                                                                                                                                    <div className="flex flex-wrap items-center justify-center gap-1">
+                                                                                                                                        {terms.map(t => (
+                                                                                                                                            <div key={t.termNumber} className="bg-white border border-blue-200 px-1.5 py-1 rounded flex items-center justify-between gap-1 text-[10px] whitespace-nowrap">
+                                                                                                                                                <span className="text-[9px] text-gray-500 font-bold">T{t.termNumber}</span>
+                                                                                                                                                <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount.toLocaleString('en-IN')}</span>
+                                                                                                                                            </div>
+                                                                                                                                        ))}
+                                                                                                                                    </div>
                                                                                                                                 </div>
                                                                                                                             )}
-                                                                                                                        </div>
-                                                                                                                    ))}
-                                                                                                                </div>
-                                                                                                            ) : (
-                                                                                                                <span className="text-gray-300 italic font-mono">-</span>
-                                                                                                            )}
-                                                                                                        </td>
-                                                                                                    );
-                                                                                                })}
-
-                                                                                                {/* Row Total: Total Year Fee */}
-                                                                                                <td className="p-2.5 text-right font-bold text-blue-900 font-mono bg-slate-50 border-l border-gray-200 whitespace-nowrap">
-                                                                                                    ₹{yearTotal.toLocaleString()}
-                                                                                                </td>
-                                                                                            </tr>
-                                                                                        );
-                                                                                    })}
-                                                                                </tbody>
-
-                                                                                {/* Total Footer Row: Fee Head Totals */}
-                                                                                <tfoot className="bg-slate-100 font-bold border-t-2 border-gray-300 text-gray-800">
-                                                                                    <tr>
-                                                                                        <td className="p-2.5 border-r border-gray-200 uppercase tracking-wider text-[10px] text-gray-500">
-                                                                                            Total Fee
-                                                                                        </td>
-                                                                                        {feeHeadsList.map(fh => (
-                                                                                            <td key={fh._id} className="p-2.5 border-r border-gray-200 font-mono text-indigo-900">
-                                                                                                ₹{(row.feeHeadTotals[fh._id] || 0).toLocaleString()}
-                                                                                            </td>
-                                                                                        ))}
-                                                                                        <td className="p-2.5 text-right font-mono font-extrabold text-emerald-800 text-sm bg-emerald-50/60 border-l border-emerald-200">
-                                                                                            ₹{row.grandTotal.toLocaleString()}
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                </tfoot>
-                                                                            </table>
-                                                                        </div>
+                                                                                                                        </td>
+                                                                                                                    );
+                                                                                                                })}
+                                                                                                            </tr>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </tbody>
+                                                                                                <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
+                                                                                                    <tr>
+                                                                                                        <td className="p-2.5 border-r border-gray-200 text-center">Total</td>
+                                                                                                        {qFeeHeads.map(fh => {
+                                                                                                            const cTotal = qData.feeHeadTotals[fh._id] || 0;
+                                                                                                            return (
+                                                                                                                <td key={fh._id} className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                                    ₹{cTotal.toLocaleString('en-IN')}
+                                                                                                                </td>
+                                                                                                            );
+                                                                                                        })}
+                                                                                                    </tr>
+                                                                                                </tfoot>
+                                                                                            </table>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
                                                                     </div>
                                                                 </td>
                                                             </tr>
@@ -1267,281 +1708,539 @@ const FeeConfiguration = () => {
                             </div>
                         </div>
 
-                        {/* Modal Popup for "Define Standard Fees" */}
+                        {/* Modal Popup for "Define Standard Fees" - Simple & Clean UI */}
                         {isModalOpen && (
-                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
-                                <div className="relative bg-white w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-2xl border border-gray-100 overflow-y-auto p-6 md:p-8 my-auto">
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs overflow-y-auto">
+                                <div className="relative bg-white w-full max-w-6xl max-h-[90vh] rounded-xl shadow-xl border border-gray-200 flex flex-col my-auto overflow-hidden text-gray-800">
+                                    
                                     {/* Modal Header */}
-                                    <div className="flex justify-between items-center pb-4 mb-5 border-b border-gray-100">
+                                    <div className="px-6 py-4 bg-white border-b border-gray-200 flex justify-between items-center shrink-0">
                                         <div>
-                                            <h2 className="text-xl font-bold text-gray-800">
-                                                {(editingId || isEditingContext) ? 'Edit Standard Fees' : 'Define Standard Fees'}
-                                            </h2>
+                                            <div className="flex items-center gap-2">
+                                                <h2 className="text-lg font-bold text-gray-800">Create Fee Structure</h2>
+                                                <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-blue-200">
+                                                    Step {wizardStep} of 2
+                                                </span>
+                                            </div>
                                             <p className="text-xs text-gray-500 mt-0.5">
-                                                Configure fee structures and term distribution across batches and categories.
+                                                {wizardStep === 1 
+                                                    ? 'Select College, Batch, Course and Branch context.' 
+                                                    : 'Configure Fee Head columns and amounts quota by quota.'}
                                             </p>
                                         </div>
-                                        <button
+                                        <div className="flex items-center gap-3">
+                                            {(wizardContext.college || Object.keys(quotaConfigs).length > 0) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (window.confirm("Are you sure you want to reset and clear all draft configuration?")) {
+                                                            clearWizardDraft();
+                                                        }
+                                                    }}
+                                                    className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 font-semibold px-2.5 py-1 rounded border border-red-200 transition"
+                                                >
+                                                    Reset Draft
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsModalOpen(false)}
+                                                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+                                                title="Close"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Stepper Tabs Bar */}
+                                    <div className="bg-gray-50 border-b border-gray-200 px-6 py-2 flex items-center gap-6 text-xs font-semibold shrink-0">
+                                        <button 
+                                            type="button"
+                                            onClick={() => setWizardStep(1)}
+                                            className={`flex items-center gap-2 py-1 transition ${wizardStep === 1 ? 'text-blue-600 font-bold border-b-2 border-blue-600 -mb-2' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            <span className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center font-bold ${wizardStep === 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>1</span>
+                                            1. Context Selection
+                                        </button>
+
+                                        <button 
                                             type="button"
                                             onClick={() => {
-                                                handleCancelEditContext();
-                                                setIsModalOpen(false);
+                                                if (wizardContext.college && wizardContext.batch && wizardContext.course && wizardContext.branch) {
+                                                    setWizardStep(2);
+                                                }
                                             }}
-                                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                            title="Close"
+                                            disabled={!wizardContext.college || !wizardContext.batch || !wizardContext.course || !wizardContext.branch}
+                                            className={`flex items-center gap-2 py-1 transition ${wizardStep === 2 ? 'text-blue-600 font-bold border-b-2 border-blue-600 -mb-2' : 'text-gray-500 hover:text-gray-700 disabled:opacity-40'}`}
                                         >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            <span className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center font-bold ${wizardStep === 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>2</span>
+                                            2. Quota-wise Setup
                                         </button>
                                     </div>
 
-                                    {/* Form Content in 2 Columns: Left Side (5 Selectors) & Right Side (Categories & Amounts) */}
-                                    <form onSubmit={activeStructSubmit} className="space-y-4 text-sm">
-                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                                            {/* LEFT SIDE: 5 Selectors & Applicable Categories */}
-                                            <div className="space-y-4 bg-gray-50/70 p-4 rounded-xl border border-gray-100">
-                                                <h3 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider mb-2 border-b border-gray-200/60 pb-1.5">
-                                                    Academic Context & Categories
-                                                </h3>
+                                    {/* Modal Content Area */}
+                                    <div className="p-6 overflow-y-auto flex-1 space-y-6">
 
-                                                {/* 1. College */}
-                                                <div className="group">
-                                                    <label className="text-xs font-bold text-gray-700 block mb-1">College</label>
-                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.college} onChange={e => { setStructForm({ ...structForm, college: e.target.value, course: '', branch: '', categories: [] }); }} required>
-                                                        <option value="">Select College</option>
-                                                        {colleges.map(c => <option key={c}>{c}</option>)}
-                                                    </select>
-                                                </div>
+                                        {/* STEP 1: CONTEXT SELECTION */}
+                                        {wizardStep === 1 && (
+                                            <div className="max-w-2xl mx-auto space-y-6 py-2">
+                                                <div className="bg-gray-50 p-5 rounded-lg border border-gray-200 space-y-4">
+                                                    <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider border-b pb-2">Academic Context</h3>
 
-                                                {/* 2. Batch */}
-                                                <div className="group">
-                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Batch</label>
-                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.batch} onChange={e => setStructForm({ ...structForm, batch: e.target.value, categories: [] })} required>
-                                                        <option value="">Select Batch</option>
-                                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                {/* 3. Course */}
-                                                <div className="group">
-                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Course</label>
-                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" value={structForm.course} onChange={e => { setStructForm({ ...structForm, course: e.target.value, branch: '', categories: [] }); }} required disabled={!structForm.college}>
-                                                        <option value="">Select Course</option>
-                                                        {(structForm.college ? Object.keys(metadata[structForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                {/* 4. Branch */}
-                                                <div className="group">
-                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Branch</label>
-                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" value={structForm.branch} onChange={e => setStructForm({ ...structForm, branch: e.target.value })} required disabled={!structForm.course}>
-                                                        <option value="">Select Branch</option>
-                                                        {(metadata[structForm.college]?.[structForm.course]?.branches || []).map(b => <option key={b}>{b}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                {/* 5. Fee Head */}
-                                                <div className="group">
-                                                    <label className="text-xs font-bold text-gray-700 block mb-1">Fee Head</label>
-                                                    <select className="w-full border border-gray-200 bg-white p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" value={structForm.feeHeadId} onChange={e => setStructForm({ ...structForm, feeHeadId: e.target.value })} required>
-                                                        <option value="">Select Fee Head</option>
-                                                        {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                {/* Applicable Categories - Left Bottom */}
-                                                <div className="pt-2 border-t border-gray-200/80">
-                                                    <label className="text-xs font-bold text-gray-700 block mb-2">Applicable Categories</label>
-                                                    {structForm.college && structForm.batch && structForm.feeHeadId && structForm.course && structForm.branch ? (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                        {/* College */}
                                                         <div>
-                                                            <div className="grid grid-cols-3 gap-2">
-                                                                {categories.map(c => (
-                                                                    <label key={c} className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg border transition ${structForm.categories.includes(c) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={structForm.categories.includes(c)}
-                                                                            onChange={e => {
-                                                                                const isChecked = e.target.checked;
-                                                                                let newCategories = [...structForm.categories];
-                                                                                if (isChecked) newCategories.push(c);
-                                                                                else newCategories = newCategories.filter(cat => cat !== c);
-                                                                                setStructForm({ ...structForm, categories: newCategories });
-                                                                            }}
-                                                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                                        />
-                                                                        <span className={`text-xs ${structForm.categories.includes(c) ? 'font-semibold text-blue-700' : 'text-gray-600'}`}>{c}</span>
-                                                                    </label>
-                                                                ))}
-                                                            </div>
-                                                            {structForm.categories.length === 0 && <p className="text-xs text-red-500 mt-1">Please select at least one category.</p>}
+                                                            <label className="text-xs font-bold text-gray-700 block mb-1">College *</label>
+                                                            <select 
+                                                                className="w-full border border-gray-300 bg-white p-2 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                value={wizardContext.college}
+                                                                onChange={e => setWizardContext({ ...wizardContext, college: e.target.value, course: '', branch: '' })}
+                                                                required
+                                                            >
+                                                                <option value="">Select College</option>
+                                                                {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                                            </select>
                                                         </div>
-                                                    ) : (
-                                                        <div className="bg-amber-50 p-3 rounded-lg border border-amber-200/60 text-xs text-amber-800 flex items-start gap-2">
-                                                            <span className="text-amber-600 font-bold">ℹ</span>
-                                                            <span>Select College, Batch, Course, Branch, and Fee Head above to configure categories.</span>
+
+                                                        {/* Batch */}
+                                                        <div>
+                                                            <label className="text-xs font-bold text-gray-700 block mb-1">Batch *</label>
+                                                            <select 
+                                                                className="w-full border border-gray-300 bg-white p-2 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                value={wizardContext.batch}
+                                                                onChange={e => setWizardContext({ ...wizardContext, batch: e.target.value })}
+                                                                required
+                                                            >
+                                                                <option value="">Select Batch</option>
+                                                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                                            </select>
                                                         </div>
-                                                    )}
+
+                                                        {/* Course */}
+                                                        <div>
+                                                            <label className="text-xs font-bold text-gray-700 block mb-1">Course *</label>
+                                                            <select 
+                                                                className="w-full border border-gray-300 bg-white p-2 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100"
+                                                                value={wizardContext.course}
+                                                                onChange={e => setWizardContext({ ...wizardContext, course: e.target.value, branch: '' })}
+                                                                disabled={!wizardContext.college}
+                                                                required
+                                                            >
+                                                                <option value="">Select Course</option>
+                                                                {(wizardContext.college ? Object.keys(metadata[wizardContext.college] || {}) : []).map(c => <option key={c} value={c}>{c}</option>)}
+                                                            </select>
+                                                        </div>
+
+                                                        {/* Branch */}
+                                                        <div>
+                                                            <label className="text-xs font-bold text-gray-700 block mb-1">Branch *</label>
+                                                            <select 
+                                                                className="w-full border border-gray-300 bg-white p-2 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100"
+                                                                value={wizardContext.branch}
+                                                                onChange={e => setWizardContext({ ...wizardContext, branch: e.target.value })}
+                                                                disabled={!wizardContext.course}
+                                                                required
+                                                            >
+                                                                <option value="">Select Branch</option>
+                                                                {(metadata[wizardContext.college]?.[wizardContext.course]?.branches || []).map(b => <option key={b} value={b}>{b}</option>)}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Structure Type */}
+                                                    <div className="pt-3 border-t">
+                                                        <label className="text-xs font-bold text-gray-700 block mb-2">Structure Type</label>
+                                                        <div className="flex gap-4">
+                                                            <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                                                <input 
+                                                                    type="radio" 
+                                                                    name="feeType" 
+                                                                    checked={wizardContext.feeType === 'Yearly'} 
+                                                                    onChange={() => setWizardContext({ ...wizardContext, feeType: 'Yearly' })} 
+                                                                /> 
+                                                                Yearly Structure
+                                                            </label>
+
+                                                            <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                                                <input 
+                                                                    type="radio" 
+                                                                    name="feeType" 
+                                                                    checked={wizardContext.feeType === 'Semester'} 
+                                                                    onChange={() => setWizardContext({ ...wizardContext, feeType: 'Semester' })} 
+                                                                /> 
+                                                                Semester-wise Structure
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Action Buttons */}
+                                                <div className="flex justify-end gap-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsModalOpen(false)}
+                                                        className="px-4 py-2 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={!wizardContext.college || !wizardContext.batch || !wizardContext.course || !wizardContext.branch}
+                                                        onClick={() => setWizardStep(2)}
+                                                        className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition flex items-center gap-1.5"
+                                                    >
+                                                        <span>Next: Configure Quotas</span>
+                                                        <ChevronRight size={16} />
+                                                    </button>
                                                 </div>
                                             </div>
+                                        )}
 
-                                            {/* RIGHT SIDE: Checkboxes, Amounts & Terms */}
+                                        {/* STEP 2: QUOTA-WISE SETUP */}
+                                        {wizardStep === 2 && (
                                             <div className="space-y-4">
-
-                                                {/* Checkboxes */}
-                                                <div className="flex flex-wrap items-center gap-6 p-3 bg-gray-50 rounded-xl border border-gray-100">
-                                                    <div className="flex items-center gap-2">
-                                                        <input
-                                                            type="checkbox"
-                                                            id="scholarshipCheckModal"
-                                                            checked={structForm.isScholarshipApplicable}
-                                                            onChange={e => setStructForm({ ...structForm, isScholarshipApplicable: e.target.checked })}
-                                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                        />
-                                                        <label htmlFor="scholarshipCheckModal" className="text-xs font-bold text-gray-700 cursor-pointer">Eligible for Scholarship</label>
+                                                {/* Context Summary Bar */}
+                                                <div className="bg-blue-50/80 border border-blue-200 p-2.5 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
+                                                    <div className="flex items-center gap-2 font-medium text-gray-800">
+                                                        <span className="font-bold text-blue-900">{wizardContext.college}</span>
+                                                        <span>•</span>
+                                                        <span>Batch {wizardContext.batch}</span>
+                                                        <span>•</span>
+                                                        <span>{wizardContext.course} ({wizardContext.branch})</span>
+                                                        <span>•</span>
+                                                        <span className="text-gray-500">{wizardContext.feeType}</span>
                                                     </div>
 
-                                                    <div className="flex items-center gap-2">
-                                                        <input
-                                                            type="checkbox"
-                                                            id="termsDividedCheckModal"
-                                                            checked={structForm.isTermsDivided}
-                                                            onChange={e => setStructForm({ ...structForm, isTermsDivided: e.target.checked })}
-                                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                        />
-                                                        <label htmlFor="termsDividedCheckModal" className="text-xs font-bold text-gray-700 cursor-pointer">Terms Divided</label>
-                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWizardStep(1)}
+                                                        className="text-xs text-blue-700 hover:underline font-semibold"
+                                                    >
+                                                        Change Context
+                                                    </button>
                                                 </div>
 
-                                                {/* Amount Section */}
-                                                {editingId ? (
-                                                    <input type="number" className="w-full border border-gray-200 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={structForm.amount} onChange={e => setStructForm({ ...structForm, amount: e.target.value })} placeholder="Amount" />
-                                                ) : (
-                                                    <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-100 space-y-3">
-                                                        <div className="flex gap-4 border-b border-blue-200/80 pb-2">
-                                                            <label className="flex items-center gap-2 text-xs font-bold text-blue-900 cursor-pointer">
-                                                                <input type="radio" checked={feeType === 'Yearly'} onChange={() => setFeeType('Yearly')} /> Yearly
-                                                            </label>
-                                                            <label className="flex items-center gap-2 text-xs font-bold text-blue-900 cursor-pointer">
-                                                                <input type="radio" checked={feeType === 'Semester'} onChange={() => setFeeType('Semester')} /> Semester-wise
-                                                            </label>
-                                                        </div>
+                                                {/* Quotas Accordion List */}
+                                                <div className="space-y-3">
+                                                    {availableQuotas.map((quotaName, qIndex) => {
+                                                        const isExpanded = activeQuotaIndex === qIndex;
+                                                        const isSaved = !!savedQuotas[quotaName];
+                                                        const currentConfig = getQuotaConfig(quotaName);
 
-                                                        {/* Amount Inputs Logic */}
-                                                        <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-                                                            <p className="text-xs font-bold text-gray-600">Enter Amounts per Year:</p>
-                                                            {(() => {
-                                                                const selectedMeta = (structForm.college && structForm.course) ? metadata[structForm.college]?.[structForm.course] : null;
-                                                                const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 0;
+                                                        // Quota accessibility check: Accessible if saved or if all preceding quotas are saved
+                                                        const isAccessible = isSaved || availableQuotas.slice(0, qIndex).every(q => !!savedQuotas[q]);
+                                                        const firstUnsavedQuota = availableQuotas.find(q => !savedQuotas[q]);
 
-                                                                if (yearsCount === 0) {
-                                                                    return <p className="text-xs text-gray-400 italic">Select College and Course on the left to configure amounts.</p>;
-                                                                }
+                                                        const handleQuotaClick = () => {
+                                                            setWizardError('');
+                                                            if (isAccessible) {
+                                                                setActiveQuotaIndex(qIndex);
+                                                            } else {
+                                                                setWizardError(`Quota "${quotaName}" is locked. Please configure and save "${firstUnsavedQuota}" first.`);
+                                                            }
+                                                        };
 
-                                                                return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
-                                                                    <div key={y} className="p-3 bg-white border border-gray-200/80 rounded-lg space-y-2 mb-2">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="w-12 text-xs font-bold text-gray-700">Yr {y}:</span>
-                                                                            {feeType === 'Yearly' ? (
-                                                                                <div className="flex-1 flex gap-2">
-                                                                                    <input className="flex-1 border border-gray-200 p-1.5 rounded-md text-xs font-medium" placeholder="Total Amount" value={bulkAmounts[`${y}-Y`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-Y`, e.target.value)} />
-                                                                                    {structForm.isTermsDivided && (
-                                                                                        <select className="border border-gray-200 p-1.5 rounded-md text-xs w-24" value={bulkTerms[`${y}-Y`]?.count || ''} onChange={e => handleTermChange(`${y}-Y`, e.target.value)}>
-                                                                                            <option value="">Terms</option>
-                                                                                            {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} Terms</option>)}
-                                                                                        </select>
-                                                                                    )}
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="grid grid-cols-2 gap-2 flex-1">
-                                                                                    <div className="flex gap-1">
-                                                                                        <input className="flex-1 border border-gray-200 p-1 rounded text-xs" placeholder="Sem 1" value={bulkAmounts[`${y}-S1`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S1`, e.target.value)} />
-                                                                                        {structForm.isTermsDivided && (
-                                                                                            <select className="border border-gray-200 p-1 rounded text-[10px] w-14" value={bulkTerms[`${y}-S1`]?.count || ''} onChange={e => handleTermChange(`${y}-S1`, e.target.value)}>
-                                                                                                <option value="">T</option>
-                                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
-                                                                                            </select>
-                                                                                        )}
-                                                                                    </div>
-                                                                                    <div className="flex gap-1">
-                                                                                        <input className="flex-1 border border-gray-200 p-1 rounded text-xs" placeholder="Sem 2" value={bulkAmounts[`${y}-S2`] || ''} onChange={e => updateAmountAndRecalcTerms(`${y}-S2`, e.target.value)} />
-                                                                                        {structForm.isTermsDivided && (
-                                                                                            <select className="border border-gray-200 p-1 rounded text-[10px] w-14" value={bulkTerms[`${y}-S2`]?.count || ''} onChange={e => handleTermChange(`${y}-S2`, e.target.value)}>
-                                                                                                <option value="">T</option>
-                                                                                                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}T</option>)}
-                                                                                            </select>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
+                                                        // Compute Matrix Rows
+                                                        const selectedMeta = metadata[wizardContext.college]?.[wizardContext.course];
+                                                        const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 4;
+                                                        const matrixRows = [];
+                                                        for (let y = 1; y <= yearsCount; y++) {
+                                                            if (wizardContext.feeType === 'Yearly') {
+                                                                matrixRows.push({ year: y, semester: null, rowKey: `${y}-Y`, label: `Year ${y}` });
+                                                            } else {
+                                                                matrixRows.push({ year: y, semester: 1, rowKey: `${y}-S1`, label: `Yr ${y} Sem 1` });
+                                                                matrixRows.push({ year: y, semester: 2, rowKey: `${y}-S2`, label: `Yr ${y} Sem 2` });
+                                                            }
+                                                        }
+
+                                                        // Calculate Grand Total for quota
+                                                        let quotaTotal = 0;
+                                                        currentConfig.columns.forEach(col => {
+                                                            matrixRows.forEach(row => {
+                                                                const key = `${row.rowKey}_${col.id}`;
+                                                                quotaTotal += Number(currentConfig.amounts[key]) || 0;
+                                                            });
+                                                        });
+
+                                                        return (
+                                                            <div 
+                                                                key={quotaName}
+                                                                className={`border rounded-lg bg-white overflow-hidden transition ${!isAccessible ? 'opacity-75 bg-gray-50 border-gray-200' : isExpanded ? 'border-blue-400 ring-1 ring-blue-200' : isSaved ? 'border-green-200 bg-green-50/20' : 'border-gray-200'}`}
+                                                            >
+                                                                {/* Quota Single Header Row */}
+                                                                <div 
+                                                                    onClick={handleQuotaClick}
+                                                                    className={`p-3 flex items-center justify-between select-none ${!isAccessible ? 'cursor-not-allowed bg-gray-50/70' : 'cursor-pointer hover:bg-gray-50'} ${isExpanded ? 'bg-blue-50/40 border-b border-blue-100' : ''}`}
+                                                                >
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${isSaved ? 'bg-green-600 text-white' : isExpanded ? 'bg-blue-600 text-white' : isAccessible ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-500'}`}>
+                                                                            {isSaved ? '✓' : (qIndex + 1)}
+                                                                        </span>
+
+                                                                        <div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className={`font-bold text-xs md:text-sm ${!isAccessible ? 'text-gray-500' : 'text-gray-800'}`}>{quotaName}</span>
+                                                                                {isSaved && (
+                                                                                    <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                                                                                        Saved
+                                                                                    </span>
+                                                                                )}
+                                                                                {!isAccessible && (
+                                                                                    <span className="bg-gray-100 text-gray-500 text-[10px] font-semibold px-2 py-0.5 rounded border border-gray-200">
+                                                                                        🔒 Complete {firstUnsavedQuota} first
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-[11px] text-gray-500 mt-0.5">
+                                                                                {currentConfig.columns.filter(c => c.feeHeadId).length} Fee Head Columns | Total: <span className="font-mono font-bold text-gray-800">₹{quotaTotal.toLocaleString()}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-2">
+                                                                        {!isExpanded && isAccessible && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => { e.stopPropagation(); handleQuotaClick(); }}
+                                                                                className={`text-xs font-semibold px-2.5 py-1 rounded border ${isSaved ? 'bg-white text-green-700 border-green-300 hover:bg-green-50' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}`}
+                                                                            >
+                                                                                {isSaved ? 'Edit' : 'Configure'}
+                                                                            </button>
+                                                                        )}
+                                                                        <ChevronDown size={16} className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-180 text-blue-600' : ''}`} />
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* EXPANDED SECTION FOR ACTIVE QUOTA */}
+                                                                {isExpanded && (
+                                                                    <div className="p-4 space-y-4 bg-white">
+                                                                        {/* Fee Head Columns Header */}
+                                                                        <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                                                                            <span className="text-xs font-bold text-gray-700">Fee Head Columns for {quotaName}</span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => addColumnToActiveQuota(quotaName)}
+                                                                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-300 bg-blue-50 px-2.5 py-1 rounded hover:bg-blue-100 transition"
+                                                                            >
+                                                                                + Add Fee Head Column
+                                                                            </button>
+                                                                        </div>
+                                         {/* Matrix Table */}
+                                                                        <div className="overflow-x-auto border border-gray-200 rounded">
+                                                                            <table className="w-full text-center text-xs border-collapse">
+                                                                                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                                                    <tr>
+                                                                                        <th className="p-2.5 border-r border-gray-200 w-28 text-center">Period</th>
+                                                                                        {currentConfig.columns.map((col, cIdx) => (
+                                                                                             <th key={col.id} className="p-2.5 border-r border-gray-200 min-w-[280px] align-top bg-gray-50 text-center">
+                                                                                                 <div className="space-y-1.5">
+                                                                                                     <div className="flex items-center gap-1">
+                                                                                                         {/* Fee Head Dropdown */}
+                                                                                                         <select
+                                                                                                             className="w-full border border-gray-300 bg-white p-1.5 rounded text-xs font-semibold text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none text-center"
+                                                                                                             value={col.feeHeadId}
+                                                                                                             onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
+                                                                                                         >
+                                                                                                             <option value="">Select Fee Head</option>
+                                                                                                             {feeHeads.map(h => (
+                                                                                                                 <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
+                                                                                                                     {h.name}
+                                                                                                                 </option>
+                                                                                                             ))}
+                                                                                                         </select>
+
+                                                                                                         {currentConfig.columns.length > 1 && (
+                                                                                                             <button
+                                                                                                                 type="button"
+                                                                                                                 onClick={() => removeColumnFromActiveQuota(quotaName, col.id)}
+                                                                                                                 className="text-gray-400 hover:text-red-600 p-1 shrink-0"
+                                                                                                                 title="Remove column"
+                                                                                                             >
+                                                                                                                 <Trash2 size={15} />
+                                                                                                             </button>
+                                                                                                         )}
+                                                                                                     </div>
+
+                                                                                                     {/* Checkboxes & Terms dropdown aligned in single line */}
+                                                                                                     <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700 whitespace-nowrap">
+                                                                                                         <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                                                                             <input
+                                                                                                                 type="checkbox"
+                                                                                                                 checked={col.isLateFeeApplicable || false}
+                                                                                                                 onChange={e => {
+                                                                                                                     const checked = e.target.checked;
+                                                                                                                     updateColumnInActiveQuota(quotaName, col.id, 'isLateFeeApplicable', checked);
+                                                                                                                 }}
+                                                                                                                 className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                                                                                             />
+                                                                                                             <span className="font-semibold text-gray-800">Late Fee</span>
+                                                                                                         </label>
+
+                                                                                                         {col.isLateFeeApplicable && (
+                                                                                                             <div className="flex items-center gap-1">
+                                                                                                                 <span className="text-[10px] text-gray-500 font-bold">Terms:</span>
+                                                                                                                 <select
+                                                                                                                     className="border border-gray-300 bg-white p-0.5 rounded text-[10px] font-bold text-blue-700 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                                                                     value={col.termsCount || 0}
+                                                                                                                     onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'termsCount', Number(e.target.value))}
+                                                                                                                 >
+                                                                                                                     <option value={0}>0</option>
+                                                                                                                     <option value={2}>2</option>
+                                                                                                                     <option value={3}>3</option>
+                                                                                                                     <option value={4}>4</option>
+                                                                                                                 </select>
+                                                                                                             </div>
+                                                                                                         )}
+
+                                                                                                         <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                                                                             <input
+                                                                                                                 type="checkbox"
+                                                                                                                 checked={col.isScholarshipApplicable || false}
+                                                                                                                 onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isScholarshipApplicable', e.target.checked)}
+                                                                                                                 className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                                                                                             />
+                                                                                                             <span className="font-semibold text-gray-800">Scholarship</span>
+                                                                                                         </label>
+                                                                                                     </div>
+                                                                                                 </div>
+                                                                                             </th>
+                                                                                         ))}
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-gray-100">
+                                                                                    {matrixRows.map(row => {
+                                                                                        return (
+                                                                                            <tr key={row.rowKey} className="hover:bg-gray-50/80">
+                                                                                                <td className="p-2.5 font-semibold text-gray-800 bg-gray-50 border-r border-gray-200 whitespace-nowrap text-center">
+                                                                                                    {row.label}
+                                                                                                </td>
+                                                                                                {currentConfig.columns.map(col => {
+                                                                                                    const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                    const val = currentConfig.amounts[amtKey] || '';
+                                                                                                    const nVal = Number(val) || 0;
+                                                                                                    const termObj = currentConfig.terms[amtKey];
+
+                                                                                                    return (
+                                                                                                        <td key={col.id} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
+                                                                                                            <input
+                                                                                                                type="number"
+                                                                                                                placeholder="₹ Amount"
+                                                                                                                className="w-full border border-gray-300 p-1.5 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none text-center"
+                                                                                                                value={val}
+                                                                                                                onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
+                                                                                                                disabled={!col.feeHeadId}
+                                                                                                            />
+
+                                                                                                            {col.isLateFeeApplicable && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
+                                                                                                                <div className="p-1.5 bg-blue-50/50 rounded border border-blue-100 text-[10px] space-y-1">
+                                                                                                                    <span className="font-bold text-blue-900 block text-center">Terms Breakdown ({termObj.data.length} Terms)</span>
+                                                                                                                    <div className="flex flex-wrap items-center justify-center gap-1">
+                                                                                                                        {termObj.data.map((t, tidx) => (
+                                                                                                                            <div key={tidx} className="bg-white border border-blue-200 px-1.5 py-1 rounded flex items-center justify-between gap-1 text-[10px] whitespace-nowrap">
+                                                                                                                                <span className="text-[9px] text-gray-500 font-bold">T{tidx+1}</span>
+                                                                                                                                <input
+                                                                                                                                    type="number"
+                                                                                                                                    className="w-7 border text-center text-[9px] p-0.5 rounded font-bold"
+                                                                                                                                    value={t.p}
+                                                                                                                                    onChange={e => updateTermPctInActiveQuota(quotaName, row.rowKey, col.id, tidx, e.target.value)}
+                                                                                                                                    title="Term ratio"
+                                                                                                                                />
+                                                                                                                                <span className="text-[10px] font-bold text-blue-600 font-mono">₹{Number(t.a || 0).toLocaleString('en-IN')}</span>
+                                                                                                                            </div>
+                                                                                                                        ))}
+                                                                                                                    </div>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                        </td>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </tr>
+                                                                                        );
+                                                                                    })}
+                                                                                </tbody>
+                                                                                <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
+                                                                                    <tr>
+                                                                                        <td className="p-2.5 border-r border-gray-200">Total</td>
+                                                                                        {currentConfig.columns.map(col => {
+                                                                                            let cTotal = 0;
+                                                                                            matrixRows.forEach(row => {
+                                                                                                const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                cTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                            });
+                                                                                            return (
+                                                                                                <td key={col.id} className="p-2.5 border-r border-gray-200 font-mono text-blue-900">
+                                                                                                    ₹{cTotal.toLocaleString()}
+                                                                                                </td>
+                                                                                            );
+                                                                                        })}
+                                                                                    </tr>
+                                                                                </tfoot>
+                                                                            </table>
                                                                         </div>
 
-                                                                        {/* Terms Details Display */}
-                                                                        {structForm.isTermsDivided && (
-                                                                            feeType === 'Yearly' ? (
-                                                                                bulkTerms[`${y}-Y`] && (
-                                                                                    <div className="ml-12 grid grid-cols-3 gap-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
-                                                                                        {bulkTerms[`${y}-Y`].data.map((term, idx) => (
-                                                                                            <div key={idx} className="flex flex-col">
-                                                                                                <label className="text-[9px] text-gray-500 font-bold uppercase">Term {idx + 1} (%)</label>
-                                                                                                <div className="flex items-center gap-1">
-                                                                                                    <input type="number" className="w-full border p-1 rounded text-xs" value={term.p} onChange={e => updateTermPercentage(`${y}-Y`, idx, e.target.value)} />
-                                                                                                    <span className="text-[10px] text-blue-600 font-bold">₹{term.a}</span>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        ))}
-                                                                                        <div className="col-span-3 text-[10px] text-right font-bold text-gray-400">Total: {bulkTerms[`${y}-Y`].data.reduce((acc, t) => acc + t.p, 0)}%</div>
-                                                                                    </div>
-                                                                                )
-                                                                            ) : (
-                                                                                <div className="ml-12 grid grid-cols-2 gap-2">
-                                                                                    {['S1', 'S2'].map(s => bulkTerms[`${y}-${s}`] && (
-                                                                                        <div key={s} className="grid grid-cols-2 gap-1 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
-                                                                                            {bulkTerms[`${y}-${s}`].data.map((term, idx) => (
-                                                                                                <div key={idx} className="flex flex-col">
-                                                                                                    <div className="flex items-center gap-1">
-                                                                                                        <input type="number" className="w-10 border p-1 rounded text-[10px]" value={term.p} onChange={e => updateTermPercentage(`${y}-${s}`, idx, e.target.value)} />
-                                                                                                        <span className="text-[10px] text-blue-600 font-bold whitespace-nowrap">₹{term.a}</span>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            ))}
-                                                                                        </div>
-                                                                                    ))}
+                                                                        {/* Inline Validation Error Banner inside active quota card */}
+                                                                        {wizardError && (
+                                                                            <div className="bg-red-50 border border-red-200 text-red-700 p-2.5 rounded-lg text-xs font-semibold flex items-center justify-between gap-2 my-1">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="text-red-600 font-bold">⚠️</span>
+                                                                                    <span>{wizardError}</span>
                                                                                 </div>
-                                                                            )
+                                                                                <button 
+                                                                                    type="button" 
+                                                                                    onClick={() => setWizardError('')}
+                                                                                    className="text-red-400 hover:text-red-600 font-bold text-xs shrink-0"
+                                                                                >
+                                                                                    ✕
+                                                                                </button>
+                                                                            </div>
                                                                         )}
-                                                                    </div>
-                                                                ));
-                                                            })()}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
 
-                                        {/* Modal Footer Actions */}
-                                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-6">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    handleCancelEditContext();
-                                                    setIsModalOpen(false);
-                                                }}
-                                                className="px-5 py-2.5 text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
-                                            >
-                                                Cancel
-                                            </button>
-                                            <button
-                                                disabled={isSavingDefinition}
-                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition flex items-center gap-2 ${isSavingDefinition ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-200'}`}
-                                            >
-                                                {isSavingDefinition ? (
-                                                    <>
-                                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                                        Saving...
-                                                    </>
-                                                ) : (editingId ? 'Update Definition' : 'Save Definition')}
-                                            </button>
-                                        </div>
-                                    </form>
+                                                                        {/* Bottom Button for Save & Next Quota */}
+                                                                        <div className="flex justify-between items-center pt-2">
+                                                                            <span className="text-xs text-gray-500">
+                                                                                Quota {qIndex + 1} of {availableQuotas.length}: <span className="font-bold text-gray-700">{quotaName}</span>
+                                                                            </span>
+
+                                                                            <div className="flex items-center gap-2">
+                                                                                {qIndex > 0 && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setActiveQuotaIndex(qIndex - 1)}
+                                                                                        className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition"
+                                                                                    >
+                                                                                        Previous Quota
+                                                                                    </button>
+                                                                                )}
+
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={isSavingQuota}
+                                                                                    onClick={() => handleSaveQuotaAndNext(quotaName, qIndex === availableQuotas.length - 1)}
+                                                                                    className="px-5 py-2 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 transition flex items-center gap-1"
+                                                                                >
+                                                                                    {isSavingQuota ? (
+                                                                                        <span>Saving...</span>
+                                                                                    ) : qIndex === availableQuotas.length - 1 ? (
+                                                                                        <span>Save & Complete All Quotas</span>
+                                                                                    ) : (
+                                                                                        <>
+                                                                                            <span>Next Quota ({availableQuotas[qIndex + 1]})</span>
+                                                                                            <ChevronRight size={15} />
+                                                                                        </>
+                                                                                    )}
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -2300,8 +2999,8 @@ const FeeConfiguration = () => {
                         )}
                     </div>
                 )}
-            </div >
-        </div >
+            </div>
+        </div>
     );
 };
 

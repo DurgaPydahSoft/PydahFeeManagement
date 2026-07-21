@@ -150,23 +150,23 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
 
                 {/* Cash */}
                 <td className="py-4 px-6 text-right font-medium text-emerald-600">
-                    {Number(row.cashAmount || 0).toLocaleString()}
+                    {Number(row.cashAmount || 0).toLocaleString('en-IN')}
                 </td>
 
                 {/* Bank */}
                 <td className="py-4 px-6 text-right font-medium text-indigo-600">
-                    {Number(row.bankAmount || 0).toLocaleString()}
+                    {Number(row.bankAmount || 0).toLocaleString('en-IN')}
                 </td>
 
                 {/* Concession */}
                 <td className="py-4 px-6 text-right font-medium text-purple-600">
-                    {Number(row.creditAmount || 0).toLocaleString()}
+                    {Number(row.creditAmount || 0).toLocaleString('en-IN')}
                 </td>
 
                 {/* Net Total */}
                 <td className="py-4 px-6 text-right">
                     <span className="text-xs font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                        {Number(netTotal || 0).toLocaleString()}
+                        {Number(netTotal || 0).toLocaleString('en-IN')}
                     </span>
                 </td>
 
@@ -219,7 +219,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     }, {})).map(([name, amount], i) => (
                                         <div key={i} className="flex flex-col p-3 rounded bg-gray-50 border border-gray-100">
                                             <span className="text-[9px] text-gray-500 font-bold uppercase truncate mb-1" title={name}>{name}</span>
-                                            <span className="text-xs font-bold text-gray-800">{Number(amount).toLocaleString()}</span>
+                                            <span className="text-xs font-bold text-gray-800">₹{Number(amount).toLocaleString('en-IN')}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -262,9 +262,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                                     <tr key={fhIdx} className="hover:bg-gray-50 transition-colors">
                                                         <td className="px-4 py-2 text-gray-500">{fhIdx + 1}</td>
                                                         <td className="px-4 py-2 font-bold text-gray-800">{fh.name}</td>
-                                                        <td className="px-4 py-2 text-right text-emerald-600">₹{Number(fh.cashAmount || 0).toLocaleString()}</td>
-                                                        <td className="px-4 py-2 text-right text-indigo-600">₹{Number(fh.bankAmount || 0).toLocaleString()}</td>
-                                                        <td className="px-4 py-2 text-right font-extrabold text-blue-900">₹{Number(fh.netTotal || 0).toLocaleString()}</td>
+                                                        <td className="px-4 py-2 text-right text-emerald-600">₹{Number(fh.cashAmount || 0).toLocaleString('en-IN')}</td>
+                                                        <td className="px-4 py-2 text-right text-indigo-600">₹{Number(fh.bankAmount || 0).toLocaleString('en-IN')}</td>
+                                                        <td className="px-4 py-2 text-right font-extrabold text-blue-900">₹{Number(fh.netTotal || 0).toLocaleString('en-IN')}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -306,9 +306,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                                             {c.name} <span className="text-[9px] text-gray-400 font-medium font-mono ml-2">({c.username})</span>
                                                         </td>
                                                         <td className="px-4 py-2 text-center font-bold text-gray-700">{c.count}</td>
-                                                        <td className="px-4 py-2 text-right text-emerald-600">₹{Number(c.cashAmount || 0).toLocaleString()}</td>
-                                                        <td className="px-4 py-2 text-right text-indigo-600">₹{Number(c.bankAmount || 0).toLocaleString()}</td>
-                                                        <td className="px-4 py-2 text-right font-extrabold text-blue-900">₹{Number(c.netTotal || 0).toLocaleString()}</td>
+                                                        <td className="px-4 py-2 text-right text-emerald-600">₹{Number(c.cashAmount || 0).toLocaleString('en-IN')}</td>
+                                                        <td className="px-4 py-2 text-right text-indigo-600">₹{Number(c.bankAmount || 0).toLocaleString('en-IN')}</td>
+                                                        <td className="px-4 py-2 text-right font-extrabold text-blue-900">₹{Number(c.netTotal || 0).toLocaleString('en-IN')}</td>
                                                     </tr>
                                                 );
                                                 // Cashier Fee Head Breakdown
@@ -321,9 +321,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                                                     {fh.name}
                                                                 </td>
                                                                 <td></td>
-                                                                <td className="px-4 py-1.5 text-right text-[10px] text-emerald-600 font-bold">₹{Number(fh.cashAmount || 0).toLocaleString()}</td>
-                                                                <td className="px-4 py-1.5 text-right text-[10px] text-indigo-600 font-bold">₹{Number(fh.bankAmount || 0).toLocaleString()}</td>
-                                                                <td className="px-4 py-1.5 text-right text-[10px] font-extrabold text-gray-900">₹{Number(fh.netTotal || 0).toLocaleString()}</td>
+                                                                <td className="px-4 py-1.5 text-right text-[10px] text-emerald-600 font-bold">₹{Number(fh.cashAmount || 0).toLocaleString('en-IN')}</td>
+                                                                <td className="px-4 py-1.5 text-right text-[10px] text-indigo-600 font-bold">₹{Number(fh.bankAmount || 0).toLocaleString('en-IN')}</td>
+                                                                <td className="px-4 py-1.5 text-right text-[10px] font-extrabold text-gray-900">₹{Number(fh.netTotal || 0).toLocaleString('en-IN')}</td>
                                                             </tr>
                                                         );
                                                     });
@@ -399,24 +399,24 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                                     <Fragment key={`c-${ci}`}>
                                                         <tr className="bg-gray-100 font-bold">
                                                             <td className="px-3 py-2 uppercase text-gray-900">{college.college}</td>
-                                                            <td className="px-3 py-2 text-right text-emerald-700">₹{Number(college.cash).toLocaleString()}</td>
-                                                            <td className="px-3 py-2 text-right text-indigo-700">₹{Number(college.bank).toLocaleString()}</td>
-                                                            <td className="px-3 py-2 text-right text-blue-900">₹{Number(college.total).toLocaleString()}</td>
+                                                            <td className="px-3 py-2 text-right text-emerald-700">₹{Number(college.cash).toLocaleString('en-IN')}</td>
+                                                            <td className="px-3 py-2 text-right text-indigo-700">₹{Number(college.bank).toLocaleString('en-IN')}</td>
+                                                            <td className="px-3 py-2 text-right text-blue-900">₹{Number(college.total).toLocaleString('en-IN')}</td>
                                                         </tr>
                                                         {college.courses.map((course, coi) => (
                                                             <Fragment key={`co-${ci}-${coi}`}>
                                                                 <tr className="bg-gray-50/80 font-semibold">
                                                                     <td className="px-3 py-1.5 pl-6 uppercase text-gray-800">- {course.course}</td>
-                                                                    <td className="px-3 py-1.5 text-right text-emerald-600">₹{Number(course.cash).toLocaleString()}</td>
-                                                                    <td className="px-3 py-1.5 text-right text-indigo-600">₹{Number(course.bank).toLocaleString()}</td>
-                                                                    <td className="px-3 py-1.5 text-right text-blue-900">₹{Number(course.total).toLocaleString()}</td>
+                                                                    <td className="px-3 py-1.5 text-right text-emerald-600">₹{Number(course.cash).toLocaleString('en-IN')}</td>
+                                                                    <td className="px-3 py-1.5 text-right text-indigo-600">₹{Number(course.bank).toLocaleString('en-IN')}</td>
+                                                                    <td className="px-3 py-1.5 text-right text-blue-900">₹{Number(course.total).toLocaleString('en-IN')}</td>
                                                                 </tr>
                                                                 {course.feeHeads.map((fh, fi) => (
                                                                     <tr key={`fh-${ci}-${coi}-${fi}`} className="hover:bg-gray-50">
                                                                         <td className="px-3 py-1 pl-10 text-gray-700">{fh.name}</td>
-                                                                        <td className="px-3 py-1 text-right text-emerald-600">₹{Number(fh.cash).toLocaleString()}</td>
-                                                                        <td className="px-3 py-1 text-right text-indigo-600">₹{Number(fh.bank).toLocaleString()}</td>
-                                                                        <td className="px-3 py-1 text-right font-bold text-gray-900">₹{Number(fh.total).toLocaleString()}</td>
+                                                                        <td className="px-3 py-1 text-right text-emerald-600">₹{Number(fh.cash).toLocaleString('en-IN')}</td>
+                                                                        <td className="px-3 py-1 text-right text-indigo-600">₹{Number(fh.bank).toLocaleString('en-IN')}</td>
+                                                                        <td className="px-3 py-1 text-right font-bold text-gray-900">₹{Number(fh.total).toLocaleString('en-IN')}</td>
                                                                     </tr>
                                                                 ))}
                                                             </Fragment>
@@ -445,7 +445,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     ).map(([name, amount], i) => (
                                         <div key={i} className="flex flex-col p-3 rounded bg-gray-50 border border-gray-100">
                                             <span className="text-[9px] text-gray-500 font-bold uppercase truncate mb-1" title={name}>{name}</span>
-                                            <span className="text-xs font-bold text-gray-800">₹{Number(amount).toLocaleString()}</span>
+                                            <span className="text-xs font-bold text-gray-800">₹{Number(amount).toLocaleString('en-IN')}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -502,7 +502,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                                         </span>
                                                     </td>
                                                     <td className={`px-4 py-2 text-right font-bold ${tx.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-gray-900'}`}>
-                                                        {tx.transactionType === 'CREDIT' ? '-' : ''}{Number(tx.amount).toLocaleString()}
+                                                        {tx.transactionType === 'CREDIT' ? '-' : ''}{Number(tx.amount).toLocaleString('en-IN')}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -958,26 +958,26 @@ const Reports = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <StatCard
                                 title="Net Collection"
-                                value={`${Number(summary.totalConfirm).toLocaleString()}`}
+                                value={`${Number(summary.totalConfirm).toLocaleString('en-IN')}`}
                                 color="blue"
                                 icon={TrendingUp}
                             />
                             <StatCard
                                 title="Cash Received"
-                                value={`${Number(summary.totalCash || 0).toLocaleString()}`}
+                                value={`${Number(summary.totalCash || 0).toLocaleString('en-IN')}`}
                                 color="green"
                                 icon={Wallet}
                             />
                             <StatCard
                                 title="Bank Transfers"
-                                value={`${Number(summary.totalBank || 0).toLocaleString()}`}
+                                value={`${Number(summary.totalBank || 0).toLocaleString('en-IN')}`}
                                 color="indigo"
                                 icon={Landmark}
                             />
                             {/* Added Concession Stat */}
                             <StatCard
                                 title="Concessions"
-                                value={`${Number(summary.totalCredit || 0).toLocaleString()}`}
+                                value={`${Number(summary.totalCredit || 0).toLocaleString('en-IN')}`}
                                 color="purple"
                                 icon={CreditCard}
                             />
@@ -1133,16 +1133,16 @@ const Reports = () => {
                                                 <td className="py-4 px-6 text-right font-bold text-xs text-gray-800">{summary.count}</td>
 
                                                 <td className="py-4 px-6 text-right font-bold text-xs text-emerald-600">
-                                                    {Number(summary.totalCash || 0).toLocaleString()}
+                                                    {Number(summary.totalCash || 0).toLocaleString('en-IN')}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-bold text-xs text-indigo-600">
-                                                    {Number(summary.totalBank || 0).toLocaleString()}
+                                                    {Number(summary.totalBank || 0).toLocaleString('en-IN')}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-bold text-xs text-purple-700">
-                                                    {Number(summary.totalCredit || 0).toLocaleString()}
+                                                    {Number(summary.totalCredit || 0).toLocaleString('en-IN')}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-extrabold text-base text-blue-900">
-                                                    {Number(summary.totalConfirm).toLocaleString()}
+                                                    {Number(summary.totalConfirm).toLocaleString('en-IN')}
                                                 </td>
 
                                                 {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && <td></td>}

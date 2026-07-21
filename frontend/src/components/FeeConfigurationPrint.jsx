@@ -50,9 +50,9 @@ const formatYearCell = (items) => {
     if (!items || items.length === 0) return '-';
     return items.map((item) => {
         const semLabel = item.semester ? `S${item.semester}: ` : '';
-        const amount = `₹${(item.amount || 0).toLocaleString()}`;
+        const amount = `₹${(item.amount || 0).toLocaleString('en-IN')}`;
         const termsLabel = item.isTermsDivided && item.terms?.length
-            ? ` (${item.terms.map(t => `T${t.termNumber}: ₹${(t.amount || 0).toLocaleString()}`).join(', ')})`
+            ? ` (${item.terms.map(t => `T${t.termNumber}: ₹${(t.amount || 0).toLocaleString('en-IN')}`).join(', ')})`
             : '';
         return `${semLabel}${amount}${termsLabel}`;
     }).join(' | ');
@@ -118,7 +118,7 @@ const renderYearCell = (items) => {
                 <div key={idx} style={{ fontSize: '9.5px', lineHeight: '1.3' }}>
                     <div>
                         {item.semester ? <span style={{ fontWeight: '700', color: '#475569' }}>S{item.semester}: </span> : null}
-                        <span style={{ fontWeight: '700', color: '#0f172a' }}>₹{(item.amount || 0).toLocaleString()}</span>
+                        <span style={{ fontWeight: '700', color: '#0f172a' }}>₹{(item.amount || 0).toLocaleString('en-IN')}</span>
                         {item.isTermsDivided && item.terms && item.terms.length > 0 && (
                             <span style={{ marginLeft: '3px', fontSize: '8.5px', fontWeight: '700', color: '#1e40af' }}>
                                 ({item.terms.length} Terms)
@@ -127,7 +127,7 @@ const renderYearCell = (items) => {
                     </div>
                     {item.isTermsDivided && item.terms && item.terms.length > 0 && (
                         <div style={{ fontSize: '8.5px', color: '#475569', paddingLeft: '4px', borderLeft: '1.5px solid #94a3b8', marginTop: '1px' }}>
-                            {item.terms.map(t => `T${t.termNumber}: ₹${(t.amount || 0).toLocaleString()}`).join(', ')}
+                            {item.terms.map(t => `T${t.termNumber}: ₹${(t.amount || 0).toLocaleString('en-IN')}`).join(', ')}
                         </div>
                     )}
                 </div>
@@ -157,7 +157,7 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                                 {row.category} QUOTA
                             </span>
                             <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>
-                                Total: ₹{(row.grandTotal || 0).toLocaleString()}
+                                Total: ₹{(row.grandTotal || 0).toLocaleString('en-IN')}
                             </span>
                         </div>
                     </div>
@@ -189,7 +189,7 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                                                         items.map((item, iIdx) => (
                                                             <div key={iIdx}>
                                                                 {item.semester ? `S${item.semester}: ` : ''}
-                                                                ₹{(item.amount || 0).toLocaleString()}
+                                                                ₹{(item.amount || 0).toLocaleString('en-IN')}
                                                             </div>
                                                         ))
                                                     ) : (
@@ -199,7 +199,7 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                                             );
                                         })}
                                         <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#1e3a8a', backgroundColor: '#f8fafc' }}>
-                                            ₹{yearTotal.toLocaleString()}
+                                            ₹{yearTotal.toLocaleString('en-IN')}
                                         </td>
                                     </tr>
                                 );
@@ -210,11 +210,11 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                                 <td style={{ textTransform: 'uppercase', fontSize: '9px', color: '#475569' }}>Total Fee</td>
                                 {feeHeadsList.map(fh => (
                                     <td key={fh._id} style={{ color: '#1e1b4b' }}>
-                                        ₹{(row.feeHeadTotals?.[fh._id] || 0).toLocaleString()}
+                                        ₹{(row.feeHeadTotals?.[fh._id] || 0).toLocaleString('en-IN')}
                                     </td>
                                 ))}
                                 <td style={{ textAlign: 'right', color: '#065f46', fontSize: '11px' }}>
-                                    ₹{(row.grandTotal || 0).toLocaleString()}
+                                    ₹{(row.grandTotal || 0).toLocaleString('en-IN')}
                                 </td>
                             </tr>
                         </tfoot>

@@ -1088,7 +1088,7 @@ const ConcessionManagement = () => {
                                                     </td>
                                                     <td className="py-4 px-6">
                                                         <div className="text-right">
-                                                            <span className="text-sm font-black text-gray-900">₹{group.totalAmount.toLocaleString()}</span>
+                                                            <span className="text-sm font-black text-gray-900">₹{group.totalAmount.toLocaleString('en-IN')}</span>
                                                             {group.isBulk && <div className="text-[10px] text-gray-400 font-bold">Total for {group.requests.length} students</div>}
                                                         </div>
                                                     </td>
@@ -1404,7 +1404,7 @@ const ConcessionManagement = () => {
                                                         <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{req.feeHead?.name}</span>
                                                     </td>
                                                     <td className="py-4 px-6 text-sm font-black text-gray-900 text-right">
-                                                        ₹{req.amount.toLocaleString()}
+                                                        ₹{req.amount.toLocaleString('en-IN')}
                                                     </td>
                                                     <td className="py-4 px-6">
                                                         <div className="flex items-center gap-2">
@@ -1430,7 +1430,7 @@ const ConcessionManagement = () => {
                                                 <td colSpan="4" className="py-5 px-6 text-right font-black text-gray-500 text-[10px] uppercase tracking-[0.2em]">Grand Aggregate Totals</td>
                                                 <td className="py-5 px-6 text-right">
                                                     <span className="text-xl font-black text-blue-900 bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm">
-                                                        ₹{reportData.reduce((sum, item) => sum + item.amount, 0).toLocaleString()}
+                                                        ₹{reportData.reduce((sum, item) => sum + item.amount, 0).toLocaleString('en-IN')}
                                                     </span>
                                                 </td>
                                                 <td colSpan="2" className="py-5 px-6"></td>
@@ -1479,7 +1479,7 @@ const ConcessionManagement = () => {
                                         </div>
                                         <div className="col-span-2">
                                             <label className="text-xs text-gray-400 uppercase font-bold">Amount Requested</label>
-                                            <div className="font-bold text-blue-600 text-lg">₹{selectedRequest.totalAmount.toLocaleString()}</div>
+                                            <div className="font-bold text-blue-600 text-lg">₹{selectedRequest.totalAmount.toLocaleString('en-IN')}</div>
                                         </div>
                                     </div>
                                 ) : (
@@ -1516,7 +1516,7 @@ const ConcessionManagement = () => {
                                                             <td className="p-3 text-[10px] font-bold text-gray-500 uppercase tracking-tight">
                                                                 {r.feeHead?.name || 'General'}
                                                             </td>
-                                                            <td className="p-3 font-bold text-gray-600">₹{r.amount.toLocaleString()}</td>
+                                                            <td className="p-3 font-bold text-gray-600">₹{r.amount.toLocaleString('en-IN')}</td>
                                                             <td className="p-3 text-right">
                                                                 <input
                                                                     type="number"
@@ -1531,9 +1531,9 @@ const ConcessionManagement = () => {
                                                 <tfoot className="bg-gray-50 font-bold border-t">
                                                     <tr>
                                                         <td className="p-3" colSpan="2">Grand Total</td>
-                                                        <td className="p-3">₹{selectedRequest.totalAmount.toLocaleString()}</td>
+                                                        <td className="p-3">₹{selectedRequest.totalAmount.toLocaleString('en-IN')}</td>
                                                         <td className="p-3 text-blue-600 text-right">
-                                                            ₹{Object.values(bulkAmounts).reduce((sum, val) => sum + (Number(val) || 0), 0).toLocaleString()}
+                                                            ₹{Object.values(bulkAmounts).reduce((sum, val) => sum + (Number(val) || 0), 0).toLocaleString('en-IN')}
                                                         </td>
                                                     </tr>
                                                 </tfoot>

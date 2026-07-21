@@ -144,10 +144,10 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         <tbody>
                             <tr>
                                 <td style={{ textAlign: 'center' }}>{displayData.totalCount}</td>
-                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>}
-                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString('en-IN')}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -182,16 +182,16 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                                 </td>
                                                 {showCash && (
                                                     <td style={{ textAlign: 'right', padding: '5px 8px' }}>
-                                                        ₹{Number(colData.cash).toLocaleString()}
+                                                        ₹{Number(colData.cash).toLocaleString('en-IN')}
                                                     </td>
                                                 )}
                                                 {showBank && (
                                                     <td style={{ textAlign: 'right', padding: '5px 8px' }}>
-                                                        ₹{Number(colData.bank).toLocaleString()}
+                                                        ₹{Number(colData.bank).toLocaleString('en-IN')}
                                                     </td>
                                                 )}
                                                 <td style={{ textAlign: 'right', padding: '5px 8px' }}>
-                                                    ₹{Number(colData.total).toLocaleString()}
+                                                    ₹{Number(colData.total).toLocaleString('en-IN')}
                                                 </td>
                                             </tr>
                                         );
@@ -208,16 +208,16 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                                         </td>
                                                         {showCash && (
                                                             <td style={{ textAlign: 'right', paddingTop: '4px', paddingBottom: '4px' }}>
-                                                                ₹{Number(courseData.cash).toLocaleString()}
+                                                                ₹{Number(courseData.cash).toLocaleString('en-IN')}
                                                             </td>
                                                         )}
                                                         {showBank && (
                                                             <td style={{ textAlign: 'right', paddingTop: '4px', paddingBottom: '4px' }}>
-                                                                ₹{Number(courseData.bank).toLocaleString()}
+                                                                ₹{Number(courseData.bank).toLocaleString('en-IN')}
                                                             </td>
                                                         )}
                                                         <td style={{ textAlign: 'right', paddingTop: '4px', paddingBottom: '4px' }}>
-                                                            ₹{Number(courseData.total).toLocaleString()}
+                                                            ₹{Number(courseData.total).toLocaleString('en-IN')}
                                                         </td>
                                                     </tr>
                                                 );
@@ -234,16 +234,16 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                                                 </td>
                                                                 {showCash && (
                                                                     <td style={{ textAlign: 'right', paddingTop: '3px', paddingBottom: '3px' }}>
-                                                                        ₹{Number(fhVal.cash).toLocaleString()}
+                                                                        ₹{Number(fhVal.cash).toLocaleString('en-IN')}
                                                                     </td>
                                                                 )}
                                                                 {showBank && (
                                                                     <td style={{ textAlign: 'right', paddingTop: '3px', paddingBottom: '3px' }}>
-                                                                        ₹{Number(fhVal.bank).toLocaleString()}
+                                                                        ₹{Number(fhVal.bank).toLocaleString('en-IN')}
                                                                     </td>
                                                                 )}
                                                                 <td style={{ textAlign: 'right', paddingTop: '3px', paddingBottom: '3px' }}>
-                                                                    ₹{Number(fhVal.total).toLocaleString()}
+                                                                    ₹{Number(fhVal.total).toLocaleString('en-IN')}
                                                                 </td>
                                                             </tr>
                                                         );
@@ -254,9 +254,9 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     })}
                                     <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                                         <td>GRAND TOTAL</td>
-                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>}
-                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
-                                        <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString('en-IN')}</td>}
+                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString('en-IN')}</td>}
+                                        <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -306,17 +306,17 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     <tr key={idx} className="compact-row">
                                         <td>{fhName}</td>
                                         <td style={{ textAlign: 'center' }}>{fhData.count}</td>
-                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(fhData.cash).toLocaleString()}</td>}
-                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(fhData.bank).toLocaleString()}</td>}
-                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fhData.total).toLocaleString()}</td>
+                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(fhData.cash).toLocaleString('en-IN')}</td>}
+                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(fhData.bank).toLocaleString('en-IN')}</td>}
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fhData.total).toLocaleString('en-IN')}</td>
                                     </tr>
                                 ))}
                                 <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                                     <td>TOTAL</td>
                                     <td style={{ textAlign: 'center' }}>{feeHeadRows.reduce((s, [, d]) => s + d.count, 0)}</td>
-                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>}
-                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>}
-                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString('en-IN')}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString('en-IN')}</td>}
+                                    <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -352,7 +352,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         <td>{tx.studentYear}</td>
                         <td>{tx.feeHead}</td>
                         <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                            {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                            {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString('en-IN')}
                         </td>
                     </tr>
                 );
@@ -361,7 +361,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         {showCash && cashTxs.length > 0 && (
                             <div style={{ marginBottom: '16px' }}>
                                 <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
                                 </h3>
                                 <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
@@ -372,7 +372,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         {showBank && bankTxs.length > 0 && (
                             <div style={{ marginBottom: '16px' }}>
                                 <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
                                 </h3>
                                 <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
@@ -416,7 +416,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     <td>{tx.cancelledByName || tx.cancelledBy || 'Unknown'}</td>
                                     <td>{tx.cancellationReason || '-'}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                        ₹{Number(tx.amount).toLocaleString()}
+                                        ₹{Number(tx.amount).toLocaleString('en-IN')}
                                     </td>
                                 </tr>
                             ))}
@@ -457,7 +457,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     <td>{tx.remarks || '-'}</td>
                                     <td>{tx.updatedAt ? new Date(tx.updatedAt).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '-'}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                        ₹{Number(tx.amount).toLocaleString()}
+                                        ₹{Number(tx.amount).toLocaleString('en-IN')}
                                     </td>
                                 </tr>
                             ))}
@@ -617,17 +617,17 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                                 <td>{summary.empNo || 'N/A'}</td>
                                 <td style={{ textTransform: 'uppercase' }}>{summary.username}</td>
                                 <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
-                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString()}</td>}
-                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString()}</td>}
-                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString('en-IN')}</td>
                             </tr>
                         ))}
                         <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                             <td colSpan={3}>TOTAL</td>
                             <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
-                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>}
-                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>}
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
+                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString('en-IN')}</td>}
+                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString('en-IN')}</td>}
+                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString('en-IN')}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -654,19 +654,19 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                             <tr key={idx} className="compact-row">
                                 <td>{summary.collegeName}</td>
                                 <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
-                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString()}</td>}
-                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString()}</td>}
-                                <td style={{ textAlign: 'right' }}>₹{Number(summary.concessionAmt).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(summary.concessionAmt).toLocaleString('en-IN')}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString('en-IN')}</td>
                             </tr>
                         ))}
                         <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                             <td>TOTAL</td>
                             <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
-                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>}
-                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>}
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.concessionAmt).toLocaleString()}</td>
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
+                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString('en-IN')}</td>}
+                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString('en-IN')}</td>}
+                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.concessionAmt).toLocaleString('en-IN')}</td>
+                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString('en-IN')}</td>
                         </tr>
                     </tbody>
                 </table>

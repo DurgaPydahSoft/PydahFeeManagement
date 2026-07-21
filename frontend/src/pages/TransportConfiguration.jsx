@@ -381,7 +381,7 @@ const TransportConfiguration = () => {
                                                             <td className="p-4 font-mono text-gray-500">{s.stopOrder}</td>
                                                             <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-mono font-bold">{s.stageCode || '-'}</span></td>
                                                             <td className="p-4 font-medium text-gray-800">{s.stageName}</td>
-                                                            <td className="p-4 text-right font-bold text-gray-700">₹{s.amount.toLocaleString()}</td>
+                                                            <td className="p-4 text-right font-bold text-gray-700">₹{s.amount.toLocaleString('en-IN')}</td>
                                                             <td className="p-4 text-right">
                                                                 <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                     <button onClick={() => openStageModal(s)} className="text-blue-600 hover:bg-blue-50 p-2 rounded"><Edit2 size={16} /></button>
@@ -708,7 +708,7 @@ const TransportListTab = () => {
                                         <td className="p-3 text-gray-600 text-xs">{item.course} - {item.branch}</td>
                                         <td className="p-3 text-gray-600">{item.academicYear}</td>
                                         <td className="p-3 text-gray-700">{item.remarks}</td>
-                                        <td className="p-3 text-right font-bold text-green-700">₹{item.amount.toLocaleString()}</td>
+                                        <td className="p-3 text-right font-bold text-green-700">₹{item.amount.toLocaleString('en-IN')}</td>
                                     </tr>
                                 ))}
                     </tbody>

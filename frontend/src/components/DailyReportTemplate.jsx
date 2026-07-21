@@ -48,15 +48,15 @@ const DailyReportTemplate = forwardRef(({ data }, ref) => {
                             <td style={{ border: '1px solid #ccc', padding: '5px' }}>{tx.semester || '-'}</td>
                             <td style={{ border: '1px solid #ccc', padding: '5px' }}>{tx.paymentMode}</td>
                             <td style={{ border: '1px solid #ccc', padding: '5px', textAlign: 'right' }}>
-                                {tx.transactionType === 'CREDIT' ? `(${Math.abs(tx.amount).toLocaleString()})` : `₹${tx.amount.toLocaleString()}`}
+                                {tx.transactionType === 'CREDIT' ? `(${Math.abs(tx.amount).toLocaleString('en-IN')})` : `₹${tx.amount.toLocaleString('en-IN')}`}
                             </td>
                         </tr>
                     ))}
                     <tr style={{ backgroundColor: '#f0f0f0', borderTop: '2px solid #000' }}>
                         <td colSpan="11" style={{ padding: '8px', textAlign: 'right', fontSize: '13px' }}>
-                            <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Cash: ₹{(data.cashAmount || 0).toLocaleString()}</span>
-                            <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Bank: ₹{(data.bankAmount || 0).toLocaleString()}</span>
-                            <span style={{ fontWeight: 'bold', color: '#000' }}>Total Collection: ₹{(data.totalAmount || 0).toLocaleString()}</span>
+                            <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Cash: ₹{(data.cashAmount || 0).toLocaleString('en-IN')}</span>
+                            <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Bank: ₹{(data.bankAmount || 0).toLocaleString('en-IN')}</span>
+                            <span style={{ fontWeight: 'bold', color: '#000' }}>Total Collection: ₹{(data.totalAmount || 0).toLocaleString('en-IN')}</span>
                         </td>
                     </tr>
                 </tbody>
