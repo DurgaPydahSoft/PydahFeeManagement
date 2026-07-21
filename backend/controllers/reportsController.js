@@ -806,7 +806,10 @@ const getTransactionReports = async (req, res) => {
                 g.totalAmount = g.debitAmount;
             });
 
-            res.json(finalResults);
+            // Display only accounts from which we have amount (> 0)
+            const activeAccountResults = finalResults.filter(g => (g.debitAmount || 0) > 0 || (g.creditAmount || 0) > 0 || (g.totalAmount || 0) > 0);
+
+            res.json(activeAccountResults);
             return;
 
         } else {

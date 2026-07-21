@@ -122,6 +122,7 @@ const FeeConfiguration = () => {
         feeType: 'Yearly'
     });
     const [activeQuotaIndex, setActiveQuotaIndex] = useState(0);
+    const [expandedWizardQuotas, setExpandedWizardQuotas] = useState({}); // { [quotaName]: boolean } — each quota toggles independently
     const [quotaConfigs, setQuotaConfigs] = useState({}); // { [quotaName]: { columns: [...], amounts: {...}, terms: {...} } }
     const [savedQuotas, setSavedQuotas] = useState({}); // { [quotaName]: boolean }
     const [isSavingQuota, setIsSavingQuota] = useState(false);
@@ -149,7 +150,9 @@ const FeeConfiguration = () => {
     const WIZARD_DRAFT_KEY = 'pydah_fee_wizard_draft_v1';
 
     // Auto-save draft to localStorage whenever wizard state updates
+    // Only save for CREATE mode — not when editing an existing structure
     useEffect(() => {
+        if (isEditingContext) return; // Don't overwrite create-card draft with edit data
         if (isModalOpen || wizardContext.college || Object.keys(quotaConfigs).length > 0) {
             const draftData = {
                 wizardStep,
@@ -160,7 +163,7 @@ const FeeConfiguration = () => {
             };
             localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(draftData));
         }
-    }, [wizardStep, wizardContext, activeQuotaIndex, quotaConfigs, savedQuotas, isModalOpen]);
+    }, [wizardStep, wizardContext, activeQuotaIndex, quotaConfigs, savedQuotas, isModalOpen, isEditingContext]);
 
     // Load draft from localStorage
     const loadWizardDraft = () => {
@@ -189,6 +192,7 @@ const FeeConfiguration = () => {
         setWizardStep(1);
         setWizardContext({ college: '', batch: '', course: '', branch: '', feeType: 'Yearly' });
         setActiveQuotaIndex(0);
+        setExpandedWizardQuotas({});
         setQuotaConfigs({});
         setSavedQuotas({});
     };
@@ -217,6 +221,7 @@ const FeeConfiguration = () => {
                 feeType: 'Yearly'
             });
             setActiveQuotaIndex(0);
+            setExpandedWizardQuotas({});
             setQuotaConfigs({});
             setSavedQuotas({});
         }
@@ -228,14 +233,8 @@ const FeeConfiguration = () => {
     // Helper: Initialize/Retrieve configuration for a specific quota
     const getQuotaConfig = (quotaName) => {
         if (quotaConfigs[quotaName]) return quotaConfigs[quotaName];
-        // Default 3 extendable columns for Fee Head selection (unchecked by default)
-        const defaultCols = [
-            { id: 'col_1', feeHeadId: feeHeads[0]?._id || '', isLateFeeApplicable: false, isScholarshipApplicable: false, termsCount: 0 },
-            { id: 'col_2', feeHeadId: feeHeads[1]?._id || '', isLateFeeApplicable: false, isScholarshipApplicable: false, termsCount: 0 },
-            { id: 'col_3', feeHeadId: feeHeads[2]?._id || '', isLateFeeApplicable: false, isScholarshipApplicable: false, termsCount: 0 },
-        ];
         return {
-            columns: defaultCols,
+            columns: [],
             amounts: {},
             terms: {}
         };
@@ -264,7 +263,6 @@ const FeeConfiguration = () => {
 
     const removeColumnFromActiveQuota = (quotaName, colId) => {
         const currentConfig = getQuotaConfig(quotaName);
-        if (currentConfig.columns.length <= 1) return;
         setQuotaConfigs(prev => ({
             ...prev,
             [quotaName]: {
@@ -280,13 +278,9 @@ const FeeConfiguration = () => {
             if (c.id === colId) {
                 const updated = { ...c, [field]: val };
                 if (field === 'termsCount') {
-                    updated.isLateFeeApplicable = Number(val) > 0;
+                    // termsCount is independent — do NOT auto-toggle isLateFeeApplicable
                 } else if (field === 'isLateFeeApplicable') {
-                    if (val && (!c.termsCount || c.termsCount === 0)) {
-                        updated.termsCount = 3;
-                    } else if (!val) {
-                        updated.termsCount = 0;
-                    }
+                    // isLateFeeApplicable is independent — do NOT auto-change termsCount
                 }
                 return updated;
             }
@@ -417,7 +411,7 @@ const FeeConfiguration = () => {
     };
 
     // Save Active Quota & Advance to Next
-    const handleSaveQuotaAndNext = async (quotaName, isLastQuota) => {
+    const handleSaveQuotaAndNext = async (quotaName, isLastQuota, currentQIndex) => {
         setWizardError('');
         if (!wizardContext.college || !wizardContext.batch || !wizardContext.course || !wizardContext.branch) {
             setWizardError('Please select complete academic context first.');
@@ -425,16 +419,15 @@ const FeeConfiguration = () => {
         }
 
         const config = getQuotaConfig(quotaName);
-        if (!config.columns || config.columns.length === 0) {
-            setWizardError('Please add at least one Fee Head column.');
-            return;
-        }
+        const columns = config.columns || [];
 
         // 1. Validation: Every present column must have a Fee Head selected
-        for (let i = 0; i < config.columns.length; i++) {
-            if (!config.columns[i].feeHeadId) {
-                setWizardError(`Please select a Fee Head for Column ${i + 1}, or remove unused columns.`);
-                return;
+        if (columns.length > 0) {
+            for (let i = 0; i < columns.length; i++) {
+                if (!columns[i].feeHeadId) {
+                    setWizardError(`Please select a Fee Head for Column ${i + 1}, or remove unused columns.`);
+                    return;
+                }
             }
         }
 
@@ -452,73 +445,96 @@ const FeeConfiguration = () => {
         }
 
         // 2. Validation: Every present column MUST have an amount > 0 entered in at least one year/period
-        for (let i = 0; i < config.columns.length; i++) {
-            const col = config.columns[i];
-            const hasValueInAnyYear = matrixRows.some(row => {
-                const amtKey = `${row.rowKey}_${col.id}`;
-                const val = config.amounts[amtKey];
-                return val !== undefined && val !== '' && !isNaN(Number(val)) && Number(val) > 0;
-            });
+        if (columns.length > 0) {
+            for (let i = 0; i < columns.length; i++) {
+                const col = columns[i];
+                const hasValueInAnyYear = matrixRows.some(row => {
+                    const amtKey = `${row.rowKey}_${col.id}`;
+                    const val = config.amounts[amtKey];
+                    return val !== undefined && val !== '' && !isNaN(Number(val)) && Number(val) > 0;
+                });
 
-            if (!hasValueInAnyYear) {
-                const fh = feeHeads.find(h => h._id === col.feeHeadId);
-                setWizardError(`Column ${i + 1} (${fh?.name || 'Selected Fee Head'}) does not have a fee amount entered. Please enter a fee amount in at least one year/period for every column.`);
-                return;
+                if (!hasValueInAnyYear) {
+                    const fh = feeHeads.find(h => h._id === col.feeHeadId);
+                    setWizardError(`Column ${i + 1} (${fh?.name || 'Selected Fee Head'}) does not have a fee amount entered. Please enter a fee amount in at least one year/period for every column.`);
+                    return;
+                }
             }
         }
 
         setIsSavingQuota(true);
         try {
-            const requests = [];
-            for (const col of config.columns) {
-                for (const row of matrixRows) {
-                    const amtKey = `${row.rowKey}_${col.id}`;
-                    const rawAmt = config.amounts[amtKey];
-                    if (rawAmt !== undefined && rawAmt !== '' && !isNaN(Number(rawAmt)) && Number(rawAmt) > 0) {
-                        const amt = Number(rawAmt);
-                        const termObj = config.terms[amtKey];
-                        const termsData = (col.isLateFeeApplicable && termObj) ? termObj.data.map((t, idx) => ({
-                            termNumber: idx + 1,
-                            percentage: t.p,
-                            amount: t.a
-                        })) : [];
+            // Delete existing fee structure records for this specific quota context to clean up removed columns/heads
+            const contextKey = `${wizardContext.college}|${wizardContext.batch}|${wizardContext.course}|${wizardContext.branch}`;
+            const targetGroup = grouped[contextKey];
+            if (targetGroup && targetGroup.quotasMap && targetGroup.quotasMap[quotaName]) {
+                const existingIds = targetGroup.quotasMap[quotaName].allIds || [];
+                if (existingIds.length > 0) {
+                    await Promise.all(existingIds.map(id => api.delete(`/fee-structures/${id}`)));
+                }
+            }
 
-                        requests.push(api.post('/fee-structures', {
-                            feeHeadId: col.feeHeadId,
-                            college: wizardContext.college,
-                            course: wizardContext.course,
-                            branch: wizardContext.branch,
-                            batch: wizardContext.batch,
-                            category: quotaName,
-                            studentYear: row.year,
-                            semester: row.semester,
-                            amount: amt,
-                            isScholarshipApplicable: col.isScholarshipApplicable || false,
-                            isTermsDivided: col.isLateFeeApplicable || false,
-                            terms: col.isLateFeeApplicable ? termsData : []
-                        }));
+            const requests = [];
+            if (columns.length > 0) {
+                for (const col of columns) {
+                    for (const row of matrixRows) {
+                        const amtKey = `${row.rowKey}_${col.id}`;
+                        const rawAmt = config.amounts[amtKey];
+                        if (rawAmt !== undefined && rawAmt !== '' && !isNaN(Number(rawAmt)) && Number(rawAmt) > 0) {
+                            const amt = Number(rawAmt);
+                            const termObj = config.terms[amtKey];
+                            const termsData = (col.isLateFeeApplicable && termObj) ? termObj.data.map((t, idx) => ({
+                                termNumber: idx + 1,
+                                percentage: t.p,
+                                amount: t.a
+                            })) : [];
+
+                            requests.push(api.post('/fee-structures', {
+                                feeHeadId: col.feeHeadId,
+                                college: wizardContext.college,
+                                course: wizardContext.course,
+                                branch: wizardContext.branch,
+                                batch: wizardContext.batch,
+                                category: quotaName,
+                                studentYear: row.year,
+                                semester: row.semester,
+                                amount: amt,
+                                isScholarshipApplicable: col.isScholarshipApplicable || false,
+                                isTermsDivided: col.isLateFeeApplicable || false,
+                                terms: col.isLateFeeApplicable ? termsData : []
+                            }));
+                        }
                     }
                 }
             }
 
-            if (requests.length === 0) {
-                setWizardError('Please enter at least one fee amount before saving this quota.');
-                setIsSavingQuota(false);
-                return;
+            if (requests.length > 0) {
+                await Promise.all(requests);
             }
 
-            await Promise.all(requests);
-
             setSavedQuotas(prev => ({ ...prev, [quotaName]: true }));
-            fetchStructures();
 
             if (isLastQuota) {
-                clearWizardDraft();
+                await fetchStructures();
+                clearWizardDraft(); // Only clear draft when entire card is done
                 setMessage(`All quota fee structures saved successfully for ${wizardContext.course} - ${wizardContext.branch}!`);
                 setIsModalOpen(false);
                 setTimeout(() => setMessage(''), 4000);
             } else {
-                setActiveQuotaIndex(prev => prev + 1);
+                fetchStructures(); // Fetch in background without blocking Next Quota navigation
+                // Auto-expand next quota and close current quota
+                const qIdx = currentQIndex !== undefined ? currentQIndex : availableQuotas.indexOf(quotaName);
+                const nextQuotaName = availableQuotas[qIdx + 1];
+                if (nextQuotaName) {
+                    setExpandedWizardQuotas(prev => ({
+                        ...prev,
+                        [quotaName]: false,
+                        [nextQuotaName]: true
+                    }));
+                }
+                if (qIdx >= 0) {
+                    setActiveQuotaIndex(qIdx + 1);
+                }
             }
         } catch (err) {
             console.error('Error saving quota fee structure:', err);
@@ -880,6 +896,104 @@ const FeeConfiguration = () => {
         setIsEditingContext(true);
         setIsModalOpen(true);
         setMessage('Context loaded. Use "All Years" to edit multiple years at once.');
+    };
+
+    const handleEditStructureRow = (row) => {
+        setWizardError('');
+        setIsEditingContext(true); // Prevent auto-save from writing edit data to create draft
+        let hasSemesters = false;
+        if (row.quotasMap) {
+            Object.values(row.quotasMap).forEach(qData => {
+                if (qData.matrix) {
+                    Object.values(qData.matrix).forEach(yrMap => {
+                        Object.values(yrMap).forEach(items => {
+                            if (items.some(it => it.semester)) hasSemesters = true;
+                        });
+                    });
+                }
+            });
+        }
+
+        setWizardContext({
+            college: row.college,
+            batch: row.batch,
+            course: row.course,
+            branch: row.branch,
+            feeType: hasSemesters ? 'Semester' : 'Yearly'
+        });
+
+        const newQuotaConfigs = {};
+        const newSavedQuotas = {};
+
+        if (row.quotasMap) {
+            Object.keys(row.quotasMap).forEach(catName => {
+                const qData = row.quotasMap[catName];
+                if (!qData) return;
+
+                const feeHeadsList = Object.values(qData.feeHeadsMap || {});
+
+                const columns = feeHeadsList.map(fh => ({
+                    id: `col_${fh._id}`,
+                    feeHeadId: fh._id,
+                    isLateFeeApplicable: fh.isTermsDivided || false,
+                    isScholarshipApplicable: fh.isScholarshipApplicable || false,
+                    termsCount: fh.termsCount || 0
+                }));
+
+                const amounts = {};
+                const terms = {};
+
+                if (qData.matrix) {
+                    Object.keys(qData.matrix).forEach(yr => {
+                        Object.keys(qData.matrix[yr]).forEach(fhId => {
+                            const colId = `col_${fhId}`;
+                            const items = qData.matrix[yr][fhId] || [];
+                            items.forEach(item => {
+                                const rowKey = item.semester ? `${yr}-S${item.semester}` : `${yr}-Y`;
+                                const amtKey = `${rowKey}_${colId}`;
+                                amounts[amtKey] = item.amount;
+
+                                if (item.isTermsDivided && item.terms && item.terms.length > 0) {
+                                    terms[amtKey] = {
+                                        count: item.terms.length,
+                                        data: item.terms.map(t => ({ p: t.percentage, a: t.amount }))
+                                    };
+                                }
+                            });
+                        });
+                    });
+                }
+
+                newQuotaConfigs[catName] = {
+                    columns,
+                    amounts,
+                    terms
+                };
+                newSavedQuotas[catName] = true;
+            });
+        }
+
+        setQuotaConfigs(newQuotaConfigs);
+        setSavedQuotas(newSavedQuotas);
+        const firstQuota = availableQuotas[0];
+        setExpandedWizardQuotas(firstQuota ? { [firstQuota]: true } : newSavedQuotas);
+        setActiveQuotaIndex(0);
+        setWizardStep(2);
+        setIsModalOpen(true);
+    };
+
+    // Close the wizard modal. If in edit mode, reset all wizard state so create draft is not polluted.
+    const closeWizardModal = () => {
+        if (isEditingContext) {
+            // Reset all wizard state before clearing edit flag
+            setWizardStep(1);
+            setWizardContext({ college: '', batch: '', course: '', branch: '', feeType: 'Yearly' });
+            setActiveQuotaIndex(0);
+            setQuotaConfigs({});
+            setSavedQuotas({});
+            setIsEditingContext(false);
+        }
+        setIsModalOpen(false);
     };
 
     const handleCancelEditContext = () => {
@@ -1526,18 +1640,8 @@ const FeeConfiguration = () => {
                                                             {/* 4. Actions */}
                                                             <td className="p-3 text-right">
                                                                 <div className="flex justify-end items-center gap-2" onClick={e => e.stopPropagation()}>
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setWizardContext({
-                                                                                college: row.college,
-                                                                                batch: row.batch,
-                                                                                course: row.course,
-                                                                                branch: row.branch,
-                                                                                feeType: 'Yearly'
-                                                                            });
-                                                                            setWizardStep(2);
-                                                                            setIsModalOpen(true);
-                                                                        }}
+                                                                     <button
+                                                                        onClick={() => handleEditStructureRow(row)}
                                                                         className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition"
                                                                         title="Edit Fee Structure"
                                                                     >
@@ -1570,15 +1674,13 @@ const FeeConfiguration = () => {
                                                                             const quotaKey = `${row.key}|${catName}`;
                                                                             const isQuotaExpanded = !!expandedQuotas[quotaKey];
                                                                             const qData = row.quotasMap[catName];
-                                                                            if (!qData) return null;
-                                                                            const qFeeHeads = Object.values(qData.feeHeadsMap || {});
-
+                                                                            const qFeeHeads = Object.values(qData?.feeHeadsMap || {});
+                                                                            const isConfigured = qFeeHeads.length > 0 || Object.values(qData?.matrix || {}).some(yrMap => Object.keys(yrMap).length > 0);
                                                                             const selectedMeta = metadata[row.college]?.[row.course];
                                                                             const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 4;
-                                                                            const hasSemesters = Object.values(qData.matrix).some(yrMap => 
+                                                                            const hasSemesters = Object.values(qData?.matrix || {}).some(yrMap =>
                                                                                 Object.values(yrMap).some(items => items.some(it => it.semester))
                                                                             );
-
                                                                             const matrixRows = [];
                                                                             for (let y = 1; y <= yearsCount; y++) {
                                                                                 if (!hasSemesters) {
@@ -1588,11 +1690,10 @@ const FeeConfiguration = () => {
                                                                                     matrixRows.push({ year: y, semester: 2, rowKey: `${y}-S2`, label: `Yr ${y} Sem 2` });
                                                                                 }
                                                                             }
-
                                                                             return (
                                                                                 <div key={catName} className="border border-gray-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all duration-200">
                                                                                     {/* Quota Header Bar - Click to Expand / Collapse */}
-                                                                                    <div 
+                                                                                    <div
                                                                                         onClick={() => toggleQuotaExpand(quotaKey)}
                                                                                         className={`px-4 py-2.5 flex items-center justify-between cursor-pointer select-none transition-colors ${isQuotaExpanded ? 'bg-slate-100/90 border-b border-gray-200 hover:bg-slate-200/60' : 'bg-white hover:bg-gray-50'}`}
                                                                                     >
@@ -1604,94 +1705,105 @@ const FeeConfiguration = () => {
                                                                                             </span>
                                                                                         </div>
                                                                                         <div className="flex items-center gap-3 text-xs text-gray-600 font-medium">
-                                                                                            <span>Quota Total: <span className="font-mono font-bold text-blue-900">₹{qData.grandTotal.toLocaleString('en-IN')}</span></span>
+                                                                                            <span>Quota Total: <span className="font-mono font-bold text-blue-900">₹{(qData?.grandTotal || 0).toLocaleString('en-IN')}</span></span>
                                                                                             <ChevronDown size={16} className={`text-gray-400 transition-transform duration-200 ${isQuotaExpanded ? 'rotate-180 text-blue-600' : ''}`} />
                                                                                         </div>
                                                                                     </div>
 
                                                                                     {/* Quota Matrix Table - Expandable & Collapsible (Closed by Default) */}
-                                                                                    {isQuotaExpanded && (
+                                                                                    {isQuotaExpanded && (isConfigured ? (
                                                                                         <div className="overflow-x-auto">
-                                                                                            <table className="w-full text-center text-xs border-collapse">
-                                                                                                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
-                                                                                                    <tr>
-                                                                                                        <th className="p-2.5 border-r border-gray-200 w-28 font-bold bg-gray-100/70 text-center">Period</th>
-                                                                                                        {qFeeHeads.map(fh => (
-                                                                                                            <th key={fh._id} className="p-2.5 border-r border-gray-200 min-w-[220px] align-top bg-gray-50 text-center">
-                                                                                                                <div className="flex items-center justify-center gap-2 whitespace-nowrap">
-                                                                                                                    <div className="font-bold text-gray-900 text-xs">{fh.name}</div>
-                                                                                                                    <div className="flex items-center gap-1.5 text-[10px] text-gray-600">
-                                                                                                                        {fh.isTermsDivided && (
-                                                                                                                            <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold border border-blue-200">
-                                                                                                                                Terms: {fh.termsCount || 'Divided'}
-                                                                                                                            </span>
-                                                                                                                        )}
-                                                                                                                        {fh.isScholarshipApplicable && (
-                                                                                                                            <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold border border-amber-200">
-                                                                                                                                Scholarship
-                                                                                                                            </span>
-                                                                                                                        )}
-                                                                                                                    </div>
-                                                                                                                </div>
-                                                                                                            </th>
-                                                                                                        ))}
-                                                                                                    </tr>
-                                                                                                </thead>
-                                                                                                <tbody className="divide-y divide-gray-100">
-                                                                                                    {matrixRows.map(rowInfo => {
-                                                                                                        return (
-                                                                                                            <tr key={rowInfo.rowKey} className="hover:bg-gray-50/80">
-                                                                                                                <td className="p-2.5 font-semibold text-gray-800 bg-gray-50 border-r border-gray-200 whitespace-nowrap text-center">
-                                                                                                                    {rowInfo.label}
-                                                                                                                </td>
-                                                                                                                {qFeeHeads.map(fh => {
-                                                                                                                    const items = qData.matrix[rowInfo.year]?.[fh._id] || [];
-                                                                                                                    const matchItem = items.find(it => rowInfo.semester ? Number(it.semester) === Number(rowInfo.semester) : !it.semester);
-                                                                                                                    const amt = matchItem ? matchItem.amount : 0;
-                                                                                                                    const terms = matchItem?.terms || [];
-
-                                                                                                                    return (
-                                                                                                                        <td key={fh._id} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
-                                                                                                                            <div className="font-mono font-bold text-gray-800 text-xs">
-                                                                                                                                {amt > 0 ? `₹${amt.toLocaleString('en-IN')}` : <span className="text-gray-300 font-normal italic">-</span>}
-                                                                                                                            </div>
-
-                                                                                                                            {matchItem?.isTermsDivided && terms.length > 0 && (
-                                                                                                                                <div className="p-1.5 bg-blue-50/50 rounded border border-blue-100 text-[10px] space-y-1 mt-1">
-                                                                                                                                    <span className="font-bold text-blue-900 block text-center">Terms Breakdown ({terms.length} Terms)</span>
-                                                                                                                                    <div className="flex flex-wrap items-center justify-center gap-1">
-                                                                                                                                        {terms.map(t => (
-                                                                                                                                            <div key={t.termNumber} className="bg-white border border-blue-200 px-1.5 py-1 rounded flex items-center justify-between gap-1 text-[10px] whitespace-nowrap">
-                                                                                                                                                <span className="text-[9px] text-gray-500 font-bold">T{t.termNumber}</span>
-                                                                                                                                                <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount.toLocaleString('en-IN')}</span>
-                                                                                                                                            </div>
-                                                                                                                                        ))}
-                                                                                                                                    </div>
-                                                                                                                                </div>
-                                                                                                                            )}
-                                                                                                                        </td>
-                                                                                                                    );
-                                                                                                                })}
-                                                                                                            </tr>
-                                                                                                        );
-                                                                                                    })}
-                                                                                                </tbody>
-                                                                                                <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
-                                                                                                    <tr>
-                                                                                                        <td className="p-2.5 border-r border-gray-200 text-center">Total</td>
-                                                                                                        {qFeeHeads.map(fh => {
-                                                                                                            const cTotal = qData.feeHeadTotals[fh._id] || 0;
-                                                                                                            return (
-                                                                                                                <td key={fh._id} className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
-                                                                                                                    ₹{cTotal.toLocaleString('en-IN')}
-                                                                                                                </td>
-                                                                                                            );
-                                                                                                        })}
-                                                                                                    </tr>
-                                                                                                </tfoot>
-                                                                                            </table>
+                                                                                             <table className="w-full text-center text-xs border-collapse">
+                                                                                                 <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                                                                     <tr>
+                                                                                                         <th className="p-2.5 border-r border-gray-200 w-36 font-bold bg-gray-100/70 text-left">Fee Head</th>
+                                                                                                         {matrixRows.map(rowInfo => (
+                                                                                                             <th key={rowInfo.rowKey} className="p-2.5 border-r border-gray-200 w-28 font-bold bg-gray-50 text-center">
+                                                                                                                 {rowInfo.label}
+                                                                                                             </th>
+                                                                                                         ))}
+                                                                                                         <th className="p-2.5 border-r border-gray-200 w-28 font-bold bg-gray-100/70 text-center">Total</th>
+                                                                                                     </tr>
+                                                                                                 </thead>
+                                                                                                 <tbody className="divide-y divide-gray-100">
+                                                                                                     {qFeeHeads.map(fh => {
+                                                                                                         const fhTotal = qData?.feeHeadTotals?.[fh._id] || 0;
+                                                                                                         return (
+                                                                                                             <tr key={fh._id} className="hover:bg-gray-50/80">
+                                                                                                                 <td className="p-2.5 border-r border-gray-200 align-top space-y-1 text-left bg-gray-50">
+                                                                                                                     <div className="font-bold text-gray-900 text-xs">{fh.name}</div>
+                                                                                                                     <div className="flex items-center justify-start gap-1.5 text-[10px] text-gray-600">
+                                                                                                                         {fh.isTermsDivided && (
+                                                                                                                             <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold border border-blue-200">
+                                                                                                                                 Terms: {fh.termsCount || 'Divided'}
+                                                                                                                             </span>
+                                                                                                                         )}
+                                                                                                                         {fh.isScholarshipApplicable && (
+                                                                                                                             <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold border border-amber-200">
+                                                                                                                                 Scholarship
+                                                                                                                             </span>
+                                                                                                                         )}
+                                                                                                                     </div>
+                                                                                                                 </td>
+                                                                                                                 {matrixRows.map(rowInfo => {
+                                                                                                                     const items = qData?.matrix?.[rowInfo.year]?.[fh._id] || [];
+                                                                                                                     const matchItem = items.find(it => rowInfo.semester ? Number(it.semester) === Number(rowInfo.semester) : !it.semester);
+                                                                                                                     const amt = matchItem ? matchItem.amount : 0;
+                                                                                                                     const terms = matchItem?.terms || [];
+                                                                                                                     return (
+                                                                                                                         <td key={rowInfo.rowKey} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
+                                                                                                                             <div className="font-mono font-bold text-gray-800 text-xs">
+                                                                                                                                 {amt > 0 ? `₹${amt.toLocaleString('en-IN')}` : <span className="text-gray-300 font-normal italic">-</span>}
+                                                                                                                             </div>
+                                                                                                                             {matchItem?.isTermsDivided && terms.length > 0 && (
+                                                                                                                                 <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
+                                                                                                                                     {terms.map(t => (
+                                                                                                                                         <div key={t.termNumber} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
+                                                                                                                                             <span className="text-[9px] text-gray-500 font-bold">T{t.termNumber}</span>
+                                                                                                                                             <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount.toLocaleString('en-IN')}</span>
+                                                                                                                                         </div>
+                                                                                                                                     ))}
+                                                                                                                                 </div>
+                                                                                                                             )}
+                                                                                                                         </td>
+                                                                                                                     );
+                                                                                                                 })}
+                                                                                                                 <td className="p-2.5 border-r border-gray-200 font-mono font-bold text-blue-900 text-center">
+                                                                                                                     ₹{fhTotal.toLocaleString('en-IN')}
+                                                                                                                 </td>
+                                                                                                             </tr>
+                                                                                                         );
+                                                                                                     })}
+                                                                                                 </tbody>
+                                                                                                 <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
+                                                                                                     <tr>
+                                                                                                         <td className="p-2.5 border-r border-gray-200 text-center">Total</td>
+                                                                                                         {matrixRows.map(rowInfo => {
+                                                                                                             let periodTotal = 0;
+                                                                                                             qFeeHeads.forEach(fh => {
+                                                                                                                 const items = qData?.matrix?.[rowInfo.year]?.[fh._id] || [];
+                                                                                                                 const matchItem = items.find(it => rowInfo.semester ? Number(it.semester) === Number(rowInfo.semester) : !it.semester);
+                                                                                                                 if (matchItem) periodTotal += matchItem.amount || 0;
+                                                                                                             });
+                                                                                                             return (
+                                                                                                                 <td key={rowInfo.rowKey} className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                                     ₹{periodTotal.toLocaleString('en-IN')}
+                                                                                                                 </td>
+                                                                                                             );
+                                                                                                         })}
+                                                                                                         <td className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                             ₹{(qData?.grandTotal || 0).toLocaleString('en-IN')}
+                                                                                                         </td>
+                                                                                                     </tr>
+                                                                                                 </tfoot>
+                                                                                             </table>
                                                                                         </div>
-                                                                                    )}
+                                                                                     ) : (
+                                                                                         <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
+                                                                                             <p className="text-sm text-gray-600 font-semibold">Not Configured</p>
+                                                                                             <p className="text-xs text-gray-400 mt-1">No fee heads have been set up for this quota.</p>
+                                                                                         </div>
+                                                                                     ))}
                                                                                 </div>
                                                                             );
                                                                         })}
@@ -1717,7 +1829,7 @@ const FeeConfiguration = () => {
                                     <div className="px-6 py-4 bg-white border-b border-gray-200 flex justify-between items-center shrink-0">
                                         <div>
                                             <div className="flex items-center gap-2">
-                                                <h2 className="text-lg font-bold text-gray-800">Create Fee Structure</h2>
+                                                <h2 className="text-lg font-bold text-gray-800">{isEditingContext ? 'Edit Fee Structure' : 'Create Fee Structure'}</h2>
                                                 <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-blue-200">
                                                     Step {wizardStep} of 2
                                                 </span>
@@ -1729,7 +1841,7 @@ const FeeConfiguration = () => {
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-3">
-                                            {(wizardContext.college || Object.keys(quotaConfigs).length > 0) && (
+                                            {!isEditingContext && (wizardContext.college || Object.keys(quotaConfigs).length > 0) && (
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -1887,7 +1999,12 @@ const FeeConfiguration = () => {
                                                     <button
                                                         type="button"
                                                         disabled={!wizardContext.college || !wizardContext.batch || !wizardContext.course || !wizardContext.branch}
-                                                        onClick={() => setWizardStep(2)}
+                                                        onClick={() => {
+                                                            setWizardStep(2);
+                                                            if (Object.keys(expandedWizardQuotas).length === 0 && availableQuotas[0]) {
+                                                                setExpandedWizardQuotas({ [availableQuotas[0]]: true });
+                                                            }
+                                                        }}
                                                         className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded transition flex items-center gap-1.5"
                                                     >
                                                         <span>Next: Configure Quotas</span>
@@ -1924,21 +2041,14 @@ const FeeConfiguration = () => {
                                                 {/* Quotas Accordion List */}
                                                 <div className="space-y-3">
                                                     {availableQuotas.map((quotaName, qIndex) => {
-                                                        const isExpanded = activeQuotaIndex === qIndex;
+                                                        const isExpanded = !!expandedWizardQuotas[quotaName];
                                                         const isSaved = !!savedQuotas[quotaName];
                                                         const currentConfig = getQuotaConfig(quotaName);
 
-                                                        // Quota accessibility check: Accessible if saved or if all preceding quotas are saved
-                                                        const isAccessible = isSaved || availableQuotas.slice(0, qIndex).every(q => !!savedQuotas[q]);
-                                                        const firstUnsavedQuota = availableQuotas.find(q => !savedQuotas[q]);
-
+                                                        // All quotas are always accessible — toggle independently
                                                         const handleQuotaClick = () => {
                                                             setWizardError('');
-                                                            if (isAccessible) {
-                                                                setActiveQuotaIndex(qIndex);
-                                                            } else {
-                                                                setWizardError(`Quota "${quotaName}" is locked. Please configure and save "${firstUnsavedQuota}" first.`);
-                                                            }
+                                                            setExpandedWizardQuotas(prev => ({ ...prev, [quotaName]: !prev[quotaName] }));
                                                         };
 
                                                         // Compute Matrix Rows
@@ -1966,29 +2076,29 @@ const FeeConfiguration = () => {
                                                         return (
                                                             <div 
                                                                 key={quotaName}
-                                                                className={`border rounded-lg bg-white overflow-hidden transition ${!isAccessible ? 'opacity-75 bg-gray-50 border-gray-200' : isExpanded ? 'border-blue-400 ring-1 ring-blue-200' : isSaved ? 'border-green-200 bg-green-50/20' : 'border-gray-200'}`}
+                                                                className={`border rounded-lg bg-white overflow-hidden transition ${isExpanded ? 'border-blue-400 ring-1 ring-blue-200' : isSaved ? 'border-green-200 bg-green-50/20' : 'border-gray-200'}`}
                                                             >
                                                                 {/* Quota Single Header Row */}
                                                                 <div 
                                                                     onClick={handleQuotaClick}
-                                                                    className={`p-3 flex items-center justify-between select-none ${!isAccessible ? 'cursor-not-allowed bg-gray-50/70' : 'cursor-pointer hover:bg-gray-50'} ${isExpanded ? 'bg-blue-50/40 border-b border-blue-100' : ''}`}
+                                                                    className={`p-3 flex items-center justify-between select-none cursor-pointer hover:bg-gray-50 ${isExpanded ? 'bg-blue-50/40 border-b border-blue-100' : ''}`}
                                                                 >
                                                                     <div className="flex items-center gap-3">
-                                                                        <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${isSaved ? 'bg-green-600 text-white' : isExpanded ? 'bg-blue-600 text-white' : isAccessible ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-500'}`}>
+                                                                        <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${isSaved ? 'bg-green-600 text-white' : isExpanded ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-800'}`}>
                                                                             {isSaved ? '✓' : (qIndex + 1)}
                                                                         </span>
 
                                                                         <div>
                                                                             <div className="flex items-center gap-2">
-                                                                                <span className={`font-bold text-xs md:text-sm ${!isAccessible ? 'text-gray-500' : 'text-gray-800'}`}>{quotaName}</span>
+                                                                                <span className="font-bold text-xs md:text-sm text-gray-800">{quotaName}</span>
                                                                                 {isSaved && (
                                                                                     <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded">
                                                                                         Saved
                                                                                     </span>
                                                                                 )}
-                                                                                {!isAccessible && (
-                                                                                    <span className="bg-gray-100 text-gray-500 text-[10px] font-semibold px-2 py-0.5 rounded border border-gray-200">
-                                                                                        🔒 Complete {firstUnsavedQuota} first
+                                                                                {!isSaved && (
+                                                                                    <span className="bg-amber-50 text-amber-600 text-[10px] font-semibold px-2 py-0.5 rounded border border-amber-200">
+                                                                                        Not Configured
                                                                                     </span>
                                                                                 )}
                                                                             </div>
@@ -1999,11 +2109,11 @@ const FeeConfiguration = () => {
                                                                     </div>
 
                                                                     <div className="flex items-center gap-2">
-                                                                        {!isExpanded && isAccessible && (
+                                                                        {!isExpanded && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={(e) => { e.stopPropagation(); handleQuotaClick(); }}
-                                                                                className={`text-xs font-semibold px-2.5 py-1 rounded border ${isSaved ? 'bg-white text-green-700 border-green-300 hover:bg-green-50' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}`}
+                                                                                className={`text-xs font-semibold px-2.5 py-1 rounded border ${isSaved ? 'bg-white text-green-700 border-green-300 hover:bg-green-50' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'}`}
                                                                             >
                                                                                 {isSaved ? 'Edit' : 'Configure'}
                                                                             </button>
@@ -2016,167 +2126,183 @@ const FeeConfiguration = () => {
                                                                 {isExpanded && (
                                                                     <div className="p-4 space-y-4 bg-white">
                                                                         {/* Fee Head Columns Header */}
-                                                                        <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                                                                        <div className="pb-2 border-b border-gray-200">
                                                                             <span className="text-xs font-bold text-gray-700">Fee Head Columns for {quotaName}</span>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => addColumnToActiveQuota(quotaName)}
-                                                                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-300 bg-blue-50 px-2.5 py-1 rounded hover:bg-blue-100 transition"
-                                                                            >
-                                                                                + Add Fee Head Column
-                                                                            </button>
                                                                         </div>
-                                         {/* Matrix Table */}
-                                                                        <div className="overflow-x-auto border border-gray-200 rounded">
-                                                                            <table className="w-full text-center text-xs border-collapse">
-                                                                                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
-                                                                                    <tr>
-                                                                                        <th className="p-2.5 border-r border-gray-200 w-28 text-center">Period</th>
-                                                                                        {currentConfig.columns.map((col, cIdx) => (
-                                                                                             <th key={col.id} className="p-2.5 border-r border-gray-200 min-w-[280px] align-top bg-gray-50 text-center">
-                                                                                                 <div className="space-y-1.5">
-                                                                                                     <div className="flex items-center gap-1">
-                                                                                                         {/* Fee Head Dropdown */}
-                                                                                                         <select
-                                                                                                             className="w-full border border-gray-300 bg-white p-1.5 rounded text-xs font-semibold text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none text-center"
-                                                                                                             value={col.feeHeadId}
-                                                                                                             onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
-                                                                                                         >
-                                                                                                             <option value="">Select Fee Head</option>
-                                                                                                             {feeHeads.map(h => (
-                                                                                                                 <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
-                                                                                                                     {h.name}
-                                                                                                                 </option>
-                                                                                                             ))}
-                                                                                                         </select>
 
-                                                                                                         {currentConfig.columns.length > 1 && (
-                                                                                                             <button
-                                                                                                                 type="button"
-                                                                                                                 onClick={() => removeColumnFromActiveQuota(quotaName, col.id)}
-                                                                                                                 className="text-gray-400 hover:text-red-600 p-1 shrink-0"
-                                                                                                                 title="Remove column"
-                                                                                                             >
-                                                                                                                 <Trash2 size={15} />
-                                                                                                             </button>
-                                                                                                         )}
-                                                                                                     </div>
-
-                                                                                                     {/* Checkboxes & Terms dropdown aligned in single line */}
-                                                                                                     <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700 whitespace-nowrap">
-                                                                                                         <label className="flex items-center gap-1 cursor-pointer select-none">
-                                                                                                             <input
-                                                                                                                 type="checkbox"
-                                                                                                                 checked={col.isLateFeeApplicable || false}
-                                                                                                                 onChange={e => {
-                                                                                                                     const checked = e.target.checked;
-                                                                                                                     updateColumnInActiveQuota(quotaName, col.id, 'isLateFeeApplicable', checked);
-                                                                                                                 }}
-                                                                                                                 className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
-                                                                                                             />
-                                                                                                             <span className="font-semibold text-gray-800">Late Fee</span>
-                                                                                                         </label>
-
-                                                                                                         {col.isLateFeeApplicable && (
-                                                                                                             <div className="flex items-center gap-1">
-                                                                                                                 <span className="text-[10px] text-gray-500 font-bold">Terms:</span>
-                                                                                                                 <select
-                                                                                                                     className="border border-gray-300 bg-white p-0.5 rounded text-[10px] font-bold text-blue-700 focus:ring-1 focus:ring-blue-500 outline-none"
-                                                                                                                     value={col.termsCount || 0}
-                                                                                                                     onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'termsCount', Number(e.target.value))}
-                                                                                                                 >
-                                                                                                                     <option value={0}>0</option>
-                                                                                                                     <option value={2}>2</option>
-                                                                                                                     <option value={3}>3</option>
-                                                                                                                     <option value={4}>4</option>
-                                                                                                                 </select>
-                                                                                                             </div>
-                                                                                                         )}
-
-                                                                                                         <label className="flex items-center gap-1 cursor-pointer select-none">
-                                                                                                             <input
-                                                                                                                 type="checkbox"
-                                                                                                                 checked={col.isScholarshipApplicable || false}
-                                                                                                                 onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isScholarshipApplicable', e.target.checked)}
-                                                                                                                 className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
-                                                                                                             />
-                                                                                                             <span className="font-semibold text-gray-800">Scholarship</span>
-                                                                                                         </label>
-                                                                                                     </div>
-                                                                                                 </div>
-                                                                                             </th>
-                                                                                         ))}
-                                                                                    </tr>
-                                                                                </thead>
-                                                                                <tbody className="divide-y divide-gray-100">
-                                                                                    {matrixRows.map(row => {
-                                                                                        return (
-                                                                                            <tr key={row.rowKey} className="hover:bg-gray-50/80">
-                                                                                                <td className="p-2.5 font-semibold text-gray-800 bg-gray-50 border-r border-gray-200 whitespace-nowrap text-center">
+                                                                        {!quotaConfigs[quotaName] ? (
+                                                                            <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
+                                                                                <p className="text-xs text-gray-600 font-semibold">Not Configured</p>
+                                                                                <p className="text-[11px] text-gray-400 mt-1">
+                                                                                    Click <span className="font-bold text-blue-600">+ Add Fee Head Column</span> below to start setting up this quota.
+                                                                                </p>
+                                                                            </div>
+                                                                        ) : currentConfig.columns.length === 0 ? (
+                                                                            <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
+                                                                                <p className="text-xs text-gray-600 font-semibold">No fee head columns defined for {quotaName}.</p>
+                                                                                <p className="text-[11px] text-gray-400 mt-1">
+                                                                                    Click <span className="font-bold text-blue-600">+ Add Fee Head Column</span> below to add fee heads, or click <span className="font-bold text-gray-700">{qIndex === availableQuotas.length - 1 ? 'Save & Finish' : 'Save Quota & Next'}</span> to proceed with 0 fee heads.
+                                                                                </p>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="overflow-x-auto border border-gray-200 rounded">
+                                                                                <table className="w-full text-center text-xs border-collapse">
+                                                                                    <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                                                        <tr>
+                                                                                            <th className="p-2.5 border-r border-gray-200 w-44 bg-gray-100/70 text-left">Fee Head / Attribute</th>
+                                                                                            {matrixRows.map(row => (
+                                                                                                <th key={row.rowKey} className="p-2.5 border-r border-gray-200 w-32 bg-gray-50 text-center">
                                                                                                     {row.label}
-                                                                                                </td>
-                                                                                                {currentConfig.columns.map(col => {
-                                                                                                    const amtKey = `${row.rowKey}_${col.id}`;
-                                                                                                    const val = currentConfig.amounts[amtKey] || '';
-                                                                                                    const nVal = Number(val) || 0;
-                                                                                                    const termObj = currentConfig.terms[amtKey];
-
-                                                                                                    return (
-                                                                                                        <td key={col.id} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
-                                                                                                            <input
-                                                                                                                type="number"
-                                                                                                                placeholder="₹ Amount"
-                                                                                                                className="w-full border border-gray-300 p-1.5 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none text-center"
-                                                                                                                value={val}
-                                                                                                                onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
-                                                                                                                disabled={!col.feeHeadId}
-                                                                                                            />
-
-                                                                                                            {col.isLateFeeApplicable && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
-                                                                                                                <div className="p-1.5 bg-blue-50/50 rounded border border-blue-100 text-[10px] space-y-1">
-                                                                                                                    <span className="font-bold text-blue-900 block text-center">Terms Breakdown ({termObj.data.length} Terms)</span>
-                                                                                                                    <div className="flex flex-wrap items-center justify-center gap-1">
+                                                                                                </th>
+                                                                                            ))}
+                                                                                            <th className="p-2.5 border-r border-gray-200 w-32 bg-gray-100/70 text-center">Total</th>
+                                                                                        </tr>
+                                                                                    </thead>
+                                                                                    <tbody className="divide-y divide-gray-100">
+                                                                                        {currentConfig.columns.map(col => {
+                                                                                            let rowTotal = 0;
+                                                                                            matrixRows.forEach(row => {
+                                                                                                const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                rowTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                            });
+                                                                                            return (
+                                                                                                <tr key={col.id} className="hover:bg-gray-50/80">
+                                                                                                    <td className="p-2.5 border-r border-gray-200 align-top text-left bg-gray-50">
+                                                                                                        <div className="space-y-1.5">
+                                                                                                            <div className="flex items-center gap-1">
+                                                                                                                <select
+                                                                                                                    className="w-full border border-gray-300 bg-white p-1.5 rounded text-xs font-semibold text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none text-left"
+                                                                                                                    value={col.feeHeadId}
+                                                                                                                    onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
+                                                                                                                >
+                                                                                                                    <option value="">Select Fee Head</option>
+                                                                                                                    {feeHeads.map(h => (
+                                                                                                                        <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
+                                                                                                                            {h.name}
+                                                                                                                        </option>
+                                                                                                                    ))}
+                                                                                                                </select>
+                                                                                                                <button
+                                                                                                                    type="button"
+                                                                                                                    onClick={() => removeColumnFromActiveQuota(quotaName, col.id)}
+                                                                                                                    className="text-gray-400 hover:text-red-600 p-1 shrink-0"
+                                                                                                                    title="Remove column"
+                                                                                                                >
+                                                                                                                    <Trash2 size={15} />
+                                                                                                                </button>
+                                                                                                            </div>
+                                                                                                            <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700 whitespace-nowrap">
+                                                                                                                <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                                                                                    <input
+                                                                                                                        type="checkbox"
+                                                                                                                        checked={col.isLateFeeApplicable || false}
+                                                                                                                        onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isLateFeeApplicable', e.target.checked)}
+                                                                                                                        className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                                                                                                    />
+                                                                                                                    <span className="font-semibold text-gray-800">Late Fee</span>
+                                                                                                                </label>
+                                                                                                                <div className="flex items-center gap-1">
+                                                                                                                    <span className="text-[10px] text-gray-500 font-bold">Terms:</span>
+                                                                                                                    <select
+                                                                                                                        className="border border-gray-300 bg-white p-0.5 rounded text-[10px] font-bold text-blue-700 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                                                                        value={col.termsCount || 0}
+                                                                                                                        onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'termsCount', Number(e.target.value))}
+                                                                                                                    >
+                                                                                                                        <option value={0}>0</option>
+                                                                                                                        <option value={2}>2</option>
+                                                                                                                        <option value={3}>3</option>
+                                                                                                                        <option value={4}>4</option>
+                                                                                                                    </select>
+                                                                                                                </div>
+                                                                                                                <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                                                                                    <input
+                                                                                                                        type="checkbox"
+                                                                                                                        checked={col.isScholarshipApplicable || false}
+                                                                                                                        onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isScholarshipApplicable', e.target.checked)}
+                                                                                                                        className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                                                                                                    />
+                                                                                                                    <span className="font-semibold text-gray-800">Scholarship</span>
+                                                                                                                </label>
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    </td>
+                                                                                                    {matrixRows.map(row => {
+                                                                                                        const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                        const val = currentConfig.amounts[amtKey] || '';
+                                                                                                        const nVal = Number(val) || 0;
+                                                                                                        const termObj = currentConfig.terms[amtKey];
+                                                                                                        return (
+                                                                                                            <td key={row.rowKey} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
+                                                                                                                <input
+                                                                                                                    type="number"
+                                                                                                                    placeholder="₹ Amount"
+                                                                                                                    className="w-full border border-gray-300 p-1.5 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none text-center"
+                                                                                                                    value={val}
+                                                                                                                    onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
+                                                                                                                    disabled={!col.feeHeadId}
+                                                                                                                />
+                                                                                                                {col.isLateFeeApplicable && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
+                                                                                                                    <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
                                                                                                                         {termObj.data.map((t, tidx) => (
-                                                                                                                            <div key={tidx} className="bg-white border border-blue-200 px-1.5 py-1 rounded flex items-center justify-between gap-1 text-[10px] whitespace-nowrap">
+                                                                                                                            <div key={tidx} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
                                                                                                                                 <span className="text-[9px] text-gray-500 font-bold">T{tidx+1}</span>
-                                                                                                                                <input
-                                                                                                                                    type="number"
-                                                                                                                                    className="w-7 border text-center text-[9px] p-0.5 rounded font-bold"
-                                                                                                                                    value={t.p}
-                                                                                                                                    onChange={e => updateTermPctInActiveQuota(quotaName, row.rowKey, col.id, tidx, e.target.value)}
-                                                                                                                                    title="Term ratio"
-                                                                                                                                />
                                                                                                                                 <span className="text-[10px] font-bold text-blue-600 font-mono">₹{Number(t.a || 0).toLocaleString('en-IN')}</span>
                                                                                                                             </div>
                                                                                                                         ))}
                                                                                                                     </div>
-                                                                                                                </div>
-                                                                                                            )}
-                                                                                                        </td>
-                                                                                                    );
-                                                                                                })}
-                                                                                            </tr>
-                                                                                        );
-                                                                                    })}
-                                                                                </tbody>
-                                                                                <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
-                                                                                    <tr>
-                                                                                        <td className="p-2.5 border-r border-gray-200">Total</td>
-                                                                                        {currentConfig.columns.map(col => {
-                                                                                            let cTotal = 0;
-                                                                                            matrixRows.forEach(row => {
-                                                                                                const amtKey = `${row.rowKey}_${col.id}`;
-                                                                                                cTotal += Number(currentConfig.amounts[amtKey]) || 0;
-                                                                                            });
-                                                                                            return (
-                                                                                                <td key={col.id} className="p-2.5 border-r border-gray-200 font-mono text-blue-900">
-                                                                                                    ₹{cTotal.toLocaleString()}
-                                                                                                </td>
+                                                                                                                )}
+                                                                                                            </td>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                    <td className="p-2.5 border-r border-gray-200 font-mono font-bold text-blue-900 text-center">
+                                                                                                        ₹{rowTotal.toLocaleString('en-IN')}
+                                                                                                    </td>
+                                                                                                </tr>
                                                                                             );
                                                                                         })}
-                                                                                    </tr>
-                                                                                </tfoot>
-                                                                            </table>
+                                                                                    </tbody>
+                                                                                    <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
+                                                                                        <tr>
+                                                                                            <td className="p-2.5 border-r border-gray-200 text-center">Total</td>
+                                                                                            {matrixRows.map(row => {
+                                                                                                let periodTotal = 0;
+                                                                                                currentConfig.columns.forEach(col => {
+                                                                                                    const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                    periodTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                                });
+                                                                                                return (
+                                                                                                    <td key={row.rowKey} className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                        ₹{periodTotal.toLocaleString('en-IN')}
+                                                                                                    </td>
+                                                                                                );
+                                                                                            })}
+                                                                                            <td className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                {(() => {
+                                                                                                    let gTotal = 0;
+                                                                                                    currentConfig.columns.forEach(col => {
+                                                                                                        matrixRows.forEach(row => {
+                                                                                                            const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                            gTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                                        });
+                                                                                                    });
+                                                                                                    return `₹${gTotal.toLocaleString('en-IN')}`;
+                                                                                                })()}
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    </tfoot>
+                                                                                </table>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* Bottom Add Fee Head Column Button */}
+                                                                        <div className="flex items-center justify-start pt-1">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => addColumnToActiveQuota(quotaName)}
+                                                                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-300 bg-blue-50 px-3 py-1.5 rounded hover:bg-blue-100 transition flex items-center gap-1"
+                                                                            >
+                                                                                + Add Fee Head Column
+                                                                            </button>
                                                                         </div>
 
                                                                         {/* Inline Validation Error Banner inside active quota card */}
@@ -2206,7 +2332,17 @@ const FeeConfiguration = () => {
                                                                                 {qIndex > 0 && (
                                                                                     <button
                                                                                         type="button"
-                                                                                        onClick={() => setActiveQuotaIndex(qIndex - 1)}
+                                                                                        onClick={() => {
+                                                                                            const prevQuotaName = availableQuotas[qIndex - 1];
+                                                                                            if (prevQuotaName) {
+                                                                                                setExpandedWizardQuotas(prev => ({
+                                                                                                    ...prev,
+                                                                                                    [quotaName]: false,
+                                                                                                    [prevQuotaName]: true
+                                                                                                }));
+                                                                                            }
+                                                                                            setActiveQuotaIndex(qIndex - 1);
+                                                                                        }}
                                                                                         className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition"
                                                                                     >
                                                                                         Previous Quota
@@ -2216,7 +2352,7 @@ const FeeConfiguration = () => {
                                                                                 <button
                                                                                     type="button"
                                                                                     disabled={isSavingQuota}
-                                                                                    onClick={() => handleSaveQuotaAndNext(quotaName, qIndex === availableQuotas.length - 1)}
+                                                                                    onClick={() => handleSaveQuotaAndNext(quotaName, qIndex === availableQuotas.length - 1, qIndex)}
                                                                                     className="px-5 py-2 rounded text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 transition flex items-center gap-1"
                                                                                 >
                                                                                     {isSavingQuota ? (
