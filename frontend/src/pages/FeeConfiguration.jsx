@@ -498,7 +498,13 @@ const FeeConfiguration = () => {
 
     // --- RENDER HELPERS ---
     const colleges = Object.keys(metadata);
-    // Definitions Grouping
+    const [expandedRows, setExpandedRows] = useState({});
+
+    const toggleRowExpand = (key) => {
+        setExpandedRows(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    // Definitions Grouping (Grouped by Context + Quota/Category)
     const grouped = {};
     structures.filter(s => {
         // Dynamic Filtering based on Table Filters
@@ -511,23 +517,98 @@ const FeeConfiguration = () => {
 
         return true;
     }).forEach(st => {
-        const key = `${st.college}|${st.course}|${st.branch}|${st.batch}|${st.category}|${st.feeHead?._id}`;
-        if (!grouped[key]) grouped[key] = { ...st, feeHeadName: st.feeHead?.name, feeHeadId: st.feeHead?._id, feeHeadCode: st.feeHead?.code, years: {}, allIds: [] };
+        const key = `${st.college}|${st.batch}|${st.course}|${st.branch}|${st.category}`;
+        if (!grouped[key]) {
+            grouped[key] = {
+                key,
+                college: st.college,
+                batch: st.batch,
+                course: st.course,
+                branch: st.branch,
+                category: st.category,
+                feeHeadsMap: {}, // feeHeadId -> { _id, name, code, isScholarshipApplicable }
+                matrix: {}, // year -> feeHeadId -> []
+                years: {}, // year -> items array (for edit compat)
+                allIds: [],
+                grandTotal: 0,
+                yearTotals: {},
+                feeHeadTotals: {}
+            };
+        }
 
-        // Initialize year array if missing
-        if (!grouped[key].years[st.studentYear]) grouped[key].years[st.studentYear] = [];
+        const grp = grouped[key];
+        const fhId = st.feeHead?._id || 'unknown';
+        const fhName = st.feeHead?.name || 'Unnamed';
+        const fhCode = st.feeHead?.code || '';
+        const yr = st.studentYear;
 
-        grouped[key].years[st.studentYear].push({
+        // Register fee head
+        if (!grp.feeHeadsMap[fhId]) {
+            grp.feeHeadsMap[fhId] = {
+                _id: fhId,
+                name: fhName,
+                code: fhCode,
+                isScholarshipApplicable: st.isScholarshipApplicable
+            };
+        } else if (st.isScholarshipApplicable) {
+            grp.feeHeadsMap[fhId].isScholarshipApplicable = true;
+        }
+
+        // Register matrix cell
+        if (!grp.matrix[yr]) grp.matrix[yr] = {};
+        if (!grp.matrix[yr][fhId]) grp.matrix[yr][fhId] = [];
+
+        const item = {
             id: st._id,
-            amount: st.amount,
+            amount: Number(st.amount) || 0,
             semester: st.semester,
             terms: st.terms,
-            isTermsDivided: st.isTermsDivided
-        });
+            isTermsDivided: st.isTermsDivided,
+            isScholarshipApplicable: st.isScholarshipApplicable
+        };
 
-        grouped[key].allIds.push(st._id);
+        grp.matrix[yr][fhId].push(item);
+
+        // Legacy year map for handleEditRow
+        if (!grp.years[yr]) grp.years[yr] = [];
+        grp.years[yr].push(item);
+
+        grp.allIds.push(st._id);
+
+        // Totals
+        const amt = Number(st.amount) || 0;
+        grp.grandTotal += amt;
+        grp.yearTotals[yr] = (grp.yearTotals[yr] || 0) + amt;
+        grp.feeHeadTotals[fhId] = (grp.feeHeadTotals[fhId] || 0) + amt;
     });
-    const groupedArray = Object.values(grouped);
+
+    // Hierarchical Sorting: College -> Batch -> Course -> Branch -> Category
+    const groupedArray = Object.values(grouped).sort((a, b) => {
+        // 1. College wise
+        const collegeA = String(a.college || '').toLowerCase();
+        const collegeB = String(b.college || '').toLowerCase();
+        if (collegeA !== collegeB) return collegeA.localeCompare(collegeB);
+
+        // 2. Batch wise (descending, e.g. 2026, 2025, 2024...)
+        const batchA = String(a.batch || '');
+        const batchB = String(b.batch || '');
+        if (batchA !== batchB) return batchB.localeCompare(batchA, undefined, { numeric: true });
+
+        // 3. Course wise
+        const courseA = String(a.course || '').toLowerCase();
+        const courseB = String(b.course || '').toLowerCase();
+        if (courseA !== courseB) return courseA.localeCompare(courseB);
+
+        // 4. Branch wise
+        const branchA = String(a.branch || '').toLowerCase();
+        const branchB = String(b.branch || '').toLowerCase();
+        if (branchA !== branchB) return branchA.localeCompare(branchB);
+
+        // 5. Category / Quota wise
+        const catA = String(a.category || '').toLowerCase();
+        const catB = String(b.category || '').toLowerCase();
+        return catA.localeCompare(catB);
+    });
 
     // Calculate dynamic years for the Table based on Table Filters
     const tableMeta = (tableFilters.college && tableFilters.course) ? metadata[tableFilters.college]?.[tableFilters.course] : null;
@@ -960,13 +1041,11 @@ const FeeConfiguration = () => {
                                 <table className="w-full text-left text-sm border-collapse">
                                     <thead className="bg-gray-50/80 border-b border-gray-100 text-gray-600 font-semibold">
                                         <tr>
-                                            <th className="p-3">Context</th>
-                                            <th className="p-3">Fee Head</th>
-                                            <th className="p-3">Category</th>
-                                            {tableYears.map(y => (
-                                                <th key={y} className="p-3 text-center">Yr {y}</th>
-                                            ))}
-                                            <th className="p-3 text-right">Action</th>
+                                            <th className="p-3">College / Batch</th>
+                                            <th className="p-3">Course & Branch</th>
+                                            <th className="p-3">Category (Quota)</th>
+                                            <th className="p-3">Total Structure Fee</th>
+                                            <th className="p-3 text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
@@ -976,15 +1055,13 @@ const FeeConfiguration = () => {
                                                     <td className="p-3"><div className="h-4 bg-slate-200 rounded w-36 mb-1"></div><div className="h-3 bg-slate-100 rounded w-24"></div></td>
                                                     <td className="p-3"><div className="h-4 bg-slate-200 rounded w-28 mb-1"></div><div className="h-3 bg-slate-100 rounded w-16"></div></td>
                                                     <td className="p-3"><div className="h-6 bg-slate-200 rounded-full w-20"></div></td>
-                                                    {tableYears.map(y => (
-                                                        <td key={y} className="p-3 text-center"><div className="h-8 bg-slate-100 rounded-lg w-16 mx-auto"></div></td>
-                                                    ))}
-                                                    <td className="p-3 text-right"><div className="h-8 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
+                                                    <td className="p-3"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                                                    <td className="p-3 text-right"><div className="h-8 bg-slate-200 rounded-lg w-24 ml-auto"></div></td>
                                                 </tr>
                                             ))
                                         ) : groupedArray.length === 0 ? (
                                             <tr>
-                                                <td colSpan={4 + tableYears.length} className="p-10 text-center text-gray-400 italic">
+                                                <td colSpan={5} className="p-10 text-center text-gray-400 italic">
                                                     <div className="flex flex-col items-center justify-center gap-2">
                                                         <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                                         <span>No fee templates found for selected filters.</span>
@@ -995,87 +1072,195 @@ const FeeConfiguration = () => {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            groupedArray.map((row, i) => (
-                                                <tr key={i} className="hover:bg-gray-50/70 transition-colors group/row">
-                                                    <td className="p-3 text-xs text-gray-700">
-                                                        <div className="font-bold text-gray-900">{collegeCodes[row.college] || row.college} - {row.batch}</div>
-                                                        <div className="text-gray-500 font-medium mt-0.5">{row.course} - {row.branch}</div>
-                                                    </td>
-                                                    <td className="p-3 font-semibold text-blue-800 text-sm relative">
-                                                        {row.feeHeadName} <span className="text-xs text-gray-400 font-normal">({row.feeHeadCode || '-'})</span>
-                                                        {row.isScholarshipApplicable && (
-                                                            <span title="Scholarship Eligible" className="ml-1.5 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 font-normal">🎓</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="p-3">
-                                                        <span className="bg-purple-100 text-purple-800 text-xs px-2.5 py-1 rounded-full font-medium">{row.category}</span>
-                                                    </td>
-                                                    {tableYears.map(y => (
-                                                        <td key={y} className="p-2 text-center text-gray-700 align-top">
-                                                            {row.years[y] ? (
-                                                                <div className="flex flex-col gap-1">
-                                                                    {row.years[y].map((item, idx) => (
-                                                                        <div key={idx} className="text-xs bg-gray-50 p-1.5 rounded border border-gray-100 relative group/term text-left">
-                                                                            <div className="flex justify-between items-center gap-2">
-                                                                                <div>
-                                                                                    {item.semester && <span className="font-bold text-gray-500">S{item.semester}: </span>}
-                                                                                    <span className="font-semibold text-gray-800">₹{item.amount.toLocaleString()}</span>
-                                                                                </div>
-                                                                                {item.isTermsDivided && item.terms && item.terms.length > 0 && (
-                                                                                    <span 
-                                                                                        className="bg-blue-50 text-blue-700 text-[9px] px-1 py-0.5 rounded-md font-bold uppercase border border-blue-100 cursor-help"
-                                                                                        title={item.terms.map(t => `Term ${t.termNumber}: ₹${t.amount.toLocaleString()} (${t.percentage}%)`).join('\n')}
-                                                                                    >
-                                                                                        {item.terms.length}T
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                            {item.isTermsDivided && item.terms && item.terms.length > 0 && (
-                                                                                <div className="hidden group-hover/term:block absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 bg-gray-900 text-white text-[9px] rounded-lg p-2 shadow-lg min-w-[125px] pointer-events-none">
-                                                                                    {item.terms.map(t => (
-                                                                                        <div key={t.termNumber} className="flex justify-between gap-3 border-b border-gray-800/60 last:border-0 py-0.5 whitespace-nowrap">
-                                                                                            <span className="text-gray-300">Term {t.termNumber}:</span>
-                                                                                            <span className="font-bold text-blue-400">₹{t.amount.toLocaleString()} ({t.percentage}%)</span>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900"></div>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    ))}
+                                            groupedArray.map((row, i) => {
+                                                const isExpanded = !!expandedRows[row.key];
+                                                const feeHeadsList = Object.values(row.feeHeadsMap || {});
+
+                                                return (
+                                                    <React.Fragment key={row.key || i}>
+                                                        <tr 
+                                                            onClick={() => toggleRowExpand(row.key)}
+                                                            className={`cursor-pointer hover:bg-blue-50/50 transition-colors group/row ${isExpanded ? 'bg-blue-50/40' : ''}`}
+                                                        >
+                                                            {/* 1. College / Batch */}
+                                                            <td className="p-3 text-xs text-gray-700">
+                                                                <div className="flex items-center gap-2">
+                                                                    <ChevronRight size={16} className={`text-gray-400 group-hover/row:text-blue-600 transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                    <span className="font-bold text-gray-900">{collegeCodes[row.college] || row.college}</span>
+                                                                    <span className="text-blue-600 font-mono font-medium bg-blue-50 px-1.5 py-0.5 rounded text-[11px] border border-blue-100 shrink-0">{row.batch}</span>
                                                                 </div>
-                                                            ) : '-'}
-                                                        </td>
-                                                    ))}
-                                                    <td className="p-3 text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            <button
-                                                                onClick={() => {
-                                                                    handleEditRow(row);
-                                                                    setIsModalOpen(true);
-                                                                }}
-                                                                className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition"
-                                                                title="Edit Context"
-                                                            >
-                                                                <Pencil size={16} />
-                                                            </button>
-                                                            <button
-                                                                onClick={async () => {
-                                                                    if (!window.confirm(`Delete ALL definitions for ${row.course}?`)) return;
-                                                                    try {
-                                                                        await Promise.all(row.allIds.map(id => api.delete(`/fee-structures/${id}`)));
-                                                                        fetchStructures();
-                                                                    } catch (e) { alert('Delete failed'); }
-                                                                }}
-                                                                className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition"
-                                                                title="Delete Row"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                                            </td>
+
+                                                            {/* 2. Course & Branch */}
+                                                            <td className="p-3 text-xs">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="font-bold text-gray-800">{row.course}</span>
+                                                                    <span className="text-gray-400 font-normal">-</span>
+                                                                    <span className="text-gray-600 font-medium">{row.branch}</span>
+                                                                </div>
+                                                            </td>
+
+                                                            {/* 3. Category (Quota) */}
+                                                            <td className="p-3">
+                                                                <span className="bg-purple-100 text-purple-800 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wide border border-purple-200">
+                                                                    {row.category}
+                                                                </span>
+                                                            </td>
+
+                                                            {/* 4. Total Structure Fee */}
+                                                            <td className="p-3">
+                                                                <div className="font-bold text-slate-900 font-mono text-sm">
+                                                                    ₹{row.grandTotal.toLocaleString()}
+                                                                </div>
+                                                                <div className="text-[10px] text-gray-400 font-medium">
+                                                                    {feeHeadsList.length} Fee Head{feeHeadsList.length !== 1 ? 's' : ''}
+                                                                </div>
+                                                            </td>
+
+                                                            {/* 5. Actions */}
+                                                            <td className="p-3 text-right">
+                                                                <div className="flex justify-end items-center gap-2" onClick={e => e.stopPropagation()}>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            handleEditRow(row);
+                                                                            setIsModalOpen(true);
+                                                                        }}
+                                                                        className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition"
+                                                                        title="Edit Context"
+                                                                    >
+                                                                        <Pencil size={16} />
+                                                                    </button>
+
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            if (!window.confirm(`Delete ALL fee definitions for ${row.category} (${row.course} - ${row.branch})?`)) return;
+                                                                            try {
+                                                                                await Promise.all(row.allIds.map(id => api.delete(`/fee-structures/${id}`)));
+                                                                                fetchStructures();
+                                                                            } catch (e) { alert('Delete failed'); }
+                                                                        }}
+                                                                        className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition"
+                                                                        title="Delete Quota Structure"
+                                                                    >
+                                                                        <Trash2 size={16} />
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* EXPANDABLE SECTION MATRIX */}
+                                                        {isExpanded && (
+                                                            <tr>
+                                                                <td colSpan={5} className="p-0 bg-slate-50/70 border-y-2 border-blue-100">
+                                                                    <div className="p-3 md:p-4">
+                                                                        {/* Matrix Inner Table */}
+                                                                        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+                                                                            <table className="w-full text-left text-xs border-collapse">
+                                                                                <thead className="bg-slate-100 text-gray-700 font-bold border-b border-gray-200">
+                                                                                    <tr>
+                                                                                        <th className="p-2.5 w-24 border-r border-gray-200 bg-slate-200/60">Year</th>
+                                                                                        {feeHeadsList.map(fh => (
+                                                                                            <th key={fh._id} className="p-2.5 border-r border-gray-200 min-w-[130px]">
+                                                                                                <div className="font-bold text-blue-900">{fh.name}</div>
+                                                                                                {fh.code && <div className="text-[10px] text-gray-400 font-mono font-normal">({fh.code})</div>}
+                                                                                                {fh.isScholarshipApplicable && (
+                                                                                                    <span title="Scholarship Eligible" className="text-[9px] bg-yellow-100 text-yellow-800 px-1 py-0.2 rounded border border-yellow-200 font-normal">🎓 Scholarship</span>
+                                                                                                )}
+                                                                                            </th>
+                                                                                        ))}
+                                                                                        <th className="p-2.5 text-right font-bold text-slate-900 bg-slate-100 border-l border-gray-200 min-w-[120px]">
+                                                                                            Total Year Fee
+                                                                                        </th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-gray-100">
+                                                                                    {tableYears.map(y => {
+                                                                                        const yearTotal = row.yearTotals[y] || 0;
+                                                                                        return (
+                                                                                            <tr key={y} className="hover:bg-slate-50/80 transition-colors">
+                                                                                                {/* Row Header: Year */}
+                                                                                                <td className="p-2.5 font-bold text-gray-800 bg-slate-50 border-r border-gray-200 whitespace-nowrap">
+                                                                                                    Yr {y}
+                                                                                                </td>
+
+                                                                                                {/* Fee Head Columns */}
+                                                                                                {feeHeadsList.map(fh => {
+                                                                                                    const items = row.matrix[y]?.[fh._id] || [];
+                                                                                                    return (
+                                                                                                        <td key={fh._id} className="p-2.5 border-r border-gray-200 align-top">
+                                                                                                            {items.length > 0 ? (
+                                                                                                                <div className="space-y-1">
+                                                                                                                    {items.map((item, idx) => (
+                                                                                                                        <div key={idx} className="bg-gray-50/90 p-1.5 rounded border border-gray-200/80 relative group/term">
+                                                                                                                            <div className="flex justify-between items-center gap-1">
+                                                                                                                                <div>
+                                                                                                                                    {item.semester && <span className="font-bold text-gray-500 text-[10px]">S{item.semester}: </span>}
+                                                                                                                                    <span className="font-bold text-gray-800">₹{item.amount.toLocaleString()}</span>
+                                                                                                                                </div>
+                                                                                                                                {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                                                                                                                                    <span 
+                                                                                                                                        className="bg-blue-50 text-blue-700 text-[9px] px-1 py-0.5 rounded font-bold border border-blue-100 cursor-help"
+                                                                                                                                        title={item.terms.map(t => `Term ${t.termNumber}: ₹${t.amount.toLocaleString()} (${t.percentage}%)`).join('\n')}
+                                                                                                                                    >
+                                                                                                                                        {item.terms.length}T
+                                                                                                                                    </span>
+                                                                                                                                )}
+                                                                                                                            </div>
+                                                                                                                            {item.isTermsDivided && item.terms && item.terms.length > 0 && (
+                                                                                                                                <div className="hidden group-hover/term:block absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 bg-gray-900 text-white text-[9px] rounded-lg p-2 shadow-lg min-w-[130px] pointer-events-none">
+                                                                                                                                    {item.terms.map(t => (
+                                                                                                                                        <div key={t.termNumber} className="flex justify-between gap-3 border-b border-gray-800/60 last:border-0 py-0.5 whitespace-nowrap">
+                                                                                                                                            <span className="text-gray-300">Term {t.termNumber}:</span>
+                                                                                                                                            <span className="font-bold text-blue-400">₹{t.amount.toLocaleString()} ({t.percentage}%)</span>
+                                                                                                                                        </div>
+                                                                                                                                    ))}
+                                                                                                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900"></div>
+                                                                                                                                </div>
+                                                                                                                            )}
+                                                                                                                        </div>
+                                                                                                                    ))}
+                                                                                                                </div>
+                                                                                                            ) : (
+                                                                                                                <span className="text-gray-300 italic font-mono">-</span>
+                                                                                                            )}
+                                                                                                        </td>
+                                                                                                    );
+                                                                                                })}
+
+                                                                                                {/* Row Total: Total Year Fee */}
+                                                                                                <td className="p-2.5 text-right font-bold text-blue-900 font-mono bg-slate-50 border-l border-gray-200 whitespace-nowrap">
+                                                                                                    ₹{yearTotal.toLocaleString()}
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        );
+                                                                                    })}
+                                                                                </tbody>
+
+                                                                                {/* Total Footer Row: Fee Head Totals */}
+                                                                                <tfoot className="bg-slate-100 font-bold border-t-2 border-gray-300 text-gray-800">
+                                                                                    <tr>
+                                                                                        <td className="p-2.5 border-r border-gray-200 uppercase tracking-wider text-[10px] text-gray-500">
+                                                                                            Total Fee
+                                                                                        </td>
+                                                                                        {feeHeadsList.map(fh => (
+                                                                                            <td key={fh._id} className="p-2.5 border-r border-gray-200 font-mono text-indigo-900">
+                                                                                                ₹{(row.feeHeadTotals[fh._id] || 0).toLocaleString()}
+                                                                                            </td>
+                                                                                        ))}
+                                                                                        <td className="p-2.5 text-right font-mono font-extrabold text-emerald-800 text-sm bg-emerald-50/60 border-l border-emerald-200">
+                                                                                            ₹{row.grandTotal.toLocaleString()}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                </tfoot>
+                                                                            </table>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

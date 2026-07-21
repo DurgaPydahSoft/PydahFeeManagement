@@ -137,51 +137,92 @@ const renderYearCell = (items) => {
 };
 
 const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
-    <table className="print-table">
-        <thead>
-            <tr>
-                <th style={{ width: '20%' }}>Context</th>
-                <th style={{ width: '22%' }}>Fee Head</th>
-                <th style={{ width: '12%' }}>Category</th>
-                {tableYears.map(y => (
-                    <th key={y} style={{ textAlign: 'center' }}>Yr {y}</th>
-                ))}
-            </tr>
-        </thead>
-        <tbody>
-            {rows.map((row, idx) => (
-                <tr key={idx}>
-                    <td>
-                        <div style={{ fontWeight: '700', fontSize: '10.5px', color: '#0f172a' }}>
-                            {(collegeCodes[row.college] || row.college)} - {row.batch}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {rows.map((row, idx) => {
+            const feeHeadsList = Object.values(row.feeHeadsMap || {});
+            return (
+                <div key={idx} style={{ pageBreakInside: 'avoid', border: '1.5px solid #0f172a', borderRadius: '4px', padding: '8px', backgroundColor: '#fff' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>
+                        <div>
+                            <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>
+                                {(collegeCodes[row.college] || row.college)} ({row.batch})
+                            </span>
+                            <span style={{ margin: '0 6px', color: '#64748b' }}>|</span>
+                            <span style={{ fontSize: '10.5px', color: '#334155' }}>
+                                {row.course} - {row.branch}
+                            </span>
                         </div>
-                        <div style={{ color: '#475569', fontSize: '9.5px', marginTop: '1px' }}>
-                            {row.course} - {row.branch}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span style={{ backgroundColor: '#f3e8ff', color: '#6b21a8', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold', fontSize: '9.5px' }}>
+                                {row.category} QUOTA
+                            </span>
+                            <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>
+                                Total: ₹{(row.grandTotal || 0).toLocaleString()}
+                            </span>
                         </div>
-                    </td>
-                    <td>
-                        <div style={{ fontWeight: '700', fontSize: '10.5px', color: '#1e3a8a' }}>
-                            {row.feeHeadName}
-                            {row.feeHeadCode && <span style={{ fontWeight: 'normal', color: '#475569', fontSize: '9.5px' }}> ({row.feeHeadCode})</span>}
-                        </div>
-                        {row.isScholarshipApplicable && (
-                            <div style={{ fontSize: '8.5px', fontWeight: '700', color: '#92400e', marginTop: '2px' }}>
-                                [Scholarship Eligible]
-                            </div>
-                        )}
-                    </td>
-                    <td style={{ fontWeight: '700', color: '#1e293b' }}>
-                        {row.category}
-                    </td>
-                    {tableYears.map(y => (
-                        <td key={y} style={{ textAlign: 'center' }}>
-                            {renderYearCell(row.years?.[y])}
-                        </td>
-                    ))}
-                </tr>
-            ))}
-        </tbody>
-    </table>
+                    </div>
+
+                    <table className="print-table" style={{ marginTop: '4px' }}>
+                        <thead>
+                            <tr>
+                                <th style={{ width: '15%', backgroundColor: '#f1f5f9' }}>Year</th>
+                                {feeHeadsList.map(fh => (
+                                    <th key={fh._id}>
+                                        {fh.name}
+                                        {fh.code && <span style={{ fontWeight: 'normal', fontSize: '8.5px', color: '#475569' }}> ({fh.code})</span>}
+                                    </th>
+                                ))}
+                                <th style={{ width: '18%', textAlign: 'right', backgroundColor: '#f1f5f9' }}>Total Year Fee</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tableYears.map(y => {
+                                const yearTotal = row.yearTotals?.[y] || 0;
+                                return (
+                                    <tr key={y}>
+                                        <td style={{ fontWeight: 'bold', backgroundColor: '#f8fafc' }}>Yr {y}</td>
+                                        {feeHeadsList.map(fh => {
+                                            const items = row.matrix?.[y]?.[fh._id] || [];
+                                            return (
+                                                <td key={fh._id}>
+                                                    {items.length > 0 ? (
+                                                        items.map((item, iIdx) => (
+                                                            <div key={iIdx}>
+                                                                {item.semester ? `S${item.semester}: ` : ''}
+                                                                ₹{(item.amount || 0).toLocaleString()}
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        <span style={{ color: '#cbd5e1' }}>-</span>
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#1e3a8a', backgroundColor: '#f8fafc' }}>
+                                            ₹{yearTotal.toLocaleString()}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ backgroundColor: '#f1f5f9', fontWeight: 'bold' }}>
+                                <td style={{ textTransform: 'uppercase', fontSize: '9px', color: '#475569' }}>Total Fee</td>
+                                {feeHeadsList.map(fh => (
+                                    <td key={fh._id} style={{ color: '#1e1b4b' }}>
+                                        ₹{(row.feeHeadTotals?.[fh._id] || 0).toLocaleString()}
+                                    </td>
+                                ))}
+                                <td style={{ textAlign: 'right', color: '#065f46', fontSize: '11px' }}>
+                                    ₹{(row.grandTotal || 0).toLocaleString()}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            );
+        })}
+    </div>
 );
 
 const FeeConfigurationPrint = forwardRef(({
