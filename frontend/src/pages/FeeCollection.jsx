@@ -645,7 +645,7 @@ const FeeCollection = () => {
                 studentId: student.admission_number,
                 studentName: student.student_name,
                 semester: student.current_semester,
-                studentYear: student.current_year,
+                studentYear: viewFilterYear !== 'ALL' ? Number(viewFilterYear) : student.current_year,
                 transactionType: 'DEBIT',
                 remarks: paymentForm.remarks,
                 collectedBy: JSON.parse(localStorage.getItem('user'))?.username || 'Unknown',
