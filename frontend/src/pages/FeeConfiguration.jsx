@@ -1514,45 +1514,10 @@ const FeeConfiguration = () => {
                                     </select>
                                 </div>
 
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Branch</label>
-                                    <select 
-                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" 
-                                        value={tableFilters.branch} 
-                                        onChange={e => setTableFilters({ ...tableFilters, branch: e.target.value })}
-                                        disabled={!tableFilters.course}
-                                    >
-                                        <option value="">All Branches</option>
-                                        {(tableFilters.college && tableFilters.course ? (metadata[tableFilters.college]?.[tableFilters.course]?.branches || []) : []).map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
-                                </div>
 
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Category</label>
-                                    <select 
-                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
-                                        value={tableFilters.category} 
-                                        onChange={e => setTableFilters({ ...tableFilters, category: e.target.value })}
-                                    >
-                                        <option value="">All Categories</option>
-                                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Fee Head</label>
-                                    <select 
-                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
-                                        value={tableFilters.feeHeadId} 
-                                        onChange={e => setTableFilters({ ...tableFilters, feeHeadId: e.target.value })}
-                                    >
-                                        <option value="">All Fee Heads</option>
-                                        {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-                                    </select>
-                                </div>
 
                                 <div className="shrink-0">
-                                    {(tableFilters.college || tableFilters.batch || tableFilters.course || tableFilters.branch || tableFilters.category || tableFilters.feeHeadId) ? (
+                                    {(tableFilters.college || tableFilters.batch || tableFilters.course) ? (
                                         <button
                                             type="button"
                                             onClick={() => setTableFilters({ college: '', batch: '', course: '', branch: '', category: '', feeHeadId: '' })}
@@ -2395,7 +2360,7 @@ const FeeConfiguration = () => {
                                             <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg"><Calendar size={18} /></span>
                                             Filter Late Fee Configurations
                                         </h2>
-                                        {(lateFeeViewFilters.college || lateFeeViewFilters.course || lateFeeViewFilters.branch || lateFeeViewFilters.batch || lateFeeViewFilters.studentYear || lateFeeViewFilters.semester || lateFeeViewFilters.category || lateFeeViewFilters.feeHead) && (
+                                        {(lateFeeViewFilters.college || lateFeeViewFilters.course || lateFeeViewFilters.batch) && (
                                             <button
                                                 type="button"
                                                 onClick={() => setLateFeeViewFilters({ college: '', course: '', branch: '', batch: '', studentYear: '', semester: '', category: '', feeHead: '' })}
@@ -2405,7 +2370,7 @@ const FeeConfiguration = () => {
                                             </button>
                                         )}
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                         <div>
                                             <label className="text-[10px] font-bold text-gray-400 uppercase">College</label>
                                             <select
@@ -2430,83 +2395,14 @@ const FeeConfiguration = () => {
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Branch</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.branch}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, branch: e.target.value, feeHead: '' })}
-                                                disabled={!lateFeeViewFilters.course}
-                                            >
-                                                <option value="">All</option>
-                                                {(lateFeeViewFilters.college && lateFeeViewFilters.course ? metadata[lateFeeViewFilters.college]?.[lateFeeViewFilters.course]?.branches || [] : []).map(b => (
-                                                    <option key={b} value={b}>{b}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div>
                                             <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
                                             <select
                                                 className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
                                                 value={lateFeeViewFilters.batch}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, batch: e.target.value, feeHead: '' })}
+                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, batch: e.target.value })}
                                             >
                                                 <option value="">All</option>
                                                 {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Year</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.studentYear}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, studentYear: e.target.value, semester: '', feeHead: '' })}
-                                            >
-                                                <option value="">All</option>
-                                                {(() => {
-                                                    const yearsCount = (lateFeeViewFilters.college && lateFeeViewFilters.course)
-                                                        ? metadata[lateFeeViewFilters.college]?.[lateFeeViewFilters.course]?.total_years || 4
-                                                        : 4;
-                                                    return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
-                                                        <option key={y} value={y}>Year {y}</option>
-                                                    ));
-                                                })()}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Semester</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.semester}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, semester: e.target.value, feeHead: '' })}
-                                            >
-                                                <option value="">All</option>
-                                                <option value="full">Full Year</option>
-                                                <option value="1">Sem 1</option>
-                                                <option value="2">Sem 2</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.category}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, category: e.target.value, feeHead: '' })}
-                                            >
-                                                <option value="">All</option>
-                                                {categories.map(cat => (
-                                                    <option key={cat} value={cat}>{cat}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Fee Head</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.feeHead}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, feeHead: e.target.value })}
-                                            >
-                                                <option value="">All</option>
-                                                {feeHeads.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
                                             </select>
                                         </div>
                                     </div>

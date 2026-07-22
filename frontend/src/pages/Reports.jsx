@@ -149,9 +149,11 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                 </td>
 
                 {/* Cash */}
-                <td className="py-4 px-6 text-right font-medium text-emerald-600">
-                    {Number(row.cashAmount || 0).toLocaleString('en-IN')}
-                </td>
+                {activeTab !== 'account' && (
+                    <td className="py-4 px-6 text-right font-medium text-emerald-600">
+                        {Number(row.cashAmount || 0).toLocaleString('en-IN')}
+                    </td>
+                )}
 
                 {/* Bank */}
                 <td className="py-4 px-6 text-right font-medium text-indigo-600">
@@ -389,8 +391,6 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                             <thead className="bg-gray-50 text-gray-500 font-semibold">
                                                 <tr>
                                                     <th className="px-3 py-2">College / Course / Fee Head</th>
-                                                    <th className="px-3 py-2 text-right">Cash</th>
-                                                    <th className="px-3 py-2 text-right">Bank</th>
                                                     <th className="px-3 py-2 text-right">Collection</th>
                                                 </tr>
                                             </thead>
@@ -399,23 +399,17 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                                     <Fragment key={`c-${ci}`}>
                                                         <tr className="bg-gray-100 font-bold">
                                                             <td className="px-3 py-2 uppercase text-gray-900">{college.college}</td>
-                                                            <td className="px-3 py-2 text-right text-emerald-700">₹{Number(college.cash).toLocaleString('en-IN')}</td>
-                                                            <td className="px-3 py-2 text-right text-indigo-700">₹{Number(college.bank).toLocaleString('en-IN')}</td>
                                                             <td className="px-3 py-2 text-right text-blue-900">₹{Number(college.total).toLocaleString('en-IN')}</td>
                                                         </tr>
                                                         {college.courses.map((course, coi) => (
                                                             <Fragment key={`co-${ci}-${coi}`}>
                                                                 <tr className="bg-gray-50/80 font-semibold">
                                                                     <td className="px-3 py-1.5 pl-6 uppercase text-gray-800">- {course.course}</td>
-                                                                    <td className="px-3 py-1.5 text-right text-emerald-600">₹{Number(course.cash).toLocaleString('en-IN')}</td>
-                                                                    <td className="px-3 py-1.5 text-right text-indigo-600">₹{Number(course.bank).toLocaleString('en-IN')}</td>
                                                                     <td className="px-3 py-1.5 text-right text-blue-900">₹{Number(course.total).toLocaleString('en-IN')}</td>
                                                                 </tr>
                                                                 {course.feeHeads.map((fh, fi) => (
                                                                     <tr key={`fh-${ci}-${coi}-${fi}`} className="hover:bg-gray-50">
                                                                         <td className="px-3 py-1 pl-10 text-gray-700">{fh.name}</td>
-                                                                        <td className="px-3 py-1 text-right text-emerald-600">₹{Number(fh.cash).toLocaleString('en-IN')}</td>
-                                                                        <td className="px-3 py-1 text-right text-indigo-600">₹{Number(fh.bank).toLocaleString('en-IN')}</td>
                                                                         <td className="px-3 py-1 text-right font-bold text-gray-900">₹{Number(fh.total).toLocaleString('en-IN')}</td>
                                                                     </tr>
                                                                 ))}
@@ -744,6 +738,19 @@ const Reports = () => {
         }
     }, [activeTab, startDate, endDate, selectedCampusId]);
 
+    useEffect(() => {
+        if (printModalData && activeTab === 'account') {
+            const isGlobal = printModalData.row
+                ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
+                : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()));
+            if (isGlobal) {
+                setPrintOptions(prev => ({ ...prev, includeCash: false, includeBank: true }));
+            } else {
+                setPrintOptions(prev => ({ ...prev, includeCash: true, includeBank: true }));
+            }
+        }
+    }, [printModalData, activeTab]);
+
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
             <Sidebar />
@@ -780,7 +787,14 @@ const Reports = () => {
                     </header>
 
                     {/* Print Options Modal */}
-                    {printModalData && (
+                    {printModalData && (() => {
+                        const isModalGlobalAccount = activeTab === 'account' && (
+                            printModalData?.row
+                                ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
+                                : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()))
+                        );
+
+                        return (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200">
                                 <div className="p-6">
@@ -799,11 +813,6 @@ const Reports = () => {
                                                     ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : activeTab === 'college' ? 'Combined College Summaries' : 'Combined Account Summaries') 
                                                     : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : activeTab === 'college' ? `College: ${printModalData.row?._id || 'N/A'}` : `Account: ${printModalData.row?.account_name || 'N/A'}`)}
                                             </p>
-                                            {selectedFeeGroupId && (
-                                                <span className="inline-flex mt-1.5 bg-blue-50 text-blue-700 text-[9px] font-bold px-2 py-0.5 rounded border border-blue-200 uppercase tracking-wider">
-                                                    Group: {feeGroups.find(g => g._id === selectedFeeGroupId)?.name}
-                                                </span>
-                                            )}
                                         </div>
                                     </div>
 
@@ -843,53 +852,38 @@ const Reports = () => {
                                                  </label>
                                              </div>
 
-                                             {/* Fee Head Group Option — college & cashier */}
-                                             {feeGroups.length > 0 && (
+                                             {/* Payment mode filters */}
+                                             {!isModalGlobalAccount && (
                                                  <div className="space-y-2 pt-2 border-t border-gray-100">
-                                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Filter by Fee Group</label>
-                                                     <select
-                                                         value={selectedFeeGroupId}
-                                                         onChange={e => setSelectedFeeGroupId(e.target.value)}
-                                                         className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs font-bold text-gray-700 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer"
-                                                     >
-                                                         <option value="">All Fee Groups</option>
-                                                         {feeGroups.map(g => (
-                                                             <option key={g._id} value={g._id}>{g.name}</option>
-                                                         ))}
-                                                     </select>
+                                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Payment Mode</label>
+                                                     <div className="grid grid-cols-2 gap-3">
+                                                         <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                             <input
+                                                                 type="checkbox"
+                                                                 id="printCashOpt"
+                                                                 checked={printOptions.includeCash !== false}
+                                                                 onChange={e => updatePaymentFilter('includeCash', e.target.checked)}
+                                                                 className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                                             />
+                                                             <label htmlFor="printCashOpt" className="cursor-pointer flex-1">
+                                                                 <p className="text-xs font-bold text-gray-800">Cash</p>
+                                                             </label>
+                                                         </div>
+                                                         <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                                             <input
+                                                                 type="checkbox"
+                                                                 id="printBankOpt"
+                                                                 checked={printOptions.includeBank !== false}
+                                                                 onChange={e => updatePaymentFilter('includeBank', e.target.checked)}
+                                                                 className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                                             />
+                                                             <label htmlFor="printBankOpt" className="cursor-pointer flex-1">
+                                                                 <p className="text-xs font-bold text-gray-800">Bank / Online</p>
+                                                             </label>
+                                                         </div>
+                                                     </div>
                                                  </div>
                                              )}
-
-                                             {/* Payment mode filters */}
-                                             <div className="space-y-2 pt-2 border-t border-gray-100">
-                                                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Payment Mode</label>
-                                                 <div className="grid grid-cols-2 gap-3">
-                                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                                                         <input
-                                                             type="checkbox"
-                                                             id="printCashOpt"
-                                                             checked={printOptions.includeCash !== false}
-                                                             onChange={e => updatePaymentFilter('includeCash', e.target.checked)}
-                                                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
-                                                         />
-                                                         <label htmlFor="printCashOpt" className="cursor-pointer flex-1">
-                                                             <p className="text-xs font-bold text-gray-800">Cash</p>
-                                                         </label>
-                                                     </div>
-                                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                                                         <input
-                                                             type="checkbox"
-                                                             id="printBankOpt"
-                                                             checked={printOptions.includeBank !== false}
-                                                             onChange={e => updatePaymentFilter('includeBank', e.target.checked)}
-                                                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
-                                                         />
-                                                         <label htmlFor="printBankOpt" className="cursor-pointer flex-1">
-                                                             <p className="text-xs font-bold text-gray-800">Bank / Online</p>
-                                                         </label>
-                                                     </div>
-                                                 </div>
-                                             </div>
                                          </div>
                                      </div>
                                  </div>
@@ -903,15 +897,16 @@ const Reports = () => {
                                      </button>
                                      <button
                                          onClick={handleModalPrint}
-                                         disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!printOptions.includeCash && !printOptions.includeBank)}
-                                         className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                         disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
+                                         className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
                                      >
                                          <Printer size={16} /> Generate Print
                                      </button>
                                  </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* Hidden template for the modal print */}
                     <div className="hidden">
@@ -1076,12 +1071,12 @@ const Reports = () => {
                                             <th className="py-4 px-6 text-right">Transactions</th>
 
                                             {/* Columns for ALL tabs now, but specifically requested for Daily */}
-                                            <th className="py-4 px-6 text-right text-emerald-600">Cash</th>
+                                            {activeTab !== 'account' && <th className="py-4 px-6 text-right text-emerald-600">Cash</th>}
                                             <th className="py-4 px-6 text-right text-indigo-600 text-nowrap">Bank (Online)</th>
                                             <th className="py-4 px-6 text-right text-purple-600">Concession</th>
                                             <th className="py-4 px-6 text-right text-black font-extrabold">Net Total</th>
 
-                                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college') && <th className="py-4 px-6 text-right">Actions</th>}
+                                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && <th className="py-4 px-6 text-right">Actions</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white">
