@@ -455,24 +455,16 @@ const FeeCollection = () => {
     const confirmDeleteTransaction = async () => {
         if (!txToDelete) return;
         setIsDeleting(true);
-        const isSequenceEnabled = receiptSettings?.enableCustomReceiptSequence === true;
         try {
-            if (isSequenceEnabled) {
-                // Cancel the transaction (preserve record, keep receipt sequence intact)
-                const res = await api.put(`/transactions/${txToDelete._id}/cancel`, {
-                    cancellationReason: cancelReason || 'Cancelled by user'
-                });
-                // Update the transaction in-place so UI reflects cancelled status
-                setTransactions(prev =>
-                    prev.map(t => t._id === txToDelete._id ? { ...t, status: 'cancelled', cancelledAt: res.data.transaction?.cancelledAt } : t)
-                );
-                showToastMessage('Transaction cancelled successfully.', 'success');
-            } else {
-                // Delete the transaction entirely (legacy behaviour when sequence is off)
-                await api.delete(`/transactions/${txToDelete._id}`);
-                setTransactions(prev => prev.filter(t => t._id !== txToDelete._id));
-                showToastMessage('Transaction deleted successfully.', 'success');
-            }
+            // Cancel the transaction (preserve record, keep receipt sequence intact)
+            const res = await api.put(`/transactions/${txToDelete._id}/cancel`, {
+                cancellationReason: cancelReason || 'Cancelled by user'
+            });
+            // Update the transaction in-place so UI reflects cancelled status
+            setTransactions(prev =>
+                prev.map(t => t._id === txToDelete._id ? { ...t, status: 'cancelled', cancelledAt: res.data.transaction?.cancelledAt } : t)
+            );
+            showToastMessage('Transaction cancelled successfully.', 'success');
             setShowDeleteModal(false);
             setTxToDelete(null);
         } catch (err) {
@@ -2066,25 +2058,19 @@ const FeeCollection = () => {
                     </div>
                 )}
 
-                {/* Delete / Cancel Confirmation Modal */}
-                {showDeleteModal && txToDelete && (() => {
-                    const isSeqEnabled = receiptSettings?.enableCustomReceiptSequence === true;
-                    return (
+                {/* Cancel Confirmation Modal */}
+                {showDeleteModal && txToDelete && (
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-fadeIn">
                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-scaleUp">
                             {/* Header */}
-                            <div className={`${isSeqEnabled ? 'bg-orange-50 border-orange-100' : 'bg-red-50 border-red-100'} border-b p-4 flex items-center gap-3`}>
-                                <div className={`w-10 h-10 rounded-full ${isSeqEnabled ? 'bg-orange-100' : 'bg-red-100'} flex items-center justify-center flex-shrink-0`}>
-                                    {isSeqEnabled ? (
-                                        <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-                                    ) : (
-                                        <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                    )}
+                            <div className="bg-orange-50 border-orange-100 border-b p-4 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                                    <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                                 </div>
                                 <div className="flex-1">
-                                    <h3 className="font-bold text-gray-800 text-base">{isSeqEnabled ? 'Cancel Transaction' : 'Delete Transaction'}</h3>
-                                    <p className={`text-xs font-medium ${isSeqEnabled ? 'text-orange-500' : 'text-red-500'}`}>
-                                        {isSeqEnabled ? 'Transaction will be marked as cancelled' : 'This action cannot be undone'}
+                                    <h3 className="font-bold text-gray-800 text-base">Cancel Transaction</h3>
+                                    <p className="text-xs font-medium text-orange-500">
+                                        Transaction will be marked as cancelled
                                     </p>
                                 </div>
                                 <button
@@ -2097,9 +2083,7 @@ const FeeCollection = () => {
                             {/* Body */}
                             <div className="p-5 space-y-4">
                                 <p className="text-sm text-gray-600">
-                                    {isSeqEnabled
-                                        ? 'This transaction will be cancelled and marked as void. The receipt number will be preserved in sequence.'
-                                        : 'Are you sure you want to permanently delete this transaction?'}
+                                    This transaction will be cancelled and marked as void. The receipt number will be preserved in sequence.
                                 </p>
                                 <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-2 text-sm">
                                     <div className="flex justify-between">
@@ -2116,25 +2100,23 @@ const FeeCollection = () => {
                                     </div>
                                     <div className="flex justify-between border-t border-gray-200 pt-2 mt-1">
                                         <span className="text-gray-500 font-semibold">Amount:</span>
-                                        <span className={`font-extrabold text-base ${isSeqEnabled ? 'text-orange-600' : 'text-red-600'}`}>₹{Number(txToDelete.amount).toLocaleString('en-IN')}</span>
+                                        <span className="font-extrabold text-base text-orange-600">₹{Number(txToDelete.amount).toLocaleString('en-IN')}</span>
                                     </div>
-                                    {isSeqEnabled && (
-                                        <div className="space-y-1 mt-3 text-left">
-                                            <label className="text-[11px] font-bold text-gray-500 block">
-                                                Cancellation Reason <span className="text-red-500">*</span>
-                                            </label>
-                                            <textarea
-                                                rows={2}
-                                                value={cancelReason}
-                                                onChange={(e) => setCancelReason(e.target.value)}
-                                                placeholder="Enter reason (e.g. incorrect amount, wrong category)..."
-                                                className={`w-full text-xs border rounded-xl p-2.5 focus:ring-1 outline-none resize-none font-medium text-gray-700 bg-white transition-colors ${cancelReason.trim() ? 'border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'border-red-300 focus:ring-red-400 focus:border-red-400'}`}
-                                            />
-                                            {!cancelReason.trim() && (
-                                                <p className="text-[10px] text-red-500 font-semibold">Reason is required to cancel a transaction.</p>
-                                            )}
-                                        </div>
-                                    )}
+                                    <div className="space-y-1 mt-3 text-left">
+                                        <label className="text-[11px] font-bold text-gray-500 block">
+                                            Cancellation Reason <span className="text-red-500">*</span>
+                                        </label>
+                                        <textarea
+                                            rows={2}
+                                            value={cancelReason}
+                                            onChange={(e) => setCancelReason(e.target.value)}
+                                            placeholder="Enter reason (e.g. incorrect amount, wrong category)..."
+                                            className={`w-full text-xs border rounded-xl p-2.5 focus:ring-1 outline-none resize-none font-medium text-gray-700 bg-white transition-colors ${cancelReason.trim() ? 'border-gray-200 focus:ring-orange-500 focus:border-orange-500' : 'border-red-300 focus:ring-red-400 focus:border-red-400'}`}
+                                        />
+                                        {!cancelReason.trim() && (
+                                            <p className="text-[10px] text-red-500 font-semibold">Reason is required to cancel a transaction.</p>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="flex gap-3 pt-1">
                                     <button
@@ -2146,23 +2128,20 @@ const FeeCollection = () => {
                                     </button>
                                     <button
                                         onClick={confirmDeleteTransaction}
-                                        disabled={isDeleting || (isSeqEnabled && !cancelReason.trim())}
-                                        className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm shadow transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed active:scale-95 ${isSeqEnabled ? 'bg-orange-500 hover:bg-orange-600' : 'bg-red-600 hover:bg-red-700'}`}
+                                        disabled={isDeleting || !cancelReason.trim()}
+                                        className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm shadow transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed active:scale-95 bg-orange-500 hover:bg-orange-600"
                                     >
                                         {isDeleting ? (
-                                            <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div> {isSeqEnabled ? 'Cancelling...' : 'Deleting...'}</>
-                                        ) : isSeqEnabled ? (
-                                            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg> Cancel Transaction</>
+                                            <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div> Cancelling...</>
                                         ) : (
-                                            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> Delete</>
+                                            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg> Cancel Transaction</>
                                         )}
                                     </button>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    );
-                })()}
+                )}
 
                 {/* Custom Toast Alert */}
                 {toast && (
@@ -2282,10 +2261,10 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
                 {showDeleteButton && (
                     <button
                         onClick={() => onDelete(transaction)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition mr-0.5"
-                        title="Delete Transaction"
+                        className="text-orange-500 hover:text-orange-700 hover:bg-orange-50 p-1 rounded transition mr-0.5"
+                        title="Cancel Transaction"
                     >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                     </button>
                 )}
                 <button
