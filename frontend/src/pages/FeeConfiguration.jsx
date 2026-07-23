@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
-import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, ToggleLeft, ToggleRight, BookOpen, Settings, ArrowRight, CheckCircle2, Info, Clock, Database, AlertCircle, ShieldAlert, Layers } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
 
@@ -1560,6 +1560,13 @@ const FeeConfiguration = () => {
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'due-dates' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                                 Default Rules
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLateFeeSubTab('setup')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'setup' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Setup Guide
                             </button>
                         </div>
                     )}
@@ -4173,6 +4180,166 @@ const FeeConfiguration = () => {
                                                      )}
                                                 </tbody>
                                             </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {lateFeeSubTab === 'setup' && (
+                            <div className="space-y-6 text-left">
+                                {/* Sleek Header Card */}
+                                <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-xs">
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                        <div className="space-y-1">
+                                            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
+                                                <BookOpen size={14} /> System Guide
+                                            </div>
+                                            <h2 className="text-xl font-bold text-gray-800">Late Fee System Administration</h2>
+                                            <p className="text-xs text-gray-500 max-w-xl">
+                                                A clean overview of how late fee timing offsets, default fallback rules, and the automated reconciliation engine operate.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                                            <span className="text-xs font-bold text-gray-700">Sync Engine: Active</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2-Column Grid Layout */}
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                                    {/* Left Side: Workflow & Setup Steps */}
+                                    <div className="lg:col-span-7 bg-white border border-gray-200 p-6 rounded-xl shadow-xs space-y-6 flex flex-col justify-between">
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 border-b border-gray-100 pb-3">
+                                                <span className="p-1 bg-gray-50 text-gray-600 rounded"><Layers size={14} /></span>
+                                                Workflow & Setup Steps
+                                            </h3>
+                                            
+                                            <div className="relative pl-6 border-l-2 border-gray-100 space-y-6 ml-3 mt-4">
+                                                {/* Step 1 */}
+                                                <div className="relative">
+                                                    <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow-xs">1</div>
+                                                    <h4 className="text-xs font-bold text-gray-800">Create a Late Fee Head</h4>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Ensure a late fee demand head exists under the <strong>Fee Heads</strong> tab. The name or code should typically contain "Late Fee" (e.g. <em>Late Fee Term 1</em>) for clear categorization.
+                                                    </p>
+                                                </div>
+
+                                                {/* Step 2 */}
+                                                <div className="relative">
+                                                    <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow-xs">2</div>
+                                                    <h4 className="text-xs font-bold text-gray-800">Establish Default Fallback Rules</h4>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Navigate to the <strong>Default Rules</strong> tab. Define installment timing rules mapped by terms count (e.g. 3 terms rules). This serves as the fallback template for all fee configurations.
+                                                    </p>
+                                                </div>
+
+                                                {/* Step 3 */}
+                                                <div className="relative">
+                                                    <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow-xs">3</div>
+                                                    <h4 className="text-xs font-bold text-gray-800">Link on Fee Structure Creation</h4>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        When a new fee structure is configured, the system automatically checks for late fee applicability and links these default configuration timelines automatically.
+                                                    </p>
+                                                </div>
+
+                                                {/* Step 4 */}
+                                                <div className="relative">
+                                                    <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow-xs">4</div>
+                                                    <h4 className="text-xs font-bold text-gray-800">Customize Specific Timings (Optional)</h4>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        If a course or batch requires custom timing, locate it in the <strong>View Configurations</strong> tab. Click <strong>Edit Rules</strong> to override offsets or specify fixed dates.
+                                                    </p>
+                                                </div>
+
+                                                {/* Step 5 */}
+                                                <div className="relative">
+                                                    <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow-xs">5</div>
+                                                    <h4 className="text-xs font-bold text-gray-800">Trigger Reconcile & Sync</h4>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Click <strong>Sync</strong> or <strong>Save & Sync</strong>. The system recalculates active student balances, checks academic calendar dates, and creates or updates late fee demands.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Right Side: Timing Modes Comparison (Stacked) */}
+                                    <div className="lg:col-span-5 flex flex-col gap-6">
+                                        {/* Offset Mode Card */}
+                                        <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-xs space-y-3 flex-1 flex flex-col justify-between">
+                                            <div className="space-y-3">
+                                                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                    <span className="p-1 bg-indigo-50 text-indigo-600 rounded"><Clock size={14} /></span>
+                                                    Semester Offset Mode
+                                                </h3>
+                                                <p className="text-xs text-gray-500 leading-relaxed">
+                                                    Dynamically calculates late fee start dates relative to the active semester's start date in the academic calendar. This prevents needing to re-configure hardcoded dates each year.
+                                                </p>
+                                                <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 font-mono text-[10px] text-gray-700 flex items-center justify-center gap-1.5 flex-wrap">
+                                                    <span className="bg-white px-1.5 py-0.5 rounded border border-gray-200">Sem Start</span>
+                                                    <span>+</span>
+                                                    <span className="bg-white px-1.5 py-0.5 rounded border border-gray-200">Offset Days</span>
+                                                    <span>=</span>
+                                                    <span className="bg-indigo-600 text-white px-1.5 py-0.5 rounded">Due Date</span>
+                                                </div>
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 italic mt-2">
+                                                Example: Jan 1 Start + 15 Days Offset = Jan 16 Due Date. Late fee starts Jan 17.
+                                            </p>
+                                        </div>
+
+                                        {/* Fixed Mode Card */}
+                                        <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-xs space-y-3 flex-1 flex flex-col justify-between">
+                                            <div className="space-y-3">
+                                                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                    <span className="p-1 bg-amber-50 text-amber-600 rounded"><Calendar size={14} /></span>
+                                                    Fixed Due Date Mode
+                                                </h3>
+                                                <p className="text-xs text-gray-500 leading-relaxed">
+                                                    Uses an exact calendar date for the installment limit. Highly recommended for one-off charges, final deadlines, or non-semester-aligned fees.
+                                                </p>
+                                                <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 font-mono text-[10px] text-gray-700 flex items-center justify-center gap-1.5">
+                                                    <span className="bg-white px-1.5 py-0.5 rounded border border-gray-200">Specified Date</span>
+                                                    <span>➔</span>
+                                                    <span className="bg-amber-600 text-white px-1.5 py-0.5 rounded">Absolute Due Date</span>
+                                                </div>
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 italic mt-2">
+                                                Example: Hardcoded to Oct 31, 2026. Late fee starts Nov 01, 2026.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Guardrails Section */}
+                                <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-xs space-y-4">
+                                    <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 border-b border-gray-100 pb-3">
+                                        <span className="p-1 bg-emerald-50 text-emerald-600 rounded"><Database size={14} /></span>
+                                        Database Reconcile Guardrails
+                                    </h3>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                                                <CheckCircle2 size={14} className="text-emerald-500" />
+                                                Preventing Over-billing
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                                Late fees are only added if the student still has an active unpaid balance for the corresponding term on the parent fee demand. Paid students are never charged.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-1.5 text-xs font-bold text-blue-800">
+                                                <RefreshCw size={14} className="text-blue-500" />
+                                                Automatic Demands Cleanup
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                                If timings are extended or due dates pushed forward, running a Sync will automatically remove any generated unpaid late fee demands that are no longer overdue.
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
