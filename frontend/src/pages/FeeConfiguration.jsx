@@ -244,6 +244,105 @@ const FeeConfiguration = () => {
         }));
     };
 
+    // --- LATE FEES VIEW TAB EXPAND/COLLAPSE STATE ---
+    const [expandedViewGroups, setExpandedViewGroups] = useState({});
+    const [expandedViewCategories, setExpandedViewCategories] = useState({});
+    const [expandedViewYears, setExpandedViewYears] = useState({});
+    const [viewingFallbackForId, setViewingFallbackForId] = useState(null);
+    const [editingFallbackForId, setEditingFallbackForId] = useState(null);
+    const [fallbackEditForm, setFallbackEditForm] = useState({ lateFeeHead: '', terms: [] });
+    const [isSavingFallbackEdit, setIsSavingFallbackEdit] = useState(false);
+
+    const toggleViewGroupExpand = (key) => {
+        setExpandedViewGroups(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleViewCategoryExpand = (key) => {
+        setExpandedViewCategories(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleViewYearExpand = (key) => {
+        setExpandedViewYears(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleViewFallback = (id) => {
+        setViewingFallbackForId(prev => (prev === id ? null : id));
+        setEditingFallbackForId(null);
+    };
+    const openFallbackEdit = (s, matchingDefaultConfig) => {
+        // Mirror the EXACT same source selection logic used by the read view:
+        // if s.terms[i] has custom timing saved → use that; else use default config.
+        // This ensures the edit form always shows what the read view shows.
+        const structTerms = Array.isArray(s.terms) ? s.terms : [];
+        const defaultTerms = matchingDefaultConfig?.terms || [];
+        const termsCount = structTerms.length || matchingDefaultConfig?.termsCount || 1;
+
+        const editTerms = Array.from({ length: termsCount }, (_, i) => {
+            const sTerm = structTerms.find(t => Number(t.termNumber) === i + 1) || {};
+            const dTerm = defaultTerms.find(t => Number(t.termNumber) === i + 1) || {};
+
+            // Same hasCustomTiming check as in the read view
+            const hasCustomTiming =
+                sTerm.referenceSemester != null ||
+                (sTerm.dueOffsetDays != null && sTerm.dueOffsetDays !== 0) ||
+                !!sTerm.fixedDueDate;
+
+            // Merge: custom overrides default for timing fields when custom exists
+            const timingSrc = hasCustomTiming ? { ...dTerm, ...sTerm } : dTerm;
+
+            return {
+                termNumber: i + 1,
+                dueDateMode: timingSrc.dueDateMode || 'offset',
+                referenceSemester: timingSrc.referenceSemester ?? '',
+                dueOffsetDays: timingSrc.dueOffsetDays ?? '',
+                fixedDueDate: timingSrc.fixedDueDate ? String(timingSrc.fixedDueDate).substring(0, 10) : '',
+                dueDescription: timingSrc.dueDescription || `Term ${i + 1} Late Fee`,
+                lateFeeAmount: sTerm.lateFeeAmount ?? 0
+            };
+        });
+        setFallbackEditForm({
+            // Use structure's own lateFeeHead if saved, else default config's
+            lateFeeHead: s.lateFeeHead?._id || (typeof s.lateFeeHead === 'string' ? s.lateFeeHead : '')
+                || matchingDefaultConfig?.lateFeeHead?._id || '',
+            terms: editTerms
+        });
+        setEditingFallbackForId(s._id);
+    };
+    const saveFallbackEdit = async (s) => {
+        setIsSavingFallbackEdit(true);
+        try {
+            // Merge edited timing/fee fields from the form onto the original term objects.
+            // This preserves required fields (percentage, amount) while applying the user's edits.
+            const mergedTerms = (Array.isArray(s.terms) ? s.terms : []).map(origTerm => {
+                const editedTerm = fallbackEditForm.terms.find(
+                    t => Number(t.termNumber) === Number(origTerm.termNumber)
+                ) || {};
+                return {
+                    ...origTerm,
+                    dueDateMode: editedTerm.dueDateMode ?? origTerm.dueDateMode,
+                    referenceSemester: editedTerm.referenceSemester !== '' ? editedTerm.referenceSemester : origTerm.referenceSemester,
+                    dueOffsetDays: editedTerm.dueOffsetDays !== '' ? Number(editedTerm.dueOffsetDays) : origTerm.dueOffsetDays,
+                    fixedDueDate: editedTerm.fixedDueDate || origTerm.fixedDueDate || undefined,
+                    dueDescription: editedTerm.dueDescription ?? origTerm.dueDescription,
+                    lateFeeAmount: editedTerm.lateFeeAmount ?? origTerm.lateFeeAmount
+                };
+            });
+
+            await api.put(`/fee-structures/${s._id}`, {
+                ...s,
+                feeHead: s.feeHead?._id || s.feeHead,
+                lateFeeHead: fallbackEditForm.lateFeeHead || null,
+                isTermsDivided: Array.isArray(s.terms) && s.terms.length > 0,
+                terms: mergedTerms
+            });
+            setMessage('Late fee rules updated successfully!');
+            setTimeout(() => setMessage(''), 4000);
+            setEditingFallbackForId(null);
+            fetchStructures();
+        } catch (e) {
+            alert(e.response?.data?.message || 'Save failed');
+        } finally {
+            setIsSavingFallbackEdit(false);
+        }
+    };
+
     // --- LOCAL STORAGE DRAFT PERSISTENCE ---
     const WIZARD_DRAFT_KEY = 'pydah_fee_wizard_draft_v1';
 
@@ -1363,24 +1462,17 @@ const FeeConfiguration = () => {
                         <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl shrink-0 self-start sm:self-auto">
                             <button
                                 type="button"
-                                onClick={() => setLateFeeSubTab('create')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'create' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                Create
-                            </button>
-                            <button
-                                type="button"
                                 onClick={() => setLateFeeSubTab('view')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'view' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
-                                View
+                                View Configurations
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setLateFeeSubTab('due-dates')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'due-dates' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
-                                Config
+                                Default Rules
                             </button>
                         </div>
                     )}
@@ -2764,6 +2856,17 @@ const FeeConfiguration = () => {
                                             </select>
                                         </div>
                                         <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
+                                            <select
+                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
+                                                value={lateFeeViewFilters.batch}
+                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, batch: e.target.value })}
+                                            >
+                                                <option value="">All</option>
+                                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label className="text-[10px] font-bold text-gray-400 uppercase">Course</label>
                                             <select
                                                 className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
@@ -2775,61 +2878,36 @@ const FeeConfiguration = () => {
                                                 {(lateFeeViewFilters.college ? Object.keys(metadata[lateFeeViewFilters.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
                                             </select>
                                         </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.batch}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, batch: e.target.value })}
-                                            >
-                                                <option value="">All</option>
-                                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                            </select>
-                                        </div>
                                     </div>
                                 </div>
 
-                            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                                    <div>
-                                        <h2 className="font-bold text-gray-800">Existing Late Fee Configurations</h2>
-                                        <p className="text-xs text-gray-500 mt-0.5">Structures with late fee amounts or a late fee head saved</p>
+                                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                                        <div>
+                                            <h2 className="font-bold text-gray-800">Existing Late Fee Configurations</h2>
+                                            <p className="text-xs text-gray-500 mt-0.5">Structures with late fee amounts or a late fee head saved</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={!!syncingLateFeeId}
+                                                onClick={() => syncLateFees()}
+                                                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg transition inline-flex items-center gap-1.5 disabled:opacity-50"
+                                                title="Run late fee job for all configurations (same as nightly sync)"
+                                            >
+                                                <RefreshCw size={13} className={syncingLateFeeId === 'all' ? 'animate-spin' : ''} />
+                                                {syncingLateFeeId === 'all' ? 'Syncing…' : 'Sync All'}
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={!!syncingLateFeeId}
-                                            onClick={() => syncLateFees()}
-                                            className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg transition inline-flex items-center gap-1.5 disabled:opacity-50"
-                                            title="Run late fee job for all configurations (same as nightly sync)"
-                                        >
-                                            <RefreshCw size={13} className={syncingLateFeeId === 'all' ? 'animate-spin' : ''} />
-                                            {syncingLateFeeId === 'all' ? 'Syncing…' : 'Sync All'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setLateFeeSubTab('create')}
-                                            className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg transition"
-                                        >
-                                            + New Configuration
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-xs">
-                                        <thead className="bg-gray-50 border-b border-gray-200">
-                                            <tr>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">College / Course</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Batch</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Year / Sem</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Category</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Fee Head</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Late Fee Head</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Terms</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs border-collapse">
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                <tr>
+                                                    <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">College / Course / Branch & Batch</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
                                             {(() => {
                                                 const configured = structures.filter(s => {
                                                     const hasLateFee = s.lateFeeHead ||
@@ -2853,10 +2931,11 @@ const FeeConfiguration = () => {
                                                     }
                                                     return true;
                                                 });
+
                                                 if (configured.length === 0) {
                                                     return (
                                                         <tr>
-                                                            <td colSpan="8" className="px-6 py-16 text-center text-gray-400">
+                                                            <td className="px-6 py-16 text-center text-gray-400">
                                                                 <Calendar size={32} className="mx-auto mb-2 text-gray-300" />
                                                                 <p className="font-medium">No late fee configurations found</p>
                                                                 <p className="text-[11px] mt-1">
@@ -2868,85 +2947,379 @@ const FeeConfiguration = () => {
                                                         </tr>
                                                     );
                                                 }
-                                                return configured.map(s => {
-                                                    const lateTerms = (s.terms || []).filter(t => Number(t.lateFeeAmount) > 0);
-                                                    const resolvedLateHead = s.lateFeeHead || (() => {
-                                                        const structTermsCount = Array.isArray(s.terms) ? s.terms.length : 1;
-                                                        const matchingConfig = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
-                                                        return matchingConfig?.lateFeeHead;
-                                                    })();
+
+                                                // Grouping logic:
+                                                const groups = {};
+                                                configured.forEach(s => {
+                                                    const groupKey = `${s.college}|${s.course}|${s.branch}|${s.batch}`;
+                                                    if (!groups[groupKey]) {
+                                                        groups[groupKey] = {
+                                                            key: groupKey,
+                                                            college: s.college,
+                                                            course: s.course,
+                                                            branch: s.branch,
+                                                            batch: s.batch,
+                                                            categories: {}
+                                                        };
+                                                    }
+                                                    const catKey = s.category || 'General';
+                                                    if (!groups[groupKey].categories[catKey]) {
+                                                        groups[groupKey].categories[catKey] = {
+                                                            name: catKey,
+                                                            key: `${groupKey}|${catKey}`,
+                                                            years: {}
+                                                        };
+                                                    }
+                                                    const yrKey = s.studentYear;
+                                                    if (!groups[groupKey].categories[catKey].years[yrKey]) {
+                                                        groups[groupKey].categories[catKey].years[yrKey] = {
+                                                            year: yrKey,
+                                                            key: `${groupKey}|${catKey}|${yrKey}`,
+                                                            items: []
+                                                        };
+                                                    }
+                                                    groups[groupKey].categories[catKey].years[yrKey].items.push(s);
+                                                });
+
+                                                const sortedGroups = Object.values(groups).sort((a, b) => {
+                                                    if (a.college !== b.college) return a.college.localeCompare(b.college);
+                                                    if (a.course !== b.course) return a.course.localeCompare(b.course);
+                                                    if (a.branch !== b.branch) return a.branch.localeCompare(b.branch);
+                                                    return String(b.batch).localeCompare(String(a.batch), undefined, { numeric: true });
+                                                });
+
+                                                sortedGroups.forEach(g => {
+                                                    g.categoriesList = Object.values(g.categories).sort((a, b) => a.name.localeCompare(b.name));
+                                                    g.categoriesList.forEach(cat => {
+                                                        cat.yearsList = Object.values(cat.years).sort((a, b) => Number(a.year) - Number(b.year));
+                                                    });
+                                                });
+
+                                                return sortedGroups.map(g => {
+                                                    const isGroupExpanded = !!expandedViewGroups[g.key];
+                                                    const totalHeadsCount = g.categoriesList.reduce((acc, cat) => acc + cat.yearsList.reduce((acc2, yr) => acc2 + yr.items.length, 0), 0);
                                                     return (
-                                                        <tr key={s._id} className="hover:bg-gray-50/80">
-                                                            <td className="px-4 py-3">
-                                                                <div className="font-semibold text-gray-800">{s.college}</div>
-                                                                <div className="text-gray-500">{s.course} · {s.branch}</div>
-                                                            </td>
-                                                            <td className="px-4 py-3 font-bold text-gray-800">{s.batch}</td>
-                                                            <td className="px-4 py-3">
-                                                                Yr {s.studentYear}
-                                                                {s.semester ? ` / Sem ${s.semester}` : ' / Full Year'}
-                                                            </td>
-                                                            <td className="px-4 py-3">{s.category}</td>
-                                                            <td className="px-4 py-3 font-semibold text-blue-700">
-                                                                {s.feeHead?.name || '—'}
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                {resolvedLateHead?.name
-                                                                    ? `${resolvedLateHead.name}${resolvedLateHead.code ? ` (${resolvedLateHead.code})` : ''}`
-                                                                    : <span className="text-amber-600 font-medium">Not set</span>}
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                {lateTerms.length > 0 ? (
-                                                                    <div className="flex flex-wrap gap-1">
-                                                                        {lateTerms.map(t => (
-                                                                            <span key={t.termNumber} className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-bold text-[10px]">
-                                                                                T{t.termNumber}: ₹{Number(t.lateFeeAmount).toLocaleString()}
+                                                        <React.Fragment key={g.key}>
+                                                            <tr 
+                                                                onClick={() => toggleViewGroupExpand(g.key)}
+                                                                className={`cursor-pointer hover:bg-blue-50/50 transition-colors group/groupRow ${isGroupExpanded ? 'bg-blue-50/40' : ''}`}
+                                                            >
+                                                                <td className="px-4 py-3 text-xs text-gray-700">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <ChevronRight size={16} className={`text-gray-400 group-hover/groupRow:text-blue-600 transition-transform duration-200 shrink-0 ${isGroupExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                            <span className="font-bold text-gray-900 text-xs md:text-sm">{collegeCodes[g.college] || g.college}</span>
+                                                                            <span className="text-blue-600 font-mono font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px] border border-blue-100 shrink-0">{g.batch}</span>
+                                                                            <span className="text-gray-500 font-medium text-xs md:text-sm">· {g.course}</span>
+                                                                            <span className="text-gray-600 font-semibold text-xs md:text-sm">· {g.branch}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[11px] text-gray-400 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-bold">
+                                                                                {totalHeadsCount} {totalHeadsCount === 1 ? 'Configured Head' : 'Configured Heads'}
                                                                             </span>
-                                                                        ))}
+                                                                        </div>
                                                                     </div>
-                                                                ) : (
-                                                                    <span className="text-gray-400">—</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-right">
-                                                                <div className="inline-flex items-center gap-1.5">
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={!!syncingLateFeeId || !s.lateFeeHead}
-                                                                        title={!s.lateFeeHead ? 'Set a late fee head before syncing' : 'Apply late fees for this structure now'}
-                                                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold transition disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                        onClick={() => syncLateFees(s._id)}
-                                                                    >
-                                                                        <RefreshCw size={13} className={syncingLateFeeId === s._id ? 'animate-spin' : ''} />
-                                                                        {syncingLateFeeId === s._id ? 'Syncing…' : 'Sync'}
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold transition"
-                                                                        onClick={() => {
-                                                                            setLateFeeForm({
-                                                                                college: s.college || '',
-                                                                                course: s.course || '',
-                                                                                branch: s.branch || '',
-                                                                                batch: s.batch || '',
-                                                                                studentYear: String(s.studentYear || ''),
-                                                                                semester: s.semester ? String(s.semester) : '',
-                                                                                categories: s.category ? [s.category] : [],
-                                                                                feeHead: String(s.feeHead?._id || s.feeHead || ''),
-                                                                                lateFeeHead: String(s.lateFeeHead?._id || s.lateFeeHead || ''),
-                                                                                termMappings: s.terms || [],
-                                                                                penaltyType: 'Fixed',
-                                                                                penaltyValue: 0,
-                                                                                _id: s._id
-                                                                            });
-                                                                            setLateFeeSubTab('create');
-                                                                        }}
-                                                                    >
-                                                                        <Pencil size={13} /> Edit
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
+                                                                </td>
+                                                            </tr>
+
+                                                            {isGroupExpanded && (
+                                                                <tr>
+                                                                    <td className="p-0 bg-slate-50/50 border-y border-gray-200">
+                                                                        <div className="p-4 space-y-3 pl-8">
+                                                                            {g.categoriesList.map(cat => {
+                                                                                const isCategoryExpanded = !!expandedViewCategories[cat.key];
+                                                                                const categoryHeadsCount = cat.yearsList.reduce((acc, yr) => acc + yr.items.length, 0);
+                                                                                return (
+                                                                                    <div key={cat.key} className="border border-gray-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all duration-200">
+                                                                                        <div
+                                                                                            onClick={() => toggleViewCategoryExpand(cat.key)}
+                                                                                            className={`px-4 py-2.5 flex items-center justify-between cursor-pointer select-none transition-colors ${isCategoryExpanded ? 'bg-slate-100/90 border-b border-gray-200 hover:bg-slate-200/60' : 'bg-white hover:bg-gray-50'}`}
+                                                                                        >
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <ChevronRight size={16} className={`text-gray-500 transition-transform duration-200 shrink-0 ${isCategoryExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                                                <span className="font-bold text-gray-800 text-xs md:text-sm">{cat.name}</span>
+                                                                                                <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-200">
+                                                                                                    Quota
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full font-bold">
+                                                                                                    {categoryHeadsCount} {categoryHeadsCount === 1 ? 'Head' : 'Heads'}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        {isCategoryExpanded && (
+                                                                                            <div className="p-3 space-y-3 bg-gray-50/50 pl-6">
+                                                                                                {cat.yearsList.map(yr => {
+                                                                                                    const isYearExpanded = !!expandedViewYears[yr.key];
+                                                                                                    return (
+                                                                                                        <div key={yr.key} className="border border-gray-200 rounded-lg bg-white overflow-hidden transition-all duration-200">
+                                                                                                            <div
+                                                                                                                onClick={() => toggleViewYearExpand(yr.key)}
+                                                                                                                className={`px-3 py-2 flex items-center justify-between cursor-pointer select-none transition-colors ${isYearExpanded ? 'bg-slate-100/70 border-b border-gray-200 hover:bg-slate-200/40' : 'bg-white hover:bg-gray-50'}`}
+                                                                                                            >
+                                                                                                                <div className="flex items-center gap-2">
+                                                                                                                    <ChevronRight size={14} className={`text-gray-500 transition-transform duration-200 shrink-0 ${isYearExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                                                                    <span className="font-bold text-gray-700 text-xs">Year {yr.year}</span>
+                                                                                                                    <span className="bg-blue-50 text-blue-700 text-[9px] font-bold px-1.5 py-0.2 rounded border border-blue-100">
+                                                                                                                        Year
+                                                                                                                    </span>
+                                                                                                                </div>
+                                                                                                                <div className="flex items-center gap-2">
+                                                                                                                    <span className="text-[9px] text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full font-bold">
+                                                                                                                        {yr.items.length} {yr.items.length === 1 ? 'Head' : 'Heads'}
+                                                                                                                    </span>
+                                                                                                                </div>
+                                                                                                            </div>
+
+                                                                                                            {isYearExpanded && (
+                                                                                                                <div className="overflow-x-auto">
+                                                                                                                    <table className="w-full text-left text-xs border-collapse">
+                                                                                                                        <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
+                                                                                                                            <tr>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Semester / Period</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Fee Head</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Late Fee Head</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Terms</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider text-right">Actions</th>
+                                                                                                                            </tr>
+                                                                                                                        </thead>
+                                                                                                                        <tbody className="divide-y divide-gray-100">
+                                                                                                                            {yr.items.map(s => {
+                                                                                                                                const lateTerms = (s.terms || []).filter(t => Number(t.lateFeeAmount) > 0);
+                                                                                                                                const structTermsCount = Array.isArray(s.terms) ? s.terms.length : 1;
+                                                                                                                                const matchingDefaultConfig = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
+                                                                                                                                const resolvedLateHead = s.lateFeeHead || matchingDefaultConfig?.lateFeeHead;
+                                                                                                                                const isFallbackOpen = viewingFallbackForId === s._id;
+                                                                                                                                return (
+                                                                                                                                    <React.Fragment key={s._id}>
+                                                                                                                                    <tr className={`hover:bg-gray-50/80 transition-colors ${isFallbackOpen ? 'bg-blue-50/30' : ''}`}>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {s.semester ? `Sem ${s.semester}` : 'Full Year'}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5 font-semibold text-blue-700">
+                                                                                                                                            {s.feeHead?.name || '—'}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {resolvedLateHead?.name
+                                                                                                                                                ? `${resolvedLateHead.name}${resolvedLateHead.code ? ` (${resolvedLateHead.code})` : ''}`
+                                                                                                                                                : <span className="text-amber-600 font-medium">Not set</span>}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {lateTerms.length > 0 ? (
+                                                                                                                                                <div className="flex flex-wrap gap-1">
+                                                                                                                                                    {lateTerms.map(t => (
+                                                                                                                                                        <span key={t.termNumber} className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-bold text-[10px]">
+                                                                                                                                                            T{t.termNumber}: ₹{Number(t.lateFeeAmount).toLocaleString()}
+                                                                                                                                                        </span>
+                                                                                                                                                    ))}
+                                                                                                                                                </div>
+                                                                                                                                            ) : (
+                                                                                                                                                <span className="text-gray-400">—</span>
+                                                                                                                                            )}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5 text-right">
+                                                                                                                                            <div className="inline-flex items-center gap-1.5">
+                                                                                                                                                <button
+                                                                                                                                                    type="button"
+                                                                                                                                                    disabled={!!syncingLateFeeId || !s.lateFeeHead}
+                                                                                                                                                    title={!s.lateFeeHead ? 'Set a late fee head before syncing' : 'Apply late fees for this structure now'}
+                                                                                                                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                                                                                                    onClick={() => syncLateFees(s._id)}
+                                                                                                                                                >
+                                                                                                                                                    <RefreshCw size={13} className={syncingLateFeeId === s._id ? 'animate-spin' : ''} />
+                                                                                                                                                    {syncingLateFeeId === s._id ? 'Syncing…' : 'Sync'}
+                                                                                                                                                </button>
+                                                                                                                                                <button
+                                                                                                                                                    type="button"
+                                                                                                                                                    title="View Default Fallback Rules for this configuration"
+                                                                                                                                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition ${isFallbackOpen ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                                                                                                                                                    onClick={() => toggleViewFallback(s._id)}
+                                                                                                                                                >
+                                                                                                                                                    <ChevronRight size={13} className={`transition-transform duration-200 ${isFallbackOpen ? 'rotate-90' : ''}`} />
+                                                                                                                                                    {isFallbackOpen ? 'Hide Rules' : 'View Rules'}
+                                                                                                                                                </button>
+                                                                                                                                            </div>
+                                                                                                                                        </td>
+                                                                                                                                    </tr>
+                                                                                                                                    {isFallbackOpen && (
+                                                                                                                                        <tr>
+                                                                                                                                            <td colSpan={5} className="p-0 bg-blue-50/20 border-b border-blue-100">
+                                                                                                                                                <div className="px-6 py-4 space-y-3">
+                                                                                                                                                    {/* Panel header */}
+                                                                                                                                                    <div className="flex items-center justify-between">
+                                                                                                                                                        <div className="flex items-center gap-2">
+                                                                                                                                                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-100 px-2 py-1 rounded">Default Fallback Rules</span>
+                                                                                                                                                            <span className="text-[10px] text-gray-500">Applied for {structTermsCount}-term fee structures</span>
+                                                                                                                                                        </div>
+                                                                                                                                                        <div className="flex items-center gap-2">
+                                                                                                                                                            {!matchingDefaultConfig && (
+                                                                                                                                                                <span className="text-[10px] text-amber-600 font-semibold bg-amber-50 border border-amber-200 px-2 py-1 rounded">No fallback rule configured for {structTermsCount} terms</span>
+                                                                                                                                                            )}
+                                                                                                                                                            {editingFallbackForId !== s._id ? (
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-[10px] font-bold transition"
+                                                                                                                                                                    onClick={() => openFallbackEdit(s, matchingDefaultConfig)}
+                                                                                                                                                                >
+                                                                                                                                                                    <Pencil size={11} /> Edit Rules
+                                                                                                                                                                </button>
+                                                                                                                                                            ) : (
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 text-[10px] font-bold transition"
+                                                                                                                                                                    onClick={() => setEditingFallbackForId(null)}
+                                                                                                                                                                >
+                                                                                                                                                                    ✕ Cancel
+                                                                                                                                                                </button>
+                                                                                                                                                            )}
+                                                                                                                                                        </div>
+                                                                                                                                                    </div>
+
+                                                                                                                                                    {/* READ VIEW */}
+                                                                                                                                                    {editingFallbackForId !== s._id && (
+                                                                                                                                                        matchingDefaultConfig ? (
+                                                                                                                                                            <div className="space-y-2">
+                                                                                                                                                                <div className="flex items-center gap-3 text-xs">
+                                                                                                                                                                    <span className="text-gray-500">Late Fee Demand Head:</span>
+                                                                                                                                                                    <span className="font-bold text-blue-700">{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.name || '—'}{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.code ? ` (${(s.lateFeeHead || matchingDefaultConfig.lateFeeHead).code})` : ''}</span>
+                                                                                                                                                                </div>
+                                                                                                                                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                                                                                                                    {(matchingDefaultConfig.terms || []).map(defT => {
+                                                                                                                                                                        // Use structure's own term timing if saved, otherwise show default config
+                                                                                                                                                                        const ownTerm = (s.terms || []).find(t => Number(t.termNumber) === Number(defT.termNumber)) || {};
+                                                                                                                                                                        const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
+                                                                                                                                                                        const t = hasCustomTiming ? { ...defT, ...ownTerm } : defT;
+                                                                                                                                                                        return (
+                                                                                                                                                                        <div key={t.termNumber} className="bg-white border border-blue-100 rounded-lg p-3 space-y-1 shadow-sm">
+                                                                                                                                                                            <div className="flex items-center justify-between">
+                                                                                                                                                                                <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Term {t.termNumber}</div>
+                                                                                                                                                                                {hasCustomTiming && <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">Custom</span>}
+                                                                                                                                                                            </div>
+                                                                                                                                                                            <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Due Mode: </span>{t.dueDateMode === 'fixed' ? 'Fixed Date' : 'Semester Offset'}</div>
+                                                                                                                                                                            {t.dueDateMode === 'offset' ? (<>
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Ref Sem: </span>Semester {t.referenceSemester || '—'}</div>
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Offset: </span>+{t.dueOffsetDays ?? 0} days</div>
+                                                                                                                                                                            </>) : (
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Date: </span>{t.fixedDueDate ? new Date(t.fixedDueDate).toLocaleDateString() : '—'}</div>
+                                                                                                                                                                            )}
+                                                                                                                                                                            {t.dueDescription && <div className="text-[10px] text-gray-400 italic">{t.dueDescription}</div>}
+                                                                                                                                                                        </div>
+                                                                                                                                                                        );
+                                                                                                                                                                    })}
+                                                                                                                                                                </div>
+                                                                                                                                                            </div>
+                                                                                                                                                        ) : (
+                                                                                                                                                            <p className="text-xs text-gray-400 italic">Go to the <strong>Default Rules</strong> tab to configure a fallback rule for {structTermsCount}-term structures, or click <strong>Edit Rules</strong> to set custom rules for this fee head.</p>
+                                                                                                                                                        )
+                                                                                                                                                    )}
+
+                                                                                                                                                    {/* EDIT FORM */}
+                                                                                                                                                    {editingFallbackForId === s._id && (
+                                                                                                                                                        <div className="space-y-4 border border-blue-200 rounded-xl bg-white p-4">
+                                                                                                                                                            <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Editing rules for this fee head only</div>
+                                                                                                                                                            {/* Per-term editors */}
+                                                                                                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                                                                                                                                {fallbackEditForm.terms.map((t, idx) => (
+                                                                                                                                                                    <div key={t.termNumber} className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-2">
+                                                                                                                                                                        <div className="text-[10px] font-bold text-blue-700 uppercase">Term {t.termNumber}</div>
+                                                                                                                                                                        <div className="flex flex-col gap-1">
+                                                                                                                                                                            <label className="text-[10px] text-gray-500">Due Mode</label>
+                                                                                                                                                                            <select
+                                                                                                                                                                                className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white"
+                                                                                                                                                                                value={t.dueDateMode}
+                                                                                                                                                                                onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDateMode: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                            >
+                                                                                                                                                                                <option value="offset">Semester Offset</option>
+                                                                                                                                                                                <option value="fixed">Fixed Date</option>
+                                                                                                                                                                            </select>
+                                                                                                                                                                        </div>
+                                                                                                                                                                        {t.dueDateMode === 'offset' ? (
+                                                                                                                                                                            <>
+                                                                                                                                                                                <div className="flex flex-col gap-1">
+                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Ref. Semester</label>
+                                                                                                                                                                                    <select
+                                                                                                                                                                                        className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                        value={t.referenceSemester}
+                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], referenceSemester: Number(e.target.value) }; return { ...f, terms }; })}
+                                                                                                                                                                                    >
+                                                                                                                                                                                        <option value="">-- Select --</option>
+                                                                                                                                                                                        <option value={1}>Semester 1</option>
+                                                                                                                                                                                        <option value={2}>Semester 2</option>
+                                                                                                                                                                                    </select>
+                                                                                                                                                                                </div>
+                                                                                                                                                                                <div className="flex flex-col gap-1">
+                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Offset Days</label>
+                                                                                                                                                                                    <input type="number" min="0" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                        value={t.dueOffsetDays}
+                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueOffsetDays: Number(e.target.value) }; return { ...f, terms }; })}
+                                                                                                                                                                                    />
+                                                                                                                                                                                </div>
+                                                                                                                                                                            </>
+                                                                                                                                                                        ) : (
+                                                                                                                                                                            <div className="flex flex-col gap-1">
+                                                                                                                                                                                <label className="text-[10px] text-gray-500">Fixed Date</label>
+                                                                                                                                                                                <input type="date" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                    value={t.fixedDueDate ? t.fixedDueDate.substring(0, 10) : ''}
+                                                                                                                                                                                    onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], fixedDueDate: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                                />
+                                                                                                                                                                            </div>
+                                                                                                                                                                        )}
+                                                                                                                                                                        <div className="flex flex-col gap-1">
+                                                                                                                                                                            <label className="text-[10px] text-gray-500">Description</label>
+                                                                                                                                                                            <input type="text" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                value={t.dueDescription}
+                                                                                                                                                                                onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDescription: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                            />
+                                                                                                                                                                        </div>
+                                                                                                                                                                    </div>
+                                                                                                                                                                ))}
+                                                                                                                                                            </div>
+                                                                                                                                                            {/* Save / Cancel */}
+                                                                                                                                                            <div className="flex items-center gap-2 pt-1">
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    disabled={isSavingFallbackEdit}
+                                                                                                                                                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition"
+                                                                                                                                                                    onClick={() => saveFallbackEdit(s)}
+                                                                                                                                                                >
+                                                                                                                                                                    {isSavingFallbackEdit ? 'Saving…' : 'Save Changes'}
+                                                                                                                                                                </button>
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition"
+                                                                                                                                                                    onClick={() => setEditingFallbackForId(null)}
+                                                                                                                                                                >
+                                                                                                                                                                    Cancel
+                                                                                                                                                                </button>
+                                                                                                                                                            </div>
+                                                                                                                                                        </div>
+                                                                                                                                                    )}
+                                                                                                                                                </div>
+                                                                                                                                            </td>
+                                                                                                                                        </tr>
+                                                                                                                                    )}
+                                                                                                                                    </React.Fragment>
+                                                                                                                                );
+                                                                                                                            })}
+                                                                                                                        </tbody>
+                                                                                                                    </table>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </React.Fragment>
                                                     );
                                                 });
                                             })()}
@@ -2957,7 +3330,7 @@ const FeeConfiguration = () => {
                         </div>
                     )}
 
-                        {lateFeeSubTab === 'create' && (
+                        {false && (
                         <>
                         {/* Selector Section */}
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
@@ -3389,6 +3762,11 @@ const FeeConfiguration = () => {
                                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 space-y-4">
                                             <div className="flex items-center justify-between">
                                                 <h3 className="font-bold text-gray-800 text-xs">Configure Installment Terms Timing</h3>
+                                                {editingDefaultConfigId && (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-full">
+                                                        <Pencil size={9} /> Editing Default Config
+                                                    </span>
+                                                )}
                                             </div>
 
                                             <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
