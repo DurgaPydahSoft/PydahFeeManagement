@@ -663,6 +663,48 @@ const FeeConfiguration = () => {
             }
         }
 
+        // 3. Validation: If Late Fee is applicable, make sure late fee amounts are entered and > 0 for all terms in the Late Fees tab
+        if (columns.length > 0) {
+            for (let i = 0; i < columns.length; i++) {
+                const col = columns[i];
+                if (col.isLateFeeApplicable) {
+                    const fh = feeHeads.find(h => h._id === col.feeHeadId);
+                    
+                    // Let's verify each active year/period row
+                    for (const row of matrixRows) {
+                        const amtKey = `${row.rowKey}_${col.id}`;
+                        const rawAmt = config.amounts[amtKey];
+                        if (rawAmt !== undefined && rawAmt !== '' && !isNaN(Number(rawAmt)) && Number(rawAmt) > 0) {
+                            const termObj = config.terms[amtKey];
+                            
+                            if (termObj) {
+                                // Divided terms
+                                for (let tIdx = 0; tIdx < termObj.data.length; tIdx++) {
+                                    const tNum = tIdx + 1;
+                                    const lateAmt = (col.termLateFees && col.termLateFees[tNum] !== undefined)
+                                        ? Number(col.termLateFees[tNum])
+                                        : (Number(col.lateFeeAmount) || 0);
+                                    if (isNaN(lateAmt) || lateAmt <= 0) {
+                                        setWizardError(`Please configure a positive late fee amount for Term ${tNum} of "${fh?.name || 'Selected Head'}" in the Late Fees tab for quota "${quotaName}".`);
+                                        return;
+                                    }
+                                }
+                            } else {
+                                // Undivided term (1 term)
+                                const lateAmt = (col.termLateFees && col.termLateFees[1] !== undefined)
+                                    ? Number(col.termLateFees[1])
+                                    : (Number(col.lateFeeAmount) || 0);
+                                if (isNaN(lateAmt) || lateAmt <= 0) {
+                                    setWizardError(`Please configure a positive late fee amount for "${fh?.name || 'Selected Head'}" in the Late Fees tab for quota "${quotaName}".`);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         setIsSavingQuota(true);
         try {
             // Delete existing fee structure records for this specific quota context to clean up removed columns/heads
@@ -4165,7 +4207,7 @@ const FeeConfiguration = () => {
                                                                      <div className="flex flex-wrap gap-1">
                                                                          {(cfg.terms || []).map(t => (
                                                                              <span key={t.termNumber} className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-bold text-[9px]">
-                                                                                 T{t.termNumber}: {t.dueDateMode === 'fixed' ? 'Fixed' : `${t.dueOffsetDays}d offset`}
+                                                                                 T{t.termNumber}: {t.dueDateMode === 'fixed' ? `Fixed (${t.fixedDueDate ? String(t.fixedDueDate).slice(0, 10) : 'N/A'})` : `${t.dueOffsetDays}d offset (Sem ${t.referenceSemester || 1})`}
                                                                              </span>
                                                                          ))}
                                                                      </div>
