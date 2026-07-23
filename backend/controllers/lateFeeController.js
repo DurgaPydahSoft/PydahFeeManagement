@@ -3,6 +3,7 @@ const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const db = require('../config/sqlDb');
+const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 
 // @desc    Get all Late Fee Configurations
 // @route   GET /api/late-fees/config
@@ -52,19 +53,78 @@ const deleteConfig = async (req, res) => {
   }
 };
 
-// @desc    Process Late Fees for all active configurations
-// @route   POST /api/late-fees/process (Can be triggered manually or by scheduler)
-const processLateFees = async (req, res) => {
+// @desc    Get all Default Late Fee Configurations
+// @route   GET /api/late-fees/default-config
+const getDefaultConfigs = async (req, res) => {
   try {
-    // Optional: sync a single structure (manual test from UI)
-    const structureId = req?.body?.structureId || req?.query?.structureId || null;
+    const configs = await DefaultLateFeeConfig.find()
+      .populate('lateFeeHead', 'name code');
+    res.json(configs);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching default late fee configurations', error: error.message });
+  }
+};
 
-    const filter = { 'terms.lateFeeAmount': { $gt: 0 } };
-    if (structureId) {
-      filter._id = structureId;
+// @desc    Create/Update Default Late Fee Configuration
+// @route   POST /api/late-fees/default-config
+const saveDefaultConfig = async (req, res) => {
+  try {
+    const { _id, termsCount, lateFeeHead, terms, isActive } = req.body;
+
+    if (!termsCount || !lateFeeHead || !terms || terms.length === 0) {
+      return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const structures = await FeeStructure.find(filter)
+    const payload = {
+      termsCount,
+      lateFeeHead,
+      terms,
+      isActive: isActive !== false
+    };
+
+    if (_id) {
+      const updated = await DefaultLateFeeConfig.findByIdAndUpdate(_id, payload, { new: true });
+      return res.json(updated);
+    } else {
+      const created = await DefaultLateFeeConfig.create(payload);
+      return res.status(201).json(created);
+    }
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'A default late fee configuration already exists for this terms count.' });
+    }
+    res.status(500).json({ message: 'Error saving default configuration', error: error.message });
+  }
+};
+
+// @desc    Delete Default Late Fee Configuration
+// @route   DELETE /api/late-fees/default-config/:id
+const deleteDefaultConfig = async (req, res) => {
+  try {
+    await DefaultLateFeeConfig.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Default configuration removed' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error removing default configuration', error: error.message });
+  }
+};
+
+// @desc    Process Late Fees for all active configurations (Custom structures or Default configurations fallback)
+// @route   POST /api/late-fees/process
+const processLateFees = async (req, res) => {
+  try {
+    // Optional: sync a single structure (manual trigger from UI)
+    const structureId = req?.body?.structureId || req?.query?.structureId || null;
+
+    // Load active default configurations
+    const defaultConfigs = await DefaultLateFeeConfig.find({ isActive: true })
+      .populate('lateFeeHead');
+
+    const queryFilter = {};
+    if (structureId) {
+      queryFilter._id = structureId;
+    }
+
+    const structures = await FeeStructure.find(queryFilter)
       .populate('feeHead')
       .populate('lateFeeHead');
 
@@ -75,13 +135,49 @@ const processLateFees = async (req, res) => {
     let skipped = 0;
 
     for (const struct of structures) {
-      // Use the late fee head saved on the structure (not a hardcoded code)
-      const demandHead = struct.lateFeeHead;
-      if (!demandHead) {
-        console.warn(`Skipping structure ${struct._id}: lateFeeHead not configured`);
+      // Late fee is ONLY applicable if the structure has terms with lateFeeAmount > 0
+      const hasStructureLateFee = Array.isArray(struct.terms) && struct.terms.some(t => Number(t.lateFeeAmount) > 0);
+      
+      if (!hasStructureLateFee) {
         skipped += 1;
         continue;
       }
+
+      // Find matching default configuration for timing rules
+      const structTermsCount = Array.isArray(struct.terms) ? struct.terms.length : 1;
+      const config = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
+
+      // Resolve demand head from the structure itself, or fall back to default config's lateFeeHead
+      const demandHead = struct.lateFeeHead || (config ? config.lateFeeHead : null);
+      if (!demandHead) {
+        console.warn(`Skipping structure ${struct._id}: no lateFeeHead configured on structure or default config`);
+        skipped += 1;
+        continue;
+      }
+
+      // Map timing parameters from default config onto structure terms
+      const activeTerms = struct.terms.map(st => {
+        // Only terms where lateFeeAmount > 0 are processed for penalties
+        if (Number(st.lateFeeAmount) <= 0) {
+          return {
+            termNumber: st.termNumber,
+            amount: st.amount,
+            lateFeeAmount: 0
+          };
+        }
+
+        const dt = config ? config.terms.find(t => t.termNumber === st.termNumber) : null;
+        return {
+          termNumber: st.termNumber,
+          amount: st.amount,
+          lateFeeAmount: st.lateFeeAmount, // penalty amount ALWAYS comes from the structure term!
+          dueDateMode: st.dueDateMode || (dt ? dt.dueDateMode : 'offset'),
+          referenceSemester: st.referenceSemester || (dt ? dt.referenceSemester : null),
+          dueOffsetDays: (st.dueOffsetDays !== undefined && st.dueOffsetDays !== 0) ? st.dueOffsetDays : (dt ? dt.dueOffsetDays : 0),
+          fixedDueDate: st.fixedDueDate || (dt ? dt.fixedDueDate : null),
+          dueDescription: st.dueDescription || (dt ? dt.dueDescription : '')
+        };
+      });
 
       // semesters.batch stores admission year ("2023"); structure batch may be "2023" or "2023-2027"
       const batchKey = String(struct.batch || '').split('-')[0].trim();
@@ -106,7 +202,7 @@ const processLateFees = async (req, res) => {
         struct.college
       ]);
 
-      for (const term of struct.terms) {
+      for (const term of activeTerms) {
         if (!term.lateFeeAmount || term.lateFeeAmount <= 0) continue;
 
         let dueDate = null;
@@ -166,7 +262,7 @@ const processLateFees = async (req, res) => {
 
           for (const student of students) {
             // Check required amount up to this term
-            const relevantTerms = struct.terms.filter(t => t.termNumber <= term.termNumber);
+            const relevantTerms = activeTerms.filter(t => t.termNumber <= term.termNumber);
             const requiredAmount = relevantTerms.reduce((sum, t) => sum + t.amount, 0);
 
             // Fetch total paid for this head/year/sem
@@ -182,7 +278,7 @@ const processLateFees = async (req, res) => {
             if (totalPaid < requiredAmount) {
               const remarks = `Late Fee: ${struct.feeHead.name} - Term ${term.termNumber}${term.dueDescription ? ` (${term.dueDescription})` : ''}`;
 
-              // Check if already applied using structureId and termNumber (More robust than checking remarks)
+              // Check if already applied using structureId and termNumber
               let existingLateFee = await StudentFee.findOne({
                 studentId: student.admission_number,
                 feeHead: demandHead._id,
@@ -195,7 +291,7 @@ const processLateFees = async (req, res) => {
                 existingLateFee = await StudentFee.findOne({
                   studentId: student.admission_number,
                   feeHead: demandHead._id,
-                  remarks: remarks // Matches the current description exactly
+                  remarks: remarks
                 });
               }
 
@@ -242,5 +338,8 @@ module.exports = {
   getConfigs,
   saveConfig,
   deleteConfig,
-  processLateFees
+  processLateFees,
+  getDefaultConfigs,
+  saveDefaultConfig,
+  deleteDefaultConfig
 };
