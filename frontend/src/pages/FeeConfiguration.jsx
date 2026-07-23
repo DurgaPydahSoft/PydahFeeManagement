@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
-import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
 
@@ -886,12 +886,25 @@ const FeeConfiguration = () => {
         setEditHeadId(h._id);
     };
 
-    const deleteHead = async (id) => {
-        if (!window.confirm('Delete this Fee Head?')) return;
+    const toggleHeadActive = async (h) => {
+        const newActiveStatus = h.isActive === false ? true : false;
+        const confirmMsg = newActiveStatus 
+            ? `Activate this Fee Head?` 
+            : `Deactivate this Fee Head? It will no longer be selectable for configuring new structures.`;
+        if (!window.confirm(confirmMsg)) return;
         try {
-            await api.delete(`/fee-heads/${id}`);
-            setFeeHeads(feeHeads.filter(h => h._id !== id));
-        } catch (error) { alert('Failed to delete'); }
+            const response = await api.put(`/fee-heads/${h._id}`, {
+                name: h.name,
+                code: h.code || '',
+                description: h.description,
+                isActive: newActiveStatus
+            });
+            setFeeHeads(feeHeads.map(item => item._id === h._id ? response.data : item));
+            setMessage(`Fee Head "${h.name}" ${newActiveStatus ? 'activated' : 'deactivated'} successfully!`);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) { 
+            alert(error.response?.data?.message || 'Failed to update status'); 
+        }
     };
 
     const activeGroupSubmit = async (e) => {
@@ -1613,15 +1626,22 @@ const FeeConfiguration = () => {
                                     disabled={feeHeads.length === 0}
                                 />
                             </div>
-                            <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50"><tr><th className="p-2">Name</th><th className="p-2">Code</th><th className="p-2">Desc</th><th className="p-2 text-right">Action</th></tr></thead>
+                            <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50"><tr><th className="p-2">Name</th><th className="p-2">Code</th><th className="p-2">Desc</th><th className="p-2">Status</th><th className="p-2 text-right">Action</th></tr></thead>
                                 <tbody>{feeHeads.map(h => (
                                     <tr key={h._id} className="border-t hover:bg-gray-50">
                                         <td className="p-2 font-medium">{h.name}</td>
                                         <td className="p-2 text-mono text-gray-600">{h.code || '-'}</td>
                                         <td className="p-2 text-gray-500 text-sm">{h.description}</td>
+                                        <td className="p-2">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${h.isActive !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                {h.isActive !== false ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </td>
                                         <td className="p-2 text-right space-x-2 flex justify-end">
                                             <button onClick={() => handleEditHead(h)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded transition" title="Edit"><Pencil size={16} /></button>
-                                            <button onClick={() => deleteHead(h._id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded transition" title="Delete"><Trash2 size={16} /></button>
+                                            <button onClick={() => toggleHeadActive(h)} className={`p-2 rounded transition ${h.isActive !== false ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-green-600 bg-green-50 hover:bg-green-100'}`} title={h.isActive !== false ? 'Deactivate' : 'Activate'}>
+                                                {h.isActive !== false ? <ToggleLeft size={16} /> : <ToggleRight size={16} />}
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}</tbody></table></div>
@@ -2502,7 +2522,7 @@ const FeeConfiguration = () => {
                                                                                                                             onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
                                                                                                                         >
                                                                                                                             <option value="">Select Fee Head</option>
-                                                                                                                            {feeHeads.map(h => (
+                                                                                                                            {feeHeads.filter(h => h.isActive !== false || h._id === col.feeHeadId).map(h => (
                                                                                                                                 <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
                                                                                                                                     {h.name}
                                                                                                                                 </option>
