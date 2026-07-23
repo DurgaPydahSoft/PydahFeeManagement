@@ -4343,6 +4343,48 @@ const FeeConfiguration = () => {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Impact of Editing Active Rules Section */}
+                                <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-xs space-y-4">
+                                    <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 border-b border-gray-100 pb-3">
+                                        <span className="p-1 bg-amber-50 text-amber-600 rounded"><Info size={14} /></span>
+                                        Impact of Editing Active Rules
+                                    </h3>
+                                    <p className="text-xs text-gray-500 leading-relaxed">
+                                        When modifying an existing late fee configuration, the <strong>Save & Sync</strong> button ensures all student ledgers immediately align with the new rules:
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+                                        <div className="space-y-1 bg-gray-50/50 p-3.5 rounded-lg border border-gray-100">
+                                            <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                                <RefreshCw size={13} className="text-blue-500 animate-spin-slow" />
+                                                Automatic Alignment
+                                            </h4>
+                                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                                The system recalculates the due date for each term immediately. A background sync job is triggered to align student records with the updated timelines.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-1 bg-gray-50/50 p-3.5 rounded-lg border border-gray-100">
+                                            <h4 className="text-xs font-bold text-red-800 flex items-center gap-1.5">
+                                                <Trash2 size={13} className="text-red-500" />
+                                                Rollback of Unpaid Fees
+                                            </h4>
+                                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                                If you extend the due date (e.g. from 15 to 30 days offset) and a term is no longer overdue, any generated <strong>unpaid</strong> late fee demands are automatically deleted from the student's ledger.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-1 bg-gray-50/50 p-3.5 rounded-lg border border-gray-100">
+                                            <h4 className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                                                <CheckCircle2 size={13} className="text-emerald-500" />
+                                                Protected Paid History
+                                            </h4>
+                                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                                Any student late fee demand that has already been <strong>partially or fully paid</strong> is locked. The system never deletes or alters paid transaction history, even if dates change.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>
