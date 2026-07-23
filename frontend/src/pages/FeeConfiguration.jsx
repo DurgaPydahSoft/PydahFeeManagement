@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
-import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
 
@@ -68,6 +68,100 @@ const FeeConfiguration = () => {
         penaltyValue: 0
     });
 
+    const [expandedLateFeeBranches, setExpandedLateFeeBranches] = useState({});
+    const [expandedLateFeeQuotas, setExpandedLateFeeQuotas] = useState({});
+    const [lateFeeInputs, setLateFeeInputs] = useState({});
+    const [editingLateFeeRows, setEditingLateFeeRows] = useState({});
+
+    const [defaultConfigs, setDefaultConfigs] = useState([]);
+    const [isSavingDefaultConfig, setIsSavingDefaultConfig] = useState(false);
+    const [defaultConfigForm, setDefaultConfigForm] = useState({
+        termsCount: 3,
+        lateFeeHead: '',
+        terms: [
+            { termNumber: 1, dueDateMode: 'offset', referenceSemester: 1, dueOffsetDays: 15, fixedDueDate: '', dueDescription: 'Term 1 Late Fee' },
+            { termNumber: 2, dueDateMode: 'offset', referenceSemester: 2, dueOffsetDays: 15, fixedDueDate: '', dueDescription: 'Term 2 Late Fee' },
+            { termNumber: 3, dueDateMode: 'offset', referenceSemester: 2, dueOffsetDays: 60, fixedDueDate: '', dueDescription: 'Term 3 Late Fee' }
+        ]
+    });
+    const [editingDefaultConfigId, setEditingDefaultConfigId] = useState(null);
+
+    const toggleLateFeeBranchExpand = (key) => {
+        setExpandedLateFeeBranches(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleLateFeeQuotaExpand = (key) => {
+        setExpandedLateFeeQuotas(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const handleSaveLateFeeRow = async (row, catName, fhId, inputVal, inputKey) => {
+        const numAmt = Number(inputVal) || 0;
+        setIsSavingLateFee(true);
+        try {
+            const qData = row.quotasMap[catName];
+            const matchingStructs = [];
+            Object.keys(qData?.matrix || {}).forEach(yr => {
+                const items = qData.matrix[yr]?.[fhId] || [];
+                items.forEach(it => {
+                    const orig = structures.find(s => String(s._id) === String(it.id));
+                    if (orig) matchingStructs.push(orig);
+                });
+            });
+
+            if (matchingStructs.length === 0) {
+                alert("No structures found for this fee head.");
+                return;
+            }
+
+            const defaultLateHead = feeHeads.find(h => /late\s*fee/i.test(`${h.name || ''} ${h.code || ''}`))?._id || feeHeads[0]?._id;
+
+            for (const orig of matchingStructs) {
+                let updatedTerms = [];
+                if (Array.isArray(orig.terms) && orig.terms.length > 0) {
+                    updatedTerms = orig.terms.map(t => ({
+                        ...t,
+                        lateFeeAmount: numAmt,
+                        dueDateMode: t.dueDateMode || 'offset',
+                        referenceSemester: t.referenceSemester || (t.termNumber || 1),
+                        dueOffsetDays: t.dueOffsetDays || 30
+                    }));
+                } else {
+                    updatedTerms = [{
+                        termNumber: 1,
+                        percentage: 100,
+                        amount: Number(orig.amount || 0),
+                        lateFeeAmount: numAmt,
+                        dueDateMode: 'offset',
+                        referenceSemester: 1,
+                        dueOffsetDays: 30
+                    }];
+                }
+
+                const payload = {
+                    ...orig,
+                    feeHead: orig.feeHead?._id || orig.feeHead,
+                    lateFeeHead: orig.lateFeeHead?._id || orig.lateFeeHead || defaultLateHead,
+                    isTermsDivided: true,
+                    terms: updatedTerms
+                };
+
+                await api.put(`/fee-structures/${orig._id}`, payload);
+            }
+
+            if (inputKey) {
+                setEditingLateFeeRows(prev => ({ ...prev, [inputKey]: false }));
+            }
+
+            setMessage(`Late fee updated successfully!`);
+            await fetchStructures();
+            setTimeout(() => setMessage(''), 3000);
+        } catch (e) {
+            console.error('Error saving late fee:', e);
+            alert(e.response?.data?.message || 'Failed to save late fee');
+        } finally {
+            setIsSavingLateFee(false);
+        }
+    };
+
     // --- TAB 1: FEE HEADS ---
     const [headForm, setHeadForm] = useState({ name: '', code: '', description: '' });
     const [editHeadId, setEditHeadId] = useState(null);
@@ -124,6 +218,10 @@ const FeeConfiguration = () => {
     const [activeQuotaIndex, setActiveQuotaIndex] = useState(0);
     const [expandedWizardQuotas, setExpandedWizardQuotas] = useState({}); // { [quotaName]: boolean } — each quota toggles independently
     const [quotaConfigs, setQuotaConfigs] = useState({}); // { [quotaName]: { columns: [...], amounts: {...}, terms: {...} } }
+    const [quotaTabs, setQuotaTabs] = useState({}); // { [quotaName]: 'actual' | 'late' }
+    const [quotaGroupWise, setQuotaGroupWise] = useState({}); // { [quotaName]: boolean }
+    const [quotaGroupTermsCount, setQuotaGroupTermsCount] = useState({}); // { [quotaName]: number }
+    const [quotaGroupLateFees, setQuotaGroupLateFees] = useState({}); // { [quotaName]: { [termNumber]: number } }
     const [savedQuotas, setSavedQuotas] = useState({}); // { [quotaName]: boolean }
     const [isSavingQuota, setIsSavingQuota] = useState(false);
     const [wizardError, setWizardError] = useState('');
@@ -144,6 +242,106 @@ const FeeConfiguration = () => {
             ...prev,
             [quotaKey]: !prev[quotaKey]
         }));
+    };
+
+    // --- LATE FEES VIEW TAB EXPAND/COLLAPSE STATE ---
+    const [expandedViewGroups, setExpandedViewGroups] = useState({});
+    const [expandedViewCategories, setExpandedViewCategories] = useState({});
+    const [expandedViewYears, setExpandedViewYears] = useState({});
+    const [viewingFallbackForId, setViewingFallbackForId] = useState(null);
+    const [editingFallbackForId, setEditingFallbackForId] = useState(null);
+    const [fallbackEditForm, setFallbackEditForm] = useState({ lateFeeHead: '', terms: [] });
+    const [isSavingFallbackEdit, setIsSavingFallbackEdit] = useState(false);
+
+    const toggleViewGroupExpand = (key) => {
+        setExpandedViewGroups(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleViewCategoryExpand = (key) => {
+        setExpandedViewCategories(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleViewYearExpand = (key) => {
+        setExpandedViewYears(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+    const toggleViewFallback = (id) => {
+        setViewingFallbackForId(prev => (prev === id ? null : id));
+        setEditingFallbackForId(null);
+    };
+    const openFallbackEdit = (s, matchingDefaultConfig) => {
+        // Mirror the EXACT same source selection logic used by the read view:
+        // if s.terms[i] has custom timing saved → use that; else use default config.
+        // This ensures the edit form always shows what the read view shows.
+        const structTerms = Array.isArray(s.terms) ? s.terms : [];
+        const defaultTerms = matchingDefaultConfig?.terms || [];
+        const termsCount = structTerms.length || matchingDefaultConfig?.termsCount || 1;
+
+        const editTerms = Array.from({ length: termsCount }, (_, i) => {
+            const sTerm = structTerms.find(t => Number(t.termNumber) === i + 1) || {};
+            const dTerm = defaultTerms.find(t => Number(t.termNumber) === i + 1) || {};
+
+            // Same hasCustomTiming check as in the read view
+            const hasCustomTiming =
+                sTerm.referenceSemester != null ||
+                (sTerm.dueOffsetDays != null && sTerm.dueOffsetDays !== 0) ||
+                !!sTerm.fixedDueDate;
+
+            // Merge: custom overrides default for timing fields when custom exists
+            const timingSrc = hasCustomTiming ? { ...dTerm, ...sTerm } : dTerm;
+
+            return {
+                termNumber: i + 1,
+                dueDateMode: timingSrc.dueDateMode || 'offset',
+                referenceSemester: timingSrc.referenceSemester ?? '',
+                dueOffsetDays: timingSrc.dueOffsetDays ?? '',
+                fixedDueDate: timingSrc.fixedDueDate ? String(timingSrc.fixedDueDate).substring(0, 10) : '',
+                dueDescription: timingSrc.dueDescription || `Term ${i + 1} Late Fee`,
+                lateFeeAmount: sTerm.lateFeeAmount ?? 0
+            };
+        });
+        setFallbackEditForm({
+            // Use structure's own lateFeeHead if saved, else default config's
+            lateFeeHead: s.lateFeeHead?._id || (typeof s.lateFeeHead === 'string' ? s.lateFeeHead : '')
+                || matchingDefaultConfig?.lateFeeHead?._id || '',
+            terms: editTerms
+        });
+        setEditingFallbackForId(s._id);
+    };
+    const saveFallbackEdit = async (s) => {
+        setIsSavingFallbackEdit(true);
+        try {
+            // Merge edited timing/fee fields from the form onto the original term objects.
+            // This preserves required fields (percentage, amount) while applying the user's edits.
+            const mergedTerms = (Array.isArray(s.terms) ? s.terms : []).map(origTerm => {
+                const editedTerm = fallbackEditForm.terms.find(
+                    t => Number(t.termNumber) === Number(origTerm.termNumber)
+                ) || {};
+                return {
+                    ...origTerm,
+                    dueDateMode: editedTerm.dueDateMode ?? origTerm.dueDateMode,
+                    referenceSemester: editedTerm.referenceSemester !== '' ? editedTerm.referenceSemester : origTerm.referenceSemester,
+                    dueOffsetDays: editedTerm.dueOffsetDays !== '' ? Number(editedTerm.dueOffsetDays) : origTerm.dueOffsetDays,
+                    fixedDueDate: editedTerm.fixedDueDate || origTerm.fixedDueDate || undefined,
+                    dueDescription: editedTerm.dueDescription ?? origTerm.dueDescription,
+                    lateFeeAmount: editedTerm.lateFeeAmount ?? origTerm.lateFeeAmount
+                };
+            });
+
+            await api.put(`/fee-structures/${s._id}`, {
+                ...s,
+                feeHead: s.feeHead?._id || s.feeHead,
+                lateFeeHead: fallbackEditForm.lateFeeHead || null,
+                isTermsDivided: Array.isArray(s.terms) && s.terms.length > 0,
+                terms: mergedTerms
+            });
+            setMessage('Rules saved — running sync…');
+            setEditingFallbackForId(null);
+            fetchStructures();
+            // Auto-sync after saving so date-based late fee demands are updated immediately
+            await syncLateFees(s._id);
+        } catch (e) {
+            alert(e.response?.data?.message || 'Save failed');
+        } finally {
+            setIsSavingFallbackEdit(false);
+        }
     };
 
     // --- LOCAL STORAGE DRAFT PERSISTENCE ---
@@ -277,10 +475,12 @@ const FeeConfiguration = () => {
         const updatedCols = currentConfig.columns.map(c => {
             if (c.id === colId) {
                 const updated = { ...c, [field]: val };
-                if (field === 'termsCount') {
-                    // termsCount is independent — do NOT auto-toggle isLateFeeApplicable
-                } else if (field === 'isLateFeeApplicable') {
-                    // isLateFeeApplicable is independent — do NOT auto-change termsCount
+                if (field === 'isLateFeeApplicable') {
+                    if (val === true) {
+                        updated.termsCount = 3;
+                    } else {
+                        updated.termsCount = 0;
+                    }
                 }
                 return updated;
             }
@@ -483,11 +683,28 @@ const FeeConfiguration = () => {
                         if (rawAmt !== undefined && rawAmt !== '' && !isNaN(Number(rawAmt)) && Number(rawAmt) > 0) {
                             const amt = Number(rawAmt);
                             const termObj = config.terms[amtKey];
-                            const termsData = (col.isLateFeeApplicable && termObj) ? termObj.data.map((t, idx) => ({
-                                termNumber: idx + 1,
-                                percentage: t.p,
-                                amount: t.a
-                            })) : [];
+                            const defaultLateHead = feeHeads.find(h => /late\s*fee/i.test(`${h.name || ''} ${h.code || ''}`))?._id || feeHeads[0]?._id;
+                            const termsData = col.isLateFeeApplicable ? (
+                                termObj ? termObj.data.map((t, idx) => {
+                                    const tNum = idx + 1;
+                                    const lateAmt = (col.termLateFees && col.termLateFees[tNum] !== undefined)
+                                        ? Number(col.termLateFees[tNum])
+                                        : (Number(col.lateFeeAmount) || 0);
+                                    return {
+                                        termNumber: tNum,
+                                        percentage: t.p,
+                                        amount: t.a,
+                                        lateFeeAmount: lateAmt
+                                    };
+                                }) : [{
+                                    termNumber: 1,
+                                    percentage: 100,
+                                    amount: amt,
+                                    lateFeeAmount: (col.termLateFees && col.termLateFees[1] !== undefined)
+                                        ? Number(col.termLateFees[1])
+                                        : (Number(col.lateFeeAmount) || 0)
+                                }]
+                            ) : [];
 
                             requests.push(api.post('/fee-structures', {
                                 feeHeadId: col.feeHeadId,
@@ -501,6 +718,7 @@ const FeeConfiguration = () => {
                                 amount: amt,
                                 isScholarshipApplicable: col.isScholarshipApplicable || false,
                                 isTermsDivided: col.isLateFeeApplicable || false,
+                                lateFeeHead: col.isLateFeeApplicable ? defaultLateHead : null,
                                 terms: col.isLateFeeApplicable ? termsData : []
                             }));
                         }
@@ -555,6 +773,7 @@ const FeeConfiguration = () => {
         fetchStructures();
         fetchMetadata();
         fetchCalendarData();
+        fetchDefaultConfigs();
     }, []);
 
     const fetchCalendarData = async () => {
@@ -582,6 +801,28 @@ const FeeConfiguration = () => {
             alert(e.response?.data?.message || 'Late fee sync failed');
         } finally {
             setSyncingLateFeeId(null);
+        }
+    };
+
+
+    const fetchDefaultConfigs = async () => {
+        try {
+            const res = await api.get('/late-fees/default-config');
+            setDefaultConfigs(res.data);
+        } catch (error) {
+            console.error('Error fetching default late fee configs', error);
+        }
+    };
+
+    const handleDeleteDefaultConfig = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this default configuration?')) return;
+        try {
+            await api.delete(`/late-fees/default-config/${id}`);
+            setMessage('Default configuration removed successfully!');
+            fetchDefaultConfigs();
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) {
+            alert(error.response?.data?.message || 'Delete failed');
         }
     };
 
@@ -645,12 +886,25 @@ const FeeConfiguration = () => {
         setEditHeadId(h._id);
     };
 
-    const deleteHead = async (id) => {
-        if (!window.confirm('Delete this Fee Head?')) return;
+    const toggleHeadActive = async (h) => {
+        const newActiveStatus = h.isActive === false ? true : false;
+        const confirmMsg = newActiveStatus 
+            ? `Activate this Fee Head?` 
+            : `Deactivate this Fee Head? It will no longer be selectable for configuring new structures.`;
+        if (!window.confirm(confirmMsg)) return;
         try {
-            await api.delete(`/fee-heads/${id}`);
-            setFeeHeads(feeHeads.filter(h => h._id !== id));
-        } catch (error) { alert('Failed to delete'); }
+            const response = await api.put(`/fee-heads/${h._id}`, {
+                name: h.name,
+                code: h.code || '',
+                description: h.description,
+                isActive: newActiveStatus
+            });
+            setFeeHeads(feeHeads.map(item => item._id === h._id ? response.data : item));
+            setMessage(`Fee Head "${h.name}" ${newActiveStatus ? 'activated' : 'deactivated'} successfully!`);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) { 
+            alert(error.response?.data?.message || 'Failed to update status'); 
+        }
     };
 
     const activeGroupSubmit = async (e) => {
@@ -932,13 +1186,37 @@ const FeeConfiguration = () => {
 
                 const feeHeadsList = Object.values(qData.feeHeadsMap || {});
 
-                const columns = feeHeadsList.map(fh => ({
-                    id: `col_${fh._id}`,
-                    feeHeadId: fh._id,
-                    isLateFeeApplicable: fh.isTermsDivided || false,
-                    isScholarshipApplicable: fh.isScholarshipApplicable || false,
-                    termsCount: fh.termsCount || 0
-                }));
+                const columns = feeHeadsList.map(fh => {
+                    const termLateFees = {};
+                    if (qData.matrix) {
+                        Object.keys(qData.matrix).forEach(yr => {
+                            Object.keys(qData.matrix[yr]).forEach(fhId => {
+                                if (String(fhId) === String(fh._id)) {
+                                    const items = qData.matrix[yr][fhId] || [];
+                                    items.forEach(item => {
+                                        if (item.terms) {
+                                            item.terms.forEach(t => {
+                                                if (Number(t.lateFeeAmount) > 0) {
+                                                    termLateFees[t.termNumber] = t.lateFeeAmount;
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                    }
+
+                    return {
+                        id: `col_${fh._id}`,
+                        feeHeadId: fh._id,
+                        isLateFeeApplicable: fh.isTermsDivided || false,
+                        isScholarshipApplicable: fh.isScholarshipApplicable || false,
+                        termsCount: fh.termsCount || 0,
+                        lateFeeAmount: fh.lateFeeAmount || 0,
+                        termLateFees: Object.keys(termLateFees).length > 0 ? termLateFees : {}
+                    };
+                });
 
                 const amounts = {};
                 const terms = {};
@@ -1086,12 +1364,17 @@ const FeeConfiguration = () => {
                 code: fhCode,
                 isScholarshipApplicable: st.isScholarshipApplicable,
                 isTermsDivided: st.isTermsDivided,
-                termsCount: st.terms?.length || 0
+                termsCount: st.terms?.length || 0,
+                lateFeeAmount: st.terms ? (st.terms.find(t => Number(t.lateFeeAmount) > 0)?.lateFeeAmount || 0) : 0
             };
         } else {
             if (st.isScholarshipApplicable) qGrp.feeHeadsMap[fhId].isScholarshipApplicable = true;
             if (st.isTermsDivided) qGrp.feeHeadsMap[fhId].isTermsDivided = true;
-            if (st.terms?.length) qGrp.feeHeadsMap[fhId].termsCount = Math.max(qGrp.feeHeadsMap[fhId].termsCount || 0, st.terms.length);
+            if (st.terms?.length) {
+                qGrp.feeHeadsMap[fhId].termsCount = Math.max(qGrp.feeHeadsMap[fhId].termsCount || 0, st.terms.length);
+                const lfa = st.terms.find(t => Number(t.lateFeeAmount) > 0)?.lateFeeAmount || 0;
+                if (lfa) qGrp.feeHeadsMap[fhId].lateFeeAmount = lfa;
+            }
         }
 
         // Register matrix cell
@@ -1168,6 +1451,79 @@ const FeeConfiguration = () => {
         return tm.dueEventType === 'START_DATE' ? item.start_date : item.end_date;
     };
 
+    const getLateFeeApplicableDate = (s, term) => {
+        if (!term) return { dateStr: null, semStartDateStr: null, reason: 'No term data' };
+
+        if (term.dueDateMode === 'fixed') {
+            if (!term.fixedDueDate) return { dateStr: null, semStartDateStr: null, reason: 'Fixed date not set' };
+            const d = new Date(term.fixedDueDate);
+            if (isNaN(d.getTime())) return { dateStr: null, semStartDateStr: null, reason: 'Invalid date' };
+            return {
+                dateStr: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                semStartDateStr: null,
+                rawDate: d
+            };
+        }
+
+        if (!calendarData || !calendarData.length) {
+            return { dateStr: null, semStartDateStr: null, reason: 'Loading calendar...' };
+        }
+
+        const targetBatch = normalizeBatch(s.batch);
+        const targetSem = Number(term.referenceSemester || s.semester || 1);
+        const targetYear = Number(s.studentYear);
+
+        const match = calendarData.find(ay => {
+            const bMatch = normalizeBatch(ay.batch) === targetBatch;
+            const cMatch = !s.course || ay.course_name === s.course;
+            const yMatch = Number(ay.year_of_study) === targetYear;
+            const sMatch = Number(ay.semester_number) === targetSem;
+            const clgMatch = !s.college || !ay.college_name ||
+                ay.college_name === s.college ||
+                ay.college_code === s.college ||
+                collegeCodes[s.college] === ay.college_name ||
+                collegeCodes[ay.college_name] === s.college;
+            return bMatch && cMatch && yMatch && sMatch && clgMatch;
+        }) || calendarData.find(ay => {
+            return normalizeBatch(ay.batch) === targetBatch &&
+                (!s.course || ay.course_name === s.course) &&
+                Number(ay.year_of_study) === targetYear &&
+                Number(ay.semester_number) === targetSem;
+        });
+
+        if (!match || !match.start_date) {
+            return { dateStr: null, semStartDateStr: null, reason: `Sem ${targetSem} start date not in Academic Calendar` };
+        }
+
+        const rawStart = String(match.start_date).slice(0, 10);
+        const parts = rawStart.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        let startDate;
+        if (parts) {
+            startDate = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+        } else {
+            startDate = new Date(match.start_date);
+        }
+
+        if (isNaN(startDate.getTime())) {
+            return { dateStr: null, semStartDateStr: null, reason: 'Invalid start date' };
+        }
+
+        const offsetDays = Number(term.dueOffsetDays) || 0;
+        const dueDate = new Date(startDate);
+        dueDate.setDate(dueDate.getDate() + offsetDays);
+
+        const semStartDateFormatted = startDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const dueDateFormatted = dueDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+        return {
+            dateStr: dueDateFormatted,
+            semStartDateStr: semStartDateFormatted,
+            offsetDays,
+            refSem: targetSem,
+            rawDate: dueDate
+        };
+    };
+
     const TAB_TITLES = {
         heads: { title: 'Fee Heads', desc: 'Manage fee heads.' },
         groups: { title: 'Fee Groups', desc: 'Manage fee groups and head mappings.' },
@@ -1193,17 +1549,17 @@ const FeeConfiguration = () => {
                         <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl shrink-0 self-start sm:self-auto">
                             <button
                                 type="button"
-                                onClick={() => setLateFeeSubTab('create')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'create' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                Create
-                            </button>
-                            <button
-                                type="button"
                                 onClick={() => setLateFeeSubTab('view')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'view' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
-                                View Configs
+                                View Configurations
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLateFeeSubTab('due-dates')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'due-dates' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Default Rules
                             </button>
                         </div>
                     )}
@@ -1270,15 +1626,22 @@ const FeeConfiguration = () => {
                                     disabled={feeHeads.length === 0}
                                 />
                             </div>
-                            <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50"><tr><th className="p-2">Name</th><th className="p-2">Code</th><th className="p-2">Desc</th><th className="p-2 text-right">Action</th></tr></thead>
+                            <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50"><tr><th className="p-2">Name</th><th className="p-2">Code</th><th className="p-2">Desc</th><th className="p-2">Status</th><th className="p-2 text-right">Action</th></tr></thead>
                                 <tbody>{feeHeads.map(h => (
                                     <tr key={h._id} className="border-t hover:bg-gray-50">
                                         <td className="p-2 font-medium">{h.name}</td>
                                         <td className="p-2 text-mono text-gray-600">{h.code || '-'}</td>
                                         <td className="p-2 text-gray-500 text-sm">{h.description}</td>
+                                        <td className="p-2">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${h.isActive !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                {h.isActive !== false ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </td>
                                         <td className="p-2 text-right space-x-2 flex justify-end">
                                             <button onClick={() => handleEditHead(h)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-2 rounded transition" title="Edit"><Pencil size={16} /></button>
-                                            <button onClick={() => deleteHead(h._id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded transition" title="Delete"><Trash2 size={16} /></button>
+                                            <button onClick={() => toggleHeadActive(h)} className={`p-2 rounded transition ${h.isActive !== false ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-green-600 bg-green-50 hover:bg-green-100'}`} title={h.isActive !== false ? 'Deactivate' : 'Activate'}>
+                                                {h.isActive !== false ? <ToggleLeft size={16} /> : <ToggleRight size={16} />}
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}</tbody></table></div>
@@ -1725,7 +2088,7 @@ const FeeConfiguration = () => {
                                                                                                                                      {terms.map(t => (
                                                                                                                                          <div key={t.termNumber} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
                                                                                                                                              <span className="text-[9px] text-gray-500 font-bold">T{t.termNumber}</span>
-                                                                                                                                             <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount.toLocaleString('en-IN')}</span>
+                                                                                                                                             <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount !== undefined && t.amount !== null ? Number(t.amount).toLocaleString('en-IN') : '0'}</span>
                                                                                                                                          </div>
                                                                                                                                      ))}
                                                                                                                                  </div>
@@ -2090,185 +2453,393 @@ const FeeConfiguration = () => {
                                                                 {/* EXPANDED SECTION FOR ACTIVE QUOTA */}
                                                                 {isExpanded && (
                                                                     <div className="p-4 space-y-4 bg-white">
-                                                                        {/* Fee Head Columns Header */}
-                                                                        <div className="pb-2 border-b border-gray-200">
-                                                                            <span className="text-xs font-bold text-gray-700">Fee Head Columns for {quotaName}</span>
+                                                                        {/* Fee Head Columns Header with Tabs in Top Right */}
+                                                                        <div className="pb-2 border-b border-gray-200 flex items-center justify-between">
+                                                                            <span className="text-xs font-bold text-gray-700">Fee Configuration for {quotaName}</span>
+                                                                            <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setQuotaTabs(prev => ({ ...prev, [quotaName]: 'actual' }))}
+                                                                                    className={`px-3 py-1 rounded text-xs font-bold transition ${(!quotaTabs[quotaName] || quotaTabs[quotaName] === 'actual') ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                                                >
+                                                                                    Actual Fees
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setQuotaTabs(prev => ({ ...prev, [quotaName]: 'late' }))}
+                                                                                    className={`px-3 py-1 rounded text-xs font-bold transition ${(quotaTabs[quotaName] === 'late') ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                                                >
+                                                                                    Late Fees
+                                                                                </button>
+                                                                            </div>
                                                                         </div>
 
-                                                                        {!quotaConfigs[quotaName] ? (
-                                                                            <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
-                                                                                <p className="text-xs text-gray-600 font-semibold">Not Configured</p>
-                                                                                <p className="text-[11px] text-gray-400 mt-1">
-                                                                                    Click <span className="font-bold text-blue-600">+ Add Fee Head Column</span> below to start setting up this quota.
-                                                                                </p>
-                                                                            </div>
-                                                                        ) : currentConfig.columns.length === 0 ? (
-                                                                            <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
-                                                                                <p className="text-xs text-gray-600 font-semibold">No fee head columns defined for {quotaName}.</p>
-                                                                                <p className="text-[11px] text-gray-400 mt-1">
-                                                                                    Click <span className="font-bold text-blue-600">+ Add Fee Head Column</span> below to add fee heads, or click <span className="font-bold text-gray-700">{qIndex === availableQuotas.length - 1 ? 'Save & Finish' : 'Save Quota & Next'}</span> to proceed with 0 fee heads.
-                                                                                </p>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <div className="overflow-x-auto border border-gray-200 rounded">
-                                                                                <table className="w-full text-center text-xs border-collapse">
-                                                                                    <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
-                                                                                        <tr>
-                                                                                            <th className="p-2.5 border-r border-gray-200 w-44 bg-gray-100/70 text-left">Fee Head / Attribute</th>
-                                                                                            {matrixRows.map(row => (
-                                                                                                <th key={row.rowKey} className="p-2.5 border-r border-gray-200 w-32 bg-gray-50 text-center">
-                                                                                                    {row.label}
-                                                                                                </th>
-                                                                                            ))}
-                                                                                            <th className="p-2.5 border-r border-gray-200 w-32 bg-gray-100/70 text-center">Total</th>
-                                                                                        </tr>
-                                                                                    </thead>
-                                                                                    <tbody className="divide-y divide-gray-100">
-                                                                                        {currentConfig.columns.map(col => {
-                                                                                            let rowTotal = 0;
-                                                                                            matrixRows.forEach(row => {
-                                                                                                const amtKey = `${row.rowKey}_${col.id}`;
-                                                                                                rowTotal += Number(currentConfig.amounts[amtKey]) || 0;
-                                                                                            });
-                                                                                            return (
-                                                                                                <tr key={col.id} className="hover:bg-gray-50/80">
-                                                                                                    <td className="p-2.5 border-r border-gray-200 align-top text-left bg-gray-50">
-                                                                                                        <div className="space-y-1.5">
-                                                                                                            <div className="flex items-center gap-1">
-                                                                                                                <select
-                                                                                                                    className="w-full border border-gray-300 bg-white p-1.5 rounded text-xs font-semibold text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none text-left"
-                                                                                                                    value={col.feeHeadId}
-                                                                                                                    onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
-                                                                                                                >
-                                                                                                                    <option value="">Select Fee Head</option>
-                                                                                                                    {feeHeads.map(h => (
-                                                                                                                        <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
-                                                                                                                            {h.name}
-                                                                                                                        </option>
-                                                                                                                    ))}
-                                                                                                                </select>
-                                                                                                                <button
-                                                                                                                    type="button"
-                                                                                                                    onClick={() => removeColumnFromActiveQuota(quotaName, col.id)}
-                                                                                                                    className="text-gray-400 hover:text-red-600 p-1 shrink-0"
-                                                                                                                    title="Remove column"
-                                                                                                                >
-                                                                                                                    <Trash2 size={15} />
-                                                                                                                </button>
-                                                                                                            </div>
-                                                                                                            <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700 whitespace-nowrap">
-                                                                                                                <label className="flex items-center gap-1 cursor-pointer select-none">
-                                                                                                                    <input
-                                                                                                                        type="checkbox"
-                                                                                                                        checked={col.isLateFeeApplicable || false}
-                                                                                                                        onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isLateFeeApplicable', e.target.checked)}
-                                                                                                                        className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
-                                                                                                                    />
-                                                                                                                    <span className="font-semibold text-gray-800">Late Fee</span>
-                                                                                                                </label>
-                                                                                                                <div className="flex items-center gap-1">
-                                                                                                                    <span className="text-[10px] text-gray-500 font-bold">Terms:</span>
-                                                                                                                    <select
-                                                                                                                        className="border border-gray-300 bg-white p-0.5 rounded text-[10px] font-bold text-blue-700 focus:ring-1 focus:ring-blue-500 outline-none"
-                                                                                                                        value={col.termsCount || 0}
-                                                                                                                        onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'termsCount', Number(e.target.value))}
-                                                                                                                    >
-                                                                                                                        <option value={0}>0</option>
-                                                                                                                        <option value={2}>2</option>
-                                                                                                                        <option value={3}>3</option>
-                                                                                                                        <option value={4}>4</option>
-                                                                                                                    </select>
-                                                                                                                </div>
-                                                                                                                <label className="flex items-center gap-1 cursor-pointer select-none">
-                                                                                                                    <input
-                                                                                                                        type="checkbox"
-                                                                                                                        checked={col.isScholarshipApplicable || false}
-                                                                                                                        onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isScholarshipApplicable', e.target.checked)}
-                                                                                                                        className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
-                                                                                                                    />
-                                                                                                                    <span className="font-semibold text-gray-800">Scholarship</span>
-                                                                                                                </label>
-                                                                                                            </div>
-                                                                                                        </div>
-                                                                                                    </td>
-                                                                                                    {matrixRows.map(row => {
+                                                                        {(!quotaTabs[quotaName] || quotaTabs[quotaName] === 'actual') && (
+                                                                            <>
+                                                                                {!quotaConfigs[quotaName] ? (
+                                                                                    <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
+                                                                                        <p className="text-xs text-gray-600 font-semibold">Not Configured</p>
+                                                                                        <p className="text-[11px] text-gray-400 mt-1">
+                                                                                            Click <span className="font-bold text-blue-600">+ Add Fee Head Column</span> below to start setting up this quota.
+                                                                                        </p>
+                                                                                    </div>
+                                                                                ) : currentConfig.columns.length === 0 ? (
+                                                                                    <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2">
+                                                                                        <p className="text-xs text-gray-600 font-semibold">No fee head columns defined for {quotaName}.</p>
+                                                                                        <p className="text-[11px] text-gray-400 mt-1">
+                                                                                            Click <span className="font-bold text-blue-600">+ Add Fee Head Column</span> below to add fee heads, or click <span className="font-bold text-gray-700">{qIndex === availableQuotas.length - 1 ? 'Save & Finish' : 'Save Quota & Next'}</span> to proceed with 0 fee heads.
+                                                                                        </p>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="overflow-x-auto border border-gray-200 rounded">
+                                                                                        <table className="w-full text-center text-xs border-collapse">
+                                                                                            <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                                                                <tr>
+                                                                                                    <th className="p-2.5 border-r border-gray-200 w-44 bg-gray-100/70 text-left">Fee Head / Attribute</th>
+                                                                                                    {matrixRows.map(row => (
+                                                                                                        <th key={row.rowKey} className="p-2.5 border-r border-gray-200 w-32 bg-gray-50 text-center">
+                                                                                                            {row.label}
+                                                                                                        </th>
+                                                                                                    ))}
+                                                                                                    <th className="p-2.5 border-r border-gray-200 w-32 bg-gray-100/70 text-center">Total</th>
+                                                                                                </tr>
+                                                                                            </thead>
+                                                                                            <tbody className="divide-y divide-gray-100">
+                                                                                                {currentConfig.columns.map(col => {
+                                                                                                    let rowTotal = 0;
+                                                                                                    matrixRows.forEach(row => {
                                                                                                         const amtKey = `${row.rowKey}_${col.id}`;
-                                                                                                        const val = currentConfig.amounts[amtKey] || '';
-                                                                                                        const nVal = Number(val) || 0;
-                                                                                                        const termObj = currentConfig.terms[amtKey];
-                                                                                                        return (
-                                                                                                            <td key={row.rowKey} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
-                                                                                                                <input
-                                                                                                                    type="number"
-                                                                                                                    placeholder="₹ Amount"
-                                                                                                                    className="w-full border border-gray-300 p-1.5 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none text-center"
-                                                                                                                    value={val}
-                                                                                                                    onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
-                                                                                                                    disabled={!col.feeHeadId}
-                                                                                                                />
-                                                                                                                {col.isLateFeeApplicable && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
-                                                                                                                    <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
-                                                                                                                        {termObj.data.map((t, tidx) => (
-                                                                                                                            <div key={tidx} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
-                                                                                                                                <span className="text-[9px] text-gray-500 font-bold">T{tidx+1}</span>
-                                                                                                                                <span className="text-[10px] font-bold text-blue-600 font-mono">₹{Number(t.a || 0).toLocaleString('en-IN')}</span>
-                                                                                                                            </div>
-                                                                                                                        ))}
+                                                                                                        rowTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                                    });
+                                                                                                    return (
+                                                                                                        <tr key={col.id} className="hover:bg-gray-50/80">
+                                                                                                            <td className="p-2.5 border-r border-gray-200 align-top text-left bg-gray-50">
+                                                                                                                <div className="space-y-1.5">
+                                                                                                                    <div className="flex items-center gap-1">
+                                                                                                                        <select
+                                                                                                                            className="w-full border border-gray-300 bg-white p-1.5 rounded text-xs font-semibold text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none text-left"
+                                                                                                                            value={col.feeHeadId}
+                                                                                                                            onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
+                                                                                                                        >
+                                                                                                                            <option value="">Select Fee Head</option>
+                                                                                                                            {feeHeads.filter(h => h.isActive !== false || h._id === col.feeHeadId).map(h => (
+                                                                                                                                <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
+                                                                                                                                    {h.name}
+                                                                                                                                </option>
+                                                                                                                            ))}
+                                                                                                                        </select>
+                                                                                                                        <button
+                                                                                                                            type="button"
+                                                                                                                            onClick={() => removeColumnFromActiveQuota(quotaName, col.id)}
+                                                                                                                            className="text-gray-400 hover:text-red-600 p-1 shrink-0"
+                                                                                                                            title="Remove column"
+                                                                                                                        >
+                                                                                                                            <Trash2 size={15} />
+                                                                                                                        </button>
                                                                                                                     </div>
-                                                                                                                )}
+                                                                                                                    <div className="flex flex-col gap-1.5 pt-1.5 border-t border-gray-200 text-[11px] text-gray-700">
+                                                                                                                        <div className="flex items-center justify-between gap-1.5 whitespace-nowrap">
+                                                                                                                            <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                                                                                                <input
+                                                                                                                                    type="checkbox"
+                                                                                                                                    checked={col.isLateFeeApplicable || false}
+                                                                                                                                    onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isLateFeeApplicable', e.target.checked)}
+                                                                                                                                    className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                                                                                                                />
+                                                                                                                                <span className="font-semibold text-gray-800">Late Fee</span>
+                                                                                                                            </label>
+                                                                                                                            <div className="flex items-center gap-1">
+                                                                                                                                <span className="text-[10px] text-gray-500 font-bold">Terms:</span>
+                                                                                                                                <select
+                                                                                                                                    className="border border-gray-300 bg-white p-0.5 rounded text-[10px] font-bold text-blue-700 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                                                                                    value={col.termsCount || 0}
+                                                                                                                                    onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'termsCount', Number(e.target.value))}
+                                                                                                                                >
+                                                                                                                                    <option value={0}>0</option>
+                                                                                                                                    <option value={2}>2</option>
+                                                                                                                                    <option value={3}>3</option>
+                                                                                                                                    <option value={4}>4</option>
+                                                                                                                                </select>
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                        <div className="flex items-center justify-between">
+                                                                                                                            <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                                                                                                <input
+                                                                                                                                    type="checkbox"
+                                                                                                                                    checked={col.isScholarshipApplicable || false}
+                                                                                                                                    onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isScholarshipApplicable', e.target.checked)}
+                                                                                                                                    className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                                                                                                                />
+                                                                                                                                <span className="font-semibold text-gray-800">Scholarship</span>
+                                                                                                                            </label>
+                                                                                                                        </div>
+                                                                                                                    </div>
+                                                                                                                </div>
+                                                                                                            </td>
+                                                                                                            {matrixRows.map(row => {
+                                                                                                                const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                                const val = currentConfig.amounts[amtKey] || '';
+                                                                                                                const nVal = Number(val) || 0;
+                                                                                                                const termObj = currentConfig.terms[amtKey];
+                                                                                                                return (
+                                                                                                                    <td key={row.rowKey} className="p-2 border-r border-gray-200 align-top space-y-1 text-center">
+                                                                                                                        <input
+                                                                                                                            type="number"
+                                                                                                                            placeholder="₹ Amount"
+                                                                                                                            className="w-full border border-gray-300 p-1.5 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none text-center"
+                                                                                                                            value={val}
+                                                                                                                            onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
+                                                                                                                            disabled={!col.feeHeadId}
+                                                                                                                        />
+                                                                                                                        {col.isLateFeeApplicable && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
+                                                                                                                            <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
+                                                                                                                                {termObj.data.map((t, tidx) => (
+                                                                                                                                    <div key={tidx} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
+                                                                                                                                        <span className="text-[9px] text-gray-500 font-bold">T{tidx+1}</span>
+                                                                                                                                        <span className="text-[10px] font-bold text-blue-600 font-mono">₹{Number(t.a || 0).toLocaleString('en-IN')}</span>
+                                                                                                                                    </div>
+                                                                                                                                ))}
+                                                                                                                            </div>
+                                                                                                                        )}
+                                                                                                                    </td>
+                                                                                                                );
+                                                                                                            })}
+                                                                                                            <td className="p-2.5 border-r border-gray-200 font-mono font-bold text-blue-900 text-center">
+                                                                                                                ₹{rowTotal.toLocaleString('en-IN')}
+                                                                                                            </td>
+                                                                                                        </tr>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </tbody>
+                                                                                            <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
+                                                                                                <tr>
+                                                                                                    <td className="p-2.5 border-r border-gray-200 text-center">Total</td>
+                                                                                                    {matrixRows.map(row => {
+                                                                                                        let periodTotal = 0;
+                                                                                                        currentConfig.columns.forEach(col => {
+                                                                                                            const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                            periodTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                                        });
+                                                                                                        return (
+                                                                                                            <td key={row.rowKey} className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                                ₹{periodTotal.toLocaleString('en-IN')}
                                                                                                             </td>
                                                                                                         );
                                                                                                     })}
-                                                                                                    <td className="p-2.5 border-r border-gray-200 font-mono font-bold text-blue-900 text-center">
-                                                                                                        ₹{rowTotal.toLocaleString('en-IN')}
+                                                                                                    <td className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
+                                                                                                        {(() => {
+                                                                                                            let gTotal = 0;
+                                                                                                            currentConfig.columns.forEach(col => {
+                                                                                                                matrixRows.forEach(row => {
+                                                                                                                    const amtKey = `${row.rowKey}_${col.id}`;
+                                                                                                                    gTotal += Number(currentConfig.amounts[amtKey]) || 0;
+                                                                                                                });
+                                                                                                            });
+                                                                                                            return `₹${gTotal.toLocaleString('en-IN')}`;
+                                                                                                        })()}
                                                                                                     </td>
                                                                                                 </tr>
-                                                                                            );
-                                                                                        })}
-                                                                                    </tbody>
-                                                                                    <tfoot className="bg-gray-100 font-bold border-t border-gray-300">
-                                                                                        <tr>
-                                                                                            <td className="p-2.5 border-r border-gray-200 text-center">Total</td>
-                                                                                            {matrixRows.map(row => {
-                                                                                                let periodTotal = 0;
-                                                                                                currentConfig.columns.forEach(col => {
-                                                                                                    const amtKey = `${row.rowKey}_${col.id}`;
-                                                                                                    periodTotal += Number(currentConfig.amounts[amtKey]) || 0;
-                                                                                                });
-                                                                                                return (
-                                                                                                    <td key={row.rowKey} className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
-                                                                                                        ₹{periodTotal.toLocaleString('en-IN')}
-                                                                                                    </td>
-                                                                                                );
-                                                                                            })}
-                                                                                            <td className="p-2.5 border-r border-gray-200 font-mono text-blue-900 text-center">
-                                                                                                {(() => {
-                                                                                                    let gTotal = 0;
-                                                                                                    currentConfig.columns.forEach(col => {
-                                                                                                        matrixRows.forEach(row => {
-                                                                                                            const amtKey = `${row.rowKey}_${col.id}`;
-                                                                                                            gTotal += Number(currentConfig.amounts[amtKey]) || 0;
-                                                                                                        });
-                                                                                                    });
-                                                                                                    return `₹${gTotal.toLocaleString('en-IN')}`;
-                                                                                                })()}
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                    </tfoot>
-                                                                                </table>
-                                                                            </div>
+                                                                                            </tfoot>
+                                                                                        </table>
+                                                                                    </div>
+                                                                                )}
+
+                                                                                {/* Bottom Add Fee Head Column Button */}
+                                                                                <div className="flex items-center justify-start pt-1">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => addColumnToActiveQuota(quotaName)}
+                                                                                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-300 bg-blue-50 px-3 py-1.5 rounded hover:bg-blue-100 transition flex items-center gap-1"
+                                                                                    >
+                                                                                        + Add Fee Head Column
+                                                                                    </button>
+                                                                                </div>
+                                                                            </>
                                                                         )}
 
-                                                                        {/* Bottom Add Fee Head Column Button */}
-                                                                        <div className="flex items-center justify-start pt-1">
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => addColumnToActiveQuota(quotaName)}
-                                                                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-300 bg-blue-50 px-3 py-1.5 rounded hover:bg-blue-100 transition flex items-center gap-1"
-                                                                            >
-                                                                                + Add Fee Head Column
-                                                                            </button>
-                                                                        </div>
+                                                                        {quotaTabs[quotaName] === 'late' && (() => {
+                                                                            const lateCols = currentConfig.columns.filter(c => c.isLateFeeApplicable && c.feeHeadId);
+                                                                            if (lateCols.length === 0) {
+                                                                                return (
+                                                                                    <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2 flex flex-col items-center">
+                                                                                        <AlertTriangle className="text-amber-500 mb-2" size={24} />
+                                                                                        <p className="text-xs text-gray-600 font-semibold">No Late Fee Applicable Heads</p>
+                                                                                        <p className="text-[11px] text-gray-400 mt-1">
+                                                                                            Go to the <span className="font-bold text-blue-600">Actual Fees</span> tab and check the "Late Fee" checkbox for at least one fee head.
+                                                                                        </p>
+                                                                                    </div>
+                                                                                );
+                                                                            }
+
+                                                                            const isGroupWise = !!quotaGroupWise[quotaName];
+                                                                            const uniqueTermCounts = [...new Set(lateCols.map(c => c.termsCount || 0))];
+                                                                            const hasMismatchedTerms = uniqueTermCounts.length > 1;
+                                                                            const groupTerms = uniqueTermCounts[0] || 0;
+                                                                            const groupFees = quotaGroupLateFees[quotaName] || {};
+
+                                                                            return (
+                                                                                <div className="space-y-4">
+                                                                                    {/* Mode selection */}
+                                                                                    <div className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs">
+                                                                                        <span className="font-bold text-gray-500 mr-2 uppercase text-[10px]">Penalty Type:</span>
+                                                                                        <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-gray-700">
+                                                                                            <input
+                                                                                                type="radio"
+                                                                                                name={`groupWise_${quotaName}`}
+                                                                                                checked={!isGroupWise}
+                                                                                                onChange={() => {
+                                                                                                    setQuotaGroupWise(prev => ({ ...prev, [quotaName]: false }));
+                                                                                                }}
+                                                                                                className="text-blue-600 focus:ring-blue-500"
+                                                                                            />
+                                                                                            Each Head Late Fee
+                                                                                        </label>
+                                                                                        <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-gray-700">
+                                                                                            <input
+                                                                                                type="radio"
+                                                                                                name={`groupWise_${quotaName}`}
+                                                                                                checked={isGroupWise}
+                                                                                                onChange={() => {
+                                                                                                    setQuotaGroupWise(prev => ({ ...prev, [quotaName]: true }));
+                                                                                                }}
+                                                                                                className="text-blue-600 focus:ring-blue-500"
+                                                                                            />
+                                                                                            Group-wise Late Fee
+                                                                                        </label>
+                                                                                    </div>
+
+                                                                                    {isGroupWise ? (
+                                                                                        /* Group-wise Late Fee View */
+                                                                                        hasMismatchedTerms ? (
+                                                                                            <div className="bg-amber-50 border border-amber-200 text-amber-850 p-4 rounded-xl text-xs font-semibold flex items-start gap-2.5">
+                                                                                                <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={16} />
+                                                                                                <div>
+                                                                                                    <p className="font-bold text-amber-900">Mismatched Term Counts</p>
+                                                                                                    <p className="text-[11px] text-amber-700/80 font-normal mt-1">
+                                                                                                        Group-wise configuration requires all late-fee-applicable heads to have the same number of terms. Currently, your selected heads have different terms division configurations.
+                                                                                                    </p>
+                                                                                                    <div className="mt-2 space-y-1">
+                                                                                                        {lateCols.map(col => {
+                                                                                                            const name = feeHeads.find(h => h._id === col.feeHeadId)?.name || 'Unnamed';
+                                                                                                            return (
+                                                                                                                <div key={col.id} className="text-[10px] font-bold text-amber-800">
+                                                                                                                    • {name}: {col.termsCount || 0} terms
+                                                                                                                </div>
+                                                                                                            );
+                                                                                                        })}
+                                                                                                    </div>
+                                                                                                    <p className="text-[10px] text-amber-600/70 font-normal mt-2">
+                                                                                                        Please align their term counts in the <span className="font-bold text-blue-600">Actual Fees</span> tab first.
+                                                                                                    </p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ) : groupTerms === 0 ? (
+                                                                                            <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-300 rounded-lg my-2 flex flex-col items-center">
+                                                                                                <AlertTriangle className="text-amber-500 mb-1" size={20} />
+                                                                                                <p className="text-xs text-gray-600 font-semibold">Terms Not Configured</p>
+                                                                                                <p className="text-[11px] text-gray-400 mt-1">
+                                                                                                    Please set a terms count (e.g. 2, 3, or 4) for your late-fee heads in the <span className="font-bold text-blue-600">Actual Fees</span> tab.
+                                                                                                </p>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="bg-blue-50/20 p-4 rounded-xl border border-blue-100 space-y-4">
+                                                                                                <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                                                                                                    <span>Group Terms Configuration</span>
+                                                                                                    <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">{groupTerms} Terms (From Actual Fees)</span>
+                                                                                                </div>
+
+                                                                                                <div className="text-[11px] text-gray-500 bg-white p-2.5 rounded border border-gray-100">
+                                                                                                    <span className="font-semibold text-blue-900 block mb-1">Applying to heads:</span>
+                                                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                                                        {lateCols.map(col => {
+                                                                                                            const name = feeHeads.find(h => h._id === col.feeHeadId)?.name || 'Unnamed';
+                                                                                                            return <span key={col.id} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold text-[10px]">{name}</span>;
+                                                                                                        })}
+                                                                                                    </div>
+                                                                                                </div>
+
+                                                                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                                                                    {Array.from({ length: groupTerms }).map((_, idx) => {
+                                                                                                        const termNum = idx + 1;
+                                                                                                        const val = groupFees[termNum] || '';
+                                                                                                        return (
+                                                                                                            <div key={termNum} className="bg-white p-3 rounded-lg border border-gray-200">
+                                                                                                                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Term {termNum} Penalty</label>
+                                                                                                                <div className="relative">
+                                                                                                                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs">₹</span>
+                                                                                                                    <input
+                                                                                                                        type="number"
+                                                                                                                        className="w-full border border-gray-200 rounded p-1.5 pl-5 text-xs font-bold text-gray-800 outline-none text-right focus:border-blue-300"
+                                                                                                                        value={val}
+                                                                                                                        onChange={e => {
+                                                                                                                            const updatedGroupFees = { ...groupFees, [termNum]: e.target.value };
+                                                                                                                            setQuotaGroupLateFees(p => ({ ...p, [quotaName]: updatedGroupFees }));
+                                                                                                                            lateCols.forEach(col => {
+                                                                                                                                const updatedTermLate = col.termLateFees ? { ...col.termLateFees } : {};
+                                                                                                                                updatedTermLate[termNum] = e.target.value;
+                                                                                                                                updateColumnInActiveQuota(quotaName, col.id, 'termLateFees', updatedTermLate);
+                                                                                                                            });
+                                                                                                                        }}
+                                                                                                                    />
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )
+                                                                                    ) : (
+                                                                                        /* Individual Late Fee View */
+                                                                                        <div className="space-y-4">
+                                                                                            {lateCols.map(col => {
+                                                                                                const name = feeHeads.find(h => h._id === col.feeHeadId)?.name || 'Unnamed';
+                                                                                                const count = col.termsCount || 0;
+                                                                                                const colTermFees = col.termLateFees || {};
+
+                                                                                                return (
+                                                                                                    <div key={col.id} className="bg-gray-50/50 p-4 rounded-xl border border-gray-200 space-y-3">
+                                                                                                        <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                                                                                            <span className="font-bold text-xs text-blue-900">{name}</span>
+                                                                                                            <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-[10px] font-bold">{count > 0 ? `${count} Terms` : 'No Terms'}</span>
+                                                                                                        </div>
+
+                                                                                                        {count === 0 ? (
+                                                                                                            <p className="text-[11px] text-gray-400 italic">
+                                                                                                                Please set a terms count (e.g. 2, 3, or 4) for this head in the <span className="font-bold text-blue-600">Actual Fees</span> tab.
+                                                                                                            </p>
+                                                                                                        ) : (
+                                                                                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                                                                                {Array.from({ length: count }).map((_, idx) => {
+                                                                                                                    const termNum = idx + 1;
+                                                                                                                    const val = colTermFees[termNum] || '';
+                                                                                                                    return (
+                                                                                                                        <div key={termNum} className="bg-white p-3 rounded-lg border border-gray-200">
+                                                                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Term {termNum} Penalty</label>
+                                                                                                                            <div className="relative">
+                                                                                                                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs">₹</span>
+                                                                                                                                <input
+                                                                                                                                    type="number"
+                                                                                                                                    className="w-full border border-gray-200 rounded p-1.5 pl-5 text-xs font-bold text-gray-800 outline-none text-right focus:border-blue-300"
+                                                                                                                                    value={val}
+                                                                                                                                    onChange={e => {
+                                                                                                                                        const updatedTermLate = { ...colTermFees, [termNum]: e.target.value };
+                                                                                                                                        updateColumnInActiveQuota(quotaName, col.id, 'termLateFees', updatedTermLate);
+                                                                                                                                    }}
+                                                                                                                                />
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                    );
+                                                                                                                })}
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                );
+                                                                                            })}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
 
                                                                         {/* Inline Validation Error Banner inside active quota card */}
                                                                         {wizardError && (
@@ -2356,10 +2927,6 @@ const FeeConfiguration = () => {
                             <div className="space-y-4">
                                 <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
                                     <div className="flex items-center justify-between mb-4">
-                                        <h2 className="font-bold text-gray-800 flex items-center gap-2">
-                                            <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg"><Calendar size={18} /></span>
-                                            Filter Late Fee Configurations
-                                        </h2>
                                         {(lateFeeViewFilters.college || lateFeeViewFilters.course || lateFeeViewFilters.batch) && (
                                             <button
                                                 type="button"
@@ -2383,6 +2950,17 @@ const FeeConfiguration = () => {
                                             </select>
                                         </div>
                                         <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
+                                            <select
+                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
+                                                value={lateFeeViewFilters.batch}
+                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, batch: e.target.value })}
+                                            >
+                                                <option value="">All</option>
+                                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label className="text-[10px] font-bold text-gray-400 uppercase">Course</label>
                                             <select
                                                 className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
@@ -2394,61 +2972,39 @@ const FeeConfiguration = () => {
                                                 {(lateFeeViewFilters.college ? Object.keys(metadata[lateFeeViewFilters.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
                                             </select>
                                         </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
-                                            <select
-                                                className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
-                                                value={lateFeeViewFilters.batch}
-                                                onChange={e => setLateFeeViewFilters({ ...lateFeeViewFilters, batch: e.target.value })}
-                                            >
-                                                <option value="">All</option>
-                                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                            </select>
-                                        </div>
                                     </div>
                                 </div>
 
-                            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                                    <div>
-                                        <h2 className="font-bold text-gray-800">Existing Late Fee Configurations</h2>
-                                        <p className="text-xs text-gray-500 mt-0.5">Structures with late fee amounts or a late fee head saved</p>
+                                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                                        <div>
+                                            <h2 className="font-bold text-gray-800">Existing Late Fee Configurations</h2>
+                                            <p className="text-xs text-gray-500 mt-0.5">Structures with late fee amounts or a late fee head saved</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={!!syncingLateFeeId}
+                                                onClick={() => syncLateFees()}
+                                                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg transition inline-flex items-center gap-1.5 disabled:opacity-50"
+                                                title="Run late fee job for all configurations (same as nightly sync)"
+                                            >
+                                                <RefreshCw size={13} className={syncingLateFeeId === 'all' ? 'animate-spin' : ''} />
+                                                {syncingLateFeeId === 'all' ? 'Syncing…' : 'Sync All'}
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={!!syncingLateFeeId}
-                                            onClick={() => syncLateFees()}
-                                            className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg transition inline-flex items-center gap-1.5 disabled:opacity-50"
-                                            title="Run late fee job for all configurations (same as nightly sync)"
-                                        >
-                                            <RefreshCw size={13} className={syncingLateFeeId === 'all' ? 'animate-spin' : ''} />
-                                            {syncingLateFeeId === 'all' ? 'Syncing…' : 'Sync All'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setLateFeeSubTab('create')}
-                                            className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg transition"
-                                        >
-                                            + New Configuration
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-xs">
-                                        <thead className="bg-gray-50 border-b border-gray-200">
-                                            <tr>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">College / Course</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Batch</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Year / Sem</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Category</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Fee Head</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Late Fee Head</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Terms</th>
-                                                <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs border-collapse">
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                <tr>
+                                                    <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">College</th>
+                                                    <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Batch</th>
+                                                    <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Course</th>
+                                                    <th className="px-4 py-3 font-bold uppercase text-gray-500 tracking-wider">Branch</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
                                             {(() => {
                                                 const configured = structures.filter(s => {
                                                     const hasLateFee = s.lateFeeHead ||
@@ -2472,10 +3028,11 @@ const FeeConfiguration = () => {
                                                     }
                                                     return true;
                                                 });
+
                                                 if (configured.length === 0) {
                                                     return (
                                                         <tr>
-                                                            <td colSpan="8" className="px-6 py-16 text-center text-gray-400">
+                                                            <td colSpan={4} className="px-6 py-16 text-center text-gray-400">
                                                                 <Calendar size={32} className="mx-auto mb-2 text-gray-300" />
                                                                 <p className="font-medium">No late fee configurations found</p>
                                                                 <p className="text-[11px] mt-1">
@@ -2487,80 +3044,464 @@ const FeeConfiguration = () => {
                                                         </tr>
                                                     );
                                                 }
-                                                return configured.map(s => {
-                                                    const lateTerms = (s.terms || []).filter(t => Number(t.lateFeeAmount) > 0);
+
+                                                // Grouping logic:
+                                                const groups = {};
+                                                configured.forEach(s => {
+                                                    const groupKey = `${s.college}|${s.course}|${s.branch}|${s.batch}`;
+                                                    if (!groups[groupKey]) {
+                                                        groups[groupKey] = {
+                                                            key: groupKey,
+                                                            college: s.college,
+                                                            course: s.course,
+                                                            branch: s.branch,
+                                                            batch: s.batch,
+                                                            categories: {}
+                                                        };
+                                                    }
+                                                    const catKey = s.category || 'General';
+                                                    if (!groups[groupKey].categories[catKey]) {
+                                                        groups[groupKey].categories[catKey] = {
+                                                            name: catKey,
+                                                            key: `${groupKey}|${catKey}`,
+                                                            years: {}
+                                                        };
+                                                    }
+                                                    const yrKey = s.studentYear;
+                                                    if (!groups[groupKey].categories[catKey].years[yrKey]) {
+                                                        groups[groupKey].categories[catKey].years[yrKey] = {
+                                                            year: yrKey,
+                                                            key: `${groupKey}|${catKey}|${yrKey}`,
+                                                            items: []
+                                                        };
+                                                    }
+                                                    groups[groupKey].categories[catKey].years[yrKey].items.push(s);
+                                                });
+
+                                                const sortedGroups = Object.values(groups).sort((a, b) => {
+                                                    if (a.college !== b.college) return a.college.localeCompare(b.college);
+                                                    if (a.course !== b.course) return a.course.localeCompare(b.course);
+                                                    if (a.branch !== b.branch) return a.branch.localeCompare(b.branch);
+                                                    return String(b.batch).localeCompare(String(a.batch), undefined, { numeric: true });
+                                                });
+
+                                                sortedGroups.forEach(g => {
+                                                    g.categoriesList = Object.values(g.categories).sort((a, b) => a.name.localeCompare(b.name));
+                                                    g.categoriesList.forEach(cat => {
+                                                        cat.yearsList = Object.values(cat.years).sort((a, b) => Number(a.year) - Number(b.year));
+                                                    });
+                                                });
+
+                                                return sortedGroups.map(g => {
+                                                    const isGroupExpanded = !!expandedViewGroups[g.key];
+                                                    const totalHeadsCount = g.categoriesList.reduce((acc, cat) => acc + cat.yearsList.reduce((acc2, yr) => acc2 + yr.items.length, 0), 0);
                                                     return (
-                                                        <tr key={s._id} className="hover:bg-gray-50/80">
-                                                            <td className="px-4 py-3">
-                                                                <div className="font-semibold text-gray-800">{s.college}</div>
-                                                                <div className="text-gray-500">{s.course} · {s.branch}</div>
-                                                            </td>
-                                                            <td className="px-4 py-3 font-bold text-gray-800">{s.batch}</td>
-                                                            <td className="px-4 py-3">
-                                                                Yr {s.studentYear}
-                                                                {s.semester ? ` / Sem ${s.semester}` : ' / Full Year'}
-                                                            </td>
-                                                            <td className="px-4 py-3">{s.category}</td>
-                                                            <td className="px-4 py-3 font-semibold text-blue-700">
-                                                                {s.feeHead?.name || '—'}
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                {s.lateFeeHead?.name
-                                                                    ? `${s.lateFeeHead.name}${s.lateFeeHead.code ? ` (${s.lateFeeHead.code})` : ''}`
-                                                                    : <span className="text-amber-600 font-medium">Not set</span>}
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                {lateTerms.length > 0 ? (
-                                                                    <div className="flex flex-wrap gap-1">
-                                                                        {lateTerms.map(t => (
-                                                                            <span key={t.termNumber} className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-bold text-[10px]">
-                                                                                T{t.termNumber}: ₹{Number(t.lateFeeAmount).toLocaleString()}
-                                                                            </span>
-                                                                        ))}
+                                                        <React.Fragment key={g.key}>
+                                                            <tr 
+                                                                onClick={() => toggleViewGroupExpand(g.key)}
+                                                                className={`cursor-pointer hover:bg-blue-50/50 transition-colors group/groupRow ${isGroupExpanded ? 'bg-blue-50/40' : ''}`}
+                                                            >
+                                                                <td className="px-4 py-3">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <ChevronRight size={16} className={`text-gray-400 group-hover/groupRow:text-blue-600 transition-transform duration-200 shrink-0 ${isGroupExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                        <span className="font-bold text-gray-900 text-xs">{collegeCodes[g.college] || g.college}</span>
                                                                     </div>
-                                                                ) : (
-                                                                    <span className="text-gray-400">—</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-right">
-                                                                <div className="inline-flex items-center gap-1.5">
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={!!syncingLateFeeId || !s.lateFeeHead}
-                                                                        title={!s.lateFeeHead ? 'Set a late fee head before syncing' : 'Apply late fees for this structure now'}
-                                                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold transition disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                        onClick={() => syncLateFees(s._id)}
-                                                                    >
-                                                                        <RefreshCw size={13} className={syncingLateFeeId === s._id ? 'animate-spin' : ''} />
-                                                                        {syncingLateFeeId === s._id ? 'Syncing…' : 'Sync'}
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold transition"
-                                                                        onClick={() => {
-                                                                            setLateFeeForm({
-                                                                                college: s.college || '',
-                                                                                course: s.course || '',
-                                                                                branch: s.branch || '',
-                                                                                batch: s.batch || '',
-                                                                                studentYear: String(s.studentYear || ''),
-                                                                                semester: s.semester ? String(s.semester) : '',
-                                                                                categories: s.category ? [s.category] : [],
-                                                                                feeHead: String(s.feeHead?._id || s.feeHead || ''),
-                                                                                lateFeeHead: String(s.lateFeeHead?._id || s.lateFeeHead || ''),
-                                                                                termMappings: s.terms || [],
-                                                                                penaltyType: 'Fixed',
-                                                                                penaltyValue: 0,
-                                                                                _id: s._id
-                                                                            });
-                                                                            setLateFeeSubTab('create');
-                                                                        }}
-                                                                    >
-                                                                        <Pencil size={13} /> Edit
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    <span className="text-blue-600 font-mono font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px] border border-blue-100">{g.batch}</span>
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    <span className="text-gray-700 font-semibold text-xs">{g.course}</span>
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <span className="text-gray-700 font-semibold text-xs">{g.branch}</span>
+                                                                        <span className="text-[11px] text-gray-400 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full font-bold shrink-0">
+                                                                            {totalHeadsCount} {totalHeadsCount === 1 ? 'Head' : 'Heads'}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+
+                                                            {isGroupExpanded && (
+                                                                <tr>
+                                                                    <td colSpan={4} className="p-0 bg-slate-50/50 border-y border-gray-200">
+                                                                        <div className="p-4 space-y-3 pl-8">
+                                                                            {g.categoriesList.map(cat => {
+                                                                                const isCategoryExpanded = !!expandedViewCategories[cat.key];
+                                                                                const categoryHeadsCount = cat.yearsList.reduce((acc, yr) => acc + yr.items.length, 0);
+                                                                                return (
+                                                                                    <div key={cat.key} className="border border-gray-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all duration-200">
+                                                                                        <div
+                                                                                            onClick={() => toggleViewCategoryExpand(cat.key)}
+                                                                                            className={`px-4 py-2.5 flex items-center justify-between cursor-pointer select-none transition-colors ${isCategoryExpanded ? 'bg-slate-100/90 border-b border-gray-200 hover:bg-slate-200/60' : 'bg-white hover:bg-gray-50'}`}
+                                                                                        >
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <ChevronRight size={16} className={`text-gray-500 transition-transform duration-200 shrink-0 ${isCategoryExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                                                <span className="font-bold text-gray-800 text-xs md:text-sm">{cat.name}</span>
+                                                                                                <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-200">
+                                                                                                    Quota
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full font-bold">
+                                                                                                    {categoryHeadsCount} {categoryHeadsCount === 1 ? 'Head' : 'Heads'}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        {isCategoryExpanded && (
+                                                                                            <div className="p-3 space-y-3 bg-gray-50/50 pl-6">
+                                                                                                {cat.yearsList.map(yr => {
+                                                                                                    const isYearExpanded = !!expandedViewYears[yr.key];
+                                                                                                    return (
+                                                                                                        <div key={yr.key} className="border border-gray-200 rounded-lg bg-white overflow-hidden transition-all duration-200">
+                                                                                                            <div
+                                                                                                                onClick={() => toggleViewYearExpand(yr.key)}
+                                                                                                                className={`px-3 py-2 flex items-center justify-between cursor-pointer select-none transition-colors ${isYearExpanded ? 'bg-slate-100/70 border-b border-gray-200 hover:bg-slate-200/40' : 'bg-white hover:bg-gray-50'}`}
+                                                                                                            >
+                                                                                                                <div className="flex items-center gap-2">
+                                                                                                                    <ChevronRight size={14} className={`text-gray-500 transition-transform duration-200 shrink-0 ${isYearExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                                                                    <span className="font-bold text-gray-700 text-xs">Year {yr.year}</span>
+                                                                                                                    <span className="bg-blue-50 text-blue-700 text-[9px] font-bold px-1.5 py-0.2 rounded border border-blue-100">
+                                                                                                                        Year
+                                                                                                                    </span>
+                                                                                                                </div>
+                                                                                                                <div className="flex items-center gap-2">
+                                                                                                                    <span className="text-[9px] text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full font-bold">
+                                                                                                                        {yr.items.length} {yr.items.length === 1 ? 'Head' : 'Heads'}
+                                                                                                                    </span>
+                                                                                                                </div>
+                                                                                                            </div>
+
+                                                                                                            {isYearExpanded && (
+                                                                                                                <div className="overflow-x-auto">
+                                                                                                                    <table className="w-full text-left text-xs border-collapse">
+                                                                                                                        <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
+                                                                                                                            <tr>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Semester / Period</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Fee Head</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Late Fee Head</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Terms</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Late Fee Type</th>
+                                                                                                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider text-right">Actions</th>
+                                                                                                                            </tr>
+                                                                                                                        </thead>
+                                                                                                                        <tbody className="divide-y divide-gray-100">
+                                                                                                                            {yr.items.map(s => {
+                                                                                                                                const structTermsCount = Array.isArray(s.terms) ? s.terms.length : 1;
+                                                                                                                                const matchingDefaultConfig = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
+                                                                                                                                const resolvedLateHead = s.lateFeeHead || matchingDefaultConfig?.lateFeeHead;
+                                                                                                                                // Show terms that have a late fee amount OR timing data; fall back to default config terms when the structure has none
+                                                                                                                                const sourceTerms = (s.terms && s.terms.length > 0) ? s.terms : (matchingDefaultConfig?.terms || []);
+                                                                                                                                const lateTerms = sourceTerms.filter(t =>
+                                                                                                                                    Number(t.lateFeeAmount) > 0 ||
+                                                                                                                                    t.referenceSemester != null ||
+                                                                                                                                    (t.dueOffsetDays != null && t.dueOffsetDays !== 0) ||
+                                                                                                                                    !!t.fixedDueDate
+                                                                                                                                );
+                                                                                                                                const isFallbackOpen = viewingFallbackForId === s._id;
+                                                                                                                                return (
+                                                                                                                                    <React.Fragment key={s._id}>
+                                                                                                                                    <tr className={`hover:bg-gray-50/80 transition-colors ${isFallbackOpen ? 'bg-blue-50/30' : ''}`}>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {s.semester ? `Sem ${s.semester}` : 'Full Year'}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5 font-semibold text-blue-700">
+                                                                                                                                            {s.feeHead?.name || '—'}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {resolvedLateHead?.name
+                                                                                                                                                ? `${resolvedLateHead.name}${resolvedLateHead.code ? ` (${resolvedLateHead.code})` : ''}`
+                                                                                                                                                : <span className="text-amber-600 font-medium">Not set</span>}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {lateTerms.length > 0 ? (
+                                                                                                                                                <div className="flex flex-wrap gap-1.5">
+                                                                                                                                                    {lateTerms.map(t => {
+                                                                                                                                                        const defT = matchingDefaultConfig?.terms?.find(d => Number(d.termNumber) === Number(t.termNumber)) || {};
+                                                                                                                                                        const ownTerm = (s.terms || []).find(ot => Number(ot.termNumber) === Number(t.termNumber)) || {};
+                                                                                                                                                        const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
+                                                                                                                                                        const effTerm = hasCustomTiming ? { ...defT, ...ownTerm } : { ...defT, lateFeeAmount: t.lateFeeAmount };
+                                                                                                                                                        const appDate = getLateFeeApplicableDate(s, effTerm);
+                                                                                                                                                        return (
+                                                                                                                                                            <div key={t.termNumber} className="bg-gray-50 border border-gray-200 text-gray-700 px-2 py-1 rounded-md font-medium text-[10px] space-y-0.5 shadow-2xs">
+                                                                                                                                                                <div className="font-bold text-gray-900 flex items-center justify-between gap-2">
+                                                                                                                                                                    <span>T{t.termNumber}: ₹{Number(t.lateFeeAmount).toLocaleString()}</span>
+                                                                                                                                                                </div>
+                                                                                                                                                                <div className="text-[9px] text-blue-700 font-semibold flex items-center gap-1">
+                                                                                                                                                                    <Calendar size={10} className="shrink-0 text-blue-500" />
+                                                                                                                                                                    {appDate.dateStr ? (
+                                                                                                                                                                        <span>Date: <strong className="text-blue-800 font-bold">{appDate.dateStr}</strong></span>
+                                                                                                                                                                    ) : (
+                                                                                                                                                                        <span className="text-amber-600 font-normal italic" title={appDate.reason}>{appDate.reason || 'Date pending'}</span>
+                                                                                                                                                                    )}
+                                                                                                                                                                </div>
+                                                                                                                                                            </div>
+                                                                                                                                                        );
+                                                                                                                                                    })}
+                                                                                                                                                </div>
+                                                                                                                                            ) : (
+                                                                                                                                                <span className="text-gray-400">—</span>
+                                                                                                                                            )}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5">
+                                                                                                                                            {(() => {
+                                                                                                                                                const ownTerms = s.terms || [];
+                                                                                                                                                const hasCustomTiming = ownTerms.some(t =>
+                                                                                                                                                    t.referenceSemester != null ||
+                                                                                                                                                    (t.dueOffsetDays != null && t.dueOffsetDays !== 0) ||
+                                                                                                                                                    !!t.fixedDueDate
+                                                                                                                                                );
+                                                                                                                                                if (hasCustomTiming) {
+                                                                                                                                                    return (
+                                                                                                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                                                                                                                                            Custom
+                                                                                                                                                        </span>
+                                                                                                                                                    );
+                                                                                                                                                } else if (matchingDefaultConfig) {
+                                                                                                                                                    return (
+                                                                                                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                                                                                                                                                            Default
+                                                                                                                                                        </span>
+                                                                                                                                                    );
+                                                                                                                                                } else {
+                                                                                                                                                    return <span className="text-[10px] text-amber-600 font-semibold">Not set</span>;
+                                                                                                                                                }
+                                                                                                                                            })()}
+                                                                                                                                        </td>
+                                                                                                                                        <td className="px-4 py-2.5 text-right">
+                                                                                                                                            <div className="inline-flex items-center gap-1.5">
+                                                                                                                                                {(() => {
+                                                                                                                                                    const canSync = !!(s.lateFeeHead || matchingDefaultConfig?.lateFeeHead);
+                                                                                                                                                    const syncTitle = !canSync
+                                                                                                                                                        ? 'No late fee head configured on structure or default config'
+                                                                                                                                                        : !s.lateFeeHead
+                                                                                                                                                            ? 'Sync using default config late fee head'
+                                                                                                                                                            : 'Apply / reconcile late fees for this structure now';
+                                                                                                                                                    return (
+                                                                                                                                                        <button
+                                                                                                                                                            type="button"
+                                                                                                                                                            disabled={!!syncingLateFeeId || !canSync}
+                                                                                                                                                            title={syncTitle}
+                                                                                                                                                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${!s.lateFeeHead && matchingDefaultConfig?.lateFeeHead ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                                                                                                                                                            onClick={() => syncLateFees(s._id)}
+                                                                                                                                                        >
+                                                                                                                                                            <RefreshCw size={13} className={syncingLateFeeId === s._id ? 'animate-spin' : ''} />
+                                                                                                                                                            {syncingLateFeeId === s._id ? 'Syncing…' : 'Sync'}
+                                                                                                                                                        </button>
+                                                                                                                                                    );
+                                                                                                                                                })()}
+                                                                                                                                                <button
+                                                                                                                                                    type="button"
+                                                                                                                                                    title="View Default Fallback Rules for this configuration"
+                                                                                                                                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition ${isFallbackOpen ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                                                                                                                                                    onClick={() => toggleViewFallback(s._id)}
+                                                                                                                                                >
+                                                                                                                                                    <ChevronRight size={13} className={`transition-transform duration-200 ${isFallbackOpen ? 'rotate-90' : ''}`} />
+                                                                                                                                                    {isFallbackOpen ? 'Hide Rules' : 'View Rules'}
+                                                                                                                                                </button>
+                                                                                                                                            </div>
+                                                                                                                                        </td>
+                                                                                                                                    </tr>
+                                                                                                                                    {isFallbackOpen && (
+                                                                                                                                        <tr>
+                                                                                                                                            <td colSpan={6} className="p-0 bg-blue-50/20 border-b border-blue-100">
+                                                                                                                                                <div className="px-6 py-4 space-y-3">
+                                                                                                                                                    {/* Panel header */}
+                                                                                                                                                    <div className="flex items-center justify-between">
+                                                                                                                                                        <div className="flex items-center gap-2">
+                                                                                                                                                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-100 px-2 py-1 rounded">Default Fallback Rules</span>
+                                                                                                                                                            <span className="text-[10px] text-gray-500">Applied for {structTermsCount}-term fee structures</span>
+                                                                                                                                                        </div>
+                                                                                                                                                        <div className="flex items-center gap-2">
+                                                                                                                                                            {!matchingDefaultConfig && (
+                                                                                                                                                                <span className="text-[10px] text-amber-600 font-semibold bg-amber-50 border border-amber-200 px-2 py-1 rounded">No fallback rule configured for {structTermsCount} terms</span>
+                                                                                                                                                            )}
+                                                                                                                                                            {editingFallbackForId !== s._id ? (
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-[10px] font-bold transition"
+                                                                                                                                                                    onClick={() => openFallbackEdit(s, matchingDefaultConfig)}
+                                                                                                                                                                >
+                                                                                                                                                                    <Pencil size={11} /> Edit Rules
+                                                                                                                                                                </button>
+                                                                                                                                                            ) : (
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 text-[10px] font-bold transition"
+                                                                                                                                                                    onClick={() => setEditingFallbackForId(null)}
+                                                                                                                                                                >
+                                                                                                                                                                    ✕ Cancel
+                                                                                                                                                                </button>
+                                                                                                                                                            )}
+                                                                                                                                                        </div>
+                                                                                                                                                    </div>
+
+                                                                                                                                                    {/* READ VIEW */}
+                                                                                                                                                    {editingFallbackForId !== s._id && (
+                                                                                                                                                        matchingDefaultConfig ? (
+                                                                                                                                                            <div className="space-y-2">
+                                                                                                                                                                <div className="flex items-center gap-3 text-xs">
+                                                                                                                                                                    <span className="text-gray-500">Late Fee Demand Head:</span>
+                                                                                                                                                                    <span className="font-bold text-blue-700">{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.name || '—'}{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.code ? ` (${(s.lateFeeHead || matchingDefaultConfig.lateFeeHead).code})` : ''}</span>
+                                                                                                                                                                </div>
+                                                                                                                                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                                                                                                                    {(matchingDefaultConfig.terms || []).map(defT => {
+                                                                                                                                                                        // Use structure's own term timing if saved, otherwise show default config
+                                                                                                                                                                        const ownTerm = (s.terms || []).find(t => Number(t.termNumber) === Number(defT.termNumber)) || {};
+                                                                                                                                                                        const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
+                                                                                                                                                                        const t = hasCustomTiming ? { ...defT, ...ownTerm } : defT;
+                                                                                                                                                                        const appDate = getLateFeeApplicableDate(s, t);
+                                                                                                                                                                        return (
+                                                                                                                                                                        <div key={t.termNumber} className="bg-white border border-blue-100 rounded-lg p-3 space-y-1.5 shadow-sm">
+                                                                                                                                                                            <div className="flex items-center justify-between">
+                                                                                                                                                                                <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Term {t.termNumber}</div>
+                                                                                                                                                                                {hasCustomTiming && <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-blue-100">Custom</span>}
+                                                                                                                                                                            </div>
+                                                                                                                                                                            <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Due Mode: </span>{t.dueDateMode === 'fixed' ? 'Fixed Date' : 'Semester Offset'}</div>
+                                                                                                                                                                            {t.dueDateMode === 'offset' ? (<>
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Ref Sem: </span>Semester {t.referenceSemester || '—'}</div>
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Offset: </span>+{t.dueOffsetDays ?? 0} days</div>
+                                                                                                                                                                            </>) : (
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Date: </span>{t.fixedDueDate ? new Date(t.fixedDueDate).toLocaleDateString() : '—'}</div>
+                                                                                                                                                                            )}
+                                                                                                                                                                            
+                                                                                                                                                                            {/* Late Fee Applicable Date Banner */}
+                                                                                                                                                                            <div className="mt-2 pt-1.5 border-t border-blue-100/60 bg-blue-50/70 p-2 rounded-md space-y-0.5">
+                                                                                                                                                                                <div className="text-[10px] font-bold text-blue-900 flex items-center gap-1">
+                                                                                                                                                                                    <Calendar size={11} className="text-blue-600 shrink-0" />
+                                                                                                                                                                                    <span>Applicable Date:</span>
+                                                                                                                                                                                    {appDate.dateStr ? (
+                                                                                                                                                                                        <span className="text-blue-800 font-extrabold">{appDate.dateStr}</span>
+                                                                                                                                                                                    ) : (
+                                                                                                                                                                                        <span className="text-amber-700 font-normal italic text-[9px]">{appDate.reason}</span>
+                                                                                                                                                                                    )}
+                                                                                                                                                                                </div>
+                                                                                                                                                                                {appDate.semStartDateStr && (
+                                                                                                                                                                                    <div className="text-[9px] text-gray-500 pl-4">
+                                                                                                                                                                                        (Sem {appDate.refSem} Start: {appDate.semStartDateStr} + {appDate.offsetDays}d offset)
+                                                                                                                                                                                    </div>
+                                                                                                                                                                                )}
+                                                                                                                                                                            </div>
+
+                                                                                                                                                                            {t.dueDescription && <div className="text-[10px] text-gray-400 italic pt-1">{t.dueDescription}</div>}
+                                                                                                                                                                        </div>
+                                                                                                                                                                        );
+                                                                                                                                                                    })}
+                                                                                                                                                                </div>
+                                                                                                                                                            </div>
+                                                                                                                                                        ) : (
+                                                                                                                                                            <p className="text-xs text-gray-400 italic">Go to the <strong>Default Rules</strong> tab to configure a fallback rule for {structTermsCount}-term structures, or click <strong>Edit Rules</strong> to set custom rules for this fee head.</p>
+                                                                                                                                                        )
+                                                                                                                                                    )}
+
+                                                                                                                                                    {/* EDIT FORM */}
+                                                                                                                                                    {editingFallbackForId === s._id && (
+                                                                                                                                                        <div className="space-y-4 border border-blue-200 rounded-xl bg-white p-4">
+                                                                                                                                                            <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Editing rules for this fee head only</div>
+                                                                                                                                                            {/* Per-term editors */}
+                                                                                                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                                                                                                                                {fallbackEditForm.terms.map((t, idx) => (
+                                                                                                                                                                    <div key={t.termNumber} className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-2">
+                                                                                                                                                                        <div className="text-[10px] font-bold text-blue-700 uppercase">Term {t.termNumber}</div>
+                                                                                                                                                                        <div className="flex flex-col gap-1">
+                                                                                                                                                                            <label className="text-[10px] text-gray-500">Due Mode</label>
+                                                                                                                                                                            <select
+                                                                                                                                                                                className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white"
+                                                                                                                                                                                value={t.dueDateMode}
+                                                                                                                                                                                onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDateMode: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                            >
+                                                                                                                                                                                <option value="offset">Semester Offset</option>
+                                                                                                                                                                                <option value="fixed">Fixed Date</option>
+                                                                                                                                                                            </select>
+                                                                                                                                                                        </div>
+                                                                                                                                                                        {t.dueDateMode === 'offset' ? (
+                                                                                                                                                                            <>
+                                                                                                                                                                                <div className="flex flex-col gap-1">
+                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Ref. Semester</label>
+                                                                                                                                                                                    <select
+                                                                                                                                                                                        className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                        value={t.referenceSemester}
+                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], referenceSemester: Number(e.target.value) }; return { ...f, terms }; })}
+                                                                                                                                                                                    >
+                                                                                                                                                                                        <option value="">-- Select --</option>
+                                                                                                                                                                                        <option value={1}>Semester 1</option>
+                                                                                                                                                                                        <option value={2}>Semester 2</option>
+                                                                                                                                                                                    </select>
+                                                                                                                                                                                </div>
+                                                                                                                                                                                <div className="flex flex-col gap-1">
+                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Offset Days</label>
+                                                                                                                                                                                    <input type="number" min="0" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                        value={t.dueOffsetDays}
+                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueOffsetDays: Number(e.target.value) }; return { ...f, terms }; })}
+                                                                                                                                                                                    />
+                                                                                                                                                                                </div>
+                                                                                                                                                                            </>
+                                                                                                                                                                        ) : (
+                                                                                                                                                                            <div className="flex flex-col gap-1">
+                                                                                                                                                                                <label className="text-[10px] text-gray-500">Fixed Date</label>
+                                                                                                                                                                                <input type="date" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                    value={t.fixedDueDate ? t.fixedDueDate.substring(0, 10) : ''}
+                                                                                                                                                                                    onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], fixedDueDate: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                                />
+                                                                                                                                                                            </div>
+                                                                                                                                                                        )}
+                                                                                                                                                                        <div className="flex flex-col gap-1">
+                                                                                                                                                                            <label className="text-[10px] text-gray-500">Description</label>
+                                                                                                                                                                            <input type="text" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                value={t.dueDescription}
+                                                                                                                                                                                onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDescription: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                            />
+                                                                                                                                                                        </div>
+                                                                                                                                                                    </div>
+                                                                                                                                                                ))}
+                                                                                                                                                            </div>
+                                                                                                                                                            {/* Save / Cancel */}
+                                                                                                                                                            <div className="flex items-center gap-2 pt-1">
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    disabled={isSavingFallbackEdit}
+                                                                                                                                                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition"
+                                                                                                                                                                    onClick={() => saveFallbackEdit(s)}
+                                                                                                                                                                >
+                                                                                                                                                                    <RefreshCw size={12} className={isSavingFallbackEdit ? 'animate-spin' : ''} />
+                                                                                                                                                                    {isSavingFallbackEdit ? 'Saving & Syncing…' : 'Save & Sync'}
+                                                                                                                                                                </button>
+                                                                                                                                                                <button
+                                                                                                                                                                    type="button"
+                                                                                                                                                                    className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition"
+                                                                                                                                                                    onClick={() => setEditingFallbackForId(null)}
+                                                                                                                                                                >
+                                                                                                                                                                    Cancel
+                                                                                                                                                                </button>
+                                                                                                                                                            </div>
+                                                                                                                                                        </div>
+                                                                                                                                                    )}
+                                                                                                                                                </div>
+                                                                                                                                            </td>
+                                                                                                                                        </tr>
+                                                                                                                                    )}
+                                                                                                                                    </React.Fragment>
+                                                                                                                                );
+                                                                                                                            })}
+                                                                                                                        </tbody>
+                                                                                                                    </table>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </React.Fragment>
                                                     );
                                                 });
                                             })()}
@@ -2568,87 +3509,55 @@ const FeeConfiguration = () => {
                                     </table>
                                 </div>
                             </div>
-                            </div>
-                        )}
+                        </div>
+                    )}
 
-                        {lateFeeSubTab === 'create' && (
+                        {false && (
                         <>
                         {/* Selector Section */}
                         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                            <h2 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg"><Calendar size={18} /></span>
-                                Select Context to Load Fee Structures
-                            </h2>
-                            <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-3">
-                                <div className="md:col-span-2 lg:col-span-3">
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">College</label>
-                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.college} onChange={e => setLateFeeForm({ ...lateFeeForm, college: e.target.value, course: '', branch: '', feeHead: '', lateFeeHead: '', termMappings: [], _id: null })}>
-                                        <option value="">Select...</option>
+                                    <select 
+                                        className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" 
+                                        value={lateFeeForm.college} 
+                                        onChange={e => setLateFeeForm({ ...lateFeeForm, college: e.target.value, course: '', branch: '' })}
+                                    >
+                                        <option value="">Select College...</option>
                                         {colleges.map(c => <option key={c}>{c}</option>)}
                                     </select>
                                 </div>
-                                <div className="lg:col-span-2">
+                                <div>
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">Course</label>
-                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.course} onChange={e => setLateFeeForm({ ...lateFeeForm, course: e.target.value, branch: '', feeHead: '', lateFeeHead: '', termMappings: [], _id: null })} disabled={!lateFeeForm.college}>
-                                        <option value="">Select...</option>
+                                    <select 
+                                        className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" 
+                                        value={lateFeeForm.course} 
+                                        onChange={e => setLateFeeForm({ ...lateFeeForm, course: e.target.value, branch: '' })} 
+                                        disabled={!lateFeeForm.college}
+                                    >
+                                        <option value="">Select Course...</option>
                                         {(lateFeeForm.college ? Object.keys(metadata[lateFeeForm.college] || {}) : []).map(c => <option key={c}>{c}</option>)}
                                     </select>
                                 </div>
-                                <div className="lg:col-span-2">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Branch</label>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
                                     <select 
                                         className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" 
-                                        value={lateFeeForm.branch} 
-                                        onChange={e => setLateFeeForm({ ...lateFeeForm, branch: e.target.value, feeHead: '', lateFeeHead: '', termMappings: [], _id: null })} 
-                                        disabled={!lateFeeForm.course}
+                                        value={lateFeeForm.batch} 
+                                        onChange={e => setLateFeeForm({ ...lateFeeForm, batch: e.target.value })}
                                     >
-                                        <option value="">Select...</option>
-                                        {(lateFeeForm.college && lateFeeForm.course ? metadata[lateFeeForm.college]?.[lateFeeForm.course]?.branches || [] : []).map(b => (
-                                            <option key={b} value={b}>{b}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="lg:col-span-2">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Batch</label>
-                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.batch} onChange={e => setLateFeeForm({ ...lateFeeForm, batch: e.target.value, feeHead: '', lateFeeHead: '', termMappings: [], _id: null })}>
-                                        <option value="">Select...</option>
+                                        <option value="">Select Batch...</option>
                                         {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
-                                </div>
-                                <div className="lg:col-span-1">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Year</label>
-                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.studentYear} onChange={e => setLateFeeForm({ ...lateFeeForm, studentYear: e.target.value, feeHead: '', lateFeeHead: '', termMappings: [], _id: null })}>
-                                        <option value="">Select...</option>
-                                        {(() => {
-                                            const yearsCount = (lateFeeForm.college && lateFeeForm.course) ? metadata[lateFeeForm.college]?.[lateFeeForm.course]?.total_years || 4 : 4;
-                                            return Array.from({ length: yearsCount }, (_, i) => i + 1).map(y => (
-                                                <option key={y} value={y}>Year {y}</option>
-                                            ));
-                                        })()}
-                                    </select>
-                                </div>
-                                <div className="lg:col-span-2">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
-                                    <select className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={lateFeeForm.categories[0] || ''} onChange={e => setLateFeeForm({ ...lateFeeForm, categories: [e.target.value], feeHead: '', lateFeeHead: '', termMappings: [], _id: null })}>
-                                        <option value="">Select...</option>
-                                        {categories.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
-                                        ))}
                                     </select>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Matching structures — pick fee head / structure from list */}
+                        {/* Matching structures grouped by Branch -> Quota */}
                         {(() => {
-                            const contextReady = !!(
-                                lateFeeForm.college &&
-                                lateFeeForm.course &&
-                                lateFeeForm.branch &&
-                                lateFeeForm.batch &&
-                                lateFeeForm.studentYear &&
-                                lateFeeForm.categories[0]
-                            );
+                            const contextReady = !!(lateFeeForm.college && lateFeeForm.course && lateFeeForm.batch);
                             if (!contextReady) {
                                 return (
                                     <div className="bg-white p-16 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-center">
@@ -2656,378 +3565,618 @@ const FeeConfiguration = () => {
                                             <Calendar size={28} />
                                         </div>
                                         <h3 className="text-base font-bold text-gray-800">Select Context First</h3>
-                                        <p className="text-gray-400 text-sm max-w-sm mt-1">Choose College, Course, Branch, Batch, Year and Category to list matching fee structures.</p>
+                                        <p className="text-gray-400 text-sm max-w-sm mt-1">Choose College, Course, and Batch to view and configure late fees branch-wise.</p>
                                     </div>
                                 );
                             }
 
-                            const matchingStructures = structures.filter(s =>
+                            const filteredForLate = structures.filter(s =>
                                 s.college === lateFeeForm.college &&
                                 s.course === lateFeeForm.course &&
-                                s.branch === lateFeeForm.branch &&
-                                String(s.batch) === String(lateFeeForm.batch) &&
-                                Number(s.studentYear) === Number(lateFeeForm.studentYear) &&
-                                s.category === lateFeeForm.categories[0]
+                                String(s.batch) === String(lateFeeForm.batch)
                             );
 
-                            return (
-                                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                    <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                                        <div>
-                                            <h3 className="text-sm font-bold text-gray-800">Matching Fee Structures</h3>
-                                            <p className="text-[11px] text-gray-500 mt-0.5">Select a fee head / structure to configure late fees</p>
-                                        </div>
-                                        <span className="text-[11px] font-bold text-gray-500 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
-                                            {matchingStructures.length} found
-                                        </span>
+                            if (filteredForLate.length === 0) {
+                                return (
+                                    <div className="bg-white p-12 rounded-2xl border border-gray-200 text-center text-gray-400">
+                                        <AlertTriangle size={28} className="mx-auto mb-2 text-amber-400" />
+                                        <p className="font-medium text-amber-700">No fee structures found for this context</p>
+                                        <p className="text-[11px] mt-1 max-w-md mx-auto">Create a fee structure under Fee Structures (Definitions) first, then come back to configure late fees.</p>
                                     </div>
-                                    {matchingStructures.length === 0 ? (
-                                        <div className="px-6 py-12 text-center text-gray-400">
-                                            <AlertTriangle size={28} className="mx-auto mb-2 text-amber-400" />
-                                            <p className="font-medium text-amber-700">No fee structures for this context</p>
-                                            <p className="text-[11px] mt-1 max-w-md mx-auto">Create a fee structure under Fee Structures (Definitions) first, then come back to configure late fees.</p>
+                                );
+                            }
+
+                            // Group by Branch
+                            const groupedLate = {};
+                            filteredForLate.forEach(st => {
+                                const key = `${st.college}|${st.batch}|${st.course}|${st.branch}`;
+                                if (!groupedLate[key]) {
+                                    groupedLate[key] = {
+                                        key,
+                                        college: st.college,
+                                        batch: st.batch,
+                                        course: st.course,
+                                        branch: st.branch,
+                                        quotasMap: {},
+                                        categories: []
+                                    };
+                                }
+                                const grp = groupedLate[key];
+                                const cat = st.category || 'General';
+                                if (!grp.quotasMap[cat]) {
+                                    grp.quotasMap[cat] = {
+                                        category: cat,
+                                        feeHeadsMap: {},
+                                        matrix: {}
+                                    };
+                                    grp.categories.push(cat);
+                                }
+                                const qGrp = grp.quotasMap[cat];
+                                const fhId = st.feeHead?._id || 'unknown';
+                                const fhName = st.feeHead?.name || 'Unnamed';
+                                const fhCode = st.feeHead?.code || '';
+                                const yr = st.studentYear;
+
+                                if (st.isTermsDivided) {
+                                    if (!qGrp.feeHeadsMap[fhId]) {
+                                        qGrp.feeHeadsMap[fhId] = {
+                                            _id: fhId,
+                                            name: fhName,
+                                            code: fhCode,
+                                            isTermsDivided: true,
+                                            termsCount: st.terms?.length || 0,
+                                            lateFeeAmount: st.terms ? (st.terms.find(t => Number(t.lateFeeAmount) > 0)?.lateFeeAmount || 0) : 0
+                                        };
+                                    }
+                                    if (!qGrp.matrix[yr]) qGrp.matrix[yr] = {};
+                                    if (!qGrp.matrix[yr][fhId]) qGrp.matrix[yr][fhId] = [];
+
+                                    qGrp.matrix[yr][fhId].push({
+                                        id: st._id,
+                                        amount: Number(st.amount) || 0,
+                                        semester: st.semester,
+                                        terms: st.terms || [],
+                                        lateFeeHead: st.lateFeeHead
+                                    });
+                                }
+                            });
+
+                            const groupedLateArray = Object.values(groupedLate).sort((a, b) => a.branch.localeCompare(b.branch));
+
+                            const selectedMeta = metadata[lateFeeForm.college]?.[lateFeeForm.course];
+                            const yearsCount = selectedMeta ? (selectedMeta.total_years || 4) : 4;
+                            const matrixRows = Array.from({ length: yearsCount }, (_, i) => ({
+                                year: i + 1,
+                                rowKey: `${i + 1}-Y`,
+                                label: `Year ${i + 1}`
+                            }));
+
+                            return (
+                                <div className="space-y-4">
+                                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                                        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                                            <div>
+                                                <h3 className="text-sm font-bold text-gray-800">Branch-wise Late Fee Setup</h3>
+                                                <p className="text-[11px] text-gray-500 mt-0.5">Expand branch & quota to set late fee amounts for each fee head</p>
+                                            </div>
+                                            <span className="text-[11px] font-bold text-gray-500 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+                                                {groupedLateArray.length} branch(es) found
+                                            </span>
                                         </div>
-                                    ) : (
+
                                         <div className="overflow-x-auto">
-                                            <table className="w-full text-left text-xs">
-                                                <thead className="bg-gray-50 border-b border-gray-200">
+                                            <table className="w-full text-left text-xs border-collapse">
+                                                <thead className="bg-gray-50/80 border-b border-gray-100 text-gray-600 font-semibold">
                                                     <tr>
-                                                        <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Fee Head</th>
-                                                        <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Year / Sem</th>
-                                                        <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider text-right">Amount</th>
-                                                        <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider text-center">Terms</th>
-                                                        <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Late Fee Head</th>
-                                                        <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider text-right">Action</th>
+                                                        <th className="p-3">College / Batch</th>
+                                                        <th className="p-3">Course & Branch</th>
+                                                        <th className="p-3">Category (Quota)</th>
+                                                        <th className="p-3 text-right">Action</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100">
-                                                    {matchingStructures.map(s => {
-                                                        const headId = String(s.feeHead?._id || s.feeHead || '');
-                                                        const isSelected = String(lateFeeForm._id) === String(s._id);
-                                                        const termCount = Array.isArray(s.terms) ? s.terms.length : 0;
-                                                        const hasLateConfigured = s.lateFeeHead || (s.terms || []).some(t => Number(t.lateFeeAmount) > 0);
+                                                    {groupedLateArray.map((row, i) => {
+                                                        const isBranchExpanded = !!expandedLateFeeBranches[row.key];
+
                                                         return (
-                                                            <tr
-                                                                key={s._id}
-                                                                className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50/80'}`}
-                                                            >
-                                                                <td className="px-4 py-2.5">
-                                                                    <div className="font-semibold text-gray-800">{s.feeHead?.name || '—'}</div>
-                                                                    {s.feeHead?.code && <div className="text-[10px] text-gray-400">{s.feeHead.code}</div>}
-                                                                </td>
-                                                                <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
-                                                                    Yr {s.studentYear}{s.semester ? ` / Sem ${s.semester}` : ' / Full Year'}
-                                                                </td>
-                                                                <td className="px-4 py-2.5 text-right font-mono font-medium text-gray-700">
-                                                                    ₹{Number(s.amount || 0).toLocaleString()}
-                                                                </td>
-                                                                <td className="px-4 py-2.5 text-center">
-                                                                    {termCount > 0 ? (
-                                                                        <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded font-bold text-[10px]">{termCount} terms</span>
-                                                                    ) : (
-                                                                        <span className="text-amber-600 font-medium">Not divided</span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-4 py-2.5">
-                                                                    {hasLateConfigured ? (
-                                                                        <span className="text-emerald-700 font-medium">
-                                                                            {s.lateFeeHead?.name || 'Configured'}
+                                                            <React.Fragment key={row.key || i}>
+                                                                <tr
+                                                                    onClick={() => toggleLateFeeBranchExpand(row.key)}
+                                                                    className={`cursor-pointer hover:bg-blue-50/50 transition-colors group/row ${isBranchExpanded ? 'bg-blue-50/40' : ''}`}
+                                                                >
+                                                                    <td className="p-3 text-xs text-gray-700">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <ChevronRight size={16} className={`text-gray-400 group-hover/row:text-blue-600 transition-transform duration-200 shrink-0 ${isBranchExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                            <span className="font-bold text-gray-900">{collegeCodes[row.college] || row.college}</span>
+                                                                            <span className="text-blue-600 font-mono font-medium bg-blue-50 px-1.5 py-0.5 rounded text-[11px] border border-blue-100 shrink-0">{row.batch}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-3 text-xs">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className="font-bold text-gray-800">{row.course}</span>
+                                                                            <span className="text-gray-400 font-normal">-</span>
+                                                                            <span className="text-gray-600 font-medium">{row.branch}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-3">
+                                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                                            {row.categories.map(cat => (
+                                                                                <span key={cat} className="bg-purple-100 text-purple-800 text-xs px-2.5 py-0.5 rounded-full font-bold border border-purple-200">
+                                                                                    {cat}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-3 text-right">
+                                                                        <span className="text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition">
+                                                                            {isBranchExpanded ? 'Collapse' : 'Expand Branch'}
                                                                         </span>
-                                                                    ) : (
-                                                                        <span className="text-gray-400">Not set</span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-4 py-2.5 text-right">
-                                                                    <button
-                                                                        type="button"
-                                                                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition ${isSelected ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
-                                                                        onClick={() => {
-                                                                            setLateFeeForm({
-                                                                                ...lateFeeForm,
-                                                                                semester: s.semester ? String(s.semester) : '',
-                                                                                feeHead: headId,
-                                                                                lateFeeHead: s.lateFeeHead?._id || s.lateFeeHead || '',
-                                                                                termMappings: s.terms || [],
-                                                                                _id: s._id
-                                                                            });
-                                                                        }}
-                                                                    >
-                                                                        {isSelected ? 'Selected' : 'Configure'}
-                                                                    </button>
-                                                                </td>
-                                                            </tr>
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* EXPANDABLE QUOTAS SECTION FOR THIS BRANCH */}
+                                                                {isBranchExpanded && (
+                                                                    <tr>
+                                                                        <td colSpan={4} className="p-0 bg-slate-50/70 border-y-2 border-blue-100">
+                                                                            <div className="p-4 space-y-4">
+                                                                                {row.categories.map(catName => {
+                                                                                    const quotaKey = `latefee|${row.key}|${catName}`;
+                                                                                    const isQuotaExpanded = !!expandedLateFeeQuotas[quotaKey];
+                                                                                    const qData = row.quotasMap[catName];
+                                                                                    const qFeeHeads = Object.values(qData?.feeHeadsMap || {});
+
+                                                                                    return (
+                                                                                        <div key={catName} className="border border-gray-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all duration-200">
+                                                                                            {/* Quota Header */}
+                                                                                            <div
+                                                                                                onClick={() => toggleLateFeeQuotaExpand(quotaKey)}
+                                                                                                className={`px-4 py-2.5 flex items-center justify-between cursor-pointer select-none transition-colors ${isQuotaExpanded ? 'bg-slate-100/90 border-b border-gray-200 hover:bg-slate-200/60' : 'bg-white hover:bg-gray-50'}`}
+                                                                                            >
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <ChevronRight size={16} className={`text-gray-500 transition-transform duration-200 shrink-0 ${isQuotaExpanded ? 'rotate-90 text-blue-600' : ''}`} />
+                                                                                                    <span className="font-bold text-gray-800 text-xs md:text-sm">{catName}</span>
+                                                                                                    <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-200">Quota</span>
+                                                                                                </div>
+                                                                                                <div className="flex items-center gap-3 text-xs text-gray-600 font-medium">
+                                                                                                    <span>Fee Heads: <span className="font-bold text-gray-900">{qFeeHeads.length}</span></span>
+                                                                                                    <ChevronDown size={16} className={`text-gray-400 transition-transform duration-200 ${isQuotaExpanded ? 'rotate-180 text-blue-600' : ''}`} />
+                                                                                                </div>
+                                                                                            </div>
+
+                                                                                            {/* Quota Matrix Table */}
+                                                                                            {isQuotaExpanded && (
+                                                                                                <div className="overflow-x-auto">
+                                                                                                    <table className="w-full text-center text-xs border-collapse">
+                                                                                                        <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                                                                            <tr>
+                                                                                                                <th className="p-2.5 border-r border-gray-200 w-44 font-bold bg-gray-100/70 text-left">Fee Head</th>
+                                                                                                                {matrixRows.map(rowInfo => (
+                                                                                                                    <th key={rowInfo.rowKey} className="p-2.5 border-r border-gray-200 w-28 font-bold bg-gray-50 text-center">
+                                                                                                                        {rowInfo.label}
+                                                                                                                    </th>
+                                                                                                                ))}
+                                                                                                                <th className="p-2.5 border-r border-gray-200 w-52 font-bold bg-blue-50/70 text-center text-blue-900">
+                                                                                                                    Late Fee Input (₹)
+                                                                                                                </th>
+                                                                                                            </tr>
+                                                                                                        </thead>
+                                                                                                        <tbody className="divide-y divide-gray-100">
+                                                                                                            {qFeeHeads.map(fh => {
+                                                                                                                const inputKey = `${row.key}|${catName}|${fh._id}`;
+
+                                                                                                                // Calculate initial/existing late fee amount across years
+                                                                                                                let existingLateFee = 0;
+                                                                                                                Object.keys(qData.matrix || {}).forEach(yr => {
+                                                                                                                    const items = qData.matrix[yr]?.[fh._id] || [];
+                                                                                                                    items.forEach(it => {
+                                                                                                                        (it.terms || []).forEach(t => {
+                                                                                                                            if (Number(t.lateFeeAmount) > 0) existingLateFee = Number(t.lateFeeAmount);
+                                                                                                                        });
+                                                                                                                    });
+                                                                                                                });
+
+                                                                                                                const currentVal = lateFeeInputs[inputKey] !== undefined ? lateFeeInputs[inputKey] : (existingLateFee || '');
+
+                                                                                                                return (
+                                                                                                                    <tr key={fh._id} className="hover:bg-gray-50/80">
+                                                                                                                        <td className="p-2.5 border-r border-gray-200 align-middle text-left bg-gray-50">
+                                                                                                                            <div className="font-bold text-gray-900 text-xs">{fh.name}</div>
+                                                                                                                            {fh.code && <div className="text-[10px] text-gray-400">{fh.code}</div>}
+                                                                                                                        </td>
+                                                                                                                        {matrixRows.map(rowInfo => {
+                                                                                                                            const items = qData?.matrix?.[rowInfo.year]?.[fh._id] || [];
+                                                                                                                            const matchItem = items[0];
+                                                                                                                            const amt = matchItem ? matchItem.amount : 0;
+                                                                                                                            return (
+                                                                                                                                <td key={rowInfo.rowKey} className="p-2.5 border-r border-gray-200 align-middle text-center">
+                                                                                                                                    <div className="font-mono font-bold text-gray-800 text-xs">
+                                                                                                                                        {amt > 0 ? `₹${amt.toLocaleString('en-IN')}` : <span className="text-gray-300 font-normal italic">-</span>}
+                                                                                                                                    </div>
+                                                                                                                                </td>
+                                                                                                                            );
+                                                                                                                        })}
+                                                                                                                        <td className="p-2 border-r border-gray-200 align-middle text-center bg-blue-50/20">
+                                                                                                                            {existingLateFee > 0 && !editingLateFeeRows[inputKey] ? (
+                                                                                                                                <div className="flex items-center justify-center gap-2">
+                                                                                                                                    <span className="font-mono font-bold text-blue-900 text-xs">
+                                                                                                                                        ₹{Number(existingLateFee).toLocaleString('en-IN')}
+                                                                                                                                    </span>
+                                                                                                                                    <button
+                                                                                                                                        type="button"
+                                                                                                                                        onClick={() => setEditingLateFeeRows({ ...editingLateFeeRows, [inputKey]: true })}
+                                                                                                                                        className="text-gray-400 hover:text-blue-600 p-1 rounded-lg hover:bg-blue-50 transition"
+                                                                                                                                        title="Edit Late Fee"
+                                                                                                                                    >
+                                                                                                                                        <Pencil size={13} />
+                                                                                                                                    </button>
+                                                                                                                                </div>
+                                                                                                                            ) : (
+                                                                                                                                <div className="flex items-center justify-center gap-2">
+                                                                                                                                    <div className="relative inline-block w-28">
+                                                                                                                                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">₹</span>
+                                                                                                                                        <input
+                                                                                                                                            type="number"
+                                                                                                                                            placeholder="Amount"
+                                                                                                                                            className="w-full border border-gray-300 rounded-lg py-1.5 pl-6 pr-2 text-xs font-bold text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 bg-white"
+                                                                                                                                            value={currentVal}
+                                                                                                                                            onChange={e => setLateFeeInputs({ ...lateFeeInputs, [inputKey]: e.target.value })}
+                                                                                                                                        />
+                                                                                                                                    </div>
+                                                                                                                                    <button
+                                                                                                                                        type="button"
+                                                                                                                                        disabled={isSavingLateFee}
+                                                                                                                                        onClick={() => handleSaveLateFeeRow(row, catName, fh._id, currentVal, inputKey)}
+                                                                                                                                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-xs disabled:bg-gray-400"
+                                                                                                                                    >
+                                                                                                                                        Save
+                                                                                                                                    </button>
+                                                                                                                                    {existingLateFee > 0 && (
+                                                                                                                                        <button
+                                                                                                                                            type="button"
+                                                                                                                                            onClick={() => {
+                                                                                                                                                setEditingLateFeeRows({ ...editingLateFeeRows, [inputKey]: false });
+                                                                                                                                                setLateFeeInputs({ ...lateFeeInputs, [inputKey]: existingLateFee });
+                                                                                                                                            }}
+                                                                                                                                            className="text-gray-400 hover:text-gray-600 font-bold px-2 py-1 text-xs hover:bg-gray-100 rounded"
+                                                                                                                                        >
+                                                                                                                                            Cancel
+                                                                                                                                        </button>
+                                                                                                                                    )}
+                                                                                                                                </div>
+                                                                                                                            )}
+                                                                                                                        </td>
+                                                                                                                    </tr>
+                                                                                                                );
+                                                                                                            })}
+                                                                                                        </tbody>
+                                                                                                    </table>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </React.Fragment>
                                                         );
                                                     })}
                                                 </tbody>
                                             </table>
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             );
                         })()}
+                        </>
+                        )}
 
-                        {/* Term Due Dates Configuration Section */}
-                        {lateFeeForm._id && lateFeeForm.termMappings.length > 0 && (
-                            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                <div className="px-5 py-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gray-50/50">
-                                    <div>
-                                        <h3 className="text-sm font-bold text-gray-800">Term Due Dates Configuration</h3>
-                                        <p className="text-[11px] text-gray-500 mt-0.5">
-                                            Editing: {feeHeads.find(h => String(h._id) === String(lateFeeForm.feeHead))?.name || 'Structure'}
-                                        </p>
-                                    </div>
-                                    <div className="min-w-[220px]">
-                                        <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Late Fee Head (all terms)</label>
-                                        <select
-                                            className="w-full border border-gray-200 bg-white rounded-lg p-2 text-xs font-bold text-gray-800 focus:border-blue-300 outline-none"
-                                            value={lateFeeForm.lateFeeHead || ''}
-                                            onChange={e => setLateFeeForm({ ...lateFeeForm, lateFeeHead: e.target.value })}
-                                        >
-                                            <option value="">Select late fee head...</option>
-                                            {feeHeads
-                                                .filter(h => /late\s*fee/i.test(`${h.name || ''} ${h.code || ''}`))
-                                                .map(h => (
-                                                    <option key={h._id} value={h._id}>
-                                                        {h.name}{h.code ? ` (${h.code})` : ''}
-                                                    </option>
-                                                ))}
-                                        </select>
-                                    </div>
-                                </div>
+                        {lateFeeSubTab === 'due-dates' && (
+                            <div className="space-y-6">
+                                {/* Default Config List / Form Wrapper */}
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                    {/* Form Section */}
+                                    <div className="lg:col-span-5 space-y-6">
+                                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                                            <h2 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                                                <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg"><Calendar size={18} /></span>
+                                                {editingDefaultConfigId ? 'Edit Default Configuration' : 'Create Default Configuration'}
+                                            </h2>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Fee Structure Terms Count</label>
+                                                    <select
+                                                        className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
+                                                        value={defaultConfigForm.termsCount || 3}
+                                                        onChange={e => {
+                                                            const newCount = Number(e.target.value);
+                                                            let newTerms = [...(defaultConfigForm.terms || [])];
+                                                            if (newTerms.length < newCount) {
+                                                                while (newTerms.length < newCount) {
+                                                                    const nextNum = newTerms.length + 1;
+                                                                    newTerms.push({
+                                                                        termNumber: nextNum,
+                                                                        dueDateMode: 'offset',
+                                                                        referenceSemester: 1,
+                                                                        dueOffsetDays: 15,
+                                                                        fixedDueDate: '',
+                                                                        dueDescription: `Term ${nextNum} Late Fee`
+                                                                    });
+                                                                }
+                                                            } else if (newTerms.length > newCount) {
+                                                                newTerms = newTerms.slice(0, newCount);
+                                                            }
+                                                            setDefaultConfigForm({
+                                                                ...defaultConfigForm,
+                                                                termsCount: newCount,
+                                                                terms: newTerms
+                                                            });
+                                                        }}
+                                                    >
+                                                        <option value={1}>1 Term (Full Payment)</option>
+                                                        <option value={2}>2 Terms</option>
+                                                        <option value={3}>3 Terms</option>
+                                                        <option value={4}>4 Terms</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Late Fee Demand Head</label>
+                                                    <select
+                                                        className="w-full border-gray-200 border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors"
+                                                        value={defaultConfigForm.lateFeeHead}
+                                                        onChange={e => setDefaultConfigForm({ ...defaultConfigForm, lateFeeHead: e.target.value })}
+                                                    >
+                                                        <option value="">Select Late Fee Head...</option>
+                                                        {feeHeads
+                                                            .filter(h => /late\s*fee/i.test(`${h.name || ''} ${h.code || ''}`))
+                                                            .map(h => (
+                                                                <option key={h._id} value={h._id}>
+                                                                    {h.name}{h.code ? ` (${h.code})` : ''}
+                                                                </option>
+                                                            ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-xs">
-                                        <thead className="bg-gray-50 border-b border-gray-200">
-                                            <tr>
-                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Term</th>
-                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Due Date Mode</th>
-                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Due Rule</th>
-                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Effective Due</th>
-                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider">Description</th>
-                                                <th className="px-4 py-2.5 font-bold uppercase text-gray-500 tracking-wider text-right">Late Fee (₹)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {lateFeeForm.termMappings.map((term, idx) => {
-                                                const mode = term.dueDateMode === 'fixed' ? 'fixed' : 'offset';
-                                                const sDate = mode === 'offset'
-                                                    ? findCalendarDate({ studentYear: lateFeeForm.studentYear, semester: (term.referenceSemester || 1), dueEventType: 'START_DATE' })
-                                                    : null;
-                                                let effectiveDue = null;
-                                                if (mode === 'fixed' && term.fixedDueDate) {
-                                                    effectiveDue = String(term.fixedDueDate).slice(0, 10);
-                                                } else if (mode === 'offset' && sDate) {
-                                                    const d = new Date(sDate);
-                                                    if (!Number.isNaN(d.getTime())) {
-                                                        d.setDate(d.getDate() + (term.dueOffsetDays || 0));
-                                                        effectiveDue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                                                    }
-                                                }
-                                                const formatDisplay = (iso) => {
-                                                    if (!iso) return '—';
-                                                    const [y, m, d] = iso.split('-');
-                                                    return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-                                                };
+                                        {/* Default Terms Setup */}
+                                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="font-bold text-gray-800 text-xs">Configure Installment Terms Timing</h3>
+                                                {editingDefaultConfigId && (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-full">
+                                                        <Pencil size={9} /> Editing Default Config
+                                                    </span>
+                                                )}
+                                            </div>
 
-                                                return (
-                                                    <tr key={idx} className="align-top hover:bg-gray-50/50">
-                                                        <td className="px-4 py-3 whitespace-nowrap">
-                                                            <div className="font-bold text-gray-800">Term {term.termNumber}</div>
-                                                            <div className="text-[10px] text-gray-400 font-mono">₹{Number(term.amount || 0).toLocaleString()}</div>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden bg-white">
-                                                                <button
-                                                                    type="button"
-                                                                    className={`px-2.5 py-1.5 text-[10px] font-bold transition ${mode === 'offset' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
-                                                                    onClick={() => {
-                                                                        const newTerms = [...lateFeeForm.termMappings];
-                                                                        newTerms[idx] = { ...newTerms[idx], dueDateMode: 'offset', fixedDueDate: '' };
-                                                                        setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
-                                                                    }}
-                                                                >
-                                                                    Semester Offset
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    className={`px-2.5 py-1.5 text-[10px] font-bold transition border-l border-gray-200 ${mode === 'fixed' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
-                                                                    onClick={() => {
-                                                                        const newTerms = [...lateFeeForm.termMappings];
-                                                                        newTerms[idx] = { ...newTerms[idx], dueDateMode: 'fixed', referenceSemester: '', dueOffsetDays: 0 };
-                                                                        setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
-                                                                    }}
-                                                                >
-                                                                    Fixed Date
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-3 min-w-[220px]">
-                                                            {mode === 'offset' ? (
-                                                                <div className="space-y-2">
+                                            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
+                                                {(defaultConfigForm.terms || []).map((term, idx) => (
+                                                    <div key={idx} className="p-3 bg-gray-50/50 rounded-lg border border-gray-100 space-y-2 relative">
+                                                        <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                                                            <span>Term {term.termNumber} Timing</span>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[9px] text-gray-400 font-semibold block">Due Mode</label>
+                                                            <select
+                                                                className="w-full border border-gray-200 rounded bg-white p-1 text-[11px]"
+                                                                value={term.dueDateMode}
+                                                                onChange={e => {
+                                                                    const nTerms = [...defaultConfigForm.terms];
+                                                                    nTerms[idx].dueDateMode = e.target.value;
+                                                                    setDefaultConfigForm({ ...defaultConfigForm, terms: nTerms });
+                                                                }}
+                                                            >
+                                                                <option value="offset">Sem Offset</option>
+                                                                <option value="fixed">Fixed Date</option>
+                                                            </select>
+                                                        </div>
+
+                                                        {term.dueDateMode === 'offset' ? (
+                                                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                                                <div>
+                                                                    <label className="text-[9px] text-gray-400 font-semibold block">Ref Semester</label>
                                                                     <select
-                                                                        className="w-full border border-gray-200 rounded-lg p-1.5 text-xs font-medium bg-white outline-none focus:border-blue-300"
-                                                                        value={term.referenceSemester || ''}
+                                                                        className="w-full border border-gray-200 rounded bg-white p-1 text-[11px]"
+                                                                        value={term.referenceSemester || 1}
                                                                         onChange={e => {
-                                                                            const newTerms = [...lateFeeForm.termMappings];
-                                                                            newTerms[idx].referenceSemester = Number(e.target.value);
-                                                                            newTerms[idx].dueDateMode = 'offset';
-                                                                            setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                                            const nTerms = [...defaultConfigForm.terms];
+                                                                            nTerms[idx].referenceSemester = Number(e.target.value);
+                                                                            setDefaultConfigForm({ ...defaultConfigForm, terms: nTerms });
                                                                         }}
                                                                     >
-                                                                        <option value="">Ref Semester...</option>
-                                                                        <option value="1">Semester 1 start</option>
-                                                                        <option value="2">Semester 2 start</option>
+                                                                        <option value={1}>Semester 1 Start</option>
+                                                                        <option value={2}>Semester 2 Start</option>
                                                                     </select>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <input
-                                                                            type="number"
-                                                                            className="w-20 border border-gray-200 rounded-lg p-1.5 text-xs font-bold outline-none focus:border-blue-300"
-                                                                            value={term.dueOffsetDays || 0}
-                                                                            onChange={e => {
-                                                                                const newTerms = [...lateFeeForm.termMappings];
-                                                                                newTerms[idx].dueOffsetDays = Number(e.target.value);
-                                                                                newTerms[idx].dueDateMode = 'offset';
-                                                                                setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
-                                                                            }}
-                                                                        />
-                                                                        <span className="text-[10px] text-gray-500">days after start</span>
-                                                                    </div>
-                                                                    {term.referenceSemester && !sDate && (
-                                                                        <p className="text-[9px] text-orange-600 font-bold">Semester dates missing in calendar</p>
-                                                                    )}
                                                                 </div>
-                                                            ) : (
                                                                 <div>
+                                                                    <label className="text-[9px] text-gray-400 font-semibold block">Offset Days</label>
                                                                     <input
-                                                                        type="date"
-                                                                        className="w-full border border-gray-200 rounded-lg p-1.5 text-xs font-bold outline-none focus:border-blue-300 bg-white"
-                                                                        value={term.fixedDueDate ? String(term.fixedDueDate).slice(0, 10) : ''}
+                                                                        type="number"
+                                                                        className="w-full border border-gray-200 rounded px-1.5 py-1 text-[11px]"
+                                                                        value={term.dueOffsetDays}
                                                                         onChange={e => {
-                                                                            const newTerms = [...lateFeeForm.termMappings];
-                                                                            newTerms[idx].fixedDueDate = e.target.value;
-                                                                            newTerms[idx].dueDateMode = 'fixed';
-                                                                            setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                                            const nTerms = [...defaultConfigForm.terms];
+                                                                            nTerms[idx].dueOffsetDays = Number(e.target.value);
+                                                                            setDefaultConfigForm({ ...defaultConfigForm, terms: nTerms });
                                                                         }}
                                                                     />
-                                                                    <p className="text-[9px] text-gray-400 mt-1">Demand applies after this date</p>
                                                                 </div>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 whitespace-nowrap">
-                                                            <span className={`font-bold font-mono ${effectiveDue ? 'text-emerald-700' : 'text-gray-400'}`}>
-                                                                {formatDisplay(effectiveDue)}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <input
-                                                                type="text"
-                                                                placeholder="e.g. Term 1 due"
-                                                                className="w-full min-w-[140px] border border-gray-200 rounded-lg p-1.5 text-xs outline-none focus:border-blue-300"
-                                                                value={term.dueDescription || ''}
-                                                                onChange={e => {
-                                                                    const newTerms = [...lateFeeForm.termMappings];
-                                                                    newTerms[idx].dueDescription = e.target.value;
-                                                                    setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
-                                                                }}
-                                                            />
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            <div className="relative inline-block">
-                                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
+                                                            </div>
+                                                        ) : (
+                                                            <div>
+                                                                <label className="text-[9px] text-gray-400 font-semibold block">Fixed Date</label>
                                                                 <input
-                                                                    type="number"
-                                                                    className="w-28 border border-gray-200 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-800 outline-none focus:border-blue-300 text-right"
-                                                                    value={term.lateFeeAmount || 0}
+                                                                    type="date"
+                                                                    className="w-full border border-gray-200 rounded px-1.5 py-1 text-[11px]"
+                                                                    value={term.fixedDueDate ? String(term.fixedDueDate).slice(0, 10) : ''}
                                                                     onChange={e => {
-                                                                        const newTerms = [...lateFeeForm.termMappings];
-                                                                        newTerms[idx].lateFeeAmount = Number(e.target.value);
-                                                                        setLateFeeForm({ ...lateFeeForm, termMappings: newTerms });
+                                                                        const nTerms = [...defaultConfigForm.terms];
+                                                                        nTerms[idx].fixedDueDate = e.target.value;
+                                                                        setDefaultConfigForm({ ...defaultConfigForm, terms: nTerms });
                                                                     }}
                                                                 />
                                                             </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                                        )}
+                                                        <div>
+                                                            <label className="text-[9px] text-gray-400 font-semibold block">Description</label>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="e.g. Term 1 penalty"
+                                                                className="w-full border border-gray-200 rounded px-1.5 py-1 text-[11px]"
+                                                                value={term.dueDescription || ''}
+                                                                onChange={e => {
+                                                                    const nTerms = [...defaultConfigForm.terms];
+                                                                    nTerms[idx].dueDescription = e.target.value;
+                                                                    setDefaultConfigForm({ ...defaultConfigForm, terms: nTerms });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
 
-                                <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/30">
-                                    <button
-                                        className="bg-white border border-gray-200 text-gray-600 px-5 py-2 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all shadow-sm"
-                                        onClick={() => {
-                                            setLateFeeForm({ ...lateFeeForm, feeHead: '', lateFeeHead: '', termMappings: [], _id: null });
-                                        }}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 group disabled:bg-gray-400 disabled:shadow-none"
-                                        disabled={isSavingLateFee}
-                                        onClick={async () => {
-                                            if (!lateFeeForm._id) return alert("No structure selected");
-                                            const hasLateFeeAmount = lateFeeForm.termMappings.some(t => Number(t.lateFeeAmount) > 0);
-                                            if (hasLateFeeAmount && !lateFeeForm.lateFeeHead) {
-                                                return alert("Please select the fee head under which late fees should be added");
-                                            }
-                                            for (const t of lateFeeForm.termMappings) {
-                                                if (Number(t.lateFeeAmount) <= 0) continue;
-                                                const mode = t.dueDateMode === 'fixed' ? 'fixed' : 'offset';
-                                                if (mode === 'fixed' && !t.fixedDueDate) {
-                                                    return alert(`Term ${t.termNumber}: set a fixed due date`);
-                                                }
-                                                if (mode === 'offset' && !t.referenceSemester) {
-                                                    return alert(`Term ${t.termNumber}: select a reference semester`);
-                                                }
-                                            }
-                                            setIsSavingLateFee(true);
-                                            try {
-                                                const originalStruct = structures.find(s => s._id === lateFeeForm._id);
-                                                if (originalStruct) {
-                                                    const payload = {
-                                                        ...originalStruct,
-                                                        feeHead: originalStruct.feeHead?._id || originalStruct.feeHead,
-                                                        lateFeeHead: lateFeeForm.lateFeeHead || null,
-                                                        terms: lateFeeForm.termMappings.map(t => ({
-                                                            ...t,
-                                                            dueDateMode: t.dueDateMode === 'fixed' ? 'fixed' : 'offset',
-                                                            fixedDueDate: t.dueDateMode === 'fixed' && t.fixedDueDate
-                                                                ? String(t.fixedDueDate).slice(0, 10)
-                                                                : null,
-                                                            referenceSemester: t.dueDateMode === 'fixed' ? undefined : t.referenceSemester,
-                                                            dueOffsetDays: t.dueDateMode === 'fixed' ? 0 : (t.dueOffsetDays || 0)
-                                                        }))
-                                                    };
-                                                    await api.put(`/fee-structures/${lateFeeForm._id}`, payload);
-                                                }
-                                                setMessage("Late Fee Configuration Updated Successfully!");
-                                                await fetchStructures();
-                                                setLateFeeSubTab('view');
-                                                setTimeout(() => setMessage(''), 3000);
-                                            } catch (e) { alert("Update failed"); }
-                                            finally { setIsSavingLateFee(false); }
-                                        }}
-                                    >
-                                        {isSavingLateFee ? 'Saving Changes...' : 'Save Configuration'}
-                                        <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                                    </button>
+                                            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                                                <button
+                                                    type="button"
+                                                    className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-lg font-bold text-xs hover:bg-gray-50 transition"
+                                                    onClick={() => {
+                                                        setEditingDefaultConfigId(null);
+                                                        setDefaultConfigForm({
+                                                            termsCount: 3,
+                                                            lateFeeHead: '',
+                                                            terms: [
+                                                                { termNumber: 1, dueDateMode: 'offset', referenceSemester: 1, dueOffsetDays: 15, fixedDueDate: '', dueDescription: 'Term 1 Late Fee' },
+                                                                { termNumber: 2, dueDateMode: 'offset', referenceSemester: 2, dueOffsetDays: 15, fixedDueDate: '', dueDescription: 'Term 2 Late Fee' },
+                                                                { termNumber: 3, dueDateMode: 'offset', referenceSemester: 2, dueOffsetDays: 60, fixedDueDate: '', dueDescription: 'Term 3 Late Fee' }
+                                                            ]
+                                                        });
+                                                    }}
+                                                >
+                                                    Clear / Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={isSavingDefaultConfig}
+                                                    onClick={async () => {
+                                                        if (!defaultConfigForm.termsCount || !defaultConfigForm.lateFeeHead) {
+                                                            return alert("Please select both the terms count and late fee demand head.");
+                                                        }
+                                                        setIsSavingDefaultConfig(true);
+                                                        try {
+                                                            const payload = {
+                                                                ...defaultConfigForm,
+                                                                _id: editingDefaultConfigId
+                                                            };
+                                                            await api.post('/late-fees/default-config', payload);
+                                                            setMessage(editingDefaultConfigId ? "Default Configuration Updated Successfully!" : "Default Configuration Created Successfully!");
+                                                            setEditingDefaultConfigId(null);
+                                                            setDefaultConfigForm({
+                                                                termsCount: 3,
+                                                                lateFeeHead: '',
+                                                                terms: [
+                                                                    { termNumber: 1, dueDateMode: 'offset', referenceSemester: 1, dueOffsetDays: 15, fixedDueDate: '', dueDescription: 'Term 1 Late Fee' },
+                                                                    { termNumber: 2, dueDateMode: 'offset', referenceSemester: 2, dueOffsetDays: 15, fixedDueDate: '', dueDescription: 'Term 2 Late Fee' },
+                                                                    { termNumber: 3, dueDateMode: 'offset', referenceSemester: 2, dueOffsetDays: 60, fixedDueDate: '', dueDescription: 'Term 3 Late Fee' }
+                                                                ]
+                                                            });
+                                                            await fetchDefaultConfigs();
+                                                            setTimeout(() => setMessage(''), 3000);
+                                                        } catch (err) {
+                                                            alert(err.response?.data?.message || "Failed to save configuration");
+                                                        } finally {
+                                                            setIsSavingDefaultConfig(false);
+                                                        }
+                                                    }}
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-xs transition shadow-md shadow-blue-200 disabled:bg-gray-400"
+                                                >
+                                                    {isSavingDefaultConfig ? 'Saving...' : 'Save Rule'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* List Section */}
+                                    <div className="lg:col-span-7 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden h-fit">
+                                        <div className="px-5 py-4 border-b border-gray-100">
+                                            <h3 className="font-bold text-gray-800">Default Late Fee Fallback Rules</h3>
+                                            <p className="text-xs text-gray-500 mt-0.5">Rules configured to apply automatically to fee structures matching these criteria.</p>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs border-collapse">
+                                                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                                                     <tr>
+                                                         <th className="p-3">Terms Count</th>
+                                                         <th className="p-3">Late Fee Head</th>
+                                                         <th className="p-3">Terms Map</th>
+                                                         <th className="p-3 text-right">Actions</th>
+                                                     </tr>
+                                                 </thead>
+                                                 <tbody className="divide-y divide-gray-100">
+                                                     {defaultConfigs.length === 0 ? (
+                                                         <tr>
+                                                             <td colSpan="4" className="px-6 py-12 text-center text-gray-400">
+                                                                 <AlertTriangle size={24} className="mx-auto mb-2 text-gray-300" />
+                                                                 <p className="font-medium text-xs">No default configurations found</p>
+                                                                 <p className="text-[10px] mt-0.5">Configure one using the form on the left</p>
+                                                             </td>
+                                                         </tr>
+                                                     ) : (
+                                                         defaultConfigs.map(cfg => (
+                                                             <tr key={cfg._id} className="hover:bg-gray-50/50">
+                                                                 <td className="p-3 font-bold text-gray-800">
+                                                                     {cfg.termsCount} Terms Config
+                                                                 </td>
+                                                                 <td className="p-3 font-semibold text-blue-700">
+                                                                     {cfg.lateFeeHead?.name || '—'}
+                                                                 </td>
+                                                                 <td className="p-3">
+                                                                     <div className="flex flex-wrap gap-1">
+                                                                         {(cfg.terms || []).map(t => (
+                                                                             <span key={t.termNumber} className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-bold text-[9px]">
+                                                                                 T{t.termNumber}: {t.dueDateMode === 'fixed' ? 'Fixed' : `${t.dueOffsetDays}d offset`}
+                                                                             </span>
+                                                                         ))}
+                                                                     </div>
+                                                                 </td>
+                                                                 <td className="p-3 text-right whitespace-nowrap">
+                                                                     <div className="inline-flex items-center gap-1.5">
+                                                                         <button
+                                                                             type="button"
+                                                                             className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-lg transition"
+                                                                             title="Edit Rule"
+                                                                             onClick={() => {
+                                                                                 setEditingDefaultConfigId(cfg._id);
+                                                                                 setDefaultConfigForm({
+                                                                                     termsCount: cfg.termsCount || (cfg.terms ? cfg.terms.length : 3),
+                                                                                     lateFeeHead: cfg.lateFeeHead?._id || cfg.lateFeeHead || '',
+                                                                                     terms: cfg.terms || []
+                                                                                 });
+                                                                             }}
+                                                                         >
+                                                                             <Pencil size={13} />
+                                                                         </button>
+                                                                         <button
+                                                                             type="button"
+                                                                             className="text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition"
+                                                                             title="Delete Rule"
+                                                                             onClick={() => handleDeleteDefaultConfig(cfg._id)}
+                                                                         >
+                                                                             <Trash2 size={13} />
+                                                                         </button>
+                                                                     </div>
+                                                                 </td>
+                                                             </tr>
+                                                         ))
+                                                     )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        )}
-
-                        {lateFeeForm._id && lateFeeForm.termMappings.length === 0 && (
-                            <div className="bg-white p-16 rounded-2xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-center">
-                                <div className="w-14 h-14 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-3">
-                                    <AlertTriangle size={28} />
-                                </div>
-                                <h3 className="text-base font-bold text-amber-700">Structure is Not Divided into Terms</h3>
-                                <p className="text-gray-500 text-sm max-w-sm mt-1">
-                                    Late fees need term-divided structures. Edit this structure under Fee Structures (Definitions) and set term counts first.
-                                </p>
-                            </div>
-                        )}
-                        </>
                         )}
                     </div>
                 )}

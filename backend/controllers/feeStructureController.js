@@ -3,6 +3,7 @@ const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
+const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const db = require('../config/sqlDb');
 const { syncClubFees, syncTransportFees, syncStandardFees } = require('../services/studentFeeSyncService');
 const {
@@ -96,11 +97,8 @@ const applyFeeStructureToBatchInternal = async (structure) => {
 
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
-// @desc    Create/Update Fee Structure (Single or Bulk)
-// @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
   const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
-  // yearAmounts logic removed for simplifying Semester implementation as per requirement.
 
   try {
     // Basic Validation
@@ -117,6 +115,31 @@ const createFeeStructure = async (req, res) => {
     } else {
       return res.status(400).json({ message: 'Category is required' });
     }
+
+    // Automatically check and apply default late fee configuration if available
+    const rawTerms = (isTermsDivided && Array.isArray(terms) && terms.length > 0)
+      ? terms
+      : [{ termNumber: 1, percentage: 100, amount: Number(amount) }];
+    const termsCount = rawTerms.length;
+
+    const defaultConfig = await DefaultLateFeeConfig.findOne({ termsCount, isActive: true });
+
+    let autoLateFeeHead = req.body.lateFeeHead || null;
+    if (!autoLateFeeHead && defaultConfig && defaultConfig.lateFeeHead) {
+      autoLateFeeHead = defaultConfig.lateFeeHead;
+    }
+
+    const processedTerms = rawTerms.map(t => {
+      const dTerm = defaultConfig?.terms?.find(dt => Number(dt.termNumber) === Number(t.termNumber));
+      return {
+        ...t,
+        dueDateMode: t.dueDateMode || (dTerm ? dTerm.dueDateMode : 'offset'),
+        referenceSemester: t.referenceSemester !== undefined ? t.referenceSemester : (dTerm ? dTerm.referenceSemester : undefined),
+        dueOffsetDays: (t.dueOffsetDays !== undefined && t.dueOffsetDays !== 0) ? t.dueOffsetDays : (dTerm ? dTerm.dueOffsetDays : 0),
+        fixedDueDate: t.fixedDueDate || (dTerm ? dTerm.fixedDueDate : undefined),
+        dueDescription: t.dueDescription || (dTerm ? dTerm.dueDescription : '')
+      };
+    });
 
     const results = [];
     const errors = [];
@@ -145,8 +168,9 @@ const createFeeStructure = async (req, res) => {
             description,
             isScholarshipApplicable: isScholarshipApplicable || false,
             isTermsDivided: isTermsDivided || false,
-            terms: (isTermsDivided && terms) ? terms : [],
-            semester: sem // Explicitly set/update semester in document to match index
+            terms: processedTerms,
+            semester: sem, // Explicitly set/update semester in document to match index
+            ...(autoLateFeeHead ? { lateFeeHead: autoLateFeeHead } : {})
           }
         };
 
