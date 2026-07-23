@@ -1994,7 +1994,7 @@ const FeeConfiguration = () => {
                                                                                                                                      {terms.map(t => (
                                                                                                                                          <div key={t.termNumber} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
                                                                                                                                              <span className="text-[9px] text-gray-500 font-bold">T{t.termNumber}</span>
-                                                                                                                                             <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount.toLocaleString('en-IN')}</span>
+                                                                                                                                             <span className="text-[10px] font-bold text-blue-600 font-mono">₹{t.amount !== undefined && t.amount !== null ? Number(t.amount).toLocaleString('en-IN') : '0'}</span>
                                                                                                                                          </div>
                                                                                                                                      ))}
                                                                                                                                  </div>
