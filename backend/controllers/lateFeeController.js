@@ -275,26 +275,29 @@ const processLateFees = async (req, res) => {
             });
             const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-            if (totalPaid < requiredAmount) {
-              const remarks = `Late Fee: ${struct.feeHead.name} - Term ${term.termNumber}${term.dueDescription ? ` (${term.dueDescription})` : ''}`;
+            const remarks = `Late Fee: ${struct.feeHead.name} - Term ${term.termNumber}${term.dueDescription ? ` (${term.dueDescription})` : ''}`;
 
-              // Check if already applied using structureId and termNumber
-              let existingLateFee = await StudentFee.findOne({
+            // Check if already applied using structureId and termNumber
+            let existingLateFee = await StudentFee.findOne({
+              studentId: student.admission_number,
+              feeHead: demandHead._id,
+              studentYear: struct.studentYear,
+              semester: struct.semester,
+              structureId: struct._id,
+              termNumber: term.termNumber
+            });
+            if (!existingLateFee) {
+              existingLateFee = await StudentFee.findOne({
                 studentId: student.admission_number,
                 feeHead: demandHead._id,
-                studentYear: struct.studentYear,
-                semester: struct.semester,
-                structureId: struct._id,
-                termNumber: term.termNumber
+                remarks: remarks
               });
-              if (!existingLateFee) {
-                existingLateFee = await StudentFee.findOne({
-                  studentId: student.admission_number,
-                  feeHead: demandHead._id,
-                  remarks: remarks
-                });
-              }
+            }
 
+            const isOverdue = dueDate && (today > dueDate);
+            const isUnderpaid = totalPaid < requiredAmount;
+
+            if (isOverdue && isUnderpaid) {
               if (!existingLateFee) {
                 await StudentFee.create({
                   studentId: student.admission_number,
@@ -313,6 +316,24 @@ const processLateFees = async (req, res) => {
                   stud_type: student.stud_type
                 });
                 results.push({ student: student.admission_number, status: 'Generated', amount: term.lateFeeAmount });
+              }
+            } else {
+              // Date mismatch (not overdue anymore) OR main fee fully paid!
+              // Remove previously generated unpaid late fee demand if present
+              if (existingLateFee) {
+                const lateFeePaidTxns = await Transaction.find({
+                  studentId: student.admission_number,
+                  feeHead: demandHead._id,
+                  studentYear: struct.studentYear,
+                  semester: struct.semester,
+                  status: { $ne: 'cancelled' }
+                });
+                const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
+
+                if (lateFeePaid === 0) {
+                  await StudentFee.findByIdAndDelete(existingLateFee._id);
+                  results.push({ student: student.admission_number, status: 'Removed (Date/Payment Mismatch)', amount: existingLateFee.amount });
+                }
               }
             }
           }
