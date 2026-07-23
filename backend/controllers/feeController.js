@@ -16,7 +16,7 @@ const getFeeHeads = async (req, res) => {
 // @route   POST /api/fee-heads
 // @access  Public (for now)
 const createFeeHead = async (req, res) => {
-  const { name, description, code } = req.body;
+  const { name, description, code, isActive } = req.body;
 
   if (!name) {
     return res.status(400).json({ message: 'Please add a fee head name' });
@@ -39,7 +39,8 @@ const createFeeHead = async (req, res) => {
     const feeHead = await FeeHead.create({
       name,
       description,
-      code
+      code,
+      isActive: isActive !== false
     });
 
     res.status(201).json(feeHead);
@@ -71,7 +72,7 @@ const deleteFeeHead = async (req, res) => {
 // @route   PUT /api/fee-heads/:id
 // @access  Public (for now)
 const updateFeeHead = async (req, res) => {
-  const { name, description, code } = req.body;
+  const { name, description, code, isActive } = req.body;
 
   try {
     const feeHead = await FeeHead.findById(req.params.id);
@@ -81,8 +82,9 @@ const updateFeeHead = async (req, res) => {
     }
 
     if (name) feeHead.name = name;
-    if (description) feeHead.description = description;
-    if (code) feeHead.code = code;
+    if (description !== undefined) feeHead.description = description;
+    if (code !== undefined) feeHead.code = code;
+    if (isActive !== undefined) feeHead.isActive = isActive;
 
     const updatedFeeHead = await feeHead.save();
     res.json(updatedFeeHead);
