@@ -365,11 +365,17 @@ const getStudentFeeDetails = async (req, res) => {
           dueAmount: 0,
           isActive: fee.isActive !== false,
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
+          remarksList: fee.remarks ? [fee.remarks] : [],
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
           isTermsDivided: fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false),
           studentScholarStatus: student ? student.scholar_status : null,
           terms: ((fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)) && matchedStructure) ? matchedStructure.terms : [] // Attach terms ONLY if terms divided!
         };
+      } else {
+        if (fee.remarks && !groupedData[key].remarksList.includes(fee.remarks)) {
+          groupedData[key].remarksList.push(fee.remarks);
+          groupedData[key].remarks = groupedData[key].remarksList.join('\n');
+        }
       }
       groupedData[key].totalAmount += (fee.amount || 0);
     });

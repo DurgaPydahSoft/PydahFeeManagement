@@ -4,6 +4,7 @@ import api from '../lib/api';
 import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, ToggleLeft, ToggleRight, BookOpen, Settings, ArrowRight, CheckCircle2, Info, Clock, Database, AlertCircle, ShieldAlert, Layers } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
+import Swal from 'sweetalert2';
 
 const FeeConfiguration = () => {
     const location = useLocation();
@@ -790,15 +791,36 @@ const FeeConfiguration = () => {
         setSyncingLateFeeId(key);
         try {
             const res = await api.post('/late-fees/process', structureId ? { structureId } : {});
-            const generated = res.data?.generated ?? res.data?.results?.length ?? 0;
-            setMessage(
-                generated > 0
-                    ? `Late fee sync complete: ${generated} demand(s) generated.`
-                    : 'Late fee sync complete: no new demands (already applied, not overdue, or students fully paid).'
-            );
-            setTimeout(() => setMessage(''), 6000);
+            const results = res.data?.results || [];
+            const generatedCount = results.filter(r => r.status === 'Generated').length;
+            const removedCount = results.filter(r => r.status && (r.status.includes('Removed') || r.status.includes('Mismatch'))).length;
+
+            Swal.fire({
+                title: 'Late Fee Sync Completed',
+                html: `
+                    <div style="text-align: left; font-family: sans-serif; font-size: 13px; color: #374151; margin-top: 10px;">
+                        <p style="font-weight: 600; color: #4b5563; margin-bottom: 12px;">Sync summary statistics:</p>
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e5e7eb;">
+                            <span style="font-weight: 500; color: #059669;">✓ Demands Generated:</span>
+                            <span style="font-weight: 800; color: #065f46; font-family: monospace; font-size: 14px;">${generatedCount}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e5e7eb; margin-top: 4px;">
+                            <span style="font-weight: 500; color: #dc2626;">✕ Demands Removed (extended/paid):</span>
+                            <span style="font-weight: 800; color: #991b1b; font-family: monospace; font-size: 14px;">${removedCount}</span>
+                        </div>
+                    </div>
+                `,
+                icon: 'success',
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#2563eb'
+            });
         } catch (e) {
-            alert(e.response?.data?.message || 'Late fee sync failed');
+            Swal.fire({
+                title: 'Sync Failed',
+                text: e.response?.data?.message || 'Late fee sync execution encountered an error.',
+                icon: 'error',
+                confirmButtonColor: '#ef4444'
+            });
         } finally {
             setSyncingLateFeeId(null);
         }

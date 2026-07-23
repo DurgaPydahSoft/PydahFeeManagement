@@ -242,98 +242,119 @@ const processLateFees = async (req, res) => {
 
         if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
 
-        if (today > dueDate) {
-          // TERM IS OVERDUE!
-          console.log(`Processing Overdue Term ${term.termNumber} for ${struct.course} - ${struct.category} - Batch ${struct.batch}`);
-          
-          // Fetch Students matching the context
-          const studentQuery = `
-            SELECT admission_number, student_name, college, course, branch, batch, stud_type
-            FROM students
-            WHERE college = ? AND course = ? AND branch = ? AND batch = ? 
-            AND current_year = ?
-            AND stud_type = ?
-            AND LOWER(student_status) = 'regular'
-          `;
-          const [students] = await db.query(studentQuery, [
-            struct.college, struct.course, struct.branch, struct.batch, 
-            struct.studentYear, struct.category
-          ]);
+        // Fetch Students matching the context
+        const studentQuery = `
+          SELECT admission_number, student_name, college, course, branch, batch, stud_type
+          FROM students
+          WHERE college = ? AND course = ? AND branch = ? AND batch = ? 
+          AND current_year = ?
+          AND stud_type = ?
+          AND LOWER(student_status) = 'regular'
+        `;
+        const [students] = await db.query(studentQuery, [
+          struct.college, struct.course, struct.branch, struct.batch, 
+          struct.studentYear, struct.category
+        ]);
 
-          for (const student of students) {
-            // Check required amount up to this term
-            const relevantTerms = activeTerms.filter(t => t.termNumber <= term.termNumber);
-            const requiredAmount = relevantTerms.reduce((sum, t) => sum + t.amount, 0);
+        for (const student of students) {
+          // Check required amount up to this term
+          const relevantTerms = activeTerms.filter(t => t.termNumber <= term.termNumber);
+          const requiredAmount = relevantTerms.reduce((sum, t) => sum + t.amount, 0);
 
-            // Fetch total paid for this head/year/sem
-            const paidTransactions = await Transaction.find({
-              studentId: student.admission_number,
-              feeHead: struct.feeHead._id,
-              studentYear: struct.studentYear,
-              semester: struct.semester,
-              status: { $ne: 'cancelled' }
-            });
-            const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
+          // Fetch total paid for this head/year/sem
+          const paidTransactions = await Transaction.find({
+            studentId: student.admission_number,
+            feeHead: struct.feeHead._id,
+            studentYear: struct.studentYear,
+            semester: struct.semester,
+            status: { $ne: 'cancelled' }
+          });
+          const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-            const remarks = `Late Fee: ${struct.feeHead.name} - Term ${term.termNumber}${term.dueDescription ? ` (${term.dueDescription})` : ''}`;
+          const remarks = `${struct.feeHead.name} - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
 
-            // Check if already applied using structureId and termNumber
-            let existingLateFee = await StudentFee.findOne({
+          // Check if already applied using structureId and termNumber
+          let existingLateFee = await StudentFee.findOne({
+            studentId: student.admission_number,
+            feeHead: demandHead._id,
+            studentYear: struct.studentYear,
+            semester: struct.semester,
+            structureId: struct._id,
+            termNumber: term.termNumber
+          });
+          if (!existingLateFee) {
+            existingLateFee = await StudentFee.findOne({
               studentId: student.admission_number,
               feeHead: demandHead._id,
-              studentYear: struct.studentYear,
-              semester: struct.semester,
-              structureId: struct._id,
-              termNumber: term.termNumber
+              remarks: remarks
             });
+          }
+
+          const isOverdue = dueDate && (today > dueDate);
+          const isUnderpaid = totalPaid < requiredAmount;
+
+          if (isOverdue && isUnderpaid) {
             if (!existingLateFee) {
-              existingLateFee = await StudentFee.findOne({
+              await StudentFee.create({
+                studentId: student.admission_number,
+                studentName: student.student_name,
+                feeHead: demandHead._id,
+                structureId: struct._id,
+                termNumber: term.termNumber,
+                college: student.college,
+                course: student.course,
+                branch: student.branch,
+                academicYear: student.batch,
+                studentYear: struct.studentYear,
+                semester: struct.semester,
+                amount: term.lateFeeAmount,
+                remarks: remarks,
+                stud_type: student.stud_type
+              });
+              results.push({ student: student.admission_number, status: 'Generated', amount: term.lateFeeAmount });
+            } else {
+              // If it already exists but is unpaid, sync updated details/remarks and amount!
+              const lateFeePaidTxns = await Transaction.find({
                 studentId: student.admission_number,
                 feeHead: demandHead._id,
-                remarks: remarks
+                studentYear: struct.studentYear,
+                semester: struct.semester,
+                status: { $ne: 'cancelled' }
               });
-            }
+              const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
 
-            const isOverdue = dueDate && (today > dueDate);
-            const isUnderpaid = totalPaid < requiredAmount;
-
-            if (isOverdue && isUnderpaid) {
-              if (!existingLateFee) {
-                await StudentFee.create({
-                  studentId: student.admission_number,
-                  studentName: student.student_name,
-                  feeHead: demandHead._id,
-                  structureId: struct._id,
-                  termNumber: term.termNumber,
-                  college: student.college,
-                  course: student.course,
-                  branch: student.branch,
-                  academicYear: student.batch,
-                  studentYear: struct.studentYear,
-                  semester: struct.semester,
-                  amount: term.lateFeeAmount,
-                  remarks: remarks,
-                  stud_type: student.stud_type
-                });
-                results.push({ student: student.admission_number, status: 'Generated', amount: term.lateFeeAmount });
-              }
-            } else {
-              // Date mismatch (not overdue anymore) OR main fee fully paid!
-              // Remove previously generated unpaid late fee demand if present
-              if (existingLateFee) {
-                const lateFeePaidTxns = await Transaction.find({
-                  studentId: student.admission_number,
-                  feeHead: demandHead._id,
-                  studentYear: struct.studentYear,
-                  semester: struct.semester,
-                  status: { $ne: 'cancelled' }
-                });
-                const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
-
-                if (lateFeePaid === 0) {
-                  await StudentFee.findByIdAndDelete(existingLateFee._id);
-                  results.push({ student: student.admission_number, status: 'Removed (Date/Payment Mismatch)', amount: existingLateFee.amount });
+              if (lateFeePaid === 0) {
+                let updated = false;
+                if (existingLateFee.remarks !== remarks) {
+                  existingLateFee.remarks = remarks;
+                  updated = true;
                 }
+                if (existingLateFee.amount !== term.lateFeeAmount) {
+                  existingLateFee.amount = term.lateFeeAmount;
+                  updated = true;
+                }
+                if (updated) {
+                  await existingLateFee.save();
+                  results.push({ student: student.admission_number, status: 'Updated Details/Amount', amount: term.lateFeeAmount });
+                }
+              }
+            }
+          } else {
+            // Date mismatch (not overdue anymore / future date) OR main fee fully paid!
+            // Remove previously generated unpaid late fee demand if present
+            if (existingLateFee) {
+              const lateFeePaidTxns = await Transaction.find({
+                studentId: student.admission_number,
+                feeHead: demandHead._id,
+                studentYear: struct.studentYear,
+                semester: struct.semester,
+                status: { $ne: 'cancelled' }
+              });
+              const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
+
+              if (lateFeePaid === 0) {
+                await StudentFee.findByIdAndDelete(existingLateFee._id);
+                results.push({ student: student.admission_number, status: 'Removed (Date/Payment Mismatch)', amount: existingLateFee.amount });
               }
             }
           }

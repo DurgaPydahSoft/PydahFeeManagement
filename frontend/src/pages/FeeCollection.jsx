@@ -1405,7 +1405,8 @@ const FeeCollection = () => {
                                                                 </tr>
                                                                 {hasDetails && isExpanded && (
                                                                     <tr className="bg-blue-50/40 border-b border-blue-100/60">
-                                                                        <td colSpan={detailColSpan} className="py-2 px-4">
+                                                                        <td className="py-2 px-3"></td>
+                                                                        <td colSpan={detailColSpan - 1} className="py-2 px-4">
                                                                             <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Details</div>
                                                                             <div className="text-[11px] text-gray-700 leading-relaxed whitespace-pre-wrap">
                                                                                 {fee.remarks}
