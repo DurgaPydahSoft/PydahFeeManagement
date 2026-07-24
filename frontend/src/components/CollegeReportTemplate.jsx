@@ -84,8 +84,9 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             if (isCash) courseEntry.cashAmt += amount;
             else courseEntry.bankAmt += amount;
 
-            if (!courseEntry.cashiers[username]) {
-                courseEntry.cashiers[username] = {
+            const cashierKey = String(empNo || username).trim().toLowerCase();
+            if (!courseEntry.cashiers[cashierKey]) {
+                courseEntry.cashiers[cashierKey] = {
                     username,
                     name: cashierName,
                     empNo,
@@ -96,7 +97,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     feeHeads: {}
                 };
             }
-            const cashierEntry = courseEntry.cashiers[username];
+            const cashierEntry = courseEntry.cashiers[cashierKey];
             cashierEntry.count++;
             cashierEntry.netTotal += amount;
             if (isCash) cashierEntry.cashAmt += amount;
@@ -509,8 +510,10 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 const amount = tx.amount || 0;
                 const isCash = tx.paymentMode === 'Cash';
 
-                if (!globalCashierData[cashierUsername]) {
-                    globalCashierData[cashierUsername] = {
+                const cashierKey = String(empNo || cashierUsername).trim().toLowerCase();
+
+                if (!globalCashierData[cashierKey]) {
+                    globalCashierData[cashierKey] = {
                         username: cashierName,
                         empNo: empNo,
                         receiptsCount: 0,
@@ -520,7 +523,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                         netTotal: 0
                     };
                 }
-                const cashierEntry = globalCashierData[cashierUsername];
+                const cashierEntry = globalCashierData[cashierKey];
                 cashierEntry.receiptsCount++;
                 if (tx.transactionType === 'DEBIT') {
                     cashierEntry.netTotal += amount;
@@ -571,23 +574,27 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             return true;
         });
 
-        const cashAmt = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const bankAmt = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const concessionAmt = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const totalDebit = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        // Exclude cancelled transactions for totals and user mapping in this college
+        const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
+
+        const cashAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const bankAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const concessionAmt = activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const totalDebit = activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
 
         // User-wise breakdown within this college
         const usersMap = {};
-        filteredTransactions.forEach(tx => {
-            if (tx.status === 'cancelled') return;
+        activeTransactions.forEach(tx => {
             const username = tx.collectedBy || 'Unknown';
             const displayName = tx.collectedByName || tx.collectedBy || 'Unknown';
             const empNo = tx.empNo || username;
             const amount = tx.amount || 0;
             const isCash = tx.paymentMode === 'Cash';
 
-            if (!usersMap[username]) {
-                usersMap[username] = {
+            const userKey = String(empNo || username).trim().toLowerCase();
+
+            if (!usersMap[userKey]) {
+                usersMap[userKey] = {
                     username: displayName,
                     empNo,
                     receiptsCount: 0,
@@ -596,7 +603,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                     netTotal: 0
                 };
             }
-            const u = usersMap[username];
+            const u = usersMap[userKey];
             u.receiptsCount += 1;
             if (tx.transactionType === 'DEBIT') {
                 u.netTotal += amount;
@@ -607,7 +614,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
         return {
             collegeName: college._id || 'N/A',
-            receiptsCount: filteredTransactions.length,
+            receiptsCount: activeTransactions.length,
             cashAmt,
             bankAmt,
             concessionAmt,

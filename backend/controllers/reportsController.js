@@ -504,8 +504,9 @@ const getTransactionReports = async (req, res) => {
                 });
 
                 // cashier breakdown inside this college
-                if (!group.cashiersMap[cashierUsername]) {
-                    group.cashiersMap[cashierUsername] = {
+                const cashierKey = String(empNo || cashierUsername).trim().toLowerCase();
+                if (!group.cashiersMap[cashierKey]) {
+                    group.cashiersMap[cashierKey] = {
                         username: cashierUsername,
                         name: cashier,
                         empNo: empNo,
@@ -519,7 +520,7 @@ const getTransactionReports = async (req, res) => {
                 }
 
                 if (!isCancelled) {
-                    const cashierEntry = group.cashiersMap[cashierUsername];
+                    const cashierEntry = group.cashiersMap[cashierKey];
                     cashierEntry.count++;
                     if (isDebit) {
                         cashierEntry.netTotal += amount;
