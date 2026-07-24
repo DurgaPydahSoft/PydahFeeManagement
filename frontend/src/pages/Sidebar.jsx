@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { getStoredUser } from '../lib/auth';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     const location = useLocation();
     const [isCollapsed, setIsCollapsed] = useState(() => {
         return localStorage.getItem('sidebar-collapsed') === 'true';
@@ -136,8 +136,21 @@ const Sidebar = () => {
         acc[section].push(item);
         return acc;
     }, {});
+
     return (
-        <div className={`bg-white h-screen max-h-screen sticky top-0 flex flex-col shadow-lg transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-62'}`}>
+        <>
+            {/* Mobile Backdrop Overlay */}
+            {isOpenMobile && (
+                <div 
+                    className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 md:hidden transition-opacity duration-300"
+                    onClick={onCloseMobile}
+                />
+            )}
+            <div className={`bg-white h-screen max-h-screen flex flex-col shadow-lg transition-all duration-300 overflow-hidden 
+                fixed inset-y-0 left-0 z-50 md:sticky md:top-0 md:z-auto
+                ${isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                ${isCollapsed ? 'w-64 md:w-20' : 'w-64 md:w-62'}
+            `}>
             <div className="bg-gradient-to-br from-blue-700 via-indigo-800 to-indigo-950 p-4 pt-4 pb-7 shrink-0 relative flex flex-col items-center">
                 <div
                     className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : 'justify-center w-full'}`}
@@ -181,12 +194,20 @@ const Sidebar = () => {
                 {!isCollapsed && (
                     <button
                         onClick={toggleCollapsed}
-                        className="absolute top-4 right-4 p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                        className="hidden md:block absolute top-4 right-4 p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
                         title="Collapse Sidebar"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
                     </button>
                 )}
+                {/* Mobile Close Button */}
+                <button
+                    onClick={onCloseMobile}
+                    className="md:hidden absolute top-4 right-4 p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    title="Close Menu"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
             </div>
             
             {/* Main Nav Container: White bg overlapping the header slightly with rounded corners */}
@@ -323,6 +344,7 @@ const Sidebar = () => {
                                     <Link
                                         key={index}
                                         to={item.path}
+                                        onClick={onCloseMobile}
                                         className={`sidebar-link flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                                             isActive
                                                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
@@ -493,6 +515,7 @@ const Sidebar = () => {
                 }
             `}</style>
         </div>
+        </>
     );
 };
 
