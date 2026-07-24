@@ -53,6 +53,10 @@ const feeStructureSchema = mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FeeHead',
   },
+  isGroupWiseLateFee: {
+    type: Boolean,
+    default: false
+  },
   terms: [{
     termNumber: { type: Number, required: true },
     percentage: { type: Number, required: true },

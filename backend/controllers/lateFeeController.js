@@ -111,9 +111,19 @@ const deleteDefaultConfig = async (req, res) => {
 // @desc    Process Late Fees for all active configurations (Custom structures or Default configurations fallback)
 // @route   POST /api/late-fees/process
 const processLateFees = async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  const logFilePath = path.join(__dirname, '../logs/sync_debug.log');
+  let logData = '';
+  const log = (msg) => {
+    console.log(msg);
+    logData += msg + '\n';
+  };
+
   try {
     // Optional: sync a single structure (manual trigger from UI)
     const structureId = req?.body?.structureId || req?.query?.structureId || null;
+    log(`[DEBUG] Starting processLateFees for structureId: ${structureId}`);
 
     // Load active default configurations
     const defaultConfigs = await DefaultLateFeeConfig.find({ isActive: true })
@@ -124,9 +134,27 @@ const processLateFees = async (req, res) => {
       queryFilter._id = structureId;
     }
 
-    const structures = await FeeStructure.find(queryFilter)
+    let structures = await FeeStructure.find(queryFilter)
       .populate('feeHead')
       .populate('lateFeeHead');
+    log(`[DEBUG] Initial structures count: ${structures.length}`);
+
+    // If a single structure is queried, and it is group-wise, load all structures in that group
+    if (structureId && structures.length > 0 && structures[0].isGroupWiseLateFee) {
+      const target = structures[0];
+      log(`[DEBUG] Structure is group-wise. Loading full group context for structure: ${target._id}`);
+      structures = await FeeStructure.find({
+        college: target.college,
+        course: target.course,
+        branch: target.branch,
+        batch: target.batch,
+        category: target.category,
+        studentYear: target.studentYear,
+        semester: target.semester || null,
+        isGroupWiseLateFee: true
+      }).populate('feeHead').populate('lateFeeHead');
+      log(`[DEBUG] Full group structures loaded: ${structures.length}`);
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -134,29 +162,60 @@ const processLateFees = async (req, res) => {
     const results = [];
     let skipped = 0;
 
+    // Group structures by context key if they are group-wise late fees
+    const groups = [];
+    const groupWiseMap = {};
+
     for (const struct of structures) {
-      // Late fee is ONLY applicable if the structure has terms with lateFeeAmount > 0
-      const hasStructureLateFee = Array.isArray(struct.terms) && struct.terms.some(t => Number(t.lateFeeAmount) > 0);
-      
-      if (!hasStructureLateFee) {
-        skipped += 1;
+      if (struct.isGroupWiseLateFee) {
+        const batchKey = String(struct.batch || '').split('-')[0].trim();
+        const contextKey = `${struct.college}|${struct.course}|${struct.branch}|${batchKey}|${struct.category}|${struct.studentYear}|${struct.semester || 'null'}`;
+        if (!groupWiseMap[contextKey]) {
+          groupWiseMap[contextKey] = [];
+          groups.push({
+            isGroupWise: true,
+            structures: groupWiseMap[contextKey]
+          });
+        }
+        groupWiseMap[contextKey].push(struct);
+      } else {
+        groups.push({
+          isGroupWise: false,
+          structures: [struct]
+        });
+      }
+    }
+
+    for (const groupObj of groups) {
+      const { isGroupWise, structures: groupStructs } = groupObj;
+      if (groupStructs.length === 0) continue;
+
+      const firstStruct = groupStructs[0];
+
+      // Late fee is ONLY applicable if at least one structure in the group has terms with lateFeeAmount > 0
+      const hasLateFee = groupStructs.some(struct => 
+        Array.isArray(struct.terms) && struct.terms.some(t => Number(t.lateFeeAmount) > 0)
+      );
+
+      if (!hasLateFee) {
+        skipped += groupStructs.length;
         continue;
       }
 
       // Find matching default configuration for timing rules
-      const structTermsCount = Array.isArray(struct.terms) ? struct.terms.length : 1;
+      const structTermsCount = Array.isArray(firstStruct.terms) ? firstStruct.terms.length : 1;
       const config = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
 
-      // Resolve demand head from the structure itself, or fall back to default config's lateFeeHead
-      const demandHead = struct.lateFeeHead || (config ? config.lateFeeHead : null);
+      // Resolve demand head from the first structure, or fall back to default config's lateFeeHead
+      const demandHead = firstStruct.lateFeeHead || (config ? config.lateFeeHead : null);
       if (!demandHead) {
-        console.warn(`Skipping structure ${struct._id}: no lateFeeHead configured on structure or default config`);
-        skipped += 1;
+        console.warn(`Skipping group: no lateFeeHead configured on first structure or default config`);
+        skipped += groupStructs.length;
         continue;
       }
 
-      // Map timing parameters from default config onto structure terms
-      const activeTerms = struct.terms.map(st => {
+      // Map timing parameters from default config onto structure terms (using firstStruct as reference)
+      const activeTerms = firstStruct.terms.map(st => {
         // Only terms where lateFeeAmount > 0 are processed for penalties
         if (Number(st.lateFeeAmount) <= 0) {
           return {
@@ -180,7 +239,7 @@ const processLateFees = async (req, res) => {
       });
 
       // semesters.batch stores admission year ("2023"); structure batch may be "2023" or "2023-2027"
-      const batchKey = String(struct.batch || '').split('-')[0].trim();
+      const batchKey = String(firstStruct.batch || '').split('-')[0].trim();
       if (!batchKey) continue;
 
       // Match by course + batch + year_of_study (and college when present on the semester row)
@@ -196,10 +255,10 @@ const processLateFees = async (req, res) => {
           AND s.college_id IS NOT NULL
       `;
       const [semesters] = await db.query(query, [
-        struct.course,
+        firstStruct.course,
         batchKey,
-        struct.studentYear,
-        struct.college
+        firstStruct.studentYear,
+        firstStruct.college
       ]);
 
       for (const term of activeTerms) {
@@ -219,7 +278,7 @@ const processLateFees = async (req, res) => {
           dueDate.setHours(0, 0, 0, 0);
         } else {
           // Semester start + offset days
-          const targetSem = term.referenceSemester || struct.semester || 1;
+          const targetSem = term.referenceSemester || firstStruct.semester || 1;
           const semMatch = semesters.find(s =>
             Number(s.semester_number) === Number(targetSem) &&
             s.start_date
@@ -243,6 +302,7 @@ const processLateFees = async (req, res) => {
         if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
 
         // Fetch Students matching the context
+        log(`[DEBUG] Querying students for term ${term.termNumber} with params: college="${firstStruct.college}", course="${firstStruct.course}", branch="${firstStruct.branch}", batch="${firstStruct.batch}", current_year=${firstStruct.studentYear}, category="${firstStruct.category}"`);
         const studentQuery = `
           SELECT admission_number, student_name, college, course, branch, batch, stud_type
           FROM students
@@ -252,109 +312,173 @@ const processLateFees = async (req, res) => {
           AND LOWER(student_status) = 'regular'
         `;
         const [students] = await db.query(studentQuery, [
-          struct.college, struct.course, struct.branch, struct.batch, 
-          struct.studentYear, struct.category
+          firstStruct.college, firstStruct.course, firstStruct.branch, firstStruct.batch, 
+          firstStruct.studentYear, firstStruct.category
         ]);
+        log(`[DEBUG] Found ${students.length} students matching batch/category query`);
+
+        // Check target student directly
+        const [direct] = await db.query(`
+          SELECT admission_number, student_name, college, course, branch, batch, stud_type, student_status, current_year
+          FROM students
+          WHERE admission_number = ?
+        `, ['20260933']);
+        log(`[DEBUG] Direct target student check: ${JSON.stringify(direct)}`);
 
         for (const student of students) {
-          // Check required amount up to this term
-          const relevantTerms = activeTerms.filter(t => t.termNumber <= term.termNumber);
-          const requiredAmount = relevantTerms.reduce((sum, t) => sum + t.amount, 0);
+          let isUnderpaid = false;
+          let remarks = '';
 
-          // Fetch total paid for this head/year/sem
-          const paidTransactions = await Transaction.find({
-            studentId: student.admission_number,
-            feeHead: struct.feeHead._id,
-            studentYear: struct.studentYear,
-            semester: struct.semester,
-            status: { $ne: 'cancelled' }
-          });
-          const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
+          if (isGroupWise) {
+            let requiredAmount = 0;
+            let totalPaid = 0;
 
-          const remarks = `${struct.feeHead.name} - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
+            for (const struct of groupStructs) {
+              const relevantTerms = struct.terms.filter(t => t.termNumber <= term.termNumber);
+              requiredAmount += relevantTerms.reduce((sum, t) => sum + t.amount, 0);
 
-          // Check if already applied using structureId and termNumber
-          let existingLateFee = await StudentFee.findOne({
-            studentId: student.admission_number,
-            feeHead: demandHead._id,
-            studentYear: struct.studentYear,
-            semester: struct.semester,
-            structureId: struct._id,
-            termNumber: term.termNumber
-          });
-          if (!existingLateFee) {
-            existingLateFee = await StudentFee.findOne({
+              const paidTransactions = await Transaction.find({
+                studentId: student.admission_number,
+                feeHead: struct.feeHead._id,
+                studentYear: struct.studentYear,
+                semester: struct.semester,
+                status: { $ne: 'cancelled' }
+              });
+              totalPaid += paidTransactions.reduce((sum, t) => sum + t.amount, 0);
+            }
+
+            isUnderpaid = totalPaid < requiredAmount;
+            const headNames = groupStructs.map(s => s.feeHead.name).join(', ');
+            remarks = `Group Late Fee (${headNames}) - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
+          } else {
+            // Check required amount up to this term for single structure
+            const relevantTerms = firstStruct.terms.filter(t => t.termNumber <= term.termNumber);
+            const requiredAmount = relevantTerms.reduce((sum, t) => sum + t.amount, 0);
+
+            // Fetch total paid for this head/year/sem
+            const paidTransactions = await Transaction.find({
               studentId: student.admission_number,
-              feeHead: demandHead._id,
-              remarks: remarks
+              feeHead: firstStruct.feeHead._id,
+              studentYear: firstStruct.studentYear,
+              semester: firstStruct.semester,
+              status: { $ne: 'cancelled' }
             });
+            const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
+
+            isUnderpaid = totalPaid < requiredAmount;
+            remarks = `${firstStruct.feeHead.name} - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
           }
 
+          // Fetch all existing late fee records for this student, term, year, sem under the demand head
+          const existingLateFees = await StudentFee.find({
+            studentId: student.admission_number,
+            feeHead: demandHead._id,
+            studentYear: firstStruct.studentYear,
+            semester: firstStruct.semester,
+            termNumber: term.termNumber
+          });
+
+          // Identify matching late fee for the current configuration
+          const matchingLateFee = existingLateFees.find(item => 
+            item.remarks === remarks || 
+            (item.structureId && String(item.structureId) === String(firstStruct._id))
+          );
+
           const isOverdue = dueDate && (today > dueDate);
-          const isUnderpaid = totalPaid < requiredAmount;
+
+          if (student.admission_number === '20260933') {
+            log(`[DEBUG] Student 20260933 target comparison check:`);
+            log(`  - isOverdue: ${isOverdue} (today: ${today.toISOString().slice(0, 10)}, dueDate: ${dueDate ? dueDate.toISOString().slice(0, 10) : 'null'})`);
+            log(`  - isUnderpaid: ${isUnderpaid} (remarks: "${remarks}")`);
+            log(`  - existing late fees count for term ${term.termNumber}: ${existingLateFees.length}`);
+            if (existingLateFees.length > 0) {
+              log(`  - existing late fees details: ${JSON.stringify(existingLateFees.map(f => ({ id: f._id, amount: f.amount, remarks: f.remarks, structureId: f.structureId })))}`);
+            }
+          }
 
           if (isOverdue && isUnderpaid) {
-            if (!existingLateFee) {
+            // Overdue and underpaid: Ensure matching exists, delete obsolete
+            if (!matchingLateFee) {
               await StudentFee.create({
                 studentId: student.admission_number,
                 studentName: student.student_name,
                 feeHead: demandHead._id,
-                structureId: struct._id,
+                structureId: firstStruct._id,
                 termNumber: term.termNumber,
                 college: student.college,
                 course: student.course,
                 branch: student.branch,
                 academicYear: student.batch,
-                studentYear: struct.studentYear,
-                semester: struct.semester,
+                studentYear: firstStruct.studentYear,
+                semester: firstStruct.semester,
                 amount: term.lateFeeAmount,
                 remarks: remarks,
                 stud_type: student.stud_type
               });
               results.push({ student: student.admission_number, status: 'Generated', amount: term.lateFeeAmount });
             } else {
-              // If it already exists but is unpaid, sync updated details/remarks and amount!
+              // Sync matching late fee details if unpaid
               const lateFeePaidTxns = await Transaction.find({
                 studentId: student.admission_number,
                 feeHead: demandHead._id,
-                studentYear: struct.studentYear,
-                semester: struct.semester,
+                studentYear: firstStruct.studentYear,
+                semester: firstStruct.semester,
                 status: { $ne: 'cancelled' }
               });
               const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
 
               if (lateFeePaid === 0) {
                 let updated = false;
-                if (existingLateFee.remarks !== remarks) {
-                  existingLateFee.remarks = remarks;
+                if (matchingLateFee.remarks !== remarks) {
+                  matchingLateFee.remarks = remarks;
                   updated = true;
                 }
-                if (existingLateFee.amount !== term.lateFeeAmount) {
-                  existingLateFee.amount = term.lateFeeAmount;
+                if (matchingLateFee.amount !== term.lateFeeAmount) {
+                  matchingLateFee.amount = term.lateFeeAmount;
                   updated = true;
                 }
                 if (updated) {
-                  await existingLateFee.save();
+                  await matchingLateFee.save();
                   results.push({ student: student.admission_number, status: 'Updated Details/Amount', amount: term.lateFeeAmount });
                 }
               }
             }
-          } else {
-            // Date mismatch (not overdue anymore / future date) OR main fee fully paid!
-            // Remove previously generated unpaid late fee demand if present
-            if (existingLateFee) {
+
+            // Remove any obsolete (non-matching) unpaid late fee records for this term
+            const obsoleteFees = existingLateFees.filter(item => 
+              !matchingLateFee || String(item._id) !== String(matchingLateFee._id)
+            );
+            for (const obsolete of obsoleteFees) {
               const lateFeePaidTxns = await Transaction.find({
                 studentId: student.admission_number,
                 feeHead: demandHead._id,
-                studentYear: struct.studentYear,
-                semester: struct.semester,
+                studentYear: firstStruct.studentYear,
+                semester: firstStruct.semester,
                 status: { $ne: 'cancelled' }
               });
               const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
 
               if (lateFeePaid === 0) {
-                await StudentFee.findByIdAndDelete(existingLateFee._id);
-                results.push({ student: student.admission_number, status: 'Removed (Date/Payment Mismatch)', amount: existingLateFee.amount });
+                await StudentFee.findByIdAndDelete(obsolete._id);
+                results.push({ student: student.admission_number, status: 'Removed Obsolete Late Fee', amount: obsolete.amount });
+              }
+            }
+
+          } else {
+            // Not overdue or fully paid: Delete ALL unpaid late fee records for this term
+            for (const item of existingLateFees) {
+              const lateFeePaidTxns = await Transaction.find({
+                studentId: student.admission_number,
+                feeHead: demandHead._id,
+                studentYear: firstStruct.studentYear,
+                semester: firstStruct.semester,
+                status: { $ne: 'cancelled' }
+              });
+              const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
+
+              if (lateFeePaid === 0) {
+                await StudentFee.findByIdAndDelete(item._id);
+                results.push({ student: student.admission_number, status: 'Removed (Date/Payment Mismatch)', amount: item.amount });
               }
             }
           }
@@ -363,6 +487,11 @@ const processLateFees = async (req, res) => {
     }
 
     if (res) {
+      try {
+        fs.writeFileSync(logFilePath, logData);
+      } catch (err) {
+        console.error('Failed to write debug log file:', err);
+      }
       res.json({
         message: 'Late fee processing completed',
         generated: results.length,
@@ -371,6 +500,12 @@ const processLateFees = async (req, res) => {
       });
     }
   } catch (error) {
+    log(`[ERROR] Caught exception in processLateFees: ${error.message}\n${error.stack}`);
+    try {
+      fs.writeFileSync(logFilePath, logData);
+    } catch (err) {
+      console.error('Failed to write debug log file in catch:', err);
+    }
     if (res) res.status(500).json({ message: 'Error processing late fees', error: error.message });
     console.error('Late Fee Processing Error:', error);
   }

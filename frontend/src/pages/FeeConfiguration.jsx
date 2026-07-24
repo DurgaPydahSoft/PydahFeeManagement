@@ -762,7 +762,8 @@ const FeeConfiguration = () => {
                                 isScholarshipApplicable: col.isScholarshipApplicable || false,
                                 isTermsDivided: col.isLateFeeApplicable || false,
                                 lateFeeHead: col.isLateFeeApplicable ? defaultLateHead : null,
-                                terms: col.isLateFeeApplicable ? termsData : []
+                                terms: col.isLateFeeApplicable ? termsData : [],
+                                isGroupWiseLateFee: col.isLateFeeApplicable ? !!quotaGroupWise[quotaName] : false
                             }));
                         }
                     }
@@ -1242,6 +1243,8 @@ const FeeConfiguration = () => {
 
         const newQuotaConfigs = {};
         const newSavedQuotas = {};
+        const newQuotaGroupWise = {};
+        const newQuotaGroupLateFees = {};
 
         if (row.quotasMap) {
             Object.keys(row.quotasMap).forEach(catName => {
@@ -1282,6 +1285,28 @@ const FeeConfiguration = () => {
                     };
                 });
 
+                // Determine if group-wise late fee was active
+                let isGroupWise = false;
+                if (qData.matrix) {
+                    Object.keys(qData.matrix).forEach(yr => {
+                        Object.keys(qData.matrix[yr]).forEach(fhId => {
+                            const items = qData.matrix[yr][fhId] || [];
+                            if (items.some(item => item.isGroupWiseLateFee)) {
+                                isGroupWise = true;
+                            }
+                        });
+                    });
+                }
+                newQuotaGroupWise[catName] = isGroupWise;
+
+                // Pre-populate group late fees input if group-wise is true
+                if (isGroupWise && columns.length > 0) {
+                    const firstCol = columns.find(c => c.isLateFeeApplicable);
+                    if (firstCol && firstCol.termLateFees) {
+                        newQuotaGroupLateFees[catName] = { ...firstCol.termLateFees };
+                    }
+                }
+
                 const amounts = {};
                 const terms = {};
 
@@ -1317,6 +1342,8 @@ const FeeConfiguration = () => {
 
         setQuotaConfigs(newQuotaConfigs);
         setSavedQuotas(newSavedQuotas);
+        setQuotaGroupWise(newQuotaGroupWise);
+        setQuotaGroupLateFees(newQuotaGroupLateFees);
         const firstQuota = availableQuotas[0];
         setExpandedWizardQuotas(firstQuota ? { [firstQuota]: true } : newSavedQuotas);
         setActiveQuotaIndex(0);
@@ -2772,6 +2799,30 @@ const FeeConfiguration = () => {
                                                                                                 checked={isGroupWise}
                                                                                                 onChange={() => {
                                                                                                     setQuotaGroupWise(prev => ({ ...prev, [quotaName]: true }));
+                                                                                                    // Sync first column's late fees to all other columns immediately
+                                                                                                    const currentConfig = getQuotaConfig(quotaName);
+                                                                                                    const lateCols = currentConfig.columns.filter(c => c.isLateFeeApplicable && c.feeHeadId);
+                                                                                                    if (lateCols.length > 0) {
+                                                                                                        const firstCol = lateCols[0];
+                                                                                                        const fees = firstCol.termLateFees || {};
+                                                                                                        setQuotaGroupLateFees(prev => ({ ...prev, [quotaName]: fees }));
+                                                                                                        setQuotaConfigs(prev => {
+                                                                                                            const config = prev[quotaName] || { columns: [], amounts: {}, terms: {} };
+                                                                                                            const updatedCols = config.columns.map(c => {
+                                                                                                                if (c.isLateFeeApplicable && c.feeHeadId) {
+                                                                                                                    return { ...c, termLateFees: { ...fees } };
+                                                                                                                }
+                                                                                                                return c;
+                                                                                                            });
+                                                                                                            return {
+                                                                                                                ...prev,
+                                                                                                                [quotaName]: {
+                                                                                                                    ...config,
+                                                                                                                    columns: updatedCols
+                                                                                                                }
+                                                                                                            };
+                                                                                                        });
+                                                                                                    }
                                                                                                 }}
                                                                                                 className="text-blue-600 focus:ring-blue-500"
                                                                                             />
@@ -2845,10 +2896,24 @@ const FeeConfiguration = () => {
                                                                                                                         onChange={e => {
                                                                                                                             const updatedGroupFees = { ...groupFees, [termNum]: e.target.value };
                                                                                                                             setQuotaGroupLateFees(p => ({ ...p, [quotaName]: updatedGroupFees }));
-                                                                                                                            lateCols.forEach(col => {
-                                                                                                                                const updatedTermLate = col.termLateFees ? { ...col.termLateFees } : {};
-                                                                                                                                updatedTermLate[termNum] = e.target.value;
-                                                                                                                                updateColumnInActiveQuota(quotaName, col.id, 'termLateFees', updatedTermLate);
+                                                                                                                            
+                                                                                                                            setQuotaConfigs(prev => {
+                                                                                                                                const config = prev[quotaName] || { columns: [], amounts: {}, terms: {} };
+                                                                                                                                const updatedCols = config.columns.map(c => {
+                                                                                                                                    if (c.isLateFeeApplicable && c.feeHeadId) {
+                                                                                                                                        const updatedTermLate = c.termLateFees ? { ...c.termLateFees } : {};
+                                                                                                                                        updatedTermLate[termNum] = e.target.value;
+                                                                                                                                        return { ...c, termLateFees: updatedTermLate };
+                                                                                                                                    }
+                                                                                                                                    return c;
+                                                                                                                                });
+                                                                                                                                return {
+                                                                                                                                    ...prev,
+                                                                                                                                    [quotaName]: {
+                                                                                                                                        ...config,
+                                                                                                                                        columns: updatedCols
+                                                                                                                                    }
+                                                                                                                                };
                                                                                                                             });
                                                                                                                         }}
                                                                                                                     />
@@ -3259,303 +3324,340 @@ const FeeConfiguration = () => {
                                                                                                                             </tr>
                                                                                                                         </thead>
                                                                                                                         <tbody className="divide-y divide-gray-100">
-                                                                                                                            {yr.items.map(s => {
-                                                                                                                                const structTermsCount = Array.isArray(s.terms) ? s.terms.length : 1;
-                                                                                                                                const matchingDefaultConfig = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
-                                                                                                                                const resolvedLateHead = s.lateFeeHead || matchingDefaultConfig?.lateFeeHead;
-                                                                                                                                // Show terms that have a late fee amount OR timing data; fall back to default config terms when the structure has none
-                                                                                                                                const sourceTerms = (s.terms && s.terms.length > 0) ? s.terms : (matchingDefaultConfig?.terms || []);
-                                                                                                                                const lateTerms = sourceTerms.filter(t =>
-                                                                                                                                    Number(t.lateFeeAmount) > 0 ||
-                                                                                                                                    t.referenceSemester != null ||
-                                                                                                                                    (t.dueOffsetDays != null && t.dueOffsetDays !== 0) ||
-                                                                                                                                    !!t.fixedDueDate
-                                                                                                                                );
-                                                                                                                                const isFallbackOpen = viewingFallbackForId === s._id;
-                                                                                                                                return (
-                                                                                                                                    <React.Fragment key={s._id}>
-                                                                                                                                    <tr className={`hover:bg-gray-50/80 transition-colors ${isFallbackOpen ? 'bg-blue-50/30' : ''}`}>
-                                                                                                                                        <td className="px-4 py-2.5">
-                                                                                                                                            {s.semester ? `Sem ${s.semester}` : 'Full Year'}
-                                                                                                                                        </td>
-                                                                                                                                        <td className="px-4 py-2.5 font-semibold text-blue-700">
-                                                                                                                                            {s.feeHead?.name || '—'}
-                                                                                                                                        </td>
-                                                                                                                                        <td className="px-4 py-2.5">
-                                                                                                                                            {resolvedLateHead?.name
-                                                                                                                                                ? `${resolvedLateHead.name}${resolvedLateHead.code ? ` (${resolvedLateHead.code})` : ''}`
-                                                                                                                                                : <span className="text-amber-600 font-medium">Not set</span>}
-                                                                                                                                        </td>
-                                                                                                                                        <td className="px-4 py-2.5">
-                                                                                                                                            {lateTerms.length > 0 ? (
-                                                                                                                                                <div className="flex flex-wrap gap-1.5">
-                                                                                                                                                    {lateTerms.map(t => {
-                                                                                                                                                        const defT = matchingDefaultConfig?.terms?.find(d => Number(d.termNumber) === Number(t.termNumber)) || {};
-                                                                                                                                                        const ownTerm = (s.terms || []).find(ot => Number(ot.termNumber) === Number(t.termNumber)) || {};
-                                                                                                                                                        const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
-                                                                                                                                                        const effTerm = hasCustomTiming ? { ...defT, ...ownTerm } : { ...defT, lateFeeAmount: t.lateFeeAmount };
-                                                                                                                                                        const appDate = getLateFeeApplicableDate(s, effTerm);
-                                                                                                                                                        return (
-                                                                                                                                                            <div key={t.termNumber} className="bg-gray-50 border border-gray-200 text-gray-700 px-2 py-1 rounded-md font-medium text-[10px] space-y-0.5 shadow-2xs">
-                                                                                                                                                                <div className="font-bold text-gray-900 flex items-center justify-between gap-2">
-                                                                                                                                                                    <span>T{t.termNumber}: ₹{Number(t.lateFeeAmount).toLocaleString()}</span>
-                                                                                                                                                                </div>
-                                                                                                                                                                <div className="text-[9px] text-blue-700 font-semibold flex items-center gap-1">
-                                                                                                                                                                    <Calendar size={10} className="shrink-0 text-blue-500" />
-                                                                                                                                                                    {appDate.dateStr ? (
-                                                                                                                                                                        <span>Date: <strong className="text-blue-800 font-bold">{appDate.dateStr}</strong></span>
-                                                                                                                                                                    ) : (
-                                                                                                                                                                        <span className="text-amber-600 font-normal italic" title={appDate.reason}>{appDate.reason || 'Date pending'}</span>
-                                                                                                                                                                    )}
-                                                                                                                                                                </div>
-                                                                                                                                                            </div>
-                                                                                                                                                        );
-                                                                                                                                                    })}
-                                                                                                                                                </div>
-                                                                                                                                            ) : (
-                                                                                                                                                <span className="text-gray-400">—</span>
-                                                                                                                                            )}
-                                                                                                                                        </td>
-                                                                                                                                        <td className="px-4 py-2.5">
-                                                                                                                                            {(() => {
-                                                                                                                                                const ownTerms = s.terms || [];
-                                                                                                                                                const hasCustomTiming = ownTerms.some(t =>
-                                                                                                                                                    t.referenceSemester != null ||
-                                                                                                                                                    (t.dueOffsetDays != null && t.dueOffsetDays !== 0) ||
-                                                                                                                                                    !!t.fixedDueDate
-                                                                                                                                                );
-                                                                                                                                                if (hasCustomTiming) {
-                                                                                                                                                    return (
-                                                                                                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                                                                                                                                            Custom
-                                                                                                                                                        </span>
-                                                                                                                                                    );
-                                                                                                                                                } else if (matchingDefaultConfig) {
-                                                                                                                                                    return (
-                                                                                                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                                                                                                                                                            Default
-                                                                                                                                                        </span>
-                                                                                                                                                    );
-                                                                                                                                                } else {
-                                                                                                                                                    return <span className="text-[10px] text-amber-600 font-semibold">Not set</span>;
-                                                                                                                                                }
-                                                                                                                                            })()}
-                                                                                                                                        </td>
-                                                                                                                                        <td className="px-4 py-2.5 text-right">
-                                                                                                                                            <div className="inline-flex items-center gap-1.5">
-                                                                                                                                                {(() => {
-                                                                                                                                                    const canSync = !!(s.lateFeeHead || matchingDefaultConfig?.lateFeeHead);
-                                                                                                                                                    const syncTitle = !canSync
-                                                                                                                                                        ? 'No late fee head configured on structure or default config'
-                                                                                                                                                        : !s.lateFeeHead
-                                                                                                                                                            ? 'Sync using default config late fee head'
-                                                                                                                                                            : 'Apply / reconcile late fees for this structure now';
-                                                                                                                                                    return (
-                                                                                                                                                        <button
-                                                                                                                                                            type="button"
-                                                                                                                                                            disabled={!!syncingLateFeeId || !canSync}
-                                                                                                                                                            title={syncTitle}
-                                                                                                                                                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${!s.lateFeeHead && matchingDefaultConfig?.lateFeeHead ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
-                                                                                                                                                            onClick={() => syncLateFees(s._id)}
-                                                                                                                                                        >
-                                                                                                                                                            <RefreshCw size={13} className={syncingLateFeeId === s._id ? 'animate-spin' : ''} />
-                                                                                                                                                            {syncingLateFeeId === s._id ? 'Syncing…' : 'Sync'}
-                                                                                                                                                        </button>
-                                                                                                                                                    );
-                                                                                                                                                })()}
-                                                                                                                                                <button
-                                                                                                                                                    type="button"
-                                                                                                                                                    title="View Default Fallback Rules for this configuration"
-                                                                                                                                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition ${isFallbackOpen ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
-                                                                                                                                                    onClick={() => toggleViewFallback(s._id)}
-                                                                                                                                                >
-                                                                                                                                                    <ChevronRight size={13} className={`transition-transform duration-200 ${isFallbackOpen ? 'rotate-90' : ''}`} />
-                                                                                                                                                    {isFallbackOpen ? 'Hide Rules' : 'View Rules'}
-                                                                                                                                                </button>
-                                                                                                                                            </div>
-                                                                                                                                        </td>
-                                                                                                                                    </tr>
-                                                                                                                                    {isFallbackOpen && (
-                                                                                                                                        <tr>
-                                                                                                                                            <td colSpan={6} className="p-0 bg-blue-50/20 border-b border-blue-100">
-                                                                                                                                                <div className="px-6 py-4 space-y-3">
-                                                                                                                                                    {/* Panel header */}
-                                                                                                                                                    <div className="flex items-center justify-between">
-                                                                                                                                                        <div className="flex items-center gap-2">
-                                                                                                                                                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-100 px-2 py-1 rounded">Default Fallback Rules</span>
-                                                                                                                                                            <span className="text-[10px] text-gray-500">Applied for {structTermsCount}-term fee structures</span>
-                                                                                                                                                        </div>
-                                                                                                                                                        <div className="flex items-center gap-2">
-                                                                                                                                                            {!matchingDefaultConfig && (
-                                                                                                                                                                <span className="text-[10px] text-amber-600 font-semibold bg-amber-50 border border-amber-200 px-2 py-1 rounded">No fallback rule configured for {structTermsCount} terms</span>
-                                                                                                                                                            )}
-                                                                                                                                                            {editingFallbackForId !== s._id ? (
-                                                                                                                                                                <button
-                                                                                                                                                                    type="button"
-                                                                                                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-[10px] font-bold transition"
-                                                                                                                                                                    onClick={() => openFallbackEdit(s, matchingDefaultConfig)}
-                                                                                                                                                                >
-                                                                                                                                                                    <Pencil size={11} /> Edit Rules
-                                                                                                                                                                </button>
-                                                                                                                                                            ) : (
-                                                                                                                                                                <button
-                                                                                                                                                                    type="button"
-                                                                                                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 text-[10px] font-bold transition"
-                                                                                                                                                                    onClick={() => setEditingFallbackForId(null)}
-                                                                                                                                                                >
-                                                                                                                                                                    ✕ Cancel
-                                                                                                                                                                </button>
-                                                                                                                                                            )}
-                                                                                                                                                        </div>
-                                                                                                                                                    </div>
+                                                                                                                            {(() => {
+                                                                                                                                const rowGroups = [];
+                                                                                                                                const groupWiseBySem = {};
 
-                                                                                                                                                    {/* READ VIEW */}
-                                                                                                                                                    {editingFallbackForId !== s._id && (
-                                                                                                                                                        matchingDefaultConfig ? (
-                                                                                                                                                            <div className="space-y-2">
-                                                                                                                                                                <div className="flex items-center gap-3 text-xs">
-                                                                                                                                                                    <span className="text-gray-500">Late Fee Demand Head:</span>
-                                                                                                                                                                    <span className="font-bold text-blue-700">{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.name || '—'}{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.code ? ` (${(s.lateFeeHead || matchingDefaultConfig.lateFeeHead).code})` : ''}</span>
-                                                                                                                                                                </div>
-                                                                                                                                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                                                                                                                                                    {(matchingDefaultConfig.terms || []).map(defT => {
-                                                                                                                                                                        // Use structure's own term timing if saved, otherwise show default config
-                                                                                                                                                                        const ownTerm = (s.terms || []).find(t => Number(t.termNumber) === Number(defT.termNumber)) || {};
-                                                                                                                                                                        const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
-                                                                                                                                                                        const t = hasCustomTiming ? { ...defT, ...ownTerm } : defT;
-                                                                                                                                                                        const appDate = getLateFeeApplicableDate(s, t);
-                                                                                                                                                                        return (
-                                                                                                                                                                        <div key={t.termNumber} className="bg-white border border-blue-100 rounded-lg p-3 space-y-1.5 shadow-sm">
-                                                                                                                                                                            <div className="flex items-center justify-between">
-                                                                                                                                                                                <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Term {t.termNumber}</div>
-                                                                                                                                                                                {hasCustomTiming && <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-blue-100">Custom</span>}
-                                                                                                                                                                            </div>
-                                                                                                                                                                            <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Due Mode: </span>{t.dueDateMode === 'fixed' ? 'Fixed Date' : 'Semester Offset'}</div>
-                                                                                                                                                                            {t.dueDateMode === 'offset' ? (<>
-                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Ref Sem: </span>Semester {t.referenceSemester || '—'}</div>
-                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Offset: </span>+{t.dueOffsetDays ?? 0} days</div>
-                                                                                                                                                                            </>) : (
-                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Date: </span>{t.fixedDueDate ? new Date(t.fixedDueDate).toLocaleDateString() : '—'}</div>
-                                                                                                                                                                            )}
-                                                                                                                                                                            
-                                                                                                                                                                            {/* Late Fee Applicable Date Banner */}
-                                                                                                                                                                            <div className="mt-2 pt-1.5 border-t border-blue-100/60 bg-blue-50/70 p-2 rounded-md space-y-0.5">
-                                                                                                                                                                                <div className="text-[10px] font-bold text-blue-900 flex items-center gap-1">
-                                                                                                                                                                                    <Calendar size={11} className="text-blue-600 shrink-0" />
-                                                                                                                                                                                    <span>Applicable Date:</span>
-                                                                                                                                                                                    {appDate.dateStr ? (
-                                                                                                                                                                                        <span className="text-blue-800 font-extrabold">{appDate.dateStr}</span>
-                                                                                                                                                                                    ) : (
-                                                                                                                                                                                        <span className="text-amber-700 font-normal italic text-[9px]">{appDate.reason}</span>
-                                                                                                                                                                                    )}
-                                                                                                                                                                                </div>
-                                                                                                                                                                                {appDate.semStartDateStr && (
-                                                                                                                                                                                    <div className="text-[9px] text-gray-500 pl-4">
-                                                                                                                                                                                        (Sem {appDate.refSem} Start: {appDate.semStartDateStr} + {appDate.offsetDays}d offset)
-                                                                                                                                                                                    </div>
-                                                                                                                                                                                )}
-                                                                                                                                                                            </div>
+                                                                                                                                yr.items.forEach(s => {
+                                                                                                                                    if (s.isGroupWiseLateFee) {
+                                                                                                                                        const semKey = s.semester !== undefined && s.semester !== null ? `Sem_${s.semester}` : 'FullYear';
+                                                                                                                                        if (!groupWiseBySem[semKey]) {
+                                                                                                                                            groupWiseBySem[semKey] = [];
+                                                                                                                                            rowGroups.push({
+                                                                                                                                                isGroup: true,
+                                                                                                                                                semester: s.semester,
+                                                                                                                                                items: groupWiseBySem[semKey]
+                                                                                                                                            });
+                                                                                                                                        }
+                                                                                                                                        groupWiseBySem[semKey].push(s);
+                                                                                                                                    } else {
+                                                                                                                                        rowGroups.push({
+                                                                                                                                            isGroup: false,
+                                                                                                                                            semester: s.semester,
+                                                                                                                                            items: [s]
+                                                                                                                                        });
+                                                                                                                                    }
+                                                                                                                                });
 
-                                                                                                                                                                            {t.dueDescription && <div className="text-[10px] text-gray-400 italic pt-1">{t.dueDescription}</div>}
-                                                                                                                                                                        </div>
-                                                                                                                                                                        );
-                                                                                                                                                                    })}
-                                                                                                                                                                </div>
-                                                                                                                                                            </div>
-                                                                                                                                                        ) : (
-                                                                                                                                                            <p className="text-xs text-gray-400 italic">Go to the <strong>Default Rules</strong> tab to configure a fallback rule for {structTermsCount}-term structures, or click <strong>Edit Rules</strong> to set custom rules for this fee head.</p>
-                                                                                                                                                        )
-                                                                                                                                                    )}
+                                                                                                                                return rowGroups.map((rg, rgIdx) => {
+                                                                                                                                    const s = rg.items[0];
+                                                                                                                                    const structTermsCount = Array.isArray(s.terms) ? s.terms.length : 1;
+                                                                                                                                    const matchingDefaultConfig = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
+                                                                                                                                    const resolvedLateHead = s.lateFeeHead || matchingDefaultConfig?.lateFeeHead;
+                                                                                                                                    const sourceTerms = (s.terms && s.terms.length > 0) ? s.terms : (matchingDefaultConfig?.terms || []);
+                                                                                                                                    const lateTerms = sourceTerms.filter(t =>
+                                                                                                                                        Number(t.lateFeeAmount) > 0 ||
+                                                                                                                                        t.referenceSemester != null ||
+                                                                                                                                        (t.dueOffsetDays != null && t.dueOffsetDays !== 0) ||
+                                                                                                                                        !!t.fixedDueDate
+                                                                                                                                    );
+                                                                                                                                    const isFallbackOpen = viewingFallbackForId === s._id;
+                                                                                                                                    const feeHeadName = rg.isGroup
+                                                                                                                                        ? rg.items.map(item => item.feeHead?.name || '—').join(', ')
+                                                                                                                                        : (s.feeHead?.name || '—');
 
-                                                                                                                                                    {/* EDIT FORM */}
-                                                                                                                                                    {editingFallbackForId === s._id && (
-                                                                                                                                                        <div className="space-y-4 border border-blue-200 rounded-xl bg-white p-4">
-                                                                                                                                                            <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Editing rules for this fee head only</div>
-                                                                                                                                                            {/* Per-term editors */}
-                                                                                                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                                                                                                                                                {fallbackEditForm.terms.map((t, idx) => (
-                                                                                                                                                                    <div key={t.termNumber} className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-2">
-                                                                                                                                                                        <div className="text-[10px] font-bold text-blue-700 uppercase">Term {t.termNumber}</div>
-                                                                                                                                                                        <div className="flex flex-col gap-1">
-                                                                                                                                                                            <label className="text-[10px] text-gray-500">Due Mode</label>
-                                                                                                                                                                            <select
-                                                                                                                                                                                className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white"
-                                                                                                                                                                                value={t.dueDateMode}
-                                                                                                                                                                                onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDateMode: e.target.value }; return { ...f, terms }; })}
-                                                                                                                                                                            >
-                                                                                                                                                                                <option value="offset">Semester Offset</option>
-                                                                                                                                                                                <option value="fixed">Fixed Date</option>
-                                                                                                                                                                            </select>
-                                                                                                                                                                        </div>
-                                                                                                                                                                        {t.dueDateMode === 'offset' ? (
-                                                                                                                                                                            <>
-                                                                                                                                                                                <div className="flex flex-col gap-1">
-                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Ref. Semester</label>
-                                                                                                                                                                                    <select
-                                                                                                                                                                                        className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
-                                                                                                                                                                                        value={t.referenceSemester}
-                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], referenceSemester: Number(e.target.value) }; return { ...f, terms }; })}
-                                                                                                                                                                                    >
-                                                                                                                                                                                        <option value="">-- Select --</option>
-                                                                                                                                                                                        <option value={1}>Semester 1</option>
-                                                                                                                                                                                        <option value={2}>Semester 2</option>
-                                                                                                                                                                                    </select>
-                                                                                                                                                                                </div>
-                                                                                                                                                                                <div className="flex flex-col gap-1">
-                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Offset Days</label>
-                                                                                                                                                                                    <input type="number" min="0" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
-                                                                                                                                                                                        value={t.dueOffsetDays}
-                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueOffsetDays: Number(e.target.value) }; return { ...f, terms }; })}
-                                                                                                                                                                                    />
-                                                                                                                                                                                </div>
-                                                                                                                                                                            </>
-                                                                                                                                                                        ) : (
-                                                                                                                                                                            <div className="flex flex-col gap-1">
-                                                                                                                                                                                <label className="text-[10px] text-gray-500">Fixed Date</label>
-                                                                                                                                                                                <input type="date" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
-                                                                                                                                                                                    value={t.fixedDueDate ? t.fixedDueDate.substring(0, 10) : ''}
-                                                                                                                                                                                    onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], fixedDueDate: e.target.value }; return { ...f, terms }; })}
-                                                                                                                                                                                />
-                                                                                                                                                                            </div>
-                                                                                                                                                                        )}
-                                                                                                                                                                        <div className="flex flex-col gap-1">
-                                                                                                                                                                            <label className="text-[10px] text-gray-500">Description</label>
-                                                                                                                                                                            <input type="text" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
-                                                                                                                                                                                value={t.dueDescription}
-                                                                                                                                                                                onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDescription: e.target.value }; return { ...f, terms }; })}
-                                                                                                                                                                            />
-                                                                                                                                                                        </div>
+                                                                                                                                    return (
+                                                                                                                                        <React.Fragment key={`${s._id}_rg_${rgIdx}`}>
+                                                                                                                                        <tr className={`hover:bg-gray-50/80 transition-colors ${isFallbackOpen ? 'bg-blue-50/30' : ''}`}>
+                                                                                                                                            <td className="px-4 py-2.5">
+                                                                                                                                                {s.semester ? `Sem ${s.semester}` : 'Full Year'}
+                                                                                                                                            </td>
+                                                                                                                                            <td className="px-4 py-2.5 font-semibold text-blue-700">
+                                                                                                                                                {feeHeadName}
+                                                                                                                                            </td>
+                                                                                                                                            <td className="px-4 py-2.5">
+                                                                                                                                                {resolvedLateHead?.name
+                                                                                                                                                    ? `${resolvedLateHead.name}${resolvedLateHead.code ? ` (${resolvedLateHead.code})` : ''}`
+                                                                                                                                                    : <span className="text-amber-600 font-medium">Not set</span>}
+                                                                                                                                            </td>
+                                                                                                                                            <td className="px-4 py-2.5">
+                                                                                                                                                {lateTerms.length > 0 ? (
+                                                                                                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                                                                                                        {lateTerms.map(t => {
+                                                                                                                                                            const defT = matchingDefaultConfig?.terms?.find(d => Number(d.termNumber) === Number(t.termNumber)) || {};
+                                                                                                                                                            const ownTerm = (s.terms || []).find(ot => Number(ot.termNumber) === Number(t.termNumber)) || {};
+                                                                                                                                                            const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
+                                                                                                                                                            const effTerm = hasCustomTiming ? { ...defT, ...ownTerm } : { ...defT, lateFeeAmount: t.lateFeeAmount };
+                                                                                                                                                            const appDate = getLateFeeApplicableDate(s, effTerm);
+                                                                                                                                                            return (
+                                                                                                                                                                <div key={t.termNumber} className="bg-gray-50 border border-gray-200 text-gray-700 px-2 py-1 rounded-md font-medium text-[10px] space-y-0.5 shadow-2xs">
+                                                                                                                                                                    <div className="font-bold text-gray-900 flex items-center justify-between gap-2">
+                                                                                                                                                                        <span>T{t.termNumber}: ₹{Number(t.lateFeeAmount).toLocaleString()}</span>
                                                                                                                                                                     </div>
-                                                                                                                                                                ))}
-                                                                                                                                                            </div>
-                                                                                                                                                            {/* Save / Cancel */}
-                                                                                                                                                            <div className="flex items-center gap-2 pt-1">
-                                                                                                                                                                <button
-                                                                                                                                                                    type="button"
-                                                                                                                                                                    disabled={isSavingFallbackEdit}
-                                                                                                                                                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition"
-                                                                                                                                                                    onClick={() => saveFallbackEdit(s)}
-                                                                                                                                                                >
-                                                                                                                                                                    <RefreshCw size={12} className={isSavingFallbackEdit ? 'animate-spin' : ''} />
-                                                                                                                                                                    {isSavingFallbackEdit ? 'Saving & Syncing…' : 'Save & Sync'}
-                                                                                                                                                                </button>
-                                                                                                                                                                <button
-                                                                                                                                                                    type="button"
-                                                                                                                                                                    className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition"
-                                                                                                                                                                    onClick={() => setEditingFallbackForId(null)}
-                                                                                                                                                                >
-                                                                                                                                                                    Cancel
-                                                                                                                                                                </button>
-                                                                                                                                                            </div>
-                                                                                                                                                        </div>
+                                                                                                                                                                    <div className="text-[9px] text-blue-700 font-semibold flex items-center gap-1">
+                                                                                                                                                                        <Calendar size={10} className="shrink-0 text-blue-500" />
+                                                                                                                                                                        {appDate.dateStr ? (
+                                                                                                                                                                            <span>Date: <strong className="text-blue-800 font-bold">{appDate.dateStr}</strong></span>
+                                                                                                                                                                        ) : (
+                                                                                                                                                                            <span className="text-amber-600 font-normal italic" title={appDate.reason}>{appDate.reason || 'Date pending'}</span>
+                                                                                                                                                                        )}
+                                                                                                                                                                    </div>
+                                                                                                                                                                </div>
+                                                                                                                                                            );
+                                                                                                                                                        })}
+                                                                                                                                                    </div>
+                                                                                                                                                ) : (
+                                                                                                                                                    <span className="text-gray-400">—</span>
+                                                                                                                                                )}
+                                                                                                                                            </td>
+                                                                                                                                            <td className="px-4 py-2.5">
+                                                                                                                                                <div className="flex flex-col gap-1 items-start">
+                                                                                                                                                    {(() => {
+                                                                                                                                                        const ownTerms = s.terms || [];
+                                                                                                                                                        const hasCustomTiming = ownTerms.some(t =>
+                                                                                                                                                            t.referenceSemester != null ||
+                                                                                                                                                            (t.dueOffsetDays != null && t.dueOffsetDays !== 0) ||
+                                                                                                                                                            !!t.fixedDueDate
+                                                                                                                                                        );
+                                                                                                                                                        if (hasCustomTiming) {
+                                                                                                                                                            return (
+                                                                                                                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                                                                                                                                                    Custom
+                                                                                                                                                                </span>
+                                                                                                                                                            );
+                                                                                                                                                        } else if (matchingDefaultConfig) {
+                                                                                                                                                            return (
+                                                                                                                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                                                                                                                                                                    Default
+                                                                                                                                                                </span>
+                                                                                                                                                            );
+                                                                                                                                                        } else {
+                                                                                                                                                            return <span className="text-[10px] text-amber-600 font-semibold">Not set</span>;
+                                                                                                                                                        }
+                                                                                                                                                    })()}
+                                                                                                                                                    {s.isGroupWiseLateFee && (
+                                                                                                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                                                                                                                                                            Group-wise
+                                                                                                                                                        </span>
                                                                                                                                                     )}
                                                                                                                                                 </div>
                                                                                                                                             </td>
+                                                                                                                                            <td className="px-4 py-2.5 text-right">
+                                                                                                                                                <div className="inline-flex items-center gap-1.5">
+                                                                                                                                                    {(() => {
+                                                                                                                                                        const canSync = !!(s.lateFeeHead || matchingDefaultConfig?.lateFeeHead);
+                                                                                                                                                        const syncTitle = !canSync
+                                                                                                                                                            ? 'No late fee head configured on structure or default config'
+                                                                                                                                                            : !s.lateFeeHead
+                                                                                                                                                                ? 'Sync using default config late fee head'
+                                                                                                                                                                : 'Apply / reconcile late fees for this structure now';
+                                                                                                                                                        return (
+                                                                                                                                                            <button
+                                                                                                                                                                type="button"
+                                                                                                                                                                disabled={!!syncingLateFeeId || !canSync}
+                                                                                                                                                                title={syncTitle}
+                                                                                                                                                                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition disabled:opacity-40 disabled:cursor-not-allowed ${!s.lateFeeHead && matchingDefaultConfig?.lateFeeHead ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                                                                                                                                                                onClick={() => syncLateFees(s._id)}
+                                                                                                                                                            >
+                                                                                                                                                                <RefreshCw size={13} className={syncingLateFeeId === s._id ? 'animate-spin' : ''} />
+                                                                                                                                                                {syncingLateFeeId === s._id ? 'Syncing…' : 'Sync'}
+                                                                                                                                                            </button>
+                                                                                                                                                        );
+                                                                                                                                                    })()}
+                                                                                                                                                    <button
+                                                                                                                                                        type="button"
+                                                                                                                                                        title="View Default Fallback Rules for this configuration"
+                                                                                                                                                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold transition ${isFallbackOpen ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                                                                                                                                                        onClick={() => toggleViewFallback(s._id)}
+                                                                                                                                                    >
+                                                                                                                                                        <ChevronRight size={13} className={`transition-transform duration-200 ${isFallbackOpen ? 'rotate-90' : ''}`} />
+                                                                                                                                                        {isFallbackOpen ? 'Hide Rules' : 'View Rules'}
+                                                                                                                                                    </button>
+                                                                                                                                                </div>
+                                                                                                                                            </td>
                                                                                                                                         </tr>
-                                                                                                                                    )}
-                                                                                                                                    </React.Fragment>
-                                                                                                                                );
-                                                                                                                            })}
+                                                                                                                                        {isFallbackOpen && (
+                                                                                                                                            <tr>
+                                                                                                                                                <td colSpan={6} className="p-0 bg-blue-50/20 border-b border-blue-100">
+                                                                                                                                                    <div className="px-6 py-4 space-y-3">
+                                                                                                                                                        {/* Panel header */}
+                                                                                                                                                        <div className="flex items-center justify-between">
+                                                                                                                                                            <div className="flex items-center gap-2">
+                                                                                                                                                                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-100 px-2 py-1 rounded">Default Fallback Rules</span>
+                                                                                                                                                                <span className="text-[10px] text-gray-500">Applied for {structTermsCount}-term fee structures</span>
+                                                                                                                                                            </div>
+                                                                                                                                                            <div className="flex items-center gap-2">
+                                                                                                                                                                {!matchingDefaultConfig && (
+                                                                                                                                                                    <span className="text-[10px] text-amber-600 font-semibold bg-amber-50 border border-amber-200 px-2 py-1 rounded">No fallback rule configured for {structTermsCount} terms</span>
+                                                                                                                                                                )}
+                                                                                                                                                                {editingFallbackForId !== s._id ? (
+                                                                                                                                                                    <button
+                                                                                                                                                                        type="button"
+                                                                                                                                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 text-[10px] font-bold transition"
+                                                                                                                                                                        onClick={() => openFallbackEdit(s, matchingDefaultConfig)}
+                                                                                                                                                                    >
+                                                                                                                                                                        <Pencil size={11} /> Edit Rules
+                                                                                                                                                                    </button>
+                                                                                                                                                                ) : (
+                                                                                                                                                                    <button
+                                                                                                                                                                        type="button"
+                                                                                                                                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 text-[10px] font-bold transition"
+                                                                                                                                                                        onClick={() => setEditingFallbackForId(null)}
+                                                                                                                                                                    >
+                                                                                                                                                                        ✕ Cancel
+                                                                                                                                                                    </button>
+                                                                                                                                                                )}
+                                                                                                                                                            </div>
+                                                                                                                                                        </div>
+
+                                                                                                                                                        {/* READ VIEW */}
+                                                                                                                                                        {editingFallbackForId !== s._id && (
+                                                                                                                                                            matchingDefaultConfig ? (
+                                                                                                                                                                <div className="space-y-2">
+                                                                                                                                                                    <div className="flex items-center gap-3 text-xs">
+                                                                                                                                                                        <span className="text-gray-500">Late Fee Demand Head:</span>
+                                                                                                                                                                        <span className="font-bold text-blue-700">{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.name || '—'}{(s.lateFeeHead || matchingDefaultConfig.lateFeeHead)?.code ? ` (${(s.lateFeeHead || matchingDefaultConfig.lateFeeHead).code})` : ''}</span>
+                                                                                                                                                                    </div>
+                                                                                                                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                                                                                                                        {(matchingDefaultConfig.terms || []).map(defT => {
+                                                                                                                                                                            // Use structure's own term timing if saved, otherwise show default config
+                                                                                                                                                                            const ownTerm = (s.terms || []).find(t => Number(t.termNumber) === Number(defT.termNumber)) || {};
+                                                                                                                                                                            const hasCustomTiming = ownTerm.referenceSemester != null || (ownTerm.dueOffsetDays != null && ownTerm.dueOffsetDays !== 0) || ownTerm.fixedDueDate;
+                                                                                                                                                                            const t = hasCustomTiming ? { ...defT, ...ownTerm } : defT;
+                                                                                                                                                                            const appDate = getLateFeeApplicableDate(s, t);
+                                                                                                                                                                            return (
+                                                                                                                                                                            <div key={t.termNumber} className="bg-white border border-blue-100 rounded-lg p-3 space-y-1.5 shadow-sm">
+                                                                                                                                                                                <div className="flex items-center justify-between">
+                                                                                                                                                                                    <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Term {t.termNumber}</div>
+                                                                                                                                                                                    {hasCustomTiming && <span className="text-[9px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-blue-100">Custom</span>}
+                                                                                                                                                                                </div>
+                                                                                                                                                                                <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Due Mode: </span>{t.dueDateMode === 'fixed' ? 'Fixed Date' : 'Semester Offset'}</div>
+                                                                                                                                                                                {t.dueDateMode === 'offset' ? (<>
+                                                                                                                                                                                    <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Ref Sem: </span>Semester {t.referenceSemester || '—'}</div>
+                                                                                                                                                                                    <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Offset: </span>+{t.dueOffsetDays ?? 0} days</div>
+                                                                                                                                                                                </>) : (
+                                                                                                                                                                                    <div className="text-[10px] text-gray-500"><span className="font-semibold text-gray-700">Date: </span>{t.fixedDueDate ? new Date(t.fixedDueDate).toLocaleDateString() : '—'}</div>
+                                                                                                                                                                                )}
+                                                                                                                                                                                
+                                                                                                                                                                                {/* Late Fee Applicable Date Banner */}
+                                                                                                                                                                                <div className="mt-2 pt-1.5 border-t border-blue-100/60 bg-blue-50/70 p-2 rounded-md space-y-0.5">
+                                                                                                                                                                                    <div className="text-[10px] font-bold text-blue-900 flex items-center gap-1">
+                                                                                                                                                                                        <Calendar size={11} className="text-blue-600 shrink-0" />
+                                                                                                                                                                                        <span>Applicable Date:</span>
+                                                                                                                                                                                        {appDate.dateStr ? (
+                                                                                                                                                                                            <span className="text-blue-800 font-extrabold">{appDate.dateStr}</span>
+                                                                                                                                                                                        ) : (
+                                                                                                                                                                                            <span className="text-amber-700 font-normal italic text-[9px]">{appDate.reason}</span>
+                                                                                                                                                                                        )}
+                                                                                                                                                                                    </div>
+                                                                                                                                                                                    {appDate.semStartDateStr && (
+                                                                                                                                                                                        <div className="text-[9px] text-gray-500 pl-4">
+                                                                                                                                                                                            (Sem {appDate.refSem} Start: {appDate.semStartDateStr} + {appDate.offsetDays}d offset)
+                                                                                                                                                                                        </div>
+                                                                                                                                                                                    )}
+                                                                                                                                                                                </div>
+
+                                                                                                                                                                                {t.dueDescription && <div className="text-[10px] text-gray-400 italic pt-1">{t.dueDescription}</div>}
+                                                                                                                                                                            </div>
+                                                                                                                                                                            );
+                                                                                                                                                                        })}
+                                                                                                                                                                    </div>
+                                                                                                                                                                </div>
+                                                                                                                                                            ) : (
+                                                                                                                                                                <p className="text-xs text-gray-400 italic">Go to the <strong>Default Rules</strong> tab to configure a fallback rule for {structTermsCount}-term structures, or click <strong>Edit Rules</strong> to set custom rules for this fee head.</p>
+                                                                                                                                                            )
+                                                                                                                                                        )}
+
+                                                                                                                                                        {/* EDIT FORM */}
+                                                                                                                                                        {editingFallbackForId === s._id && (
+                                                                                                                                                            <div className="space-y-4 border border-blue-200 rounded-xl bg-white p-4">
+                                                                                                                                                                <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Editing rules for this fee head only</div>
+                                                                                                                                                                {/* Per-term editors */}
+                                                                                                                                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                                                                                                                                    {fallbackEditForm.terms.map((t, idx) => (
+                                                                                                                                                                        <div key={t.termNumber} className="border border-gray-100 rounded-lg p-3 bg-gray-50 space-y-2">
+                                                                                                                                                                            <div className="text-[10px] font-bold text-blue-700 uppercase">Term {t.termNumber}</div>
+                                                                                                                                                                            <div className="flex flex-col gap-1">
+                                                                                                                                                                                <label className="text-[10px] text-gray-500">Due Mode</label>
+                                                                                                                                                                                <select
+                                                                                                                                                                                    className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white"
+                                                                                                                                                                                    value={t.dueDateMode}
+                                                                                                                                                                                    onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDateMode: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                                >
+                                                                                                                                                                                    <option value="offset">Semester Offset</option>
+                                                                                                                                                                                    <option value="fixed">Fixed Date</option>
+                                                                                                                                                                                </select>
+                                                                                                                                                                            </div>
+                                                                                                                                                                            {t.dueDateMode === 'offset' ? (
+                                                                                                                                                                                <>
+                                                                                                                                                                                    <div className="flex flex-col gap-1">
+                                                                                                                                                                                        <label className="text-[10px] text-gray-500">Ref. Semester</label>
+                                                                                                                                                                                        <select
+                                                                                                                                                                                            className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                            value={t.referenceSemester}
+                                                                                                                                                                                            onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], referenceSemester: Number(e.target.value) }; return { ...f, terms }; })}
+                                                                                                                                                                                        >
+                                                                                                                                                                                            <option value="">-- Select --</option>
+                                                                                                                                                                                            <option value={1}>Semester 1</option>
+                                                                                                                                                                                            <option value={2}>Semester 2</option>
+                                                                                                                                                                                        </select>
+                                                                                                                                                                                    </div>
+                                                                                                                                                                                    <div className="flex flex-col gap-1">
+                                                                                                                                                                                        <label className="text-[10px] text-gray-500">Offset Days</label>
+                                                                                                                                                                                        <input type="number" min="0" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                            value={t.dueOffsetDays}
+                                                                                                                                                                                            onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueOffsetDays: Number(e.target.value) }; return { ...f, terms }; })}
+                                                                                                                                                                                        />
+                                                                                                                                                                                    </div>
+                                                                                                                                                                                </>
+                                                                                                                                                                            ) : (
+                                                                                                                                                                                <div className="flex flex-col gap-1">
+                                                                                                                                                                                    <label className="text-[10px] text-gray-500">Fixed Date</label>
+                                                                                                                                                                                    <input type="date" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                        value={t.fixedDueDate ? t.fixedDueDate.substring(0, 10) : ''}
+                                                                                                                                                                                        onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], fixedDueDate: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                                    />
+                                                                                                                                                                                </div>
+                                                                                                                                                                            )}
+                                                                                                                                                                            <div className="flex flex-col gap-1">
+                                                                                                                                                                                <label className="text-[10px] text-gray-500">Description</label>
+                                                                                                                                                                                <input type="text" className="border border-gray-200 rounded px-2 py-1 text-[11px] bg-white w-full"
+                                                                                                                                                                                    value={t.dueDescription}
+                                                                                                                                                                                    onChange={e => setFallbackEditForm(f => { const terms = [...f.terms]; terms[idx] = { ...terms[idx], dueDescription: e.target.value }; return { ...f, terms }; })}
+                                                                                                                                                                                />
+                                                                                                                                                                            </div>
+                                                                                                                                                                        </div>
+                                                                                                                                                                    ))}
+                                                                                                                                                                </div>
+                                                                                                                                                                {/* Save / Cancel */}
+                                                                                                                                                                <div className="flex items-center gap-2 pt-1">
+                                                                                                                                                                    <button
+                                                                                                                                                                        type="button"
+                                                                                                                                                                        disabled={isSavingFallbackEdit}
+                                                                                                                                                                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition"
+                                                                                                                                                                        onClick={() => saveFallbackEdit(s)}
+                                                                                                                                                                    >
+                                                                                                                                                                        <RefreshCw size={12} className={isSavingFallbackEdit ? 'animate-spin' : ''} />
+                                                                                                                                                                        {isSavingFallbackEdit ? 'Saving & Syncing…' : 'Save & Sync'}
+                                                                                                                                                                    </button>
+                                                                                                                                                                    <button
+                                                                                                                                                                        type="button"
+                                                                                                                                                                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition"
+                                                                                                                                                                        onClick={() => setEditingFallbackForId(null)}
+                                                                                                                                                                    >
+                                                                                                                                                                        Cancel
+                                                                                                                                                                    </button>
+                                                                                                                                                                </div>
+                                                                                                                                                            </div>
+                                                                                                                                                        )}
+                                                                                                                                                    </div>
+                                                                                                                                                </td>
+                                                                                                                                            </tr>
+                                                                                                                                        )}
+                                                                                                                                        </React.Fragment>
+                                                                                                                                    );
+                                                                                                                                });
+                                                                                                                            })()}
                                                                                                                         </tbody>
                                                                                                                     </table>
                                                                                                                 </div>

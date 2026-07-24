@@ -98,7 +98,7 @@ const applyFeeStructureToBatchInternal = async (structure) => {
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms, isGroupWiseLateFee } = req.body;
 
   try {
     // Basic Validation
@@ -170,6 +170,7 @@ const createFeeStructure = async (req, res) => {
             isTermsDivided: isTermsDivided || false,
             terms: processedTerms,
             semester: sem, // Explicitly set/update semester in document to match index
+            isGroupWiseLateFee: !!isGroupWiseLateFee,
             ...(autoLateFeeHead ? { lateFeeHead: autoLateFeeHead } : {})
           }
         };
