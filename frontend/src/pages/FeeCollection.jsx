@@ -1440,15 +1440,30 @@ const FeeCollection = () => {
 
                                                                     {/* Dynamic Term Columns */}
                                                                     {(() => {
-                                                                        let remainingPaid = fee.paidAmount;
                                                                         const termCells = [];
                                                                         for (let i = 0; i < maxTerms; i++) {
                                                                             const term = fee.terms?.[i];
                                                                             if (term && fee.isTermsDivided) {
-                                                                                const termTarget = Math.round((Number(fee.totalAmount || 0) * term.percentage) / 100);
-                                                                                const termPaid = Math.min(remainingPaid, termTarget);
-                                                                                const termBalance = termTarget - termPaid;
-                                                                                remainingPaid = Math.max(0, remainingPaid - termPaid);
+                                                                                // Prefer server-computed balances (declaration even + application waterfall)
+                                                                                const tb = Array.isArray(fee.termBalances)
+                                                                                    ? fee.termBalances.find(b => Number(b.termNumber) === Number(term.termNumber))
+                                                                                        || fee.termBalances[i]
+                                                                                    : null;
+                                                                                const termBalance = tb
+                                                                                    ? Number(tb.balance) || 0
+                                                                                    : (() => {
+                                                                                        // Fallback: paid-only waterfall (legacy)
+                                                                                        let remainingPaid = fee.paidAmount;
+                                                                                        for (let j = 0; j <= i; j++) {
+                                                                                            const t = fee.terms?.[j];
+                                                                                            if (!t) continue;
+                                                                                            const target = Math.round((Number(fee.totalAmount || 0) * t.percentage) / 100);
+                                                                                            const paid = Math.min(remainingPaid, target);
+                                                                                            remainingPaid = Math.max(0, remainingPaid - paid);
+                                                                                            if (j === i) return target - paid;
+                                                                                        }
+                                                                                        return 0;
+                                                                                    })();
 
                                                                                 termCells.push(
                                                                                     <td key={i} className={`py-1.5 px-3 text-[11px] text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>

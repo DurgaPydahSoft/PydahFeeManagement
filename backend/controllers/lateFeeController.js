@@ -4,6 +4,67 @@ const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const db = require('../config/sqlDb');
 const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
+const {
+  isDeclarationConcessionTxn,
+  allocateTermBalances,
+  isUnderpaidThroughTerm
+} = require('../utils/termConcessionAllocation');
+
+/**
+ * Build term allocation for one student + fee structure (paid + declaration even + application waterfall).
+ */
+const buildStudentTermAllocation = async (studentId, struct) => {
+  const feeHeadId = struct.feeHead?._id || struct.feeHead;
+  const txnFilter = {
+    studentId,
+    feeHead: feeHeadId,
+    studentYear: struct.studentYear,
+    status: { $ne: 'cancelled' }
+  };
+  // Match semester loosely — null demand vs "1" txns still apply to this year head
+  if (struct.semester !== null && struct.semester !== undefined && struct.semester !== '') {
+    txnFilter.$or = [
+      { semester: String(struct.semester) },
+      { semester: Number(struct.semester) },
+      { semester: null },
+      { semester: '' },
+      { semester: { $exists: false } }
+    ];
+  }
+
+  const txns = await Transaction.find(txnFilter).lean();
+
+  let paidAmount = 0;
+  let declarationConcession = 0;
+  let applicationConcession = 0;
+  txns.forEach((t) => {
+    const amt = Number(t.amount) || 0;
+    if (t.transactionType === 'DEBIT') paidAmount += amt;
+    else if (t.transactionType === 'CREDIT') {
+      if (isDeclarationConcessionTxn(t)) declarationConcession += amt;
+      else applicationConcession += amt;
+    }
+  });
+
+  // Prefer live StudentFee demand; fall back to structure term amounts
+  const demandFilter = {
+    studentId,
+    feeHead: feeHeadId,
+    studentYear: String(struct.studentYear)
+  };
+  const demands = await StudentFee.find(demandFilter).lean();
+  const demandTotal = demands.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  const structureTotal = (struct.terms || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const totalAmount = demandTotal > 0 ? demandTotal : (Number(struct.amount) || structureTotal);
+
+  return allocateTermBalances({
+    totalAmount,
+    terms: struct.terms || [],
+    paidAmount,
+    declarationConcession,
+    applicationConcession
+  });
+};
 
 // @desc    Get all Late Fee Configurations
 // @route   GET /api/late-fees/config
@@ -330,42 +391,20 @@ const processLateFees = async (req, res) => {
           let remarks = '';
 
           if (isGroupWise) {
-            let requiredAmount = 0;
-            let totalPaid = 0;
-
+            let anyUnderpaid = false;
             for (const struct of groupStructs) {
-              const relevantTerms = struct.terms.filter(t => t.termNumber <= term.termNumber);
-              requiredAmount += relevantTerms.reduce((sum, t) => sum + t.amount, 0);
-
-              const paidTransactions = await Transaction.find({
-                studentId: student.admission_number,
-                feeHead: struct.feeHead._id,
-                studentYear: struct.studentYear,
-                semester: struct.semester,
-                status: { $ne: 'cancelled' }
-              });
-              totalPaid += paidTransactions.reduce((sum, t) => sum + t.amount, 0);
+              const allocation = await buildStudentTermAllocation(student.admission_number, struct);
+              if (isUnderpaidThroughTerm(allocation, term.termNumber)) {
+                anyUnderpaid = true;
+                break;
+              }
             }
-
-            isUnderpaid = totalPaid < requiredAmount;
+            isUnderpaid = anyUnderpaid;
             const headNames = groupStructs.map(s => s.feeHead.name).join(', ');
             remarks = `Group Late Fee (${headNames}) - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
           } else {
-            // Check required amount up to this term for single structure
-            const relevantTerms = firstStruct.terms.filter(t => t.termNumber <= term.termNumber);
-            const requiredAmount = relevantTerms.reduce((sum, t) => sum + t.amount, 0);
-
-            // Fetch total paid for this head/year/sem
-            const paidTransactions = await Transaction.find({
-              studentId: student.admission_number,
-              feeHead: firstStruct.feeHead._id,
-              studentYear: firstStruct.studentYear,
-              semester: firstStruct.semester,
-              status: { $ne: 'cancelled' }
-            });
-            const totalPaid = paidTransactions.reduce((sum, t) => sum + t.amount, 0);
-
-            isUnderpaid = totalPaid < requiredAmount;
+            const allocation = await buildStudentTermAllocation(student.admission_number, firstStruct);
+            isUnderpaid = isUnderpaidThroughTerm(allocation, term.termNumber);
             remarks = `${firstStruct.feeHead.name} - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
           }
 

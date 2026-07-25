@@ -10,6 +10,10 @@ const {
   buildFeeHeadMaps,
   resolveFeeHeadId
 } = require('../utils/overallConcessionFees');
+const {
+  isDeclarationConcessionTxn,
+  allocateTermBalances
+} = require('../utils/termConcessionAllocation');
 
 // Small in-memory cache — FeeHead list rarely changes and was loaded on every student open
 let feeHeadCache = { at: 0, rows: null };
@@ -392,6 +396,8 @@ const getStudentFeeDetails = async (req, res) => {
           semester: fee.semester,
           totalAmount: 0,
           concessionAmount: 0,
+          declarationConcessionAmount: 0,
+          applicationConcessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
           isActive: fee.isActive !== false,
@@ -431,6 +437,8 @@ const getStudentFeeDetails = async (req, res) => {
           semester: fs.semester || null,
           totalAmount: 0,
           concessionAmount: 0,
+          declarationConcessionAmount: 0,
+          applicationConcessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
           isActive: true,
@@ -466,6 +474,8 @@ const getStudentFeeDetails = async (req, res) => {
             semester: t.semester || null,
             totalAmount: 0,
             concessionAmount: 0,
+            declarationConcessionAmount: 0,
+            applicationConcessionAmount: 0,
             paidAmount: 0,
             dueAmount: 0,
             isActive: true,
@@ -475,7 +485,13 @@ const getStudentFeeDetails = async (req, res) => {
         if (t.transactionType === 'DEBIT') {
           groupedData[key].paidAmount += (t.amount || 0);
         } else if (t.transactionType === 'CREDIT') {
-          groupedData[key].concessionAmount += (t.amount || 0);
+          const amt = t.amount || 0;
+          groupedData[key].concessionAmount += amt;
+          if (isDeclarationConcessionTxn(t)) {
+            groupedData[key].declarationConcessionAmount += amt;
+          } else {
+            groupedData[key].applicationConcessionAmount += amt;
+          }
         }
       } else {
         // Global Credits/Concessions (no specific feeHead)
@@ -495,13 +511,29 @@ const getStudentFeeDetails = async (req, res) => {
       }
     });
 
-    // D. Final Calculation
+    // D. Final Calculation + term-wise concession distribution
     let processedResults = Object.values(groupedData).map(item => {
+      item.declarationConcessionAmount = Number(item.declarationConcessionAmount) || 0;
+      item.applicationConcessionAmount = Number(item.applicationConcessionAmount) || 0;
+      item.concessionAmount = Number(item.concessionAmount) || 0;
       item.dueAmount = Math.max(0, item.totalAmount - item.paidAmount - item.concessionAmount);
+
+      if (item.isTermsDivided && Array.isArray(item.terms) && item.terms.length > 0) {
+        const allocation = allocateTermBalances({
+          totalAmount: item.totalAmount,
+          terms: item.terms,
+          paidAmount: item.paidAmount,
+          declarationConcession: item.declarationConcessionAmount,
+          applicationConcession: item.applicationConcessionAmount
+        });
+        item.termBalances = allocation.terms;
+      } else {
+        item.termBalances = [];
+      }
       return item;
     });
 
-    // Apply global credits (not tied to a specific fee head) as concessions only — never as paid
+    // Apply global credits (not tied to a specific fee head) as application concessions
     let globalCreditPool = transactions.reduce((acc, t) => {
       if (!t.feeHead && t.transactionType === 'CREDIT') {
         return acc + (t.amount || 0);
@@ -514,10 +546,22 @@ const getStudentFeeDetails = async (req, res) => {
       processedResults.sort((a, b) => Number(a.studentYear) - Number(b.studentYear));
       processedResults.forEach(item => {
         if (item.dueAmount > 0 && globalCreditPool > 0) {
-          const allocation = Math.min(item.dueAmount, globalCreditPool);
-          item.concessionAmount += allocation;
-          item.dueAmount -= allocation;
-          globalCreditPool -= allocation;
+          const allocationAmt = Math.min(item.dueAmount, globalCreditPool);
+          item.concessionAmount += allocationAmt;
+          item.applicationConcessionAmount = (Number(item.applicationConcessionAmount) || 0) + allocationAmt;
+          item.dueAmount -= allocationAmt;
+          globalCreditPool -= allocationAmt;
+
+          if (item.isTermsDivided && Array.isArray(item.terms) && item.terms.length > 0) {
+            const allocation = allocateTermBalances({
+              totalAmount: item.totalAmount,
+              terms: item.terms,
+              paidAmount: item.paidAmount,
+              declarationConcession: item.declarationConcessionAmount,
+              applicationConcession: item.applicationConcessionAmount
+            });
+            item.termBalances = allocation.terms;
+          }
         }
       });
     }

@@ -3142,6 +3142,19 @@ const FeeConfiguration = () => {
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
                                             {(() => {
+                                                if (isLoadingStructures) {
+                                                    return (
+                                                        <tr>
+                                                            <td colSpan={4} className="px-6 py-16 text-center text-gray-400">
+                                                                <div className="flex flex-col items-center justify-center gap-3">
+                                                                    <div className="w-8 h-8 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                                                                    <p className="font-medium text-gray-500">Loading late fee configurations…</p>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                }
+
                                                 const configured = structures.filter(s => {
                                                     const hasLateFee = s.lateFeeHead ||
                                                         (Array.isArray(s.terms) && s.terms.some(t => Number(t.lateFeeAmount) > 0));
