@@ -9,10 +9,11 @@ const s3Client = new S3Client({
 });
 
 const uploadToS3 = async (file) => {
+  const bucketName = process.env.AWS_BUCKET_NAME || process.env.S3_BUCKET_NAME || 'team-pydah';
   const fileKey = `concessions/${Date.now()}_${file.originalname}`;
   
   const params = {
-    Bucket: process.env.AWS_BUCKET_NAME,
+    Bucket: bucketName,
     Key: fileKey,
     Body: file.buffer,
     ContentType: file.mimetype,
@@ -22,8 +23,8 @@ const uploadToS3 = async (file) => {
   try {
     await s3Client.send(new PutObjectCommand(params));
     // Construct the public URL manually for v3
-    // Note: This assumes standard AWS S3 URL format
-    const url = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+    const region = process.env.AWS_REGION || 'ap-south-1';
+    const url = `https://${bucketName}.s3.${region}.amazonaws.com/${fileKey}`;
     return url;
   } catch (error) {
     throw error;

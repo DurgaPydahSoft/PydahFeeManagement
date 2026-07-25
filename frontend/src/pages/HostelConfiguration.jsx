@@ -530,12 +530,12 @@ const HostelConfiguration = () => {
                             <td key={c._id} className="p-4 text-right align-top">
                               {s != null ? (
                                 <div className="flex flex-col items-end gap-1">
-                                  <span className="font-bold text-green-700">₹{Number(s.amount).toLocaleString()}</span>
+                                  <span className="font-bold text-green-700">₹{Number(s.amount).toLocaleString('en-IN')}</span>
                                   <button
                                     type="button"
                                     onClick={() => openApplyModal({ _id: s._id, amount: s.amount, hostel: { name: row.hostelName }, category: { name: s.categoryName }, academicYear: row.academicYear, course: row.course, studentYear: row.studentYear })}
                                     className="text-xs text-green-600 hover:text-green-700 hover:bg-green-50 px-2 py-1 rounded flex items-center gap-1"
-                                    title={`Apply ${s.categoryName} (₹${Number(s.amount).toLocaleString()}) to students`}
+                                    title={`Apply ${s.categoryName} (₹${Number(s.amount).toLocaleString('en-IN')}) to students`}
                                   >
                                     <UserPlus size={12} /> Apply
                                   </button>
@@ -649,7 +649,7 @@ const HostelConfiguration = () => {
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
               <div className="p-6 border-b border-gray-200 flex justify-between items-center shrink-0">
                 <h3 className="text-xl font-bold text-gray-800">
-                  Apply hostel fee: {applyStructure.hostel?.name} – {applyStructure.category?.name} (₹{Number(applyStructure.amount).toLocaleString()}) – {applyStructure.academicYear} – Year {applyStructure.studentYear ?? 1}
+                  Apply hostel fee: {applyStructure.hostel?.name} – {applyStructure.category?.name} (₹{Number(applyStructure.amount).toLocaleString('en-IN')}) – {applyStructure.academicYear} – Year {applyStructure.studentYear ?? 1}
                 </h3>
                 <button onClick={() => setIsApplyModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
               </div>

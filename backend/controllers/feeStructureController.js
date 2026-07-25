@@ -3,8 +3,9 @@ const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
+const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const db = require('../config/sqlDb');
-const { syncClubFees, syncStandardFees } = require('../services/studentFeeSyncService');
+const { syncClubFees, syncTransportFees, syncStandardFees } = require('../services/studentFeeSyncService');
 const {
   resolveStudentFeeAmount,
   buildFeeHeadMaps,
@@ -96,11 +97,8 @@ const applyFeeStructureToBatchInternal = async (structure) => {
 
 // @desc    Create/Update Fee Structure (Single or Bulk)
 // @route   POST /api/fee-structures
-// @desc    Create/Update Fee Structure (Single or Bulk)
-// @route   POST /api/fee-structures
 const createFeeStructure = async (req, res) => {
-  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
-  // yearAmounts logic removed for simplifying Semester implementation as per requirement.
+  const { feeHeadId, college, course, branch, batch, category, categories, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms, isGroupWiseLateFee } = req.body;
 
   try {
     // Basic Validation
@@ -117,6 +115,31 @@ const createFeeStructure = async (req, res) => {
     } else {
       return res.status(400).json({ message: 'Category is required' });
     }
+
+    // Automatically check and apply default late fee configuration if available
+    const rawTerms = (isTermsDivided && Array.isArray(terms) && terms.length > 0)
+      ? terms
+      : [{ termNumber: 1, percentage: 100, amount: Number(amount) }];
+    const termsCount = rawTerms.length;
+
+    const defaultConfig = await DefaultLateFeeConfig.findOne({ termsCount, isActive: true });
+
+    let autoLateFeeHead = req.body.lateFeeHead || null;
+    if (!autoLateFeeHead && defaultConfig && defaultConfig.lateFeeHead) {
+      autoLateFeeHead = defaultConfig.lateFeeHead;
+    }
+
+    const processedTerms = rawTerms.map(t => {
+      const dTerm = defaultConfig?.terms?.find(dt => Number(dt.termNumber) === Number(t.termNumber));
+      return {
+        ...t,
+        dueDateMode: t.dueDateMode || (dTerm ? dTerm.dueDateMode : 'offset'),
+        referenceSemester: t.referenceSemester !== undefined ? t.referenceSemester : (dTerm ? dTerm.referenceSemester : undefined),
+        dueOffsetDays: (t.dueOffsetDays !== undefined && t.dueOffsetDays !== 0) ? t.dueOffsetDays : (dTerm ? dTerm.dueOffsetDays : 0),
+        fixedDueDate: t.fixedDueDate || (dTerm ? dTerm.fixedDueDate : undefined),
+        dueDescription: t.dueDescription || (dTerm ? dTerm.dueDescription : '')
+      };
+    });
 
     const results = [];
     const errors = [];
@@ -145,8 +168,10 @@ const createFeeStructure = async (req, res) => {
             description,
             isScholarshipApplicable: isScholarshipApplicable || false,
             isTermsDivided: isTermsDivided || false,
-            terms: (isTermsDivided && terms) ? terms : [],
-            semester: sem // Explicitly set/update semester in document to match index
+            terms: processedTerms,
+            semester: sem, // Explicitly set/update semester in document to match index
+            isGroupWiseLateFee: !!isGroupWiseLateFee,
+            ...(autoLateFeeHead ? { lateFeeHead: autoLateFeeHead } : {})
           }
         };
 
@@ -229,7 +254,10 @@ const createFeeStructure = async (req, res) => {
 // @route   GET /api/fee-structures
 const getFeeStructures = async (req, res) => {
   try {
-    const structures = await FeeStructure.find().populate('feeHead', 'name code').sort({ createdAt: -1 });
+    const structures = await FeeStructure.find()
+      .populate('feeHead', 'name code')
+      .populate('lateFeeHead', 'name code')
+      .sort({ createdAt: -1 });
     res.json(structures);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -257,6 +285,7 @@ const getStudentFeeDetails = async (req, res) => {
     if (student) {
       try {
         await syncClubFees(student, admissionNo);
+        await syncTransportFees(student, admissionNo);
         await syncStandardFees(student, admissionNo);
       } catch (syncError) {
         console.error('Fee sync error:', syncError);
@@ -298,6 +327,9 @@ const getStudentFeeDetails = async (req, res) => {
       if (feeCode === 'CF' || feeCode === 'SSF') {
         return `${headId}-${year}-${semKey}-${remarks || 'General'}`;
       }
+      if (feeCode === 'TRN' || feeCode === 'TRN01') {
+        return `${headId}-${year}-transport`;
+      }
       return `${headId}-${year}-${semKey}`;
     };
 
@@ -332,12 +364,19 @@ const getStudentFeeDetails = async (req, res) => {
           concessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
+          isActive: fee.isActive !== false,
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
+          remarksList: fee.remarks ? [fee.remarks] : [],
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
           isTermsDivided: fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false),
           studentScholarStatus: student ? student.scholar_status : null,
           terms: ((fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)) && matchedStructure) ? matchedStructure.terms : [] // Attach terms ONLY if terms divided!
         };
+      } else {
+        if (fee.remarks && !groupedData[key].remarksList.includes(fee.remarks)) {
+          groupedData[key].remarksList.push(fee.remarks);
+          groupedData[key].remarks = groupedData[key].remarksList.join('\n');
+        }
       }
       groupedData[key].totalAmount += (fee.amount || 0);
     });
@@ -364,6 +403,7 @@ const getStudentFeeDetails = async (req, res) => {
           concessionAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
+          isActive: true,
           isScholarshipApplicable: fs.isScholarshipApplicable || false,
           isTermsDivided: fs.isTermsDivided || false,
           terms: fs.isTermsDivided ? (fs.terms || []) : []
@@ -399,6 +439,7 @@ const getStudentFeeDetails = async (req, res) => {
             concessionAmount: 0,
             paidAmount: 0,
             dueAmount: 0,
+            isActive: true,
             terms: matchedStructure ? matchedStructure.terms : []
           };
         }
@@ -462,7 +503,7 @@ const getStudentFeeDetails = async (req, res) => {
 // @route   PUT /api/fee-structures/:id
 const updateFeeStructure = async (req, res) => {
   const { id } = req.params;
-  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms } = req.body;
+  const { feeHeadId, college, course, branch, batch, category, studentYear, amount, description, semester, isScholarshipApplicable, isTermsDivided, terms, lateFeeHead } = req.body;
   const user = req.user ? req.user.username : 'system';
 
   try {
@@ -479,6 +520,16 @@ const updateFeeStructure = async (req, res) => {
     const fHead = feeHeadId || req.body.feeHead;
     const finalFeeHead = mongoose.Types.ObjectId.isValid(fHead) ? new mongoose.Types.ObjectId(fHead) : (fHead?._id || fHead);
 
+    let finalLateFeeHead = existing.lateFeeHead;
+    if (lateFeeHead !== undefined) {
+      if (!lateFeeHead) {
+        finalLateFeeHead = null;
+      } else {
+        const lfHead = lateFeeHead?._id || lateFeeHead;
+        finalLateFeeHead = mongoose.Types.ObjectId.isValid(lfHead) ? new mongoose.Types.ObjectId(lfHead) : lfHead;
+      }
+    }
+
     const updatedStructure = await FeeStructure.findByIdAndUpdate(
       id,
       {
@@ -494,6 +545,7 @@ const updateFeeStructure = async (req, res) => {
         description,
         isScholarshipApplicable,
         isTermsDivided: isTermsDivided || false,
+        lateFeeHead: finalLateFeeHead,
         terms: (isTermsDivided && terms) ? terms : [],
         $push: { history: historyEntry }
       },

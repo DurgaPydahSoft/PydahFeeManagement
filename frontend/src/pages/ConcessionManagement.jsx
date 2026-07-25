@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2, ShieldAlert } from 'lucide-react';
+import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2, ShieldAlert, Menu, CheckCircle2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useReactToPrint } from 'react-to-print';
 import ConcessionReportPrint from '../components/ConcessionReportPrint';
@@ -9,6 +9,8 @@ import { printHtmlDocument } from '../utils/printService';
 const ConcessionManagement = () => {
     const [activeTab, setActiveTab] = useState('request'); // 'request', 'approvals', 'approvers'
     const [user, setUser] = useState(null);
+    const [isOpenMobile, setIsOpenMobile] = useState(false);
+    const [successModalData, setSuccessModalData] = useState(null);
 
     const searchInputRef = React.useRef(null);
 
@@ -62,6 +64,13 @@ const ConcessionManagement = () => {
 
 
     const reportPrintRef = React.useRef();
+    const actionFormRef = React.useRef(null);
+
+    useEffect(() => {
+        if (selectedStudents.length > 0 && actionFormRef.current) {
+            actionFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, [selectedStudents.length]);
     const handlePrint = async () => {
         try {
             const response = await api.post('/print', {
@@ -88,6 +97,7 @@ const ConcessionManagement = () => {
     // New state for filtered student list
     const [filteredStudents, setFilteredStudents] = useState([]);
     const [isFetchingStudents, setIsFetchingStudents] = useState(false);
+    const [selectionMode, setSelectionMode] = useState('single'); // 'single' or 'multi'
     
     // Approver Management State
     const [approvers, setApprovers] = useState([]);
@@ -354,13 +364,15 @@ const ConcessionManagement = () => {
                 const vId = req.voucherId || `single-${req._id}`;
                 if (!voucherMap[vId]) {
                     voucherMap[vId] = {
-                        isBulk: !!req.voucherId,
+                        isBulk: false,
                         voucherId: req.voucherId,
                         createdAt: req.createdAt,
                         college: req.college,
                         course: req.course,
                         branch: req.branch,
                         batch: req.batch,
+                        requestedBy: req.requestedBy || 'N/A',
+                        feeHead: req.feeHead,
                         feeHeads: [], // Track unique fee heads
                         reason: req.reason,
                         requests: [],
@@ -372,9 +384,16 @@ const ConcessionManagement = () => {
                 voucherMap[vId].totalAmount += req.amount;
                 
                 // Track unique fee heads in the group
-                if (req.feeHead && !voucherMap[vId].feeHeads.some(h => h._id === req.feeHead._id)) {
-                    voucherMap[vId].feeHeads.push(req.feeHead);
+                if (req.feeHead) {
+                    const headId = req.feeHead._id || req.feeHead;
+                    if (!voucherMap[vId].feeHeads.some(h => (h._id || h) === headId)) {
+                        voucherMap[vId].feeHeads.push(req.feeHead);
+                    }
                 }
+            });
+
+            grouped.forEach(g => {
+                g.isBulk = g.requests.length > 1;
             });
 
             setPendingRequests(grouped);
@@ -471,7 +490,19 @@ const ConcessionManagement = () => {
 
             const createdVoucherId = response.data.data?.[0]?.voucherId || 'N/A';
             const submittedCourse = selectedStudents[0]?.course;
-            alert(`Concession Request Submitted Successfully! Voucher ID: ${createdVoucherId}`);
+            const selectedFeeHead = feeHeads.find(f => f._id === formData.feeHeadId)?.name || 'Fee Component';
+            const studentDisplayName = selectedStudents.length === 1 
+                ? `${selectedStudents[0].student_name} (${selectedStudents[0].pin_number || selectedStudents[0].admission_number || selectedStudents[0].pin_no || 'N/A'})` 
+                : `${selectedStudents.length} Students`;
+
+            setSuccessModalData({
+                voucherId: createdVoucherId,
+                count: selectedStudents.length,
+                studentName: studentDisplayName,
+                feeHeadName: selectedFeeHead,
+                amount: formData.amount,
+                mode: selectionMode
+            });
             // Reset selections and form
             setSelectedStudents([]);
             setFormData({ feeHeadId: '', amount: '', reason: '', studentYear: '', semester: '', college: '', course: '', branch: '', batch: '', concessionGivenBy: '' });
@@ -567,19 +598,19 @@ const ConcessionManagement = () => {
     if (!hasPermission) {
         return (
             <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-                <Sidebar />
-                <div className="flex-1 flex items-center justify-center p-6">
-                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-red-100 max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
-                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <ShieldAlert size={40} className="text-red-500" />
+                <Sidebar isOpenMobile={isOpenMobile} onCloseMobile={() => setIsOpenMobile(false)} />
+                <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
+                    <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl border border-red-100 max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
+                        <div className="w-16 sm:w-20 h-16 sm:h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                            <ShieldAlert size={36} className="text-red-500" />
                         </div>
-                        <h2 className="text-2xl font-black text-slate-800 mb-2">Access Denied</h2>
-                        <p className="text-slate-500 font-medium leading-relaxed">
+                        <h2 className="text-xl sm:text-2xl font-black text-slate-800 mb-2">Access Denied</h2>
+                        <p className="text-slate-500 text-xs sm:text-sm font-medium leading-relaxed">
                             You don't have the required permissions to view or manage Concession Approvals. Please contact your administrator.
                         </p>
                         <button 
                             onClick={() => window.history.back()}
-                            className="mt-8 w-full py-3 px-6 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 transition-all shadow-lg shadow-slate-200 cursor-pointer"
+                            className="mt-6 sm:mt-8 w-full py-3 px-6 bg-slate-800 text-white text-sm font-bold rounded-2xl hover:bg-slate-900 transition-all shadow-lg shadow-slate-200 cursor-pointer"
                         >
                             Go Back
                         </button>
@@ -593,26 +624,37 @@ const ConcessionManagement = () => {
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-            <Sidebar />
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
+            <Sidebar isOpenMobile={isOpenMobile} onCloseMobile={() => setIsOpenMobile(false)} />
+            <div className="flex-1 flex flex-col h-full overflow-y-auto min-w-0">
                 {/* Header Section */}
-                <header className="bg-white border-b px-6 py-3 flex justify-between items-center shrink-0">
-                    <div>
-                        <h1 className="text-xl font-bold text-gray-800">Concession Management</h1>
-                        <p className="text-xs text-gray-500">Manage student fee concessions and approvals</p>
+                <header className="bg-white border-b px-4 sm:px-6 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shrink-0">
+                    <div className="flex items-center justify-between w-full sm:w-auto">
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => setIsOpenMobile(true)}
+                                className="md:hidden p-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 focus:outline-none"
+                                title="Open navigation menu"
+                            >
+                                <Menu size={20} />
+                            </button>
+                            <div>
+                                <h1 className="text-lg sm:text-xl font-bold text-gray-800 leading-tight">Concession Management</h1>
+                                <p className="text-[11px] sm:text-xs text-gray-500">Manage student fee concessions and approvals</p>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner border border-gray-200">
+                    <div className="flex bg-gray-100 p-1 rounded-xl shadow-inner border border-gray-200 overflow-x-auto max-w-full w-full sm:w-auto scrollbar-none gap-1">
                         <button
-                            className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-300 ${activeTab === 'request' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
+                            className={`px-3.5 sm:px-5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg transition-all duration-300 whitespace-nowrap ${activeTab === 'request' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
                             onClick={() => setActiveTab('request')}
                         >
                             Raise Request
                         </button>
                         {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && (
                             <button
-                                className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-300 flex items-center gap-2 ${activeTab === 'approvals' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
+                                className={`px-3.5 sm:px-5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg transition-all duration-300 flex items-center gap-1.5 whitespace-nowrap ${activeTab === 'approvals' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
                                 onClick={() => setActiveTab('approvals')}
                             >
                                 Approvals
@@ -625,7 +667,7 @@ const ConcessionManagement = () => {
                         )}
                         {(isSuperAdmin || (user?.permissions || []).includes('concession_approvers')) && (
                             <button
-                                className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-300 ${activeTab === 'approvers' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
+                                className={`px-3.5 sm:px-5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg transition-all duration-300 whitespace-nowrap ${activeTab === 'approvers' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
                                 onClick={() => setActiveTab('approvers')}
                             >
                                 Approvers
@@ -633,7 +675,7 @@ const ConcessionManagement = () => {
                         )}
                         {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && (
                             <button
-                                className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-300 ${activeTab === 'reports' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
+                                className={`px-3.5 sm:px-5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-lg transition-all duration-300 whitespace-nowrap ${activeTab === 'reports' ? 'bg-white text-blue-600 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
                                 onClick={() => setActiveTab('reports')}
                             >
                                 Reports
@@ -644,169 +686,270 @@ const ConcessionManagement = () => {
 
                 {/* Content Area - Request Tab */}
                 {activeTab === 'request' && (
-                    <div className="flex-1 overflow-hidden p-6 flex gap-6 max-w-[1700px] mx-auto w-full">
+                    <div className="p-3 sm:p-6 flex flex-col lg:flex-row items-start gap-4 sm:gap-6 max-w-[1700px] mx-auto w-full">
                         {/* LEFT COLUMN: Student Context & Filters */}
-                        <div className="w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                            <div className="p-4 border-b bg-gray-50 space-y-4">
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase block mb-2 font-sans tracking-tight">Find Student</label>
-                                    <div className="relative">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                            <Search className="h-4 w-4 text-gray-400" />
-                                        </div>
-                                        <input
-                                            ref={searchInputRef}
-                                            type="text"
-                                            className="pl-10 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"
-                                            placeholder="Search by Name, ID or Pin..."
-                                            value={searchTerm}
-                                            onChange={e => { setSearchTerm(e.target.value); if (e.target.value === '') setSearchResults([]); }}
-                                        />
-                                        {isSearching && <div className="absolute right-3 top-2.5 text-xs text-gray-400">...</div>}
-
-                                        {/* Search Dropdown */}
-                                        {(searchResults.length > 0 || isSearching) && (
-                                            <div className="absolute z-20 w-full bg-white border rounded-lg shadow-xl max-h-60 overflow-y-auto mt-1 left-0">
-                                                {searchResults.map(s => (
-                                                    <div
-                                                        key={s.admission_number}
-                                                        onClick={() => toggleStudentSelection(s)}
-                                                        className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
-                                                    >
-                                                        <div className="font-bold text-gray-800 text-sm">{s.student_name}</div>
-                                                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                                            <span>{s.pin_number || s.admission_number}</span>
-                                                            <span>{s.course} - {s.branch}</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
+                        <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col shrink-0">
+                            <div className="p-3 sm:p-4 border-b bg-gray-50 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-gray-600 uppercase block font-sans tracking-tight">Find Student</label>
+                                    {/* Single vs Multi Sub-Tabs */}
+                                    <div className="flex bg-gray-200/80 p-0.5 rounded-lg border border-gray-300/60">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectionMode('single');
+                                                if (selectedStudents.length > 1) {
+                                                    setSelectedStudents([selectedStudents[0]]);
+                                                }
+                                            }}
+                                            className={`px-3 py-1 text-xs font-extrabold rounded-md transition-all ${
+                                                selectionMode === 'single'
+                                                    ? 'bg-white text-blue-600 shadow-xs'
+                                                    : 'text-gray-500 hover:text-gray-800'
+                                            }`}
+                                        >
+                                            Single
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectionMode('multi')}
+                                            className={`px-3 py-1 text-xs font-extrabold rounded-md transition-all ${
+                                                selectionMode === 'multi'
+                                                    ? 'bg-white text-blue-600 shadow-xs'
+                                                    : 'text-gray-500 hover:text-gray-800'
+                                            }`}
+                                        >
+                                            Multi
+                                        </button>
                                     </div>
                                 </div>
 
-                                {/* Filters For Bulk Selection */}
-                                <div className="space-y-3 pt-2">
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <select
-                                            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                                            value={formData.college}
-                                            onChange={e => setFormData({ ...formData, college: e.target.value, course: '', branch: '' })}
-                                        >
-                                            <option value="">Select College</option>
-                                            {collegeList.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                        <select
-                                            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                                            value={formData.course}
-                                            onChange={e => setFormData({ ...formData, course: e.target.value, branch: '' })}
-                                        >
-                                            <option value="">Select Course</option>
-                                            {courseList.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                        <select
-                                            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                                            value={formData.branch}
-                                            onChange={e => setFormData({ ...formData, branch: e.target.value })}
-                                        >
-                                            <option value="">Select Branch</option>
-                                            {branchList.map(b => <option key={b} value={b}>{b}</option>)}
-                                        </select>
-                                        <select
-                                            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                                            value={formData.batch}
-                                            onChange={e => setFormData({ ...formData, batch: e.target.value })}
-                                        >
-                                            <option value="">Select Batch</option>
-                                            {batchList.map(b => <option key={b} value={b}>{b}</option>)}
-                                        </select>
+                                {/* Search Bar */}
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Search className="h-4 w-4 text-gray-400" />
                                     </div>
-                                    <button
-                                        onClick={fetchFilteredStudents}
-                                        disabled={isFetchingStudents || !formData.college}
-                                        className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <Filter className="w-4 h-4" />
-                                        {isFetchingStudents ? 'Loading Students...' : 'Load Student List'}
-                                    </button>
-                                </div>
-                            </div>
+                                    <input
+                                        ref={searchInputRef}
+                                        type="text"
+                                        className="pl-10 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"
+                                        placeholder="Search by Name, ID or Pin..."
+                                        value={searchTerm}
+                                        onChange={e => { setSearchTerm(e.target.value); if (e.target.value === '') setSearchResults([]); }}
+                                    />
+                                    {isSearching && <div className="absolute right-3 top-2.5 text-xs text-gray-400">...</div>}
 
-                            {/* Student List Display */}
-                            <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-50/50">
-                                {filteredStudents.length > 0 ? (
-                                    <div className="divide-y divide-gray-200">
-                                        <div className="p-3 bg-white sticky top-0 z-10 border-b flex items-center justify-between shadow-sm">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Filtered Students ({filteredStudents.length})</span>
-                                            <button 
-                                                onClick={() => {
-                                                    if (selectedStudents.length === filteredStudents.length) {
-                                                        setSelectedStudents([]);
-                                                    } else {
-                                                        setSelectedStudents(filteredStudents);
-                                                        if (filteredStudents.length > 0) {
-                                                            applyStudentContextToForm(filteredStudents[0]);
-                                                        }
-                                                    }
-                                                }}
-                                                className="text-xs text-blue-600 font-extrabold hover:underline"
-                                            >
-                                                {selectedStudents.length === filteredStudents.length ? 'Deselect All' : 'Select All'}
-                                            </button>
-                                        </div>
-                                        {filteredStudents.map(s => {
-                                            const isSelected = selectedStudents.some(sel => sel.admission_number === s.admission_number);
-                                            return (
-                                                <div 
+                                    {/* Search Dropdown */}
+                                    {(searchResults.length > 0 || isSearching) && (
+                                        <div className="absolute z-20 w-full bg-white border rounded-lg shadow-xl max-h-60 overflow-y-auto mt-1 left-0">
+                                            {searchResults.map(s => (
+                                                <div
                                                     key={s.admission_number}
-                                                    className={`p-3 border-b hover:bg-blue-50 transition-colors flex items-center gap-3 cursor-pointer ${isSelected ? 'bg-blue-50' : ''}`}
-                                                    onClick={() => toggleStudentSelection(s)}
+                                                    onClick={() => {
+                                                        if (selectionMode === 'single') {
+                                                            setSelectedStudents([s]);
+                                                            applyStudentContextToForm(s);
+                                                            setPreviewStudent(s);
+                                                            setSearchTerm('');
+                                                            setSearchResults([]);
+                                                        } else {
+                                                            toggleStudentSelection(s);
+                                                        }
+                                                    }}
+                                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0"
                                                 >
-                                                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-blue-600 scale-110' : 'border-gray-300 bg-white'}`}>
-                                                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="font-bold text-gray-800 text-sm truncate">{s.student_name}</div>
-                                                        <div className="flex justify-between text-xs text-gray-500">
-                                                            <span>{s.pin_number || s.admission_number}</span>
-                                                            <span className="truncate ml-2">{s.course}</span>
-                                                        </div>
+                                                    <div className="font-bold text-gray-800 text-sm">{s.student_name}</div>
+                                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                                        <span>{s.pin_number || s.admission_number}</span>
+                                                        <span>{s.course} - {s.branch}</span>
                                                     </div>
                                                 </div>
-                                            );
-                                        })}
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Filters For Bulk Selection - ONLY DISPLAYED IN MULTI MODE */}
+                                {selectionMode === 'multi' && (
+                                    <div className="space-y-3 pt-2 animate-fade-in">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <select
+                                                className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={formData.college}
+                                                onChange={e => setFormData({ ...formData, college: e.target.value, course: '', branch: '' })}
+                                            >
+                                                <option value="">Select College</option>
+                                                {collegeList.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                            <select
+                                                className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={formData.course}
+                                                onChange={e => setFormData({ ...formData, course: e.target.value, branch: '' })}
+                                            >
+                                                <option value="">Select Course</option>
+                                                {courseList.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                            <select
+                                                className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={formData.branch}
+                                                onChange={e => setFormData({ ...formData, branch: e.target.value })}
+                                            >
+                                                <option value="">Select Branch</option>
+                                                {branchList.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                            <select
+                                                className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                                value={formData.batch}
+                                                onChange={e => setFormData({ ...formData, batch: e.target.value })}
+                                            >
+                                                <option value="">Select Batch</option>
+                                                {batchList.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        </div>
+                                        <button
+                                            onClick={fetchFilteredStudents}
+                                            disabled={isFetchingStudents || !formData.college}
+                                            className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <Filter className="w-4 h-4" />
+                                            {isFetchingStudents ? 'Loading Students...' : 'Load Student List'}
+                                        </button>
                                     </div>
+                                )}
+                            </div>
+
+                            {/* Bottom Student Display Panel */}
+                            <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-50/50 min-h-[160px]">
+                                {selectionMode === 'single' ? (
+                                    /* Single Mode Display: Card if selected, or Search Prompt */
+                                    selectedStudents.length > 0 ? (
+                                        <div className="p-4 bg-white rounded-xl m-3 border border-blue-200 shadow-xs space-y-3">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Selected Student</span>
+                                                    <h4 className="font-extrabold text-gray-900 text-base mt-1.5">{selectedStudents[0].student_name}</h4>
+                                                    <p className="text-xs text-gray-500 font-mono font-bold">{selectedStudents[0].pin_number || selectedStudents[0].admission_number}</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStudents([])}
+                                                    className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 px-2.5 py-1 rounded-md border border-red-100 hover:bg-red-100 transition-all"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2 text-xs border-t border-gray-100 pt-3">
+                                                <div>
+                                                    <span className="text-gray-400 font-bold block text-[10px] uppercase">College</span>
+                                                    <span className="font-semibold text-gray-800">{selectedStudents[0].college || 'N/A'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-400 font-bold block text-[10px] uppercase">Course</span>
+                                                    <span className="font-semibold text-gray-800">{selectedStudents[0].course || 'N/A'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-400 font-bold block text-[10px] uppercase">Branch</span>
+                                                    <span className="font-semibold text-gray-800">{selectedStudents[0].branch || 'N/A'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-400 font-bold block text-[10px] uppercase">Batch</span>
+                                                    <span className="font-semibold text-gray-800">{selectedStudents[0].batch || 'N/A'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-400 font-bold block text-[10px] uppercase">Year / Sem</span>
+                                                    <span className="font-semibold text-gray-800">Year {selectedStudents[0].current_year || '1'} {selectedStudents[0].current_semester ? `/ Sem ${selectedStudents[0].current_semester}` : ''}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 text-center space-y-3">
+                                            <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center">
+                                                <Search className="w-6 h-6 opacity-30" />
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-gray-500 text-xs">Single Student Mode</p>
+                                                <p className="text-[11px] mt-1 text-gray-400">Search for a student above by Name, ID or Pin number.</p>
+                                            </div>
+                                        </div>
+                                    )
                                 ) : (
-                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center space-y-3">
-                                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                                            <Filter className="w-8 h-8 opacity-20" />
+                                    /* Multi Mode Display: Filtered List or Prompt */
+                                    filteredStudents.length > 0 ? (
+                                        <div className="divide-y divide-gray-200">
+                                            <div className="p-3 bg-white sticky top-0 z-10 border-b flex items-center justify-between shadow-sm">
+                                                <span className="text-xs font-bold text-gray-500 uppercase">Filtered Students ({filteredStudents.length})</span>
+                                                <button 
+                                                    onClick={() => {
+                                                        if (selectedStudents.length === filteredStudents.length) {
+                                                            setSelectedStudents([]);
+                                                        } else {
+                                                            setSelectedStudents(filteredStudents);
+                                                            if (filteredStudents.length > 0) {
+                                                                applyStudentContextToForm(filteredStudents[0]);
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="text-xs text-blue-600 font-extrabold hover:underline"
+                                                >
+                                                    {selectedStudents.length === filteredStudents.length ? 'Deselect All' : 'Select All'}
+                                                </button>
+                                            </div>
+                                            {filteredStudents.map(s => {
+                                                const isSelected = selectedStudents.some(sel => sel.admission_number === s.admission_number);
+                                                return (
+                                                    <div 
+                                                        key={s.admission_number}
+                                                        className={`p-3 border-b hover:bg-blue-50 transition-colors flex items-center gap-3 cursor-pointer ${isSelected ? 'bg-blue-50' : ''}`}
+                                                        onClick={() => toggleStudentSelection(s)}
+                                                    >
+                                                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 border-blue-600 scale-110' : 'border-gray-300 bg-white'}`}>
+                                                            {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="font-bold text-gray-800 text-sm truncate">{s.student_name}</div>
+                                                            <div className="flex justify-between text-xs text-gray-500">
+                                                                <span>{s.pin_number || s.admission_number}</span>
+                                                                <span className="truncate ml-2">{s.course}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
-                                        <div>
-                                            <p className="font-bold text-gray-500">No Students Loaded</p>
-                                            <p className="text-xs mt-1">Select college and course above to load students for bulk selection, or use search for individual students.</p>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 sm:p-8 text-center space-y-3">
+                                            <div className="w-14 sm:w-16 h-14 sm:h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                                                <Filter className="w-6 sm:w-8 h-6 sm:h-8 opacity-20" />
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-gray-500 text-xs sm:text-sm">No Students Loaded</p>
+                                                <p className="text-[11px] sm:text-xs mt-1">Select college and course above to load students for bulk selection, or use search for individual students.</p>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )
                                 )}
                             </div>
                         </div>
 
                         {/* RIGHT COLUMN: Action Form */}
-                        <div className={`flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden transition-all duration-300 ${selectedStudents.length === 0 ? 'opacity-50 pointer-events-none grayscale-[0.0]' : ''}`}>
-                            <div className="p-4 border-b flex items-center justify-between bg-gray-50">
-                                <div className="flex items-center gap-3">
+                        <div ref={actionFormRef} className={`w-full lg:w-2/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col transition-all duration-300 ${selectedStudents.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                            <div className="p-3 sm:p-4 border-b flex flex-wrap items-center justify-between bg-gray-50 gap-2">
+                                <div className={`items-center gap-3 ${selectionMode === 'single' ? 'hidden sm:flex' : 'flex'}`}>
                                     <div className="bg-blue-600 text-white rounded p-1.5 shadow-sm"><Check size={18} /></div>
                                     <div>
-                                        <h2 className="font-bold text-gray-800">Concession Details</h2>
-                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Raising for {selectedStudents.length} Students</p>
+                                        <h2 className="font-bold text-gray-800 text-sm sm:text-base">Concession Details</h2>
+                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+                                            {selectionMode === 'single' ? 'Single Student Request' : `Raising for ${selectedStudents.length} Students`}
+                                        </p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 sm:gap-3 ml-auto sm:ml-0">
                                     {nextVoucherId && selectedStudents.length > 0 && (
-                                        <span className="text-xs font-mono font-bold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100">
+                                        <span className="text-xs font-mono font-bold bg-blue-50 text-blue-700 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-blue-100">
                                             Next Voucher: #{nextVoucherId}
                                         </span>
                                     )}
-                                    {selectedStudents.length > 0 && (
+                                    {selectionMode === 'multi' && selectedStudents.length > 0 && (
                                         <button 
                                             onClick={() => setSelectedStudents([])}
                                             className="text-xs text-red-500 font-bold flex items-center gap-1 hover:text-red-700"
@@ -817,10 +960,10 @@ const ConcessionManagement = () => {
                                 </div>
                             </div>
 
-                            <form onSubmit={handleSubmitRequest} className="flex-1 p-6 overflow-y-auto space-y-6">
-                                {/* Selected Students Summary Bagde */}
-                                {selectedStudents.length > 0 && (
-                                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                            <form onSubmit={handleSubmitRequest} className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+                                {/* Selected Students Summary Badge (Only in Multi Mode) */}
+                                {selectionMode === 'multi' && selectedStudents.length > 0 && (
+                                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 sm:p-4">
                                         <h3 className="text-xs font-extrabold text-blue-800 uppercase mb-3 flex items-center gap-2">
                                             <Calendar className="w-3.5 h-3.5" /> Selected Students ({selectedStudents.length})
                                         </h3>
@@ -835,7 +978,7 @@ const ConcessionManagement = () => {
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-2 gap-5">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-gray-600 mb-1 block">Fee Head <span className="text-red-500">*</span></label>
                                         <select
@@ -896,11 +1039,11 @@ const ConcessionManagement = () => {
                                     ></textarea>
                                 </div>
 
-                                <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-5 hover:bg-gray-100/50 transition-colors">
-                                    <label className="text-xs font-bold text-gray-600 block mb-3">Supporting Document (Proof)</label>
-                                    <div className="flex items-center gap-4">
-                                        <label className="flex items-center gap-2 cursor-pointer bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-lg text-sm font-bold hover:shadow-md transition active:scale-95 shadow-sm">
-                                            <Upload size={18} className="text-blue-600" />
+                                <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-3 sm:p-5 hover:bg-gray-100/50 transition-colors">
+                                    <label className="text-xs font-bold text-gray-600 block mb-2 sm:mb-3">Supporting Document (Proof)</label>
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+                                        <label className="flex items-center gap-2 cursor-pointer bg-white border border-gray-200 text-gray-700 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold hover:shadow-md transition active:scale-95 shadow-sm">
+                                            <Upload size={16} className="text-blue-600" />
                                             <span>{imageFile ? 'Change File' : 'Choose File'}</span>
                                             <input
                                                 type="file"
@@ -920,17 +1063,21 @@ const ConcessionManagement = () => {
                                 </div>
                             </form>
 
-                            <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
-                                <div className="text-xs font-bold text-gray-500">
-                                    {selectedStudents.length > 0 && `Ready to raise concession for ${selectedStudents.length} students.`}
+                            <div className="p-3 sm:p-4 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                                <div className="text-xs font-bold text-gray-500 text-center sm:text-left">
+                                    {selectedStudents.length > 0 && (
+                                        selectionMode === 'single'
+                                            ? 'Ready to raise single student concession.'
+                                            : `Ready to raise concession for ${selectedStudents.length} students.`
+                                    )}
                                 </div>
                                 <button
                                     onClick={handleSubmitRequest}
                                     disabled={selectedStudents.length === 0}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-extrabold shadow-lg flex items-center gap-2 transition transform active:scale-95 disabled:opacity-50 disabled:scale-100"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl font-extrabold shadow-lg flex items-center justify-center gap-2 transition transform active:scale-95 disabled:opacity-50 disabled:scale-100 w-full sm:w-auto"
                                 >
-                                    <Save size={20} />
-                                    Submit Bulk Concession
+                                    <Save size={18} />
+                                    {selectionMode === 'single' ? 'Submit Concession' : 'Submit Bulk Concession'}
                                 </button>
                             </div>
                         </div>
@@ -939,15 +1086,15 @@ const ConcessionManagement = () => {
 
                 {/* Content Area - Approvals Tab */}
                 {activeTab === 'approvals' && (
-                    <div className="flex-1 p-6 overflow-hidden flex flex-col max-w-[1700px] mx-auto w-full">
+                    <div className="p-3 sm:p-6 flex flex-col max-w-[1700px] mx-auto w-full">
                         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-full">
                             {/* Filters Toolbar */}
-                            <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
-                                <div className="flex flex-wrap items-center gap-3">
+                            <div className="p-3 sm:p-4 border-b border-gray-100 bg-gray-50 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2 sm:gap-3">
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-                                        <Filter size={14} className="text-gray-400" />
+                                        <Filter size={14} className="text-gray-400 shrink-0" />
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[110px] outline-none"
                                             value={filters.status}
                                             onChange={e => setFilters({ ...filters, status: e.target.value })}
                                         >
@@ -958,9 +1105,9 @@ const ConcessionManagement = () => {
                                         </select>
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-                                        <Landmark size={14} className="text-gray-400" />
+                                        <Landmark size={14} className="text-gray-400 shrink-0" />
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[140px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[120px] outline-none"
                                             value={filters.college}
                                             onChange={e => setFilters({ ...filters, college: e.target.value, course: '', branch: '' })}
                                         >
@@ -970,7 +1117,7 @@ const ConcessionManagement = () => {
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[110px] outline-none"
                                             value={filters.course}
                                             onChange={e => setFilters({ ...filters, course: e.target.value, branch: '' })}
                                         >
@@ -980,7 +1127,7 @@ const ConcessionManagement = () => {
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[110px] outline-none"
                                             value={filters.branch}
                                             onChange={e => setFilters({ ...filters, branch: e.target.value })}
                                         >
@@ -990,7 +1137,7 @@ const ConcessionManagement = () => {
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[100px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[100px] outline-none"
                                             value={filters.batch}
                                             onChange={e => setFilters({ ...filters, batch: e.target.value })}
                                         >
@@ -998,12 +1145,12 @@ const ConcessionManagement = () => {
                                             {batchList.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
                                     </div>
-                                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm w-full sm:w-auto focus-within:ring-2 focus-within:ring-blue-500 transition-all">
-                                        <Search size={14} className="text-gray-400" />
+                                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm col-span-1 sm:col-span-2 md:col-span-1 focus-within:ring-2 focus-within:ring-blue-500 transition-all">
+                                        <Search size={14} className="text-gray-400 shrink-0" />
                                         <input
                                             type="text"
                                             placeholder="Search students..."
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 outline-none w-full min-w-[200px]"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 outline-none w-full"
                                             value={filters.search}
                                             onChange={e => setFilters({ ...filters, search: e.target.value })}
                                         />
@@ -1011,7 +1158,7 @@ const ConcessionManagement = () => {
                                 </div>
                                 <button
                                     onClick={fetchPendingRequests}
-                                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-blue-600 text-white hover:bg-blue-700 transition shadow-md active:scale-95"
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-blue-600 text-white hover:bg-blue-700 transition shadow-md active:scale-95 shrink-0"
                                 >
                                     <Filter size={14} /> Filter Approvals
                                 </button>
@@ -1022,13 +1169,14 @@ const ConcessionManagement = () => {
                                 <table className="w-full text-left border-collapse">
                                     <thead className="bg-gray-50 border-b border-gray-200 text-[10px] uppercase tracking-widest text-gray-500 font-extrabold sticky top-0 z-10">
                                         <tr>
-                                            <th className="py-4 px-6">Requested Date</th>
-                                            <th className="py-4 px-6">Voucher ID</th>
-                                            <th className="py-4 px-6">Student Information</th>
-                                            <th className="py-4 px-6">Course/Branch</th>
-                                            <th className="py-4 px-6">Fee Head</th>
-                                            <th className="py-4 px-6 text-right">Requested Amount</th>
-                                            <th className="py-4 px-6 text-right">Action</th>
+                                            <th className="py-3.5 px-4 whitespace-nowrap">Requested Date</th>
+                                            <th className="py-3.5 px-4 whitespace-nowrap">Voucher ID</th>
+                                            <th className="py-3.5 px-4 min-w-[180px]">Student Information</th>
+                                            <th className="py-3.5 px-4 whitespace-nowrap">Course / Branch</th>
+                                            <th className="py-3.5 px-4 whitespace-nowrap">Fee Head</th>
+                                            <th className="py-3.5 px-4 whitespace-nowrap">Raised By</th>
+                                            <th className="py-3.5 px-4 text-right whitespace-nowrap">Requested Amount</th>
+                                            <th className="py-3.5 px-4 text-right whitespace-nowrap">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-100">
@@ -1047,18 +1195,20 @@ const ConcessionManagement = () => {
                                         ) : (
                                             pendingRequests.map(group => (
                                                 <tr key={group.voucherId || group.requests[0]._id} className="hover:bg-gray-50/80 transition-all border-b border-gray-100 last:border-0">
-                                                    <td className="py-4 px-6">
+                                                    <td className="py-3.5 px-4 whitespace-nowrap">
                                                         <span className="text-xs font-bold text-gray-500">{new Date(group.createdAt).toLocaleDateString()}</span>
                                                     </td>
-                                                    <td className="py-4 px-6">
+                                                    <td className="py-3.5 px-4 whitespace-nowrap">
                                                         <div className="flex flex-col">
                                                             <span className="font-mono text-[10px] font-black bg-gray-100 px-2 py-1 rounded border border-gray-200 text-gray-800 w-fit">
                                                                 #{group.voucherId || 'SINGLE'}
                                                             </span>
-                                                            {group.isBulk && <span className="text-[9px] font-bold text-blue-600 mt-1 uppercase tracking-tighter">Bulk Request</span>}
+                                                            {group.requests.length > 1 && (
+                                                                <span className="text-[9px] font-bold text-blue-600 mt-1 uppercase tracking-tighter">Bulk ({group.requests.length})</span>
+                                                            )}
                                                         </div>
                                                     </td>
-                                                    <td className="py-4 px-6">
+                                                    <td className="py-3.5 px-4">
                                                         <div className="flex flex-col">
                                                             <span className="text-sm font-bold text-gray-800">
                                                                 {group.requests.length === 1 ? group.requests[0].studentName : `${group.requests[0].studentName} + ${group.requests.length - 1} more`}
@@ -1066,30 +1216,32 @@ const ConcessionManagement = () => {
                                                             <span className="text-[10px] text-gray-400 font-bold uppercase">{group.requests[0].studentPin || group.requests[0].studentId}</span>
                                                         </div>
                                                     </td>
-                                                    <td className="py-4 px-6">
+                                                    <td className="py-3.5 px-4 whitespace-nowrap">
                                                         <div className="flex flex-col">
                                                             <span className="text-xs font-bold text-gray-700">{group.course}</span>
                                                             <span className="text-[10px] text-gray-400">{group.branch}</span>
                                                         </div>
                                                     </td>
-                                                    <td className="py-4 px-6">
+                                                    <td className="py-3.5 px-4 whitespace-nowrap">
                                                         {group.feeHeads.length > 1 ? (
-                                                            <div className="flex flex-col gap-1">
-                                                                <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-100 uppercase tracking-tight w-fit">
-                                                                    Mixed Heads ({group.feeHeads.length})
-                                                                </span>
-                                                                <span className="text-[9px] text-gray-400 font-medium italic">Multiple components</span>
-                                                            </div>
+                                                            <span className="px-2.5 py-1 rounded bg-amber-50 text-amber-700 text-xs font-bold border border-amber-100 uppercase tracking-tight">
+                                                                Mixed Heads ({group.feeHeads.length})
+                                                            </span>
                                                         ) : (
-                                                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-100 uppercase tracking-tight">
+                                                            <span className="px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100 uppercase tracking-tight">
                                                                 {group.feeHeads[0]?.name || 'N/A'}
                                                             </span>
                                                         )}
                                                     </td>
-                                                    <td className="py-4 px-6">
-                                                        <div className="text-right">
-                                                            <span className="text-sm font-black text-gray-900">₹{group.totalAmount.toLocaleString()}</span>
-                                                            {group.isBulk && <div className="text-[10px] text-gray-400 font-bold">Total for {group.requests.length} students</div>}
+                                                    <td className="py-3.5 px-4 whitespace-nowrap">
+                                                        <span className="text-xs font-bold text-gray-700 bg-gray-100 px-2.5 py-1 rounded border border-gray-200 inline-block">
+                                                            {group.requests[0]?.requestedBy || group.requestedBy || 'N/A'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3.5 px-4 whitespace-nowrap text-right">
+                                                        <div>
+                                                            <span className="text-sm font-black text-gray-900">₹{group.totalAmount.toLocaleString('en-IN')}</span>
+                                                            {group.requests.length > 1 && <div className="text-[10px] text-gray-400 font-bold">Total for {group.requests.length} students</div>}
                                                         </div>
                                                     </td>
                                                     <td className="py-4 px-6 text-right">
@@ -1112,12 +1264,12 @@ const ConcessionManagement = () => {
 
                 {/* Content Area - Approvers Tab */}
                 {activeTab === 'approvers' && (
-                    <div className="flex-1 p-6 overflow-hidden flex flex-col max-w-[1700px] mx-auto w-full animate-fade-in">
-                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 overflow-hidden h-full">
+                    <div className="p-3 sm:p-6 flex flex-col max-w-[1700px] mx-auto w-full animate-fade-in">
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 flex-1 h-full">
                             {/* Left: Add Form (Sidebar style) */}
                             <div className="lg:col-span-1 space-y-6">
-                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col h-fit">
-                                    <div className="mb-6">
+                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6 flex flex-col h-fit">
+                                    <div className="mb-4 sm:mb-6">
                                         <h3 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-1">Add Authority</h3>
                                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest italic">Register new permission giver</p>
                                     </div>
@@ -1157,7 +1309,7 @@ const ConcessionManagement = () => {
                                             <Save size={16} /> Save Approver
                                         </button>
                                     </form>
-                                    <div className="mt-8 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/50 text-[10px] text-indigo-700 leading-relaxed font-medium italic">
+                                    <div className="mt-6 sm:mt-8 p-3 sm:p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/50 text-[10px] text-indigo-700 leading-relaxed font-medium italic">
                                         <div className="font-bold mb-1 flex items-center gap-1"><Landmark size={12}/> Role Insight:</div>
                                         These authorities will appear in the "Concession Given By" dropdown on the Fee Collection page.
                                     </div>
@@ -1166,12 +1318,12 @@ const ConcessionManagement = () => {
 
                             {/* Center/Right: List */}
                             <div className="lg:col-span-3 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-full">
-                                <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center px-6">
+                                <div className="p-3 sm:p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center px-4 sm:px-6">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
                                             <Users size={16} strokeWidth={3} />
                                         </div>
-                                        <h3 className="font-extrabold text-gray-800 text-sm uppercase tracking-wider">Authority Database</h3>
+                                        <h3 className="font-extrabold text-gray-800 text-xs sm:text-sm uppercase tracking-wider">Authority Database</h3>
                                     </div>
                                     <span className="text-[10px] text-blue-700 font-extrabold bg-blue-100 px-3 py-1 rounded-full border border-blue-200 uppercase tracking-widest">{approvers.length} Records</span>
                                 </div>
@@ -1245,31 +1397,31 @@ const ConcessionManagement = () => {
 
                 {/* Content Area - Reports Tab */}
                 {activeTab === 'reports' && (
-                    <div className="flex-1 p-6 overflow-hidden flex flex-col max-w-[1700px] mx-auto w-full animate-fade-in">
+                    <div className="p-3 sm:p-6 flex flex-col max-w-[1700px] mx-auto w-full animate-fade-in">
                         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-full">
                             {/* Toolbar (Filters) */}
-                            <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
-                                <div className="flex flex-wrap items-center gap-3">
+                            <div className="p-3 sm:p-4 border-b border-gray-100 bg-gray-50 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2 sm:gap-3">
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-                                        <Calendar size={14} className="text-gray-400" />
+                                        <Calendar size={14} className="text-gray-400 shrink-0" />
                                         <input
                                             type="date"
-                                            className="bg-transparent border-none p-0 text-[11px] font-black uppercase text-gray-700 focus:ring-0 cursor-pointer w-28 outline-none"
+                                            className="bg-transparent border-none p-0 text-[11px] font-black uppercase text-gray-700 focus:ring-0 cursor-pointer w-24 sm:w-28 outline-none"
                                             value={reportFilters.startDate}
                                             onChange={e => setReportFilters({ ...reportFilters, startDate: e.target.value })}
                                         />
                                         <span className="text-gray-300 mx-0.5">-</span>
                                         <input
                                             type="date"
-                                            className="bg-transparent border-none p-0 text-[11px] font-black uppercase text-gray-700 focus:ring-0 cursor-pointer w-28 outline-none"
+                                            className="bg-transparent border-none p-0 text-[11px] font-black uppercase text-gray-700 focus:ring-0 cursor-pointer w-24 sm:w-28 outline-none"
                                             value={reportFilters.endDate}
                                             onChange={e => setReportFilters({ ...reportFilters, endDate: e.target.value })}
                                         />
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-                                        <Users size={14} className="text-gray-400" />
+                                        <Users size={14} className="text-gray-400 shrink-0" />
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[110px] outline-none"
                                             value={reportFilters.concessionGivenBy}
                                             onChange={e => setReportFilters({ ...reportFilters, concessionGivenBy: e.target.value })}
                                         >
@@ -1278,9 +1430,9 @@ const ConcessionManagement = () => {
                                         </select>
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-                                        <Landmark size={14} className="text-gray-400" />
+                                        <Landmark size={14} className="text-gray-400 shrink-0" />
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[140px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[120px] outline-none"
                                             value={reportFilters.college}
                                             onChange={e => setReportFilters({ ...reportFilters, college: e.target.value, course: '', branch: '' })}
                                         >
@@ -1290,7 +1442,7 @@ const ConcessionManagement = () => {
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[110px] outline-none"
                                             value={reportFilters.course}
                                             onChange={e => setReportFilters({ ...reportFilters, course: e.target.value, branch: '' })}
                                         >
@@ -1300,7 +1452,7 @@ const ConcessionManagement = () => {
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[120px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[110px] outline-none"
                                             value={reportFilters.branch}
                                             onChange={e => setReportFilters({ ...reportFilters, branch: e.target.value })}
                                         >
@@ -1310,7 +1462,7 @@ const ConcessionManagement = () => {
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[100px] outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer w-full min-w-[100px] outline-none"
                                             value={reportFilters.batch}
                                             onChange={e => setReportFilters({ ...reportFilters, batch: e.target.value })}
                                         >
@@ -1319,9 +1471,9 @@ const ConcessionManagement = () => {
                                         </select>
                                     </div>
                                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-gray-200 shadow-sm">
-                                        <Filter size={14} className="text-gray-400" />
+                                        <Filter size={14} className="text-gray-400 shrink-0" />
                                         <select
-                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer outline-none"
+                                            className="bg-transparent border-none p-0 text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer outline-none w-full"
                                             value={reportFilters.status}
                                             onChange={e => setReportFilters({ ...reportFilters, status: e.target.value })}
                                         >
@@ -1332,10 +1484,10 @@ const ConcessionManagement = () => {
                                         </select>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 sm:gap-3 justify-end mt-2 lg:mt-0">
                                     <button
                                         onClick={fetchReports}
-                                        className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-gray-800 text-white hover:bg-black transition shadow-md active:scale-95"
+                                        className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg text-xs font-extrabold bg-gray-800 text-white hover:bg-black transition shadow-md active:scale-95"
                                     >
                                         <Filter size={14} /> Update Report
                                     </button>
@@ -1343,7 +1495,7 @@ const ConcessionManagement = () => {
                                     {reportData.length > 0 && (
                                         <button
                                             onClick={handlePrint}
-                                            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-extrabold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-md active:scale-95"
+                                            className="flex items-center justify-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg text-xs font-extrabold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-md active:scale-95"
                                         >
                                             <Printer size={14} /> Print Advice
                                         </button>
@@ -1404,7 +1556,7 @@ const ConcessionManagement = () => {
                                                         <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{req.feeHead?.name}</span>
                                                     </td>
                                                     <td className="py-4 px-6 text-sm font-black text-gray-900 text-right">
-                                                        ₹{req.amount.toLocaleString()}
+                                                        ₹{req.amount.toLocaleString('en-IN')}
                                                     </td>
                                                     <td className="py-4 px-6">
                                                         <div className="flex items-center gap-2">
@@ -1430,7 +1582,7 @@ const ConcessionManagement = () => {
                                                 <td colSpan="4" className="py-5 px-6 text-right font-black text-gray-500 text-[10px] uppercase tracking-[0.2em]">Grand Aggregate Totals</td>
                                                 <td className="py-5 px-6 text-right">
                                                     <span className="text-xl font-black text-blue-900 bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm">
-                                                        ₹{reportData.reduce((sum, item) => sum + item.amount, 0).toLocaleString()}
+                                                        ₹{reportData.reduce((sum, item) => sum + item.amount, 0).toLocaleString('en-IN')}
                                                     </span>
                                                 </td>
                                                 <td colSpan="2" className="py-5 px-6"></td>
@@ -1444,188 +1596,311 @@ const ConcessionManagement = () => {
                 )}
 
 
-                {/* MODAL (Reused logic) */}
+                {/* MODAL (Review Concession Request) */}
                 {selectedRequest && (
-                    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                        <div className={`bg-white rounded-xl shadow-2xl ${selectedRequest.isBulk ? 'max-w-3xl' : 'max-w-lg'} w-full p-6 animate-fade-in flex flex-col max-h-[90vh]`}>
-                            <div className="flex justify-between items-start mb-4 shrink-0">
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full p-4 sm:p-6 animate-fade-in flex flex-col max-h-[95vh] overflow-hidden">
+                            {/* Modal Header */}
+                            <div className="flex justify-between items-start mb-4 shrink-0 border-b pb-3">
                                 <div>
-                                    <h2 className="text-xl font-bold text-gray-800">
-                                        {selectedRequest.requests[0].status === 'APPROVED' ? 'Modify Approved' : selectedRequest.isBulk ? 'Bulk Concession Review' : 'Request Details'}
+                                    <h2 className="text-lg sm:text-xl font-black text-gray-800 tracking-tight">
+                                        {selectedRequest.requests[0].status === 'APPROVED' 
+                                            ? 'Modify Approved Concession' 
+                                            : selectedRequest.requests.length > 1 
+                                                ? 'Bulk Concession Review' 
+                                                : 'Concession Request Review'}
                                     </h2>
-                                    <p className="text-xs text-gray-500">
-                                        {selectedRequest.requests[0].status === 'APPROVED' ? 'Adjust concession amounts for finalized request' : selectedRequest.isBulk ? `Processing requests for ${selectedRequest.requests.length} students` : 'Review concession application'}
+                                    <p className="text-xs text-gray-500 font-medium mt-0.5">
+                                        {selectedRequest.requests[0].status === 'APPROVED' 
+                                            ? 'Adjust concession amounts for finalized request' 
+                                            : selectedRequest.requests.length > 1 
+                                                ? `Reviewing concession applications for ${selectedRequest.requests.length} students` 
+                                                : 'Review student concession application and authorize credit'}
                                     </p>
                                 </div>
                                 <button onClick={closeModal} className="bg-gray-100 hover:bg-gray-200 p-2 rounded-full transition"><X size={16} className="text-gray-600" /></button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-                                {!selectedRequest.isBulk ? (
-                                    // SINGLE REQUEST DISPLAY
-                                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 grid grid-cols-2 gap-y-3 gap-x-4 text-sm">
-                                        <div>
-                                            <label className="text-xs text-gray-400 uppercase font-bold">Student</label>
-                                            <div className="font-semibold text-gray-800">{selectedRequest.requests[0].studentName}</div>
-                                            <div className="text-xs text-gray-500">{selectedRequest.requests[0].studentPin || selectedRequest.requests[0].studentId}</div>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs text-gray-400 uppercase font-bold">Voucher #</label>
-                                            <div className="font-mono font-bold text-blue-600">#{selectedRequest.voucherId || '---'}</div>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs text-gray-400 uppercase font-bold">Fee Head</label>
-                                            <div className="font-semibold text-gray-800">{selectedRequest.feeHead?.name}</div>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs text-gray-400 uppercase font-bold">Amount Requested</label>
-                                            <div className="font-bold text-blue-600 text-lg">₹{selectedRequest.totalAmount.toLocaleString()}</div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    // BULK REQUEST DISPLAY (Student List)
-                                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 space-y-4">
-                                        <div className="grid grid-cols-2 gap-4 text-sm mb-2">
-                                            <div>
-                                                <label className="text-xs text-gray-400 uppercase font-bold">Voucher #</label>
-                                                <div className="font-mono font-bold text-blue-600">#{selectedRequest.voucherId}</div>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs text-gray-400 uppercase font-bold">Fee Head</label>
-                                                <div className="font-semibold text-gray-800">{selectedRequest.feeHead?.name}</div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="border rounded-lg overflow-hidden bg-white">
-                                            <table className="w-full text-xs text-left">
-                                                <thead className="bg-gray-100 uppercase text-[9px] font-black tracking-wider text-gray-500">
-                                                    <tr>
-                                                        <th className="p-3">Student Name / PIN</th>
-                                                        <th className="p-3">Fee Component</th>
-                                                        <th className="p-3">Requested</th>
-                                                        <th className="p-3 text-right">Approved Amount</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {selectedRequest.requests.map(r => (
-                                                        <tr key={r._id} className="hover:bg-gray-50 transition">
-                                                            <td className="p-3">
-                                                                <div className="font-bold text-gray-800">{r.studentName}</div>
-                                                                <div className="text-[10px] text-gray-400 font-mono uppercase">{r.studentPin || r.studentId}</div>
-                                                            </td>
-                                                            <td className="p-3 text-[10px] font-bold text-gray-500 uppercase tracking-tight">
-                                                                {r.feeHead?.name || 'General'}
-                                                            </td>
-                                                            <td className="p-3 font-bold text-gray-600">₹{r.amount.toLocaleString()}</td>
-                                                            <td className="p-3 text-right">
-                                                                <input
-                                                                    type="number"
-                                                                    className="w-24 border border-gray-200 p-1.5 rounded font-bold text-blue-600 focus:ring-1 focus:ring-blue-500 outline-none text-right"
-                                                                    value={bulkAmounts[r._id] || ''}
-                                                                    onChange={e => setBulkAmounts({...bulkAmounts, [r._id]: e.target.value})}
-                                                                />
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                                <tfoot className="bg-gray-50 font-bold border-t">
-                                                    <tr>
-                                                        <td className="p-3" colSpan="2">Grand Total</td>
-                                                        <td className="p-3">₹{selectedRequest.totalAmount.toLocaleString()}</td>
-                                                        <td className="p-3 text-blue-600 text-right">
-                                                            ₹{Object.values(bulkAmounts).reduce((sum, val) => sum + (Number(val) || 0), 0).toLocaleString()}
-                                                        </td>
-                                                    </tr>
-                                                </tfoot>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
+                            {/* Modal Content - 2 Column Side by Side Layout */}
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden pr-1">
+                                {/* LEFT COLUMN: Details & Inputs */}
+                                <div className="lg:col-span-7 space-y-4 flex flex-col justify-between overflow-y-auto pr-1">
+                                    <div className="space-y-3.5">
+                                        {selectedRequest.requests.length === 1 ? (
+                                            /* SINGLE REQUEST DISPLAY */
+                                            <div className="bg-gradient-to-br from-blue-50/60 to-slate-50 border border-blue-100 rounded-2xl p-4 space-y-3 shadow-xs">
+                                                <div className="flex flex-wrap justify-between items-start gap-2 border-b border-blue-100/60 pb-2.5">
+                                                    <div>
+                                                        <h3 className="text-base font-black text-gray-900">{selectedRequest.requests[0].studentName}</h3>
+                                                        <p className="text-xs text-gray-500 font-mono font-bold mt-0.5">{selectedRequest.requests[0].studentPin || selectedRequest.requests[0].studentId}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 block">Voucher Number</span>
+                                                        <span className="font-mono text-sm font-black text-blue-700 bg-white px-2.5 py-0.5 rounded-lg border border-blue-200 shadow-xs inline-block mt-0.5">
+                                                            #{selectedRequest.voucherId || '---'}
+                                                        </span>
+                                                    </div>
+                                                </div>
 
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 block mb-1 uppercase tracking-tight">Reason / Justification</label>
-                                    <div className="text-sm text-gray-700 bg-white border p-3 rounded-lg italic">"{selectedRequest.reason}"</div>
-                                </div>
-
-                                {selectedRequest.requests[0].imageUrl && (
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 block mb-1 uppercase tracking-tight">Proof Document</label>
-                                        <a href={selectedRequest.requests[0].imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 border rounded-lg hover:bg-blue-50 transition group cursor-pointer">
-                                            <div className="bg-gray-200 p-2 rounded"><Upload size={16} className="text-gray-600" /></div>
-                                            <div className="flex-1">
-                                                <div className="text-sm font-medium text-blue-600 underline decoration-dotted group-hover:text-blue-800">View Document</div>
-                                                <div className="text-xs text-gray-400">Click to open in new tab</div>
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                                                    <div className="bg-white p-2 rounded-xl border border-gray-200/80">
+                                                        <span className="text-gray-400 font-bold block text-[9px] uppercase">College</span>
+                                                        <span className="font-bold text-gray-800 truncate block">{selectedRequest.college || selectedRequest.requests[0].college || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="bg-white p-2 rounded-xl border border-gray-200/80">
+                                                        <span className="text-gray-400 font-bold block text-[9px] uppercase">Course & Branch</span>
+                                                        <span className="font-bold text-gray-800 truncate block">{selectedRequest.course} - {selectedRequest.branch}</span>
+                                                    </div>
+                                                    <div className="bg-white p-2 rounded-xl border border-gray-200/80">
+                                                        <span className="text-gray-400 font-bold block text-[9px] uppercase">Fee Component</span>
+                                                        <span className="font-bold text-indigo-600 truncate block">
+                                                            {selectedRequest.feeHead?.name || selectedRequest.requests[0]?.feeHead?.name || (typeof selectedRequest.feeHead === 'string' ? selectedRequest.feeHead : (typeof selectedRequest.requests[0]?.feeHead === 'string' ? selectedRequest.requests[0]?.feeHead : 'N/A'))}
+                                                        </span>
+                                                    </div>
+                                                    <div className="bg-white p-2 rounded-xl border border-gray-200/80">
+                                                        <span className="text-gray-400 font-bold block text-[9px] uppercase">Authorized By</span>
+                                                        <span className="font-bold text-purple-700 truncate block">{selectedRequest.requests[0].concessionGivenBy || 'Not Specified'}</span>
+                                                    </div>
+                                                    <div className="bg-white p-2 rounded-xl border border-blue-200 col-span-2 flex items-center justify-between px-3">
+                                                        <span className="text-gray-500 font-extrabold text-[9px] uppercase">Requested Amount</span>
+                                                        <span className="text-lg font-black text-blue-700 font-sans">₹{selectedRequest.totalAmount.toLocaleString('en-IN')}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </a>
-                                    </div>
-                                )}
-
-                                {/* Approval Action Inputs */}
-                                {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && (
-                                    <div className="pt-4 border-t space-y-3">
-                                        {!selectedRequest.isBulk && (
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Approval Amount</label>
-                                                <input
-                                                    type="number"
-                                                    className="w-full border p-2.5 rounded-lg font-bold text-lg focus:ring-2 focus:ring-green-500 outline-none bg-gray-50/50"
-                                                    value={modalAmount}
-                                                    onChange={e => setModalAmount(e.target.value)}
-                                                />
+                                        ) : (
+                                            /* BULK REQUEST DISPLAY */
+                                            <div className="bg-gray-50 p-3 sm:p-4 rounded-2xl border border-gray-200 space-y-3">
+                                                <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-gray-200 shadow-xs">
+                                                    <div>
+                                                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest block">Voucher Number</span>
+                                                        <span className="font-mono text-sm font-black text-blue-600">#{selectedRequest.voucherId}</span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest block">Fee Component</span>
+                                                        <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-xs border border-indigo-100">
+                                                            {selectedRequest.feeHead?.name || selectedRequest.requests[0]?.feeHead?.name || 'N/A'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-xs max-h-40 overflow-y-auto">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="bg-gray-100 uppercase text-[9px] font-black tracking-wider text-gray-500 sticky top-0">
+                                                            <tr>
+                                                                <th className="p-2">Student / PIN</th>
+                                                                <th className="p-2">Requested</th>
+                                                                <th className="p-2 text-right">Approved Amount</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {selectedRequest.requests.map(r => (
+                                                                <tr key={r._id} className="hover:bg-gray-50">
+                                                                    <td className="p-2">
+                                                                        <div className="font-bold text-gray-800 text-xs">{r.studentName}</div>
+                                                                        <div className="text-[9px] text-gray-400 font-mono font-bold uppercase">{r.studentPin || r.studentId}</div>
+                                                                    </td>
+                                                                    <td className="p-2 font-black text-gray-700">₹{r.amount.toLocaleString('en-IN')}</td>
+                                                                    <td className="p-2 text-right">
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-20 border border-gray-300 p-1 rounded font-black text-blue-600 focus:ring-1 focus:ring-blue-500 outline-none text-right text-xs"
+                                                                            value={bulkAmounts[r._id] || ''}
+                                                                            onChange={e => setBulkAmounts({...bulkAmounts, [r._id]: e.target.value})}
+                                                                        />
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
                                             </div>
                                         )}
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Rejection Remarks (If rejecting)</label>
-                                            <textarea
-                                                className="w-full border p-2.5 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none bg-gray-50/50"
-                                                placeholder="Clarification or reason for rejection..."
-                                                value={rejectionReason}
-                                                onChange={e => setRejectionReason(e.target.value)}
-                                                rows={2}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
 
-                            <div className="mt-4 pt-4 border-t shrink-0 flex gap-3">
-                                {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) ? (
-                                    selectedRequest.requests[0].status === 'PENDING' ? (
-                                        <>
-                                            <button
-                                                onClick={() => handleApprovalAction('APPROVE')}
-                                                className="flex-1 bg-green-600 text-white font-bold py-2.5 rounded-lg hover:bg-green-700 shadow-sm transition flex justify-center items-center gap-2"
-                                                disabled={approvalLoading}
+                                        {/* Reason / Justification Box */}
+                                        <div>
+                                            <label className="text-[10px] font-extrabold text-gray-500 uppercase tracking-widest block mb-1">Reason / Justification</label>
+                                            <div className="text-xs text-gray-700 bg-gray-50 border border-gray-200 p-2.5 rounded-xl italic">"{selectedRequest.reason}"</div>
+                                        </div>
+
+                                        {/* Approval Action Inputs */}
+                                        {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) && (
+                                            <div className="pt-2 border-t space-y-2">
+                                                {selectedRequest.requests.length === 1 && (
+                                                    <div>
+                                                        <label className="block text-[10px] font-extrabold text-gray-500 uppercase tracking-widest mb-1">Approval Amount (₹)</label>
+                                                        <input
+                                                            type="number"
+                                                            className="w-full border border-gray-300 p-2 rounded-xl font-black text-base text-gray-800 focus:ring-2 focus:ring-emerald-500 outline-none bg-white shadow-xs"
+                                                            value={modalAmount}
+                                                            onChange={e => setModalAmount(e.target.value)}
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <label className="block text-[10px] font-extrabold text-gray-500 uppercase tracking-widest mb-1">Rejection Remarks (Optional if approving)</label>
+                                                    <textarea
+                                                        className="w-full border border-gray-300 p-2 rounded-xl text-xs focus:ring-2 focus:ring-red-500 outline-none bg-white resize-none shadow-xs"
+                                                        placeholder="Enter reason if rejecting request..."
+                                                        value={rejectionReason}
+                                                        onChange={e => setRejectionReason(e.target.value)}
+                                                        rows={2}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="pt-3 border-t flex gap-3">
+                                        {(isSuperAdmin || (user?.permissions || []).includes('concession_approvals')) ? (
+                                            selectedRequest.requests[0].status === 'PENDING' ? (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleApprovalAction('APPROVE')}
+                                                        className="flex-1 bg-emerald-600 text-white font-extrabold py-2.5 rounded-xl hover:bg-emerald-700 shadow-md transition flex justify-center items-center gap-2 active:scale-95 text-xs"
+                                                        disabled={approvalLoading}
+                                                    >
+                                                        <Check size={16} /> Approve Concession
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleApprovalAction('REJECT')}
+                                                        className="flex-1 bg-white border border-red-200 text-red-600 font-extrabold py-2.5 rounded-xl hover:bg-red-50 transition active:scale-95 text-xs"
+                                                        disabled={approvalLoading}
+                                                    >
+                                                        Reject Request
+                                                    </button>
+                                                </>
+                                            ) : selectedRequest.requests[0].status === 'APPROVED' ? (
+                                                <button
+                                                    onClick={() => handleApprovalAction('APPROVE')}
+                                                    className="w-full bg-indigo-600 text-white font-extrabold py-2.5 rounded-xl hover:bg-indigo-700 shadow-md transition flex justify-center items-center gap-2 active:scale-95 text-xs"
+                                                    disabled={approvalLoading}
+                                                >
+                                                    {approvalLoading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Save size={16} />}
+                                                    Update Approved Concession
+                                                </button>
+                                            ) : (
+                                                <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-extrabold py-2.5 rounded-xl hover:bg-gray-200 text-xs">Close</button>
+                                            )
+                                        ) : (
+                                            <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-extrabold py-2.5 rounded-xl hover:bg-gray-200 text-xs">Close</button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* RIGHT COLUMN: Proof Document / Image Preview */}
+                                <div className="lg:col-span-5 bg-gray-50 rounded-2xl border border-gray-200 p-3.5 flex flex-col justify-between items-center min-h-[320px] max-h-[460px]">
+                                    <div className="w-full flex items-center justify-between mb-2">
+                                        <span className="text-[10px] font-extrabold text-gray-500 uppercase tracking-widest">Proof Attachment</span>
+                                        {selectedRequest.requests[0].imageUrl && (
+                                            <a 
+                                                href={selectedRequest.requests[0].imageUrl} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="text-xs font-extrabold text-blue-600 hover:underline flex items-center gap-1"
                                             >
-                                                <Check size={18} /> Approve
-                                            </button>
-                                            <button
-                                                onClick={() => handleApprovalAction('REJECT')}
-                                                className="flex-1 bg-white border border-red-200 text-red-600 font-bold py-2.5 rounded-lg hover:bg-red-50 transition"
-                                                disabled={approvalLoading}
+                                                Full Screen ↗
+                                            </a>
+                                        )}
+                                    </div>
+
+                                    {selectedRequest.requests[0].imageUrl ? (
+                                        selectedRequest.requests[0].imageUrl.toLowerCase().endsWith('.pdf') ? (
+                                            <a 
+                                                href={selectedRequest.requests[0].imageUrl} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="w-full h-full flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-blue-200 rounded-xl bg-blue-50/50 hover:bg-blue-100/50 transition group text-center"
                                             >
-                                                Reject
-                                            </button>
-                                        </>
-                                    ) : selectedRequest.requests[0].status === 'APPROVED' ? (
-                                        <button
-                                            onClick={() => handleApprovalAction('APPROVE')}
-                                            className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition flex justify-center items-center gap-2 active:scale-95"
-                                            disabled={approvalLoading}
-                                        >
-                                            {approvalLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Save size={18} />}
-                                            Update Approved Concession
-                                        </button>
+                                                <div className="bg-blue-600 text-white p-3 rounded-xl shadow-md"><Upload size={22} /></div>
+                                                <div>
+                                                    <div className="text-xs font-extrabold text-blue-900 group-hover:underline">Attached PDF Document</div>
+                                                    <div className="text-[10px] text-blue-600 mt-1">Click to open PDF file in new browser tab</div>
+                                                </div>
+                                            </a>
+                                        ) : (
+                                            <div className="w-full h-full flex flex-col items-center justify-center relative group overflow-hidden">
+                                                <img 
+                                                    src={selectedRequest.requests[0].imageUrl} 
+                                                    alt="Concession Proof Attachment" 
+                                                    className="max-h-[380px] w-full object-contain rounded-xl border border-gray-200 shadow-sm bg-white cursor-pointer hover:scale-[1.01] transition-all"
+                                                    onClick={() => window.open(selectedRequest.requests[0].imageUrl, '_blank')}
+                                                />
+                                                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-2 text-center">Click image to expand full resolution</p>
+                                            </div>
+                                        )
                                     ) : (
-                                        <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-bold py-2.5 rounded-lg hover:bg-gray-200">Close</button>
-                                    )
-                                ) : (
-                                    <button onClick={closeModal} className="w-full bg-gray-100 text-gray-700 font-bold py-2.5 rounded-lg hover:bg-gray-200">Close</button>
-                                )}
+                                        <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-6 text-center space-y-2 opacity-60">
+                                            <div className="w-12 h-12 bg-gray-200/80 rounded-full flex items-center justify-center">
+                                                <Upload className="w-6 h-6 text-gray-400" />
+                                            </div>
+                                            <p className="text-xs font-bold text-gray-500">No Proof Attachment</p>
+                                            <p className="text-[10px] text-gray-400">No supporting image or document was uploaded for this request.</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
                 )}
+                {/* SUCCESS MODAL */}
+                {successModalData && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 transform transition-all scale-100">
+                            {/* Top Green Accent Header */}
+                            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 text-center text-white relative">
+                                <button 
+                                    onClick={() => setSuccessModalData(null)}
+                                    className="absolute top-3 right-3 text-white/80 hover:text-white p-1.5 rounded-full hover:bg-white/10 transition"
+                                >
+                                    <X size={18} />
+                                </button>
+                                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-md border border-white/30 shadow-inner">
+                                    <CheckCircle2 className="w-10 h-10 text-white" />
+                                </div>
+                                <h3 className="text-xl font-extrabold tracking-tight">Request Submitted!</h3>
+                                <p className="text-xs text-emerald-100 mt-1 font-medium">Concession application successfully created</p>
+                            </div>
+
+                            {/* Content Details */}
+                            <div className="p-5 sm:p-6 space-y-4">
+                                <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3.5 text-center">
+                                    <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-widest block mb-1">Voucher Number</span>
+                                    <span className="text-2xl font-black text-emerald-900 font-mono tracking-wider">#{successModalData.voucherId}</span>
+                                </div>
+
+                                <div className="divide-y divide-gray-100 text-xs font-semibold text-gray-600">
+                                    <div className="py-2.5 flex justify-between items-center">
+                                        <span className="text-gray-400 font-medium uppercase text-[10px]">Application Type</span>
+                                        <span className="font-extrabold text-gray-800 uppercase px-2 py-0.5 bg-gray-100 rounded border border-gray-200 text-[10px]">
+                                            {successModalData.mode === 'single' ? 'Single Student' : `Bulk (${successModalData.count} Students)`}
+                                        </span>
+                                    </div>
+                                    <div className="py-2.5 flex justify-between items-center">
+                                        <span className="text-gray-400 font-medium uppercase text-[10px]">Target Student</span>
+                                        <span className="font-extrabold text-gray-800 truncate max-w-[200px] text-right">{successModalData.studentName}</span>
+                                    </div>
+                                    <div className="py-2.5 flex justify-between items-center">
+                                        <span className="text-gray-400 font-medium uppercase text-[10px]">Fee Component</span>
+                                        <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{successModalData.feeHeadName}</span>
+                                    </div>
+                                    <div className="py-2.5 flex justify-between items-center">
+                                        <span className="text-gray-400 font-medium uppercase text-[10px]">Concession Amount</span>
+                                        <span className="font-black text-emerald-600 text-base">₹{Number(successModalData.amount).toLocaleString('en-IN')}</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => setSuccessModalData(null)}
+                                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 rounded-xl shadow-lg transition active:scale-95 text-sm flex items-center justify-center gap-2"
+                                >
+                                    <Check size={18} /> Done & Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Hidden Print Component */}
                 <div style={{ display: 'none' }}>
                     <ConcessionReportPrint ref={reportPrintRef} data={reportData} filters={reportFilters} />

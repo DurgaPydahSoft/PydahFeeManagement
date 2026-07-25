@@ -9,7 +9,9 @@ const pool = mysql.createPool({
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    // Return DATE/DATETIME as strings so UI doesn't shift days via timezone
+    dateStrings: true
 });
 
 module.exports = pool;

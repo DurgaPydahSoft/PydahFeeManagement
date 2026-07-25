@@ -1,12 +1,21 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, Fragment } from 'react';
 
-const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false }) => {
+const paymentVisibility = (options = {}) => {
+    const { mode = 'all', includeCash, includeBank } = options;
+    const showCash = includeCash !== undefined ? !!includeCash : (mode === 'all' || mode === 'Cash');
+    const showBank = includeBank !== undefined ? !!includeBank : (mode === 'all' || mode === 'Online');
+    return { showCash, showBank };
+};
+
+const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo = false, hideSignatures = false }) => {
     if (!data) return null;
     const { mode = 'all', showSummary = true, showDetails = true, allowedFeeHeads } = options || {};
+    const { showCash, showBank } = paymentVisibility(options);
 
     const rawTransactions = data.transactions || [];
     const filteredTransactions = rawTransactions.filter(tx => {
         // Payment Mode Filter
+        if (mode === 'none') return false;
         if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
         if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
 
@@ -75,8 +84,9 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             if (isCash) courseEntry.cashAmt += amount;
             else courseEntry.bankAmt += amount;
 
-            if (!courseEntry.cashiers[username]) {
-                courseEntry.cashiers[username] = {
+            const cashierKey = String(empNo || username).trim().toLowerCase();
+            if (!courseEntry.cashiers[cashierKey]) {
+                courseEntry.cashiers[cashierKey] = {
                     username,
                     name: cashierName,
                     empNo,
@@ -87,7 +97,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     feeHeads: {}
                 };
             }
-            const cashierEntry = courseEntry.cashiers[username];
+            const cashierEntry = courseEntry.cashiers[cashierKey];
             cashierEntry.count++;
             cashierEntry.netTotal += amount;
             if (isCash) cashierEntry.cashAmt += amount;
@@ -131,7 +141,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 {`
                     @page { size: A4; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 10px; border: 2px solid #000; }
                     .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
@@ -141,12 +151,12 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
 
             {/* Header */}
             <div className="print-header">
-                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>COLLEGE COLLECTION SUMMARY REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
+                <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
+                <p style={{ margin: '4px 0', fontSize: '11px', fontWeight: 'bold' }}>COLLEGE COLLECTION SUMMARY REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && mode !== 'none' && `(${mode === 'Online' ? 'BANK / ONLINE' : mode.toUpperCase()})`}</p>
             </div>
 
             {/* Info Row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '12px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '11px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
                 <div>
                     <strong>College:</strong> <span style={{ textTransform: 'uppercase' }}>{typeof data._id === 'string' ? data._id : 'N/A'}</span>
                 </div>
@@ -155,7 +165,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
                 {!hideGeneratedInfo && (
                     <div style={{ color: '#4b5563' }}>
-                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                        <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                     </div>
                 )}
             </div>
@@ -163,15 +173,15 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Overall College Summary */}
             {showSummary && (
                 <div style={{ marginBottom: '20px' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         College Collection Summary {mode !== 'all' && `[${mode}]`}
                     </h3>
                     <table className="print-table">
                         <thead>
                             <tr>
                                 <th style={{ textAlign: 'center', width: '20%' }}>Total Receipts</th>
-                                <th style={{ textAlign: 'right', width: '20%' }}>Cash</th>
-                                <th style={{ textAlign: 'right', width: '20%' }}>Bank (Online)</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '20%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '20%' }}>Bank (Online)</th>}
                                 <th style={{ textAlign: 'right', width: '20%' }}>Concessions</th>
                                 <th style={{ textAlign: 'right', width: '20%', fontWeight: 'bold' }}>Net Total</th>
                             </tr>
@@ -179,10 +189,10 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         <tbody>
                             <tr>
                                 <td style={{ textAlign: 'center' }}>{displayData.totalCount}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.creditAmount || 0).toLocaleString('en-IN')}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -192,7 +202,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* 1. Fee Head-wise collections (FIRST) */}
             {showSummary && sortedFeeHeads.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Fee Head-wise Collections
                     </h3>
                     <table className="print-table">
@@ -200,8 +210,8 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                             <tr>
                                 <th style={{ width: '5%' }}>S.No</th>
                                 <th style={{ width: '50%' }}>Fee Head Name</th>
-                                <th style={{ textAlign: 'right', width: '15%' }}>Cash</th>
-                                <th style={{ textAlign: 'right', width: '15%' }}>Bank</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '15%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '15%' }}>Bank</th>}
                                 <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
                             </tr>
                         </thead>
@@ -210,16 +220,16 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                 <tr key={idx} className="compact-row">
                                     <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                                     <td>{fh.name}</td>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(fh.cashAmt).toLocaleString('en-IN')}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(fh.bankAmt).toLocaleString('en-IN')}</td>}
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString('en-IN')}</td>
                                 </tr>
                             ))}
                             <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                                 <td colSpan={2}>TOTAL</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -229,7 +239,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* 2. Course-wise, Cashier-wise & Fee Head-wise Collections for this College (SECOND) */}
             {showSummary && sortedHierarchy.length > 0 && (
                 <div style={{ marginBottom: '25px' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Course, User & Fee Head Collections
                     </h3>
                     <table className="print-table">
@@ -238,8 +248,8 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                 <th style={{ width: '5%' }}>S.No</th>
                                 <th style={{ width: '45%' }}>Course / Cashier Name / Fee Heads Collected</th>
                                 <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
-                                <th style={{ textAlign: 'right', width: '12%' }}>Cash</th>
-                                <th style={{ textAlign: 'right', width: '13%' }}>Bank</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '12%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '13%' }}>Bank</th>}
                                 <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
                             </tr>
                         </thead>
@@ -253,9 +263,9 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                         <td style={{ textAlign: 'center' }}>{cIdx + 1}</td>
                                         <td style={{ textTransform: 'uppercase' }}>{course.courseName}</td>
                                         <td style={{ textAlign: 'center' }}>{course.count}</td>
-                                        <td style={{ textAlign: 'right' }}>₹{Number(course.cashAmt).toLocaleString()}</td>
-                                        <td style={{ textAlign: 'right' }}>₹{Number(course.bankAmt).toLocaleString()}</td>
-                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString()}</td>
+                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(course.cashAmt).toLocaleString('en-IN')}</td>}
+                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(course.bankAmt).toLocaleString('en-IN')}</td>}
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString('en-IN')}</td>
                                     </tr>
                                 );
 
@@ -269,9 +279,9 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                                 {cashier.name} {cashier.empNo && `(${cashier.empNo})`}
                                             </td>
                                             <td style={{ textAlign: 'center' }}>{cashier.count}</td>
-                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.cashAmt).toLocaleString()}</td>
-                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.bankAmt).toLocaleString()}</td>
-                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.netTotal).toLocaleString()}</td>
+                                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(cashier.cashAmt).toLocaleString('en-IN')}</td>}
+                                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(cashier.bankAmt).toLocaleString('en-IN')}</td>}
+                                            <td style={{ textAlign: 'right' }}>₹{Number(cashier.netTotal).toLocaleString('en-IN')}</td>
                                         </tr>
                                     );
 
@@ -280,13 +290,13 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                         rows.push(
                                             <tr key={`course-cashier-fh-${cIdx}-${uIdx}-${fhIdx}`} className="compact-row" style={{ fontWeight: 'normal' }}>
                                                 <td></td>
-                                                <td style={{ paddingLeft: '30px', fontSize: '10px', fontStyle: 'italic' }}>
+                                                <td style={{ paddingLeft: '30px', fontSize: '9px', fontStyle: 'italic' }}>
                                                     {fh.name}
                                                 </td>
                                                 <td></td>
-                                                <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(fh.cashAmt).toLocaleString()}</td>
-                                                <td style={{ textAlign: 'right', fontSize: '10px' }}>₹{Number(fh.bankAmt).toLocaleString()}</td>
-                                                <td style={{ textAlign: 'right', fontSize: '10px', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString()}</td>
+                                                {showCash && <td style={{ textAlign: 'right', fontSize: '9px' }}>₹{Number(fh.cashAmt).toLocaleString('en-IN')}</td>}
+                                                {showBank && <td style={{ textAlign: 'right', fontSize: '9px' }}>₹{Number(fh.bankAmt).toLocaleString('en-IN')}</td>}
+                                                <td style={{ textAlign: 'right', fontSize: '9px', fontWeight: 'bold' }}>₹{Number(fh.netTotal).toLocaleString('en-IN')}</td>
                                             </tr>
                                         );
                                     });
@@ -297,9 +307,9 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                             <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                                 <td colSpan={2}>TOTAL</td>
                                 <td style={{ textAlign: 'center' }}>{displayData.totalCount}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(displayData.cashAmount || 0).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(displayData.bankAmount || 0).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -336,29 +346,29 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         <td>{tx.feeHead}</td>
                         <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
                         <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                            {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString()}
+                            {tx.transactionType === 'CREDIT' ? '-' : ''}₹{Number(tx.amount).toLocaleString('en-IN')}
                         </td>
                     </tr>
                 );
                 return (
                     <div style={{ marginTop: '20px' }}>
-                        {cashTxs.length > 0 && (
+                        {showCash && cashTxs.length > 0 && (
                             <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
                                 </h3>
-                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
                                     <tbody>{cashTxs.map(txRow)}</tbody>
                                 </table>
                             </div>
                         )}
-                        {bankTxs.length > 0 && (
+                        {showBank && bankTxs.length > 0 && (
                             <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
                                 </h3>
-                                <table className="print-table" style={{ fontSize: '8px' }}>
+                                <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
                                     <tbody>{bankTxs.map(txRow)}</tbody>
                                 </table>
@@ -371,10 +381,10 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Cancelled Transactions Breakdown */}
             {showDetails && cancelledTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Cancelled Transactions
                     </h3>
-                    <table className="print-table" style={{ fontSize: '8px' }}>
+                    <table className="print-table" style={{ fontSize: '7.5px' }}>
                         <thead>
                             <tr>
                                 <th>S.No</th>
@@ -400,7 +410,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     <td>{tx.cancelledByName || tx.cancelledBy || 'Unknown'}</td>
                                     <td>{tx.cancellationReason || '-'}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                        ₹{Number(tx.amount).toLocaleString()}
+                                        ₹{Number(tx.amount).toLocaleString('en-IN')}
                                     </td>
                                 </tr>
                             ))}
@@ -412,10 +422,10 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Edited Transactions Breakdown */}
             {showDetails && editedTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Edited Transactions
                     </h3>
-                    <table className="print-table" style={{ fontSize: '8px' }}>
+                    <table className="print-table" style={{ fontSize: '7.5px' }}>
                         <thead>
                             <tr>
                                 <th>S.No</th>
@@ -441,7 +451,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     <td>{tx.remarks || '-'}</td>
                                     <td>{tx.updatedAt ? new Date(tx.updatedAt).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '-'}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                                        ₹{Number(tx.amount).toLocaleString()}
+                                        ₹{Number(tx.amount).toLocaleString('en-IN')}
                                     </td>
                                 </tr>
                             ))}
@@ -450,32 +460,36 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Signatures */}
-            <div style={{ marginTop: '45px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Cashier</p>
+            {/* Signatures — hidden on combined "print all" documents */}
+            {!hideSignatures && (
+                <div style={{ marginTop: '45px', display: 'flex', justifyContent: 'space-around', fontSize: '11px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Cashier</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
+                    </div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
-                </div>
-            </div>
+            )}
         </div>
     );
 };
 
 const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
     const { mode = 'all', allowedFeeHeads } = options || {};
+    const { showCash, showBank } = paymentVisibility(options);
 
-    // Recompute global fee head summary based on all transactions across all colleges
-    // Recompute global course-wise summary based on all transactions across all colleges
+    // Recompute global course-wise and user-wise summaries across all colleges
     const globalCourseData = {};
+    const globalCashierData = {};
     data.forEach(college => {
         const rawTransactions = college.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
             // Payment Mode Filter
+            if (mode === 'none') return false;
             if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
             if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
 
@@ -489,7 +503,38 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         });
 
         filteredTransactions.forEach(tx => {
-            if (tx.transactionType === 'DEBIT') {
+            if (tx.status !== 'cancelled') {
+                const cashierUsername = tx.collectedBy || 'Unknown';
+                const cashierName = tx.collectedByName || tx.collectedBy || 'Unknown';
+                const empNo = tx.empNo || cashierUsername;
+                const amount = tx.amount || 0;
+                const isCash = tx.paymentMode === 'Cash';
+
+                const cashierKey = String(empNo || cashierUsername).trim().toLowerCase();
+
+                if (!globalCashierData[cashierKey]) {
+                    globalCashierData[cashierKey] = {
+                        username: cashierName,
+                        empNo: empNo,
+                        receiptsCount: 0,
+                        cashAmt: 0,
+                        bankAmt: 0,
+                        concessionAmt: 0,
+                        netTotal: 0
+                    };
+                }
+                const cashierEntry = globalCashierData[cashierKey];
+                cashierEntry.receiptsCount++;
+                if (tx.transactionType === 'DEBIT') {
+                    cashierEntry.netTotal += amount;
+                    if (isCash) cashierEntry.cashAmt += amount;
+                    else cashierEntry.bankAmt += amount;
+                } else if (tx.transactionType === 'CREDIT') {
+                    cashierEntry.concessionAmt += amount;
+                }
+            }
+
+            if (tx.transactionType === 'DEBIT' && tx.status !== 'cancelled') {
                 const courseName = tx.course || 'Unknown Course';
                 const amount = tx.amount || 0;
                 const isCash = tx.paymentMode === 'Cash';
@@ -510,11 +555,13 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         });
     });
     const sortedGlobalCourses = Object.values(globalCourseData).sort((a, b) => b.netTotal - a.netTotal);
+    const sortedGlobalCashiers = Object.values(globalCashierData).sort((a, b) => b.netTotal - a.netTotal);
 
     const collegeSummaries = data.map(college => {
         const rawTransactions = college.transactions || [];
         const filteredTransactions = rawTransactions.filter(tx => {
             // Payment Mode Filter
+            if (mode === 'none') return false;
             if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
             if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
 
@@ -527,18 +574,52 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             return true;
         });
 
-        const cashAmt = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const bankAmt = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const concessionAmt = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const totalDebit = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        // Exclude cancelled transactions for totals and user mapping in this college
+        const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
+
+        const cashAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const bankAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const concessionAmt = activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const totalDebit = activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+
+        // User-wise breakdown within this college
+        const usersMap = {};
+        activeTransactions.forEach(tx => {
+            const username = tx.collectedBy || 'Unknown';
+            const displayName = tx.collectedByName || tx.collectedBy || 'Unknown';
+            const empNo = tx.empNo || username;
+            const amount = tx.amount || 0;
+            const isCash = tx.paymentMode === 'Cash';
+
+            const userKey = String(empNo || username).trim().toLowerCase();
+
+            if (!usersMap[userKey]) {
+                usersMap[userKey] = {
+                    username: displayName,
+                    empNo,
+                    receiptsCount: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0
+                };
+            }
+            const u = usersMap[userKey];
+            u.receiptsCount += 1;
+            if (tx.transactionType === 'DEBIT') {
+                u.netTotal += amount;
+                if (isCash) u.cashAmt += amount;
+                else u.bankAmt += amount;
+            }
+        });
 
         return {
             collegeName: college._id || 'N/A',
-            receiptsCount: filteredTransactions.length,
+            receiptsCount: activeTransactions.length,
             cashAmt,
             bankAmt,
             concessionAmt,
-            netTotal: totalDebit
+            netTotal: totalDebit,
+            users: Object.values(usersMap).sort((a, b) => b.netTotal - a.netTotal)
         };
     });
 
@@ -557,7 +638,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 {`
                     @page { size: A4; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 10px; border: 2px solid #000; }
                     .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
@@ -567,62 +648,124 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
 
             {/* Header */}
             <div className="print-header">
-                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
-                <p style={{ margin: '4px 0', fontSize: '12px', fontWeight: 'bold' }}>ALL COLLEGES DAILY FEE COLLECTION REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && `(${mode.toUpperCase()})`}</p>
+                <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group of Colleges</h1>
+                <p style={{ margin: '4px 0', fontSize: '11px', fontWeight: 'bold' }}>ALL COLLEGES DAILY FEE COLLECTION REPORT {options.selectedGroupName ? `[${options.selectedGroupName.toUpperCase()}]` : ''} {mode !== 'all' && mode !== 'none' && `(${mode === 'Online' ? 'BANK / ONLINE' : mode.toUpperCase()})`}</p>
             </div>
 
             {/* Info Row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '12px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', fontSize: '11px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
                 <div>
                     <strong>Date Range:</strong> {dateRange.start.split('-').reverse().join('/')} - {dateRange.end.split('-').reverse().join('/')}
                 </div>
                 <div style={{ color: '#4b5563' }}>
-                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                    <strong>Generated On:</strong> {new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                 </div>
             </div>
 
             {/* 1. College-wise Abstract (FIRST) */}
             <div style={{ marginBottom: '25px' }}>
-                <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                     College-wise Consolidated Collections
                 </h3>
                 <table className="print-table">
                     <thead>
                         <tr>
                             <th style={{ width: '5%' }}>S.No</th>
-                            <th style={{ width: '35%' }}>College Name</th>
+                            <th style={{ width: '35%' }}>College / User</th>
                             <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
-                            <th style={{ textAlign: 'right', width: '15%' }}>Cash Amount</th>
-                            <th style={{ textAlign: 'right', width: '15%' }}>Bank Amount</th>
+                            {showCash && <th style={{ textAlign: 'right', width: '15%' }}>Cash Amount</th>}
+                            {showBank && <th style={{ textAlign: 'right', width: '15%' }}>Bank Amount</th>}
                             <th style={{ textAlign: 'right', width: '20%', fontWeight: 'bold' }}>Collection</th>
                         </tr>
                     </thead>
                     <tbody>
                         {collegeSummaries.map((summary, idx) => (
-                            <tr key={idx} className="compact-row">
-                                <td style={{ textAlign: 'center' }}>{idx + 1}</td>
-                                <td style={{ textTransform: 'uppercase' }}>{summary.collegeName}</td>
-                                <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString()}</td>
-                            </tr>
+                            <Fragment key={idx}>
+                                <tr className="compact-row" style={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{summary.collegeName}</td>
+                                    <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString('en-IN')}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString('en-IN')}</td>}
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString('en-IN')}</td>
+                                </tr>
+                                {(summary.users || []).map((user, uIdx) => (
+                                    <tr key={`${idx}-u-${uIdx}`} className="compact-row">
+                                        <td></td>
+                                        <td style={{ fontSize: '9px', color: '#333' }}>
+                                            <div style={{ display: 'flex', itemsAlign: 'flex-start', gap: '6px', paddingLeft: '12px' }}>
+                                                <span style={{ width: '10px', flexShrink: 0, textAlign: 'center', lineHeight: '1.2' }}>-</span>
+                                                <span style={{ textTransform: 'uppercase', lineHeight: '1.2' }}>
+                                                    {user.username}
+                                                    {user.empNo ? <span style={{ color: '#666', fontWeight: 'normal', textTransform: 'none' }}> ({user.empNo})</span> : null}
+                                                </span>
+                                            </div>
+                                        </td>
+                                        <td style={{ textAlign: 'center' }}>{user.receiptsCount}</td>
+                                        {showCash && <td style={{ textAlign: 'right' }}>₹{Number(user.cashAmt).toLocaleString('en-IN')}</td>}
+                                        {showBank && <td style={{ textAlign: 'right' }}>₹{Number(user.bankAmt).toLocaleString('en-IN')}</td>}
+                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(user.netTotal).toLocaleString('en-IN')}</td>
+                                    </tr>
+                                ))}
+                            </Fragment>
                         ))}
                         <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                             <td colSpan={2}>TOTAL</td>
                             <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>
-                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
+                            {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString('en-IN')}</td>}
+                            {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString('en-IN')}</td>}
+                            <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString('en-IN')}</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
+            {/* User-wise Consolidated Collections */}
+            {sortedGlobalCashiers.length > 0 && (
+                <div style={{ marginBottom: '25px', pageBreakInside: 'avoid' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        User-wise Consolidated Collections
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ width: '5%' }}>S.No</th>
+                                <th style={{ width: '10%' }}>User ID</th>
+                                <th style={{ width: '35%' }}>Cashier Name</th>
+                                <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '12%' }}>Cash</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '12%' }}>Bank</th>}
+                                <th style={{ textAlign: 'right', width: '16%', fontWeight: 'bold' }}>Collection</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedGlobalCashiers.map((summary, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td>{summary.empNo || 'N/A'}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{summary.username}</td>
+                                    <td style={{ textAlign: 'center' }}>{summary.receiptsCount}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(summary.cashAmt).toLocaleString('en-IN')}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(summary.bankAmt).toLocaleString('en-IN')}</td>}
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(summary.netTotal).toLocaleString('en-IN')}</td>
+                                </tr>
+                            ))}
+                            <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
+                                <td colSpan={3}>TOTAL</td>
+                                <td style={{ textAlign: 'center' }}>{globalTotals.receiptsCount}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString('en-IN')}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
             {/* 2. Global Course-wise collections (SECOND) */}
             {sortedGlobalCourses.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Course-wise Consolidated Collections
                     </h3>
                     <table className="print-table">
@@ -630,8 +773,8 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                             <tr>
                                 <th style={{ width: '5%' }}>S.No</th>
                                 <th style={{ width: '50%' }}>Course Name</th>
-                                <th style={{ textAlign: 'right', width: '15%' }}>Cash Amount</th>
-                                <th style={{ textAlign: 'right', width: '15%' }}>Bank Amount</th>
+                                {showCash && <th style={{ textAlign: 'right', width: '15%' }}>Cash Amount</th>}
+                                {showBank && <th style={{ textAlign: 'right', width: '15%' }}>Bank Amount</th>}
                                 <th style={{ textAlign: 'right', width: '15%', fontWeight: 'bold' }}>Collection</th>
                             </tr>
                         </thead>
@@ -640,31 +783,23 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                                 <tr key={idx} className="compact-row">
                                     <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                                     <td style={{ textTransform: 'uppercase' }}>{course.courseName}</td>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(course.cashAmt).toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right' }}>₹{Number(course.bankAmt).toLocaleString()}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString()}</td>
+                                    {showCash && <td style={{ textAlign: 'right' }}>₹{Number(course.cashAmt).toLocaleString('en-IN')}</td>}
+                                    {showBank && <td style={{ textAlign: 'right' }}>₹{Number(course.bankAmt).toLocaleString('en-IN')}</td>}
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString('en-IN')}</td>
                                 </tr>
                             ))}
                             <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
                                 <td colSpan={2}>TOTAL</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString()}</td>
-                                <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString()}</td>
+                                {showCash && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.cashAmt).toLocaleString('en-IN')}</td>}
+                                {showBank && <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.bankAmt).toLocaleString('en-IN')}</td>}
+                                <td style={{ textAlign: 'right' }}>₹{Number(globalTotals.netTotal).toLocaleString('en-IN')}</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             )}
 
-            {/* Signatures */}
-            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-around', fontSize: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Administrative Officer (AO)</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <p style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px' }}>Principal/Vice Principal</p>
-                </div>
-            </div>
+            {/* No signatures on the all-colleges summary page */}
         </div>
     );
 };
@@ -684,7 +819,7 @@ const CollegeReportTemplate = forwardRef(({ data, dateRange, options = {} }, ref
                     {/* Individual college reports */}
                     {data.filter(Boolean).map((collegeRow, index) => (
                         <div key={index} style={{ pageBreakAfter: index === data.length - 1 ? 'auto' : 'always' }}>
-                            <SingleCollegeReport data={collegeRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} />
+                            <SingleCollegeReport data={collegeRow} dateRange={dateRange} options={options} hideGeneratedInfo={true} hideSignatures={true} />
                         </div>
                     ))}
                 </>

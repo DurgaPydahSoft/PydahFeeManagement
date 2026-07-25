@@ -504,8 +504,9 @@ const getTransactionReports = async (req, res) => {
                 });
 
                 // cashier breakdown inside this college
-                if (!group.cashiersMap[cashierUsername]) {
-                    group.cashiersMap[cashierUsername] = {
+                const cashierKey = String(empNo || cashierUsername).trim().toLowerCase();
+                if (!group.cashiersMap[cashierKey]) {
+                    group.cashiersMap[cashierKey] = {
                         username: cashierUsername,
                         name: cashier,
                         empNo: empNo,
@@ -519,7 +520,7 @@ const getTransactionReports = async (req, res) => {
                 }
 
                 if (!isCancelled) {
-                    const cashierEntry = group.cashiersMap[cashierUsername];
+                    const cashierEntry = group.cashiersMap[cashierKey];
                     cashierEntry.count++;
                     if (isDebit) {
                         cashierEntry.netTotal += amount;
@@ -584,6 +585,232 @@ const getTransactionReports = async (req, res) => {
             }).sort((a, b) => b.debitAmount - a.debitAmount);
 
             res.json(finalResults);
+            return;
+
+        } else if (groupBy === 'account') {
+            // --- Advanced Account-wise Report (Includes Cancelled) ---
+            const matchStageWithCancelled = { ...matchStage };
+            delete matchStageWithCancelled.status;
+            const transactions = await Transaction.find(matchStageWithCancelled).lean();
+
+            const PaymentConfig = require('../models/PaymentConfig');
+            const configs = await PaymentConfig.find({}).lean();
+
+            // Extract Student IDs for SQL Lookup
+            const studentIds = new Set();
+            const feeHeadIds = new Set();
+            transactions.forEach(tx => {
+                if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+                if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
+            });
+
+            // Fetch Fee Head Names from MongoDB
+            const feeHeadMap = {};
+            try {
+                const feeHeads = await mongoose.connection.collection('feeheads').find({
+                    _id: { $in: Array.from(feeHeadIds).map(id => new mongoose.Types.ObjectId(id)) }
+                }).toArray();
+                feeHeads.forEach(fh => feeHeadMap[fh._id.toString()] = fh.name);
+            } catch (err) {
+                console.error("Error fetching fee heads:", err);
+            }
+
+            // Fetch College Info from SQL (match by admission number or PIN)
+            const collegeMap = {};
+            if (studentIds.size > 0) {
+                const idList = Array.from(studentIds).map((id) => `'${String(id).replace(/'/g, "''")}'`).join(',');
+                try {
+                    const [students] = await db.query(
+                        `SELECT admission_number, college, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${idList}) OR pin_no IN (${idList})`
+                    );
+                    students.forEach(s => {
+                        const sData = {
+                            college: s.college || 'Unknown',
+                            pin_no: s.pin_no || '-',
+                            course: s.course || 'N/A',
+                            branch: s.branch || 'N/A',
+                            current_year: s.current_year || 'N/A'
+                        };
+                        const adm = String(s.admission_number).trim();
+                        collegeMap[adm] = sData;
+                        collegeMap[adm.toLowerCase()] = sData;
+                        if (s.pin_no) {
+                            const pin = String(s.pin_no).trim();
+                            collegeMap[pin] = sData;
+                            collegeMap[pin.toLowerCase()] = sData;
+                        }
+                    });
+                } catch (sqlErr) {
+                    console.error("SQL Error fetching colleges:", sqlErr);
+                }
+            }
+
+            const accountGroups = {};
+
+            // Initialize groups for all configured payment accounts that are allowed for the user
+            configs.forEach(config => {
+                if (hasCollegeScope && !config.is_global && !collegeScope.isCollegeAllowed(config.college, allowedColleges)) {
+                    return;
+                }
+                accountGroups[config._id.toString()] = {
+                    _id: config._id.toString(),
+                    account_name: config.account_name,
+                    bank_name: config.bank_name,
+                    account_number: config.account_number,
+                    college: config.college,
+                    course: config.course || 'All Courses',
+                    is_global: !!config.is_global || !config.college,
+                    is_active: config.is_active,
+                    totalAmount: 0,
+                    debitAmount: 0,
+                    creditAmount: 0,
+                    cashAmount: 0,
+                    bankAmount: 0,
+                    totalCount: 0,
+                    count: 0,
+                    transactions: []
+                };
+            });
+
+            // Also prepare an "unassigned" group for direct cash/other transactions that do not specify an account
+            const unassignedGroup = {
+                _id: 'unassigned',
+                account_name: 'Unassigned/Direct Cash',
+                bank_name: 'Cash / General',
+                account_number: 'N/A',
+                college: 'N/A',
+                course: 'N/A',
+                is_global: true,
+                is_active: true,
+                totalAmount: 0,
+                debitAmount: 0,
+                creditAmount: 0,
+                cashAmount: 0,
+                bankAmount: 0,
+                totalCount: 0,
+                count: 0,
+                transactions: []
+            };
+
+            // Fetch cashier profiles to find emp_no
+            const User = require('../models/User');
+            const getEmployeeModel = require('../models/Employee');
+            const Employee = getEmployeeModel();
+
+            let cashierEmpNoMap = {};
+            try {
+                const usersList = await User.find({}).lean();
+                const employeeIds = usersList.map(u => u.employeeId).filter(Boolean);
+                const employeeMap = {};
+                if (employeeIds.length > 0 && Employee) {
+                    const employees = await Employee.find({ _id: { $in: employeeIds } }).select('emp_no').lean();
+                    employees.forEach(emp => {
+                        employeeMap[String(emp._id)] = emp.emp_no;
+                    });
+                }
+                usersList.forEach(u => {
+                    const empNo = u.employeeId ? (employeeMap[String(u.employeeId)] || u.username) : u.username;
+                    if (u.username) {
+                        cashierEmpNoMap[u.username.toLowerCase()] = empNo;
+                    }
+                    if (u.name) {
+                        cashierEmpNoMap[u.name.toLowerCase()] = empNo;
+                        const normalizedName = u.name.replace(/\s+/g, ' ').trim().toLowerCase();
+                        cashierEmpNoMap[normalizedName] = empNo;
+                    }
+                });
+            } catch (userErr) {
+                console.error("Error fetching cashier details:", userErr);
+            }
+
+            transactions.forEach(tx => {
+                const sId = String(tx.studentId).trim();
+                const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
+                const studentCollege = collegeData ? collegeData.college : 'Unknown';
+
+                const configId = tx.paymentConfigId ? tx.paymentConfigId.toString() : null;
+                let group;
+
+                if (configId && accountGroups[configId]) {
+                    group = accountGroups[configId];
+                } else if (!configId) {
+                    // Skip unassigned Cash transactions in account-wise report
+                    if (tx.paymentMode === 'Cash') {
+                        return;
+                    }
+                    // Filter unassigned by student's college if under scope
+                    if (hasCollegeScope && !collegeScope.isCollegeAllowed(studentCollege, allowedColleges)) {
+                        return;
+                    }
+                    group = unassignedGroup;
+                } else {
+                    // Transaction has a configId, but it isn't in accountGroups (maybe college is not allowed)
+                    return;
+                }
+
+                const amount = tx.amount || 0;
+                const isDebit = tx.transactionType === 'DEBIT';
+                const isCredit = tx.transactionType === 'CREDIT';
+                const isCash = tx.paymentMode === 'Cash';
+                const isCancelled = tx.status === 'cancelled';
+                const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
+                const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
+
+                const cashier = tx.collectedByName || 'Unknown';
+                const cashierUsername = tx.collectedBy || 'Unknown';
+                const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
+                const empNo = cashierEmpNoMap[cashierUsername.toLowerCase()] || 
+                              cashierEmpNoMap[normalizedCashierName] || 
+                              cashierEmpNoMap[cashier.toLowerCase()] || 
+                              cashier;
+
+                if (!isCancelled) {
+                    group.totalCount++;
+                    group.count++;
+                    if (isDebit) {
+                        group.debitAmount += amount;
+                        if (isCash) group.cashAmount += amount;
+                        else group.bankAmount += amount;
+                    }
+                    if (isCredit) {
+                        group.creditAmount += amount;
+                    }
+                }
+
+                group.transactions.push({
+                    _id: tx._id,
+                    receiptNo: tx.receiptNumber || '-',
+                    studentName: tx.studentName,
+                    amount: tx.amount,
+                    paymentMode: tx.paymentMode,
+                    transactionType: tx.transactionType,
+                    pinNo: collegeData ? collegeData.pin_no : '-',
+                    studentId: tx.studentId,
+                    course: collegeData && collegeData.course ? collegeData.course : 'N/A',
+                    branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
+                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
+                    feeHead: fhName,
+                    college: studentCollege,
+                    status: tx.status || 'active',
+                    collectedBy: tx.collectedBy || 'Unknown',
+                    collectedByName: tx.collectedByName || 'Unknown',
+                    empNo: empNo,
+                    createdAt: tx.createdAt,
+                    updatedAt: tx.updatedAt
+                });
+            });
+
+            const finalResults = Object.values(accountGroups);
+            finalResults.push(unassignedGroup);
+
+            finalResults.forEach(g => {
+                g.totalAmount = g.debitAmount;
+            });
+
+            // Display only accounts from which we have amount (> 0)
+            const activeAccountResults = finalResults.filter(g => (g.debitAmount || 0) > 0 || (g.creditAmount || 0) > 0 || (g.totalAmount || 0) > 0);
+
+            res.json(activeAccountResults);
             return;
 
         } else {

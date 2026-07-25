@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { getStoredUser } from '../lib/auth';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     const location = useLocation();
     const [isCollapsed, setIsCollapsed] = useState(() => {
         return localStorage.getItem('sidebar-collapsed') === 'true';
@@ -65,13 +65,28 @@ const Sidebar = () => {
         { name: 'Email Reports',           hash: 'email-reports' },
     ];
 
+    // Fee Configuration sub-items (hash-based navigation within /fee-config)
+    const FEE_CONFIG_SUB_ITEMS = [
+        { name: 'Fee Heads',     hash: 'heads' },
+        { name: 'Fee Groups',    hash: 'groups' },
+        { name: 'Fee Structures',hash: 'definitions' },
+        { name: 'Late Fees',     hash: 'latefees' },
+    ];
+
     const isSettingsActive = location.pathname === '/settings';
     const [settingsExpanded, setSettingsExpanded] = React.useState(isSettingsActive);
 
-    // Auto-expand settings group when navigating to /settings
+    const isFeeConfigActive = location.pathname === '/fee-config';
+    const [feeConfigExpanded, setFeeConfigExpanded] = React.useState(isFeeConfigActive);
+
+    // Auto-expand groups when navigating to their respective routes
     React.useEffect(() => {
         if (isSettingsActive) setSettingsExpanded(true);
     }, [isSettingsActive]);
+
+    React.useEffect(() => {
+        if (isFeeConfigActive) setFeeConfigExpanded(true);
+    }, [isFeeConfigActive]);
 
     const settingsIcon = <svg className="w-5 h-5 icon-settings transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
@@ -83,6 +98,7 @@ const Sidebar = () => {
 
         // Fee Operations
         { section: 'Fee Operations', name: 'Fee Collection', path: '/fee-collection', icon: icons.Collection },
+        { section: 'Fee Operations', name: 'Caution Deposit', path: '/caution-deposit', icon: <svg className="w-5 h-5 icon-collection transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
         { section: 'Fee Operations', name: 'Concessions (Declaration)', path: '/overall-concessions', icon: icons.Concession },
         { section: 'Fee Operations', name: 'Concessions (Application)', path: '/concessions', icon: icons.ConcessionApproval },
         { section: 'Fee Operations', name: 'Bulk Fee Upload', path: '/bulk-fee-upload', icon: icons.BulkUpload },
@@ -93,7 +109,7 @@ const Sidebar = () => {
         { section: 'Reports', name: 'Due Reports', path: '/due-reports', icon: icons.DueReports },
 
         // Configuration
-        { section: 'Configuration', name: 'Fee Configuration', path: '/fee-config', icon: icons.Config },
+        { section: 'Configuration', name: '__FEE_CONFIG__', path: '/fee-config', icon: icons.Config },
         { section: 'Configuration', name: 'Payment Config', path: '/payment-config', icon: icons.PaymentConfig },
         { section: 'Configuration', name: '__SETTINGS__', path: '/settings', icon: settingsIcon },
         { section: 'Configuration', name: 'Reminder Config', path: '/reminders', icon: icons.Reminders },
@@ -120,8 +136,21 @@ const Sidebar = () => {
         acc[section].push(item);
         return acc;
     }, {});
+
     return (
-        <div className={`bg-white h-screen max-h-screen sticky top-0 flex flex-col shadow-lg transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-20' : 'w-62'}`}>
+        <>
+            {/* Mobile Backdrop Overlay */}
+            {isOpenMobile && (
+                <div 
+                    className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 md:hidden transition-opacity duration-300"
+                    onClick={onCloseMobile}
+                />
+            )}
+            <div className={`bg-white h-screen max-h-screen flex flex-col shadow-lg transition-all duration-300 overflow-hidden 
+                fixed inset-y-0 left-0 z-50 md:sticky md:top-0 md:z-auto
+                ${isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                ${isCollapsed ? 'w-64 md:w-20' : 'w-64 md:w-62'}
+            `}>
             <div className="bg-gradient-to-br from-blue-700 via-indigo-800 to-indigo-950 p-4 pt-4 pb-7 shrink-0 relative flex flex-col items-center">
                 <div
                     className={`flex items-center gap-3 ${isCollapsed ? 'justify-center w-full cursor-pointer' : 'justify-center w-full'}`}
@@ -165,12 +194,20 @@ const Sidebar = () => {
                 {!isCollapsed && (
                     <button
                         onClick={toggleCollapsed}
-                        className="absolute top-4 right-4 p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                        className="hidden md:block absolute top-4 right-4 p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
                         title="Collapse Sidebar"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
                     </button>
                 )}
+                {/* Mobile Close Button */}
+                <button
+                    onClick={onCloseMobile}
+                    className="md:hidden absolute top-4 right-4 p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    title="Close Menu"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
             </div>
             
             {/* Main Nav Container: White bg overlapping the header slightly with rounded corners */}
@@ -195,6 +232,59 @@ const Sidebar = () => {
                         )}
                         <div className="space-y-0.5">
                             {(Array.isArray(items) ? items : []).map((item, index) => {
+                                // ── Special: Fee Configuration expandable group ──
+                                if (item.name === '__FEE_CONFIG__') {
+                                    const isActive = isFeeConfigActive;
+                                    return (
+                                        <div key={index}>
+                                            <button
+                                                onClick={() => {
+                                                    if (isCollapsed) {
+                                                        expandSidebar();
+                                                    }
+                                                    setFeeConfigExpanded(prev => !prev);
+                                                }}
+                                                className={`sidebar-link w-full flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                                    isActive
+                                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
+                                                        : 'text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                } ${isCollapsed ? 'justify-center' : ''}`}
+                                                title={isCollapsed ? 'Fee Configuration' : ''}
+                                            >
+                                                <span className={`text-xl shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`}>{item.icon}</span>
+                                                {!isCollapsed && (
+                                                    <>
+                                                        <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Fee Configuration</span>
+                                                        <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${feeConfigExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+                                                    </>
+                                                )}
+                                            </button>
+                                            {/* Sub-items */}
+                                            {!isCollapsed && feeConfigExpanded && (
+                                                <div className="ml-3 mt-0.5 pl-3 border-l border-indigo-100 space-y-0.5">
+                                                    {FEE_CONFIG_SUB_ITEMS.map(sub => {
+                                                        const subActive = isFeeConfigActive && (location.hash === `#${sub.hash}` || (!location.hash && sub.hash === 'heads'));
+                                                        return (
+                                                            <Link
+                                                                key={sub.hash}
+                                                                to={`/fee-config#${sub.hash}`}
+                                                                className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                                                    subActive
+                                                                        ? 'bg-blue-50 text-blue-700 font-bold'
+                                                                        : 'text-slate-500 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                                }`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full mr-2 shrink-0 ${subActive ? 'bg-blue-600' : 'bg-slate-300'}`}></span>
+                                                                {sub.name}
+                                                            </Link>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }
+
                                 // ── Special: Settings expandable group ──────
                                 if (item.name === '__SETTINGS__') {
                                     const isActive = isSettingsActive;
@@ -206,9 +296,6 @@ const Sidebar = () => {
                                                         expandSidebar();
                                                     }
                                                     setSettingsExpanded(prev => !prev);
-                                                    if (!isSettingsActive) {
-                                                        window.location.href = '/settings#appearance';
-                                                    }
                                                 }}
                                                 className={`sidebar-link w-full flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                                                     isActive
@@ -221,7 +308,7 @@ const Sidebar = () => {
                                                 {!isCollapsed && (
                                                     <>
                                                         <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Settings</span>
-                                                        <svg className={`w-3.5 h-3.5 transition-transform ${settingsExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+                                                        <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${settingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
                                                     </>
                                                 )}
                                             </button>
@@ -229,7 +316,7 @@ const Sidebar = () => {
                                             {!isCollapsed && settingsExpanded && (
                                                 <div className="ml-3 mt-0.5 pl-3 border-l border-indigo-100 space-y-0.5">
                                                     {SETTINGS_SUB_ITEMS.map(sub => {
-                                                        const subActive = isSettingsActive && location.hash === `#${sub.hash}`;
+                                                        const subActive = isSettingsActive && (location.hash === `#${sub.hash}` || (!location.hash && sub.hash === 'appearance'));
                                                         return (
                                                             <Link
                                                                 key={sub.hash}
@@ -257,6 +344,7 @@ const Sidebar = () => {
                                     <Link
                                         key={index}
                                         to={item.path}
+                                        onClick={onCloseMobile}
                                         className={`sidebar-link flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                                             isActive
                                                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
@@ -427,6 +515,7 @@ const Sidebar = () => {
                 }
             `}</style>
         </div>
+        </>
     );
 };
 

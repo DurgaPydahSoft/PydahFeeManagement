@@ -212,9 +212,9 @@ const Proceedings = () => {
                                                 </td>
                                                 <td className="p-4 text-slate-600 font-medium">{new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                                                 <td className="p-4 text-right">
-                                                    <div className="font-bold text-slate-800">₹{proc.amount?.toLocaleString()}</div>
+                                                    <div className="font-bold text-slate-800">₹{proc.amount?.toLocaleString('en-IN')}</div>
                                                     {expandedRows[proc._id] && (
-                                                        <div className="text-[10px] font-bold text-blue-600">USED: ₹{expandedRows[proc._id].totalUsed.toLocaleString()}</div>
+                                                        <div className="text-[10px] font-bold text-blue-600">USED: ₹{expandedRows[proc._id].totalUsed.toLocaleString('en-IN')}</div>
                                                     )}
                                                 </td>
                                                 <td className="p-4">
@@ -264,7 +264,7 @@ const Proceedings = () => {
                                                                                 </div>
                                                                             </div>
                                                                             <div className="text-right">
-                                                                                <div className="text-xs font-black text-blue-700">₹{txn.amount.toLocaleString()}</div>
+                                                                                <div className="text-xs font-black text-blue-700">₹{txn.amount.toLocaleString('en-IN')}</div>
                                                                                 <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(txn.paymentDate).toLocaleDateString()}</div>
                                                                             </div>
                                                                         </div>
@@ -276,17 +276,17 @@ const Proceedings = () => {
                                                                 <div className="flex items-center gap-4">
                                                                     <div className="text-right">
                                                                         <div className="text-[10px] font-bold text-slate-400 uppercase">Proceeding Limit</div>
-                                                                        <div className="text-sm font-bold text-slate-600">₹{proc.amount?.toLocaleString()}</div>
+                                                                        <div className="text-sm font-bold text-slate-600">₹{proc.amount?.toLocaleString('en-IN')}</div>
                                                                     </div>
                                                                     <div className="w-px h-8 bg-slate-200"></div>
                                                                     <div className="text-right">
                                                                         <div className="text-[10px] font-bold text-blue-400 uppercase">Utilized Amount</div>
-                                                                        <div className="text-sm font-black text-blue-700">₹{expandedRows[proc._id].totalUsed.toLocaleString()}</div>
+                                                                        <div className="text-sm font-black text-blue-700">₹{expandedRows[proc._id].totalUsed.toLocaleString('en-IN')}</div>
                                                                     </div>
                                                                     <div className="w-px h-8 bg-slate-200"></div>
                                                                     <div className="text-right">
                                                                         <div className="text-[10px] font-bold text-emerald-400 uppercase">Remaining</div>
-                                                                        <div className="text-sm font-black text-emerald-600">₹{(proc.amount - expandedRows[proc._id].totalUsed).toLocaleString()}</div>
+                                                                        <div className="text-sm font-black text-emerald-600">₹{(proc.amount - expandedRows[proc._id].totalUsed).toLocaleString('en-IN')}</div>
                                                                     </div>
                                                                 </div>
                                                             </div>

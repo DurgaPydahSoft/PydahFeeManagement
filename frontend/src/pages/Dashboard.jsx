@@ -54,7 +54,7 @@ const CustomTooltip = ({ active, payload, label }) => {
         return (
             <div className="bg-slate-900/90 text-white px-3 py-2 rounded-xl shadow-xl border border-slate-700 backdrop-blur-md text-xs font-bold">
                 <p className="text-slate-300 mb-0.5">{label}{item.fullName ? ` (${item.fullName})` : ''}</p>
-                <p className="text-indigo-400 font-extrabold text-sm">₹{payload[0].value.toLocaleString()}</p>
+                <p className="text-indigo-400 font-extrabold text-sm">₹{payload[0].value.toLocaleString('en-IN')}</p>
             </div>
         );
     }
@@ -68,7 +68,7 @@ const CustomPieTooltip = ({ active, payload }) => {
         return (
             <div className="bg-slate-900/90 text-white px-3 py-2 rounded-xl shadow-xl border border-slate-700 backdrop-blur-md text-xs font-bold">
                 <p className="text-slate-300 mb-0.5">{name}</p>
-                <p className="text-indigo-400 font-extrabold text-sm">₹{value.toLocaleString()}</p>
+                <p className="text-indigo-400 font-extrabold text-sm">₹{value.toLocaleString('en-IN')}</p>
                 <p className="text-emerald-400 text-[10px] font-bold mt-0.5">
                     ({(percent * 100).toFixed(1)}% of total)
                 </p>
@@ -225,7 +225,7 @@ const Dashboard = () => {
     const kpis = [
         {
             label: "Overall Collection",
-            value: `₹${(stats?.collections?.total || 0).toLocaleString()}`,
+            value: `₹${(stats?.collections?.total || 0).toLocaleString('en-IN')}`,
             icon: () => (
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 3h12M6 8h12M6 3a5 5 0 0 1 5 5H6M6 8a5 5 0 0 1 5 5H6M6 13h4l5 8" />
@@ -238,7 +238,7 @@ const Dashboard = () => {
         },
         {
             label: "Cash Collection",
-            value: `₹${(stats?.collections?.cash || 0).toLocaleString()}`,
+            value: `₹${(stats?.collections?.cash || 0).toLocaleString('en-IN')}`,
             icon: () => <Briefcase size={18} className="stroke-[2.5]" />,
             borderColor: "border-b-emerald-600",
             iconBg: "bg-emerald-600 text-white shadow-md shadow-emerald-100",
@@ -247,7 +247,7 @@ const Dashboard = () => {
         },
         {
             label: "Online Collection",
-            value: `₹${(stats?.collections?.online || 0).toLocaleString()}`,
+            value: `₹${(stats?.collections?.online || 0).toLocaleString('en-IN')}`,
             icon: () => <TrendingUp size={18} className="stroke-[2.5]" />,
             borderColor: "border-b-blue-600",
             iconBg: "bg-blue-600 text-white shadow-md shadow-blue-100",
@@ -256,7 +256,7 @@ const Dashboard = () => {
         },
         {
             label: "Active Students",
-            value: (stats?.totalStudents || 0).toLocaleString(),
+            value: (stats?.totalStudents || 0).toLocaleString('en-IN'),
             icon: () => <Users size={18} className="stroke-[2.5]" />,
             borderColor: "border-b-amber-500",
             iconBg: "bg-amber-500 text-white shadow-md shadow-amber-100",

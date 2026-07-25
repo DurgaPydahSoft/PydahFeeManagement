@@ -55,6 +55,7 @@ const UserManagement = () => {
         { name: 'Settings', path: '/settings' },
         { name: 'Reminder Config', path: '/reminders' },
         { name: 'Academic Calendar', path: '/academic-calendar' },
+        { name: 'Caution Deposit', path: '/caution-deposit' },
         { name: 'User Management', path: '/user-management' },
         { name: 'Permissions', path: '/permissions' }
     ];
@@ -739,7 +740,7 @@ const UserManagement = () => {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
                                                                         }
                                                                         if (path === '/reports') {
-                                                                            currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary');
+                                                                            currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary' && p !== 'reports_account_wise');
                                                                         }
                                                                     } else {
                                                                         currentPermissions = [...currentPermissions, path];
@@ -753,6 +754,7 @@ const UserManagement = () => {
                                                                             if (!currentPermissions.includes('reports_daily_collection')) currentPermissions.push('reports_daily_collection');
                                                                             if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
                                                                             if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
+                                                                            if (!currentPermissions.includes('reports_account_wise')) currentPermissions.push('reports_account_wise');
                                                                         }
                                                                         if (path === '/concessions') {
                                                                             if (!currentPermissions.includes('concession_approvals')) currentPermissions.push('concession_approvals');
@@ -937,6 +939,23 @@ const UserManagement = () => {
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
                                                                 <span className="text-xs text-gray-600">College-wise Summary</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('reports_account_wise')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('reports_account_wise')) p = p.filter(x => x !== 'reports_account_wise');
+                                                                            else p = [...p, 'reports_account_wise'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Account-wise Summary</span>
                                                             </label>
                                                         </div>
                                                     )}

@@ -332,10 +332,45 @@ const createStudent = async (req, res) => {
   }
 };
 
+// @desc    Sync student fee demands from matching fee structures (create missing, update amounts)
+// @route   POST /api/students/:id/sync-fees
+const syncStudentFeesForCollection = async (req, res) => {
+  try {
+    const admissionNo = String(req.params.id || '').trim();
+    if (!admissionNo) {
+      return res.status(400).json({ message: 'Admission number is required' });
+    }
+
+    const [rows] = await db.query(
+      'SELECT admission_number, college FROM students WHERE admission_number = ?',
+      [admissionNo]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
+    if (allowedColleges && !allowedColleges.includes(rows[0].college)) {
+      return res.status(403).json({ message: 'Access denied for this student' });
+    }
+
+    const result = await syncStudentFeesByAdmissionNumber(admissionNo);
+    res.json({
+      message: 'Student fees synced successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('Error syncing student fees:', error);
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message || 'Failed to sync student fees' });
+  }
+};
+
 module.exports = {
   getStudents,
   getStudentMetadata,
   getStudentByAdmissionNumber,
   searchStudents,
-  createStudent
+  createStudent,
+  syncStudentFeesForCollection
 };

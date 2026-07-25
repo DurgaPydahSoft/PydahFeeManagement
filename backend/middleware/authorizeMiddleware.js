@@ -9,7 +9,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/reports/transactions',
-    permissions: ['/reports', 'reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary'],
+    permissions: ['/reports', 'reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary', 'reports_account_wise'],
   },
   {
     prefix: '/api/reports/dues',

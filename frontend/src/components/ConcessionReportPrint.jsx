@@ -50,14 +50,14 @@ const ConcessionReportPrint = forwardRef(({ data = [], filters = {} }, ref) => {
                                     <td className="border border-gray-300 p-2 text-[10px] font-bold">{student.studentName}</td>
                                     <td className="border border-gray-300 p-2 text-[10px]">{student.course} - {student.branch}</td>
                                     <td className="border border-gray-300 p-2 text-[10px] font-medium">{student.feeHead?.name}</td>
-                                    <td className="border border-gray-300 p-2 text-[10px] font-black text-right">₹{student.amount.toLocaleString()}</td>
+                                    <td className="border border-gray-300 p-2 text-[10px] font-black text-right">₹{student.amount.toLocaleString('en-IN')}</td>
                                 </tr>
                             ))}
                         </tbody>
                         <tfoot className="bg-gray-50 font-black">
                             <tr>
                                 <td colSpan="5" className="border border-gray-300 p-2 text-[10px] text-right uppercase">Subtotal for {authorizer}</td>
-                                <td className="border border-gray-300 p-2 text-[10px] text-right">₹{groupedData[authorizer].reduce((sum, i) => sum + i.amount, 0).toLocaleString()}</td>
+                                <td className="border border-gray-300 p-2 text-[10px] text-right">₹{groupedData[authorizer].reduce((sum, i) => sum + i.amount, 0).toLocaleString('en-IN')}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -74,7 +74,7 @@ const ConcessionReportPrint = forwardRef(({ data = [], filters = {} }, ref) => {
             <div className="mt-12 p-6 bg-gray-900 text-white rounded-lg flex justify-between items-center shadow-lg print:shadow-none">
                 <div>
                     <div className="text-[10px] uppercase font-bold text-gray-400">Grand Total Concessions</div>
-                    <div className="text-2xl font-black">₹{totalConcession.toLocaleString()}</div>
+                    <div className="text-2xl font-black">₹{totalConcession.toLocaleString('en-IN')}</div>
                 </div>
                 <div className="text-right">
                     <div className="text-[10px] uppercase font-bold text-gray-400">Total Students Benefitted</div>

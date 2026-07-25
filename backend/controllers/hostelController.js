@@ -455,3 +455,46 @@ exports.applyHostelFee = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// Get Caution Deposit configuration for all hostels from the hostel MongoDB
+exports.getCautionDeposit = async (req, res) => {
+  if (!getHostelConnection()) return hostelsUnavailable(res);
+  try {
+    const { academicYear } = req.query;
+    if (!academicYear) {
+      return res.status(400).json({ message: 'Academic year is required' });
+    }
+
+    const Hostel = require('../models-hostel/Hostel').getModel();
+    const hostels = await Hostel.find().sort({ name: 1 });
+
+    const db = getHostelConnection().db;
+    const collection = db.collection('feestructures');
+
+    const results = [];
+    for (const hostel of hostels) {
+      const doc = await collection.findOne({
+        academicYear,
+        hostelId: hostel._id,
+        isActive: true
+      });
+
+      const additionalFees = doc?.additionalFees || {};
+      const cautionDeposit = additionalFees.caution_deposit || additionalFees.cautionDeposit || null;
+
+      results.push({
+        hostel: {
+          _id: hostel._id,
+          name: hostel.name,
+          description: hostel.description,
+          isActive: hostel.isActive
+        },
+        cautionDeposit
+      });
+    }
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

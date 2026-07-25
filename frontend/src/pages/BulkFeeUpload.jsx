@@ -324,7 +324,7 @@ const BulkFeeUpload = () => {
                                                     {(uploadType === 'PAYMENT' ? row.payments : row.demands)?.map(d => d.headName).filter((v, i, a) => a.indexOf(v) === i).join(', ') || '-'}
                                                 </td>
                                                 <td className={`p-3 text-right font-bold ${uploadType === 'PAYMENT' ? 'text-green-700' : 'text-orange-700'}`}>
-                                                    ₹{(uploadType === 'PAYMENT' ? row.totalPaid : row.totalDemand).toLocaleString()}
+                                                    ₹{(uploadType === 'PAYMENT' ? row.totalPaid : row.totalDemand).toLocaleString('en-IN')}
                                                 </td>
                                                 <td className="p-3 text-center">
                                                     {row.admissionNumber ? <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">Found</span> : <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Not Found</span>}
