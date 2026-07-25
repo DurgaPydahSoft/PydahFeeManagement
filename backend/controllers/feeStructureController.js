@@ -5,7 +5,12 @@ const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const db = require('../config/sqlDb');
-const { syncClubFees, syncTransportFees, syncStandardFees } = require('../services/studentFeeSyncService');
+const {
+  syncClubFees,
+  syncTransportFees,
+  syncHostelFees,
+  syncStandardFees
+} = require('../services/studentFeeSyncService');
 const {
   resolveStudentFeeAmount,
   buildFeeHeadMaps,
@@ -286,6 +291,7 @@ const getStudentFeeDetails = async (req, res) => {
       try {
         await syncClubFees(student, admissionNo);
         await syncTransportFees(student, admissionNo);
+        await syncHostelFees(student, admissionNo);
         await syncStandardFees(student, admissionNo);
       } catch (syncError) {
         console.error('Fee sync error:', syncError);

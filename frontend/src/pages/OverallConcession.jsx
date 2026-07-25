@@ -359,7 +359,12 @@ const OverallConcession = () => {
             setSuccessMessage('Request approved and fees updated!');
             setTimeout(() => setSuccessMessage(''), 4000);
         } catch (err) {
-            setErrorMessage(err.response?.data?.message || 'Failed to approve request.');
+            const data = err.response?.data;
+            const warningText = Array.isArray(data?.warnings) && data.warnings.length
+                ? data.warnings.join(' ')
+                : '';
+            setErrorMessage(warningText || data?.message || 'Failed to approve request.');
+            setTimeout(() => setErrorMessage(''), 8000);
         } finally { setApproveBusy(false); }
     };
 

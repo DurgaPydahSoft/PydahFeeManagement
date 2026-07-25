@@ -6,11 +6,13 @@ dotenv.config();
 const cors = require('cors');
 const connectDB = require('./config/db');
 const { connectHostelDB } = require('./config/dbHostel');
+const { connectTransportDB } = require('./config/dbTransport');
 const { connectEmployeeDB } = require('./config/dbEmployee'); // [NEW]
 const sqlPool = require('./config/sqlDb');
 
 connectDB();
 connectHostelDB();
+connectTransportDB();
 connectEmployeeDB(); // [NEW]
 
 // Test SQL Connection

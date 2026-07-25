@@ -293,9 +293,14 @@ const FeeCollection = () => {
             await fetchStudentData(student);
             const created = (data.standardFeesCreated || 0)
                 + (data.clubFeesCreated || 0)
-                + (data.transportFeesCreated || 0);
-            const updated = (data.standardFeesUpdated || 0) + (data.transportFeesUpdated || 0);
-            const matched = (data.structuresMatched || 0) + (data.transportRequestsMatched || 0);
+                + (data.transportFeesCreated || 0)
+                + (data.hostelFeesCreated || 0);
+            const updated = (data.standardFeesUpdated || 0)
+                + (data.transportFeesUpdated || 0)
+                + (data.hostelFeesUpdated || 0);
+            const matched = (data.structuresMatched || 0)
+                + (data.transportRequestsMatched || 0)
+                + (data.hostelRequestsMatched || 0);
             if (created === 0 && updated === 0) {
                 showToastMessage(
                     `Fees already in sync (${matched} structure/request(s) matched).`,

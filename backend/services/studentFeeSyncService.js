@@ -3,12 +3,15 @@ const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const db = require('../config/sqlDb');
+const { getHostelConnection } = require('../config/dbHostel');
+const { getTransportConnection } = require('../config/dbTransport');
 const {
   buildRevisedFeesMap,
   buildConcessionLookupKey,
   resolveStudentFeeAmount,
   buildFeeHeadMaps
 } = require('../utils/overallConcessionFees');
+const { applyRevisedConcessionTransactions } = require('./overallConcessionRevisedService');
 
 const STUDENT_SELECT = `
   SELECT id, admission_number, student_name, current_year, batch, current_semester,
@@ -83,6 +86,8 @@ const findMergeableStudentFee = async ({
     const byRemarks = await StudentFee.findOne({
       studentId: admissionNo,
       feeHead: feeHeadId,
+      academicYear,
+      studentYear,
       remarks
     });
     if (byRemarks) return byRemarks;
@@ -333,12 +338,19 @@ const syncTransportFees = async (student, admissionNo) => {
   let created = 0;
   let updated = 0;
 
-  const [requests] = await db.query(`
-    SELECT route_name, stage_name, fare, academic_year, year_of_study, semester_number
-    FROM transport_requests
-    WHERE admission_number = ? AND status = 'approved'
-    ORDER BY updated_at DESC
-  `, [admissionNo]);
+  const transportConnection = getTransportConnection();
+  if (!transportConnection) {
+    return { created, updated, requestsMatched: 0 };
+  }
+
+  const requests = await transportConnection.db
+    .collection('transport_requests')
+    .find({
+      admission_number: admissionNo,
+      status: 'approved'
+    })
+    .sort({ updated_at: -1 })
+    .toArray();
 
   if (requests.length === 0) {
     return { created, updated, requestsMatched: 0 };
@@ -365,6 +377,119 @@ const syncTransportFees = async (student, admissionNo) => {
       academicYear,
       studentYear,
       semester,
+      amount,
+      remarks,
+      matchByRemarks: true
+    });
+    created += result.created;
+    updated += result.updated;
+  }
+
+  return { created, updated, requestsMatched: requests.length };
+};
+
+const findHostelFeeHead = async () => {
+  let feeHead = await FeeHead.findOne({ name: 'Hostel Fee' });
+  if (!feeHead) {
+    feeHead = await FeeHead.findOne({ code: { $in: ['HOSTEL', 'HST01'] } });
+  }
+  if (!feeHead) {
+    feeHead = await FeeHead.create({
+      name: 'Hostel Fee',
+      code: 'HOSTEL',
+      description: 'Hostel accommodation fee'
+    });
+  }
+  return feeHead;
+};
+
+const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const findHostelFeeStructure = async (connection, request, student, studentYear) => {
+  const baseQuery = {
+    academicYear: request.academicYear,
+    course: { $regex: new RegExp(`^${escapeRegex(student.course)}$`, 'i') },
+    year: Number(studentYear),
+    hostelId: request.hostelId,
+    categoryId: request.hostelCategoryId,
+    feeType: { $regex: /^hostel[ _-]?fee$/i },
+    isActive: true
+  };
+
+  const structures = connection.db.collection('feestructures');
+  if (student.branch) {
+    const exactBranch = await structures.findOne({
+      ...baseQuery,
+      branch: { $regex: new RegExp(`^${escapeRegex(student.branch)}$`, 'i') }
+    });
+    if (exactBranch) return exactBranch;
+  }
+
+  return structures.findOne({
+    ...baseQuery,
+    $or: [
+      { branch: null },
+      { branch: { $exists: false } }
+    ]
+  });
+};
+
+const syncHostelFees = async (student, admissionNo) => {
+  let created = 0;
+  let updated = 0;
+
+  const hostelConnection = getHostelConnection();
+  if (!hostelConnection) {
+    return { created, updated, requestsMatched: 0 };
+  }
+
+  const requests = await hostelConnection.db
+    .collection('hostelrequests')
+    .find({
+      admissionNumber: admissionNo.toUpperCase(),
+      status: 'active'
+    })
+    .sort({ updatedAt: -1 })
+    .toArray();
+
+  if (requests.length === 0) {
+    return { created, updated, requestsMatched: 0 };
+  }
+
+  const hostelFeeHead = await findHostelFeeHead();
+  const hostels = hostelConnection.db.collection('hostels');
+  const categories = hostelConnection.db.collection('hostelcategories');
+
+  for (const request of requests) {
+    if (!request.academicYear || !request.hostelId || !request.hostelCategoryId) continue;
+
+    const studentYear = request.sdmsYearOfStudy || student.current_year || 1;
+    const structure = await findHostelFeeStructure(
+      hostelConnection,
+      request,
+      student,
+      studentYear
+    );
+    if (!structure) continue;
+
+    const [hostel, category] = await Promise.all([
+      hostels.findOne({ _id: request.hostelId }, { projection: { name: 1 } }),
+      categories.findOne({ _id: request.hostelCategoryId }, { projection: { name: 1 } })
+    ]);
+
+    const amount = Math.max(
+      0,
+      (Number(structure.amount) || 0) - (Number(request.concession) || 0)
+    );
+    const remarks = `Hostel: ${hostel?.name || 'Hostel'} - ${category?.name || 'Category'}`;
+
+    const result = await upsertStudentFeeDemand({
+      admissionNo,
+      student,
+      feeHeadId: hostelFeeHead._id,
+      academicYear: request.academicYear,
+      studentYear,
+      semester: student.current_semester || 1,
       amount,
       remarks,
       matchByRemarks: true
@@ -416,6 +541,27 @@ const syncStandardFees = async (student, admissionNo) => {
     updated += result.updated;
   }
 
+  // Ensure REVISED overall-concession entries keep structured demand and
+  // have an upserted CREDIT "Concession as per declaration" transaction.
+  const [concessionRows] = await db.query(
+    `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
+    [admissionNo]
+  );
+  if (concessionRows.length > 0) {
+    const raw = concessionRows[0].revised_fees;
+    const fees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+    await applyRevisedConcessionTransactions({
+      admissionNumber: admissionNo,
+      studentName: student.student_name,
+      college: student.college,
+      course: student.course,
+      branch: student.branch,
+      batch: student.batch,
+      category: student.stud_type || 'Regular',
+      entries: fees
+    });
+  }
+
   return { created, updated, structuresMatched: applicableStructures.length };
 };
 
@@ -434,6 +580,7 @@ const syncStudentFeesByAdmissionNumber = async (admissionNo) => {
 
   const clubResult = await syncClubFees(student, admissionNo);
   const transportResult = await syncTransportFees(student, admissionNo);
+  const hostelResult = await syncHostelFees(student, admissionNo);
   const standardResult = await syncStandardFees(student, admissionNo);
 
   return {
@@ -442,6 +589,9 @@ const syncStudentFeesByAdmissionNumber = async (admissionNo) => {
     transportFeesCreated: transportResult.created,
     transportFeesUpdated: transportResult.updated,
     transportRequestsMatched: transportResult.requestsMatched,
+    hostelFeesCreated: hostelResult.created,
+    hostelFeesUpdated: hostelResult.updated,
+    hostelRequestsMatched: hostelResult.requestsMatched,
     standardFeesCreated: standardResult.created,
     standardFeesUpdated: standardResult.updated,
     structuresMatched: standardResult.structuresMatched
@@ -452,6 +602,7 @@ module.exports = {
   fetchStudentByAdmissionNumber,
   syncClubFees,
   syncTransportFees,
+  syncHostelFees,
   syncStandardFees,
   syncStudentFeesByAdmissionNumber,
   loadRevisedFeesMapForStudent,

@@ -42,11 +42,13 @@ const resolveStudentFeeAmount = (structureAmount, entry) => {
   const type = normalizeConcessionType(entry?.concessionType);
 
   if (type === 'CONCESSION') {
+    // CONCESSION: amount is the discount; reduce the demand
     return Math.max(0, standardAmount - concessionAmount);
   }
 
-  // REVISED: amount is the final fee (replaces standard)
-  return concessionAmount;
+  // REVISED: keep the structured demand intact.
+  // The difference (structure - revised) is posted as a CREDIT concession transaction.
+  return standardAmount;
 };
 
 const buildRevisedFeesMap = (feesArray, codeMap = {}) => {

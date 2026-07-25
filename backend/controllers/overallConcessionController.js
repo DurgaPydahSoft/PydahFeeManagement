@@ -9,10 +9,16 @@ const {
   resolveStudentFeeAmount,
   getConcessionAmount,
   normalizeSemester,
+  normalizeConcessionType,
   buildFeeHeadMaps,
   resolveFeeHeadId
 } = require('../utils/overallConcessionFees');
 const { syncStandardFees } = require('../services/studentFeeSyncService');
+const {
+  validateRevisedEntriesAgainstStructures,
+  applyRevisedConcessionTransactions,
+  cancelDeclarationConcessionTransactions
+} = require('../services/overallConcessionRevisedService');
 
 // @desc    Get all students with their overall concessions (revised fees)
 // @route   GET /api/overall-concessions
@@ -133,6 +139,32 @@ const saveOverallConcession = async (req, res) => {
         const sem = normalizeSemester(semester);
         const numericAmount = Number(concessionAmount);
 
+        const feeHead = await FeeHead.findById(feeHeadId).lean();
+        const feeHeadCode = feeHead ? feeHead.code : '';
+
+        const storedEntry = formatConcessionEntry({
+            feeHeadId,
+            feeHeadCode,
+            studentYear: sYear,
+            semester: sem,
+            amount: numericAmount,
+            concessionType
+        });
+
+        if (normalizeConcessionType(storedEntry.concessionType) === 'REVISED') {
+            const validation = await validateRevisedEntriesAgainstStructures({
+                entries: [storedEntry],
+                college,
+                course,
+                branch,
+                batch,
+                category: category || 'Regular'
+            });
+            if (!validation.ok) {
+                return res.status(400).json({ message: validation.message, warnings: validation.warnings });
+            }
+        }
+
         // 1. Fetch existing student row
         const [existing] = await db.query(
             `SELECT * FROM overall_concessions WHERE admission_number = ?`,
@@ -145,24 +177,12 @@ const saveOverallConcession = async (req, res) => {
             revisedFees = typeof rawFees === 'string' ? JSON.parse(rawFees) : rawFees || [];
         }
 
-        const feeHead = await FeeHead.findById(feeHeadId).lean();
-        const feeHeadCode = feeHead ? feeHead.code : '';
-
         // 2. Update or insert concession in the array
         const existingIndex = revisedFees.findIndex(f => 
             String(f.feeHeadId) === String(feeHeadId) && 
             Number(f.studentYear) === sYear && 
             normalizeSemester(f.semester) === sem
         );
-
-        const storedEntry = formatConcessionEntry({
-            feeHeadId,
-            feeHeadCode,
-            studentYear: sYear,
-            semester: sem,
-            amount: numericAmount,
-            concessionType
-        });
 
         if (existingIndex > -1) {
             revisedFees[existingIndex] = storedEntry;
@@ -239,6 +259,19 @@ const saveOverallConcession = async (req, res) => {
                 },
                 { upsert: true, new: true }
             );
+
+            await applyRevisedConcessionTransactions({
+                admissionNumber,
+                studentName,
+                college,
+                course,
+                branch,
+                batch,
+                category: category || 'Regular',
+                entries: [storedEntry],
+                collectedBy: req.user?.username || 'system',
+                collectedByName: req.user?.name || 'System'
+            });
         }
 
         res.status(201).json({
@@ -276,6 +309,13 @@ const deleteOverallConcession = async (req, res) => {
         if (c.revised_fees) {
             fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : c.revised_fees;
         }
+
+        await cancelDeclarationConcessionTransactions({
+            admissionNumber: c.admission_number,
+            entries: fees,
+            collectedBy: req.user?.username || 'system',
+            collectedByName: req.user?.name || 'System'
+        });
 
         const standardFeesApplied = await StudentFee.exists({
             studentId: c.admission_number,
@@ -345,12 +385,37 @@ const bulkSaveOverallConcessions = async (req, res) => {
             });
         };
 
+        const updatedConcessions = concessions.map(normalizeIncomingEntry);
+
+        const validation = await validateRevisedEntriesAgainstStructures({
+            entries: updatedConcessions,
+            college,
+            course,
+            branch,
+            batch,
+            category: category || 'Regular',
+            codeMap
+        });
+        if (!validation.ok) {
+            await connection.rollback();
+            return res.status(400).json({ message: validation.message, warnings: validation.warnings });
+        }
+
+        // Fetch previous REVISED entries so we can cancel removed ones later
+        const [existingRows] = await connection.query(
+            `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
+            [admissionNumber]
+        );
+        let previousFees = [];
+        if (existingRows.length > 0) {
+            const raw = existingRows[0].revised_fees;
+            previousFees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+        }
+
         // 2. Normalize incoming concessions for storage
         if (concessions.length === 0) {
             await connection.query(`DELETE FROM overall_concessions WHERE admission_number = ?`, [admissionNumber]);
         } else {
-            const updatedConcessions = concessions.map(normalizeIncomingEntry);
-
             const revisedFeesJson = JSON.stringify(updatedConcessions);
             const insertQuery = `
                 INSERT INTO overall_concessions 
@@ -368,6 +433,27 @@ const bulkSaveOverallConcessions = async (req, res) => {
 
         await connection.commit();
 
+        // Cancel declaration CREDITs for REVISED entries that were removed
+        const nextKeys = new Set(
+            updatedConcessions
+                .filter(e => normalizeConcessionType(e.concessionType) === 'REVISED')
+                .map(e => `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`)
+        );
+        const removedRevised = previousFees.filter(e => {
+            if (normalizeConcessionType(e.concessionType) !== 'REVISED') return false;
+            const key = `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`;
+            return !nextKeys.has(key);
+        });
+        if (removedRevised.length > 0 || concessions.length === 0) {
+            await cancelDeclarationConcessionTransactions({
+                admissionNumber,
+                entries: concessions.length === 0 ? previousFees : removedRevised,
+                collectedBy: req.user?.username || 'system',
+                collectedByName: req.user?.name || 'System',
+                codeMap
+            });
+        }
+
         // 4. Re-sync MongoDB fee amounts from structure + remaining concessions
         const standardFeesApplied = await StudentFee.exists({
             studentId: admissionNumber,
@@ -383,6 +469,22 @@ const bulkSaveOverallConcessions = async (req, res) => {
             );
             if (students.length > 0) {
                 await syncStandardFees(students[0], admissionNumber);
+            }
+
+            if (updatedConcessions.length > 0) {
+                await applyRevisedConcessionTransactions({
+                    admissionNumber,
+                    studentName,
+                    college,
+                    course,
+                    branch,
+                    batch,
+                    category: category || 'Regular',
+                    entries: updatedConcessions,
+                    collectedBy: req.user?.username || 'system',
+                    collectedByName: req.user?.name || 'System',
+                    codeMap
+                });
             }
         }
 
@@ -550,6 +652,19 @@ const approveConcessionRequest = async (req, res) => {
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
+        const validation = await validateRevisedEntriesAgainstStructures({
+            entries: concessions,
+            college,
+            course,
+            branch,
+            batch,
+            category: category || 'Regular',
+            codeMap
+        });
+        if (!validation.ok) {
+            return res.status(400).json({ message: validation.message, warnings: validation.warnings });
+        }
+
         // 1. Fetch existing SQL row and merge
         const [existing] = await db.query(
             `SELECT * FROM overall_concessions WHERE admission_number = ?`,
@@ -611,6 +726,21 @@ const approveConcessionRequest = async (req, res) => {
                 await syncStandardFees(students[0], admissionNumber);
             }
         }
+
+        // 3b. For REVISED entries: keep structured demand and post difference as CREDIT waiver
+        await applyRevisedConcessionTransactions({
+            admissionNumber,
+            studentName,
+            college,
+            course,
+            branch,
+            batch,
+            category: category || 'Regular',
+            entries: concessions,
+            collectedBy: req.user?.username || 'system',
+            collectedByName: req.user?.name || 'System',
+            codeMap
+        });
         // ---------------------------------------------------------------
 
         // 4. Mark request as APPROVED
