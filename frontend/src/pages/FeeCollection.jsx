@@ -816,8 +816,9 @@ const FeeCollection = () => {
 
     const totalSelectedAmount = feeRows.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
-    // Filter Fee Details for Display
-    const uniqueStudentYears = [...new Set(feeDetails.map(f => f.studentYear))].sort((a, b) => b - a);
+    // Filter Fee Details for Display — only up to student's current year
+    const currentYear = Number(student?.current_year || 0);
+    const feeDetailsUpToCurrentYear = feeDetails.filter(f => Number(f.studentYear) <= currentYear);
 
     const displayedFees = feeDetails.filter(f => {
         // Status filter: ACTIVE, INACTIVE, ALL
@@ -1191,10 +1192,12 @@ const FeeCollection = () => {
                                             yearWiseStats[i] = { total: 0, paid: 0, due: 0, year: i };
                                         }
 
-                                        // Add years from feeDetails (in case there are dues for FUTURE years or old years not covered)
+                                        // Add years from feeDetails — only up to the student's current year
                                         feeDetails.forEach(curr => {
                                             if (curr.isActive === false) return; // Exclude inactive fees from stats cards
                                             const y = curr.studentYear;
+                                            // Skip future years beyond the student's current year
+                                            if (Number(y) > Number(student.current_year || 1)) return;
                                             if (!yearWiseStats[y]) yearWiseStats[y] = { total: 0, paid: 0, due: 0, year: y };
                                             yearWiseStats[y].total += Number(curr.totalAmount || 0);
                                             yearWiseStats[y].paid += Number(curr.paidAmount || 0);
