@@ -1,6 +1,7 @@
 const FeeStructure = require('../models/FeeStructure');
 const FeeHead = require('../models/FeeHead');
 const Transaction = require('../models/Transaction');
+const StudentFee = require('../models/StudentFee');
 const {
   normalizeSemester,
   normalizeConcessionType,
@@ -109,31 +110,15 @@ const validateRevisedEntriesAgainstStructures = async ({
 const buildDeclarationTxnFilter = ({
   admissionNumber,
   feeHeadId,
-  studentYear,
-  semester
-}) => {
-  const sem = normalizeSemester(semester);
-  const filter = {
-    studentId: admissionNumber,
-    feeHead: feeHeadId,
-    studentYear: String(studentYear),
-    transactionType: 'CREDIT',
-    remarks: DECLARATION_CONCESSION_REMARKS,
-    status: { $ne: 'cancelled' }
-  };
-
-  if (sem === null) {
-    filter.$or = [
-      { semester: null },
-      { semester: '' },
-      { semester: { $exists: false } }
-    ];
-  } else {
-    filter.semester = String(sem);
-  }
-
-  return filter;
-};
+  studentYear
+}) => ({
+  studentId: admissionNumber,
+  feeHead: feeHeadId,
+  studentYear: String(studentYear),
+  transactionType: 'CREDIT',
+  remarks: DECLARATION_CONCESSION_REMARKS,
+  status: { $ne: 'cancelled' }
+});
 
 const upsertDeclarationConcessionTransaction = async ({
   admissionNumber,
@@ -145,11 +130,11 @@ const upsertDeclarationConcessionTransaction = async ({
   collectedBy,
   collectedByName
 }) => {
+  // Match by head + year + declaration remarks only (semester may differ across syncs)
   const filter = buildDeclarationTxnFilter({
     admissionNumber,
     feeHeadId,
-    studentYear,
-    semester
+    studentYear
   });
 
   const existing = await Transaction.findOne(filter);
@@ -168,6 +153,7 @@ const upsertDeclarationConcessionTransaction = async ({
   }
 
   const sem = normalizeSemester(semester);
+  const semValue = sem === null ? null : String(sem);
 
   if (existing) {
     let changed = false;
@@ -175,8 +161,13 @@ const upsertDeclarationConcessionTransaction = async ({
       existing.amount = amount;
       changed = true;
     }
-    if (existing.paymentMode !== 'Waiver') {
-      existing.paymentMode = 'Waiver';
+    if (existing.paymentMode !== 'Credit') {
+      existing.paymentMode = 'Credit';
+      changed = true;
+    }
+    const existingSem = normalizeSemester(existing.semester);
+    if (existingSem !== sem) {
+      existing.semester = semValue;
       changed = true;
     }
     if (collectedBy && existing.collectedBy !== collectedBy) {
@@ -200,12 +191,12 @@ const upsertDeclarationConcessionTransaction = async ({
     feeHead: feeHeadId,
     amount,
     transactionType: 'CREDIT',
-    paymentMode: 'Waiver',
+    paymentMode: 'Credit',
     receiptNumber: `DECL${timestamp}${random}`,
     paymentDate: new Date(),
     remarks: DECLARATION_CONCESSION_REMARKS,
     studentYear: String(studentYear),
-    semester: sem === null ? null : String(sem),
+    semester: semValue,
     collectedBy: collectedBy || 'system',
     collectedByName: collectedByName || 'System'
   });
@@ -274,13 +265,28 @@ const applyRevisedConcessionTransactions = async ({
       continue;
     }
 
+    // Align txn semester with the live StudentFee demand so it groups with the due row
+    let effectiveSemester = semester;
+    if (effectiveSemester === null || effectiveSemester === undefined || effectiveSemester === '') {
+      const demand = await StudentFee.findOne({
+        studentId: admissionNumber,
+        feeHead: feeHeadId,
+        studentYear: String(studentYear)
+      }).select('semester').lean();
+      if (demand && demand.semester !== undefined && demand.semester !== null && demand.semester !== '') {
+        effectiveSemester = demand.semester;
+      } else if (structure.semester !== undefined && structure.semester !== null) {
+        effectiveSemester = structure.semester;
+      }
+    }
+
     const concessionAmount = Math.max(0, structureAmount - revisedAmount);
     const result = await upsertDeclarationConcessionTransaction({
       admissionNumber,
       studentName,
       feeHeadId,
       studentYear,
-      semester,
+      semester: effectiveSemester,
       amount: concessionAmount,
       collectedBy,
       collectedByName

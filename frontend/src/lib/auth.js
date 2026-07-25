@@ -59,12 +59,15 @@ export const isAuthenticated = () => {
   return Boolean(localStorage.getItem('token') && getStoredUser());
 };
 
+import { clearFeeCollectionCache } from './feeCollectionCache';
+
 export const clearAuthSession = () => {
   localStorage.removeItem('user');
   localStorage.removeItem('token');
   localStorage.removeItem('isSSO');
   localStorage.removeItem('sessionId');
   sessionStorage.clear();
+  clearFeeCollectionCache();
 };
 
 /**

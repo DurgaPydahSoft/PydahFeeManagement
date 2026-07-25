@@ -4,8 +4,28 @@ import { useReactToPrint } from 'react-to-print';
 import Sidebar from './Sidebar';
 import ReceiptTemplate from '../components/ReceiptTemplate';
 import { printHtmlDocument } from '../utils/printService';
+import { getFeeCollectionCache, setFeeCollectionCache, getOrCreateFeeCollectionFetch } from '../lib/feeCollectionCache';
 
 const fmtAmount = (value) => Number(value ?? 0).toLocaleString('en-IN');
+
+const buildStudentsQueryKey = () => {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    const isSuperAdmin = user?.role === 'superadmin';
+    const queryParams = [];
+    if (!isSuperAdmin) {
+        if (user?.colleges && user.colleges.length > 0) {
+            queryParams.push(`college=${encodeURIComponent(user.colleges.join(','))}`);
+        } else if (user?.college) {
+            queryParams.push(`college=${encodeURIComponent(user.college)}`);
+        }
+        if (user?.courses && user.courses.length > 0) {
+            const courseNames = [...new Set(user.courses.map(c => c.split('|')[1]))];
+            queryParams.push(`course=${encodeURIComponent(courseNames.join(','))}`);
+        }
+    }
+    const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+    return { queryString, cacheKey: `${user?.id || user?.username || 'anon'}|${queryString}` };
+};
 
 const FeeCollection = () => {
     // --- SEARCH & DATA STATE ---
@@ -111,54 +131,90 @@ const FeeCollection = () => {
 
     // --- INITIAL DATA LOADING ---
     useEffect(() => {
+        let cancelled = false;
+
         const fetchInitialData = async () => {
+            const { queryString, cacheKey } = buildStudentsQueryKey();
+            const cached = getFeeCollectionCache(cacheKey);
+
+            // Hydrate instantly from SPA-session cache (no full students reload)
+            if (cached) {
+                setAllStudents(cached.students);
+                setPaymentConfigs((cached.paymentConfigs || []).filter(c => c.is_active !== false));
+                setReceiptSettings(cached.receiptSettings);
+                setGlobalFeeHeads(cached.feeHeads || []);
+                setLoading(false);
+
+                // Refresh only lightweight / frequently changing data
+                try {
+                    const [recentRes, meRes, settingsRes] = await Promise.all([
+                        api.get(`/transactions/recent`),
+                        api.get(`/users/me`),
+                        api.get(`/settings`)
+                    ]);
+                    if (cancelled) return;
+                    setRecentTransactions(recentRes.data || []);
+                    setReceiptSettings(settingsRes.data);
+                    if (meRes.data?.paymentAccess !== undefined) {
+                        const storedUser = JSON.parse(localStorage.getItem('user')) || {};
+                        localStorage.setItem('user', JSON.stringify({ ...storedUser, paymentAccess: meRes.data.paymentAccess }));
+                        setPaymentAccess(meRes.data.paymentAccess);
+                    }
+                    setFeeCollectionCache(cacheKey, {
+                        students: cached.students,
+                        paymentConfigs: cached.paymentConfigs,
+                        receiptSettings: settingsRes.data,
+                        feeHeads: cached.feeHeads
+                    });
+                } catch (e) {
+                    console.error('Error refreshing Fee Collection light data', e);
+                }
+                return;
+            }
+
             setLoading(true);
             try {
-                const user = JSON.parse(localStorage.getItem('user'));
-                const isSuperAdmin = user?.role === 'superadmin';
-                
-                let queryParams = [];
-                if (!isSuperAdmin) {
-                    if (user?.colleges && user.colleges.length > 0) {
-                        queryParams.push(`college=${encodeURIComponent(user.colleges.join(','))}`);
-                    } else if (user?.college) {
-                        queryParams.push(`college=${encodeURIComponent(user.college)}`);
-                    }
-                    
-                    if (user?.courses && user.courses.length > 0) {
-                        const courseNames = [...new Set(user.courses.map(c => c.split('|')[1]))];
-                        queryParams.push(`course=${encodeURIComponent(courseNames.join(','))}`);
-                    }
-                }
-                const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
-                const [studentsRes, configsRes, settingsRes, feeHeadsRes, recentRes, meRes] = await Promise.all([
-                    api.get(`/students${queryString}`),
-                    api.get(`/payment-config`),
-                    api.get(`/settings`),
-                    api.get(`/fee-heads`),
-                    api.get(`/transactions/recent`),
-                    api.get(`/users/me`),
-                ]);
+                const data = await getOrCreateFeeCollectionFetch(cacheKey, async () => {
+                    const [studentsRes, configsRes, settingsRes, feeHeadsRes, recentRes, meRes] = await Promise.all([
+                        api.get(`/students${queryString}`),
+                        api.get(`/payment-config`),
+                        api.get(`/settings`),
+                        api.get(`/fee-heads`),
+                        api.get(`/transactions/recent`),
+                        api.get(`/users/me`),
+                    ]);
+                    return {
+                        students: studentsRes.data,
+                        paymentConfigs: configsRes.data,
+                        receiptSettings: settingsRes.data,
+                        feeHeads: feeHeadsRes.data,
+                        recentTransactions: recentRes.data || [],
+                        me: meRes.data
+                    };
+                });
+                if (cancelled) return;
 
-                // Sync fresh paymentAccess into localStorage and state so UI reflects latest admin settings
-                if (meRes.data?.paymentAccess !== undefined) {
+                if (data.me?.paymentAccess !== undefined) {
                     const storedUser = JSON.parse(localStorage.getItem('user')) || {};
-                    localStorage.setItem('user', JSON.stringify({ ...storedUser, paymentAccess: meRes.data.paymentAccess }));
-                    setPaymentAccess(meRes.data.paymentAccess);
+                    localStorage.setItem('user', JSON.stringify({ ...storedUser, paymentAccess: data.me.paymentAccess }));
+                    setPaymentAccess(data.me.paymentAccess);
                 }
 
-                setAllStudents(studentsRes.data);
-                setPaymentConfigs(configsRes.data.filter(c => c.is_active));
-                setReceiptSettings(settingsRes.data);
-                setGlobalFeeHeads(feeHeadsRes.data);
-                setRecentTransactions(recentRes.data || []);            } catch (e) {
+                const activeConfigs = (data.paymentConfigs || []).filter(c => c.is_active);
+                setAllStudents(data.students);
+                setPaymentConfigs(activeConfigs);
+                setReceiptSettings(data.receiptSettings);
+                setGlobalFeeHeads(data.feeHeads);
+                setRecentTransactions(data.recentTransactions || []);
+            } catch (e) {
                 console.error("Error fetching initial data", e);
-                setError("Failed to load data. Please refresh.");
+                if (!cancelled) setError("Failed to load data. Please refresh.");
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
         fetchInitialData();
+        return () => { cancelled = true; };
     }, []);
 
     // --- CLIENT-SIDE FILTERING (@Students.jsx style) ---
@@ -251,32 +307,41 @@ const FeeCollection = () => {
     // Helper: Fetch Student Data (Avoids UI flicker/reset)
     const fetchStudentData = async (selectedStudent) => {
         setIsDashLoading(true);
+        const admissionNo = selectedStudent.admission_number;
         try {
-            // 1. Fetch Full Student Details (including Photo)
-            const fullStudentRes = await api.get(`/students/${selectedStudent.admission_number}`);
+            // Parallel: student (no photo) + fee dues + history — was sequential waterfall before
+            const [fullStudentRes, feesRes, histRes] = await Promise.all([
+                api.get(`/students/${admissionNo}`),
+                api.get(`/fee-structures/student/${admissionNo}`, {
+                    params: {
+                        college: selectedStudent.college,
+                        course: selectedStudent.course,
+                        branch: selectedStudent.branch,
+                        studentYear: selectedStudent.current_year,
+                    },
+                }),
+                api.get(`/transactions/student/${admissionNo}`),
+            ]);
+
             const found = fullStudentRes.data;
-
-            const college = found.college;
-            const course = found.course;
-            const branch = found.branch;
-            const studentYear = found.current_year;
-            // 2. Fetch Fee Details (Fetch ALL Years)
-            const feesRes = await api.get(`/fee-structures/student/${found.admission_number}`, {
-                params: { college, course, branch, studentYear },
-            });
             setFeeDetails(feesRes.data);
-
-            // Set Default Filter to student's current year to show active dues immediately
-            setViewFilterYear(String(found.current_year || 1));
+            setViewFilterYear(String(found.current_year || selectedStudent.current_year || 1));
             setViewFilterStatus('ACTIVE');
-
-            // 3. Fetch History
-            const histRes = await api.get(`/transactions/student/${found.admission_number}`);
             setTransactions(histRes.data);
-
-            // Update student object in case it changed (though unlikely for same ID)
             setStudent(found);
 
+            // Defer heavy student_photo LONGTEXT so dashboard is usable first
+            api.get(`/students/${admissionNo}`, { params: { photoOnly: 1 } })
+                .then((photoRes) => {
+                    const photo = photoRes.data?.student_photo;
+                    if (!photo) return;
+                    setStudent((prev) => (
+                        prev && String(prev.admission_number) === String(admissionNo)
+                            ? { ...prev, student_photo: photo }
+                            : prev
+                    ));
+                })
+                .catch(() => {});
         } catch (error) {
             console.error(error);
             setError('Error refreshing student details.');

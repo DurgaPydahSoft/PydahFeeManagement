@@ -254,7 +254,8 @@ const getStudentTransactions = async (req, res) => {
   try {
     const transactions = await Transaction.find({ studentId: req.params.admissionNo })
       .populate('feeHead', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
     res.json(transactions);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });

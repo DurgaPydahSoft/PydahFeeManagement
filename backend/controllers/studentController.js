@@ -184,13 +184,41 @@ const getStudentMetadata = async (req, res) => {
   }
 };
 
-// @desc    Get Single Student by Admission Number (with Photo)
+// @desc    Get Single Student by Admission Number
 // @route   GET /api/students/:id
+// @query   includePhoto=1  — include student_photo longtext (slow; avoid on fee-collection open)
+// @query   photoOnly=1     — return only { student_photo } for deferred photo load
 const getStudentByAdmissionNumber = async (req, res) => {
   try {
     const { id } = req.params;
+    const includePhoto = req.query.includePhoto === '1' || req.query.includePhoto === 'true';
+    const photoOnly = req.query.photoOnly === '1' || req.query.photoOnly === 'true';
 
-    const [rows] = await db.query(`SELECT * FROM students WHERE admission_number = ?`, [id]);
+    if (photoOnly) {
+      const [rows] = await db.query(
+        `SELECT college, student_photo FROM students WHERE admission_number = ?`,
+        [id]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ message: 'Student not found' });
+      }
+      const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
+      if (allowedColleges && !allowedColleges.includes(rows[0].college)) {
+        return res.status(403).json({ message: 'Access denied for this student' });
+      }
+      return res.json({ student_photo: rows[0].student_photo || null });
+    }
+
+    // student_photo is LONGTEXT (base64) — exclude by default so Fee Collection opens fast
+    const sql = includePhoto
+      ? `SELECT * FROM students WHERE admission_number = ?`
+      : `SELECT id, admission_number, pin_no, student_name, student_mobile, father_name,
+                email, gender, caste, college, course, branch, batch, stud_type, scholar_status,
+                current_year, current_semester, student_status, fee_status, registration_status,
+                parent_mobile1, parent_mobile2, student_address, dob, adhar_no
+         FROM students WHERE admission_number = ?`;
+
+    const [rows] = await db.query(sql, [id]);
 
     if (rows.length === 0) {
       return res.status(404).json({ message: 'Student not found' });
@@ -200,10 +228,6 @@ const getStudentByAdmissionNumber = async (req, res) => {
     if (allowedColleges && !allowedColleges.includes(rows[0].college)) {
       return res.status(403).json({ message: 'Access denied for this student' });
     }
-
-    // Sync is explicit via POST /students/:id/sync-fees (Fee Collection Sync button).
-    // Do not kick off sync here — it hits transport/hostel Mongo and slows concurrent
-    // fee-detail reads when a cashier opens a student.
 
     res.json(rows[0]);
   } catch (error) {

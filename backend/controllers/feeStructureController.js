@@ -11,6 +11,18 @@ const {
   resolveFeeHeadId
 } = require('../utils/overallConcessionFees');
 
+// Small in-memory cache — FeeHead list rarely changes and was loaded on every student open
+let feeHeadCache = { at: 0, rows: null };
+const FEE_HEAD_CACHE_MS = 5 * 60 * 1000;
+const getCachedFeeHeads = async () => {
+  if (feeHeadCache.rows && Date.now() - feeHeadCache.at < FEE_HEAD_CACHE_MS) {
+    return feeHeadCache.rows;
+  }
+  const rows = await FeeHead.find().sort({ name: 1 }).lean();
+  feeHeadCache = { at: Date.now(), rows };
+  return rows;
+};
+
 // Helper to automatically apply a fee structure to all students in the batch
 const applyFeeStructureToBatchInternal = async (structure) => {
   if (!structure) return;
@@ -302,9 +314,9 @@ const getStudentFeeDetails = async (req, res) => {
         batch,
         category
       }).lean(),
-      StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code'),
-      Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } }),
-      FeeHead.find().sort({ name: 1 })
+      StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code').lean(),
+      Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } }).lean(),
+      getCachedFeeHeads()
     ]);
 
     // Map structures by [headId-year-semester] for quick lookup
@@ -325,6 +337,30 @@ const getStudentFeeDetails = async (req, res) => {
         return `${headId}-${year}-transport`;
       }
       return `${headId}-${year}-${semKey}`;
+    };
+
+    // Prefer an existing demand row for the same head+year when semester differs
+    // (e.g. application CREDIT on Sem 1 vs demand on Sem null for OTH/TUI).
+    // Keeps application + declaration concessions on one fee-head row.
+    const resolveTxnGroupKey = (headId, year, feeCode, remarks, semester) => {
+      const exactKey = getGroupKey(headId, year, feeCode, remarks, semester);
+
+      // Club / transport keep their specialized keys — no cross-semester merge
+      if (feeCode === 'CF' || feeCode === 'SSF' || feeCode === 'TRN' || feeCode === 'TRN01') {
+        return exactKey;
+      }
+
+      const yearPrefix = `${headId}-${year}-`;
+      const candidates = Object.keys(groupedData).filter((k) => k.startsWith(yearPrefix));
+      const withDemand = candidates
+        .map((k) => ({ k, amt: Number(groupedData[k].totalAmount) || 0 }))
+        .filter((x) => x.amt > 0)
+        .sort((a, b) => b.amt - a.amt);
+
+      // Always attach payments/credits to a real demand for this head+year when one exists
+      if (withDemand.length > 0) return withDemand[0].k;
+      if (groupedData[exactKey]) return exactKey;
+      return exactKey;
     };
 
     const formatServiceFeeName = (headName, remarks) => {
@@ -413,11 +449,10 @@ const getStudentFeeDetails = async (req, res) => {
 
         const head = feeHeads.find(h => h._id.toString() === hId);
         const hCode = head ? head.code : '';
-        const key = getGroupKey(hId, year, hCode, t.remarks, t.semester);
+        const key = resolveTxnGroupKey(hId, year, hCode, t.remarks, t.semester);
 
         // If we have a payment for a head/year that wasn't previously in grouping, add it
         if (!groupedData[key]) {
-          const head = feeHeads.find(h => h._id.toString() === hId);
           const structKey = `${hId}-${year}-${t.semester || 'null'}`;
           const matchedStructure = structureMap[structKey];
 
@@ -444,6 +479,19 @@ const getStudentFeeDetails = async (req, res) => {
         }
       } else {
         // Global Credits/Concessions (no specific feeHead)
+      }
+    });
+
+    // Drop empty stub rows created only by mismatched-semester credits that
+    // were remapped onto a real demand (total/paid/concession all zero).
+    Object.keys(groupedData).forEach((k) => {
+      const row = groupedData[k];
+      const empty =
+        Number(row.totalAmount || 0) === 0 &&
+        Number(row.paidAmount || 0) === 0 &&
+        Number(row.concessionAmount || 0) === 0;
+      if (empty && String(row._id || '').startsWith('pay-')) {
+        delete groupedData[k];
       }
     });
 
