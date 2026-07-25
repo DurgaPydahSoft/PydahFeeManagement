@@ -534,6 +534,25 @@ const submitConcessionRequest = async (req, res) => {
     }
 
     try {
+        // Resolve student quota from SQL (stud_type). Request.category stores this quota.
+        const [studentRows] = await db.query(
+            `SELECT admission_number, student_name, pin_no, college, course, branch, batch, stud_type
+             FROM students WHERE admission_number = ?`,
+            [admissionNumber]
+        );
+        const student = studentRows[0];
+        if (!student) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        const studentQuota = (student.stud_type && String(student.stud_type).trim()) || category || 'Regular';
+        const snapCollege = student.college || college || '';
+        const snapCourse = student.course || course || '';
+        const snapBranch = student.branch || branch || '';
+        const snapBatch = student.batch || batch || '';
+        const snapName = student.student_name || studentName || '';
+        const snapPin = student.pin_no || pinNo || '-';
+
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
@@ -570,11 +589,14 @@ const submitConcessionRequest = async (req, res) => {
             existingRequest.concessions = Object.values(mergedMap);
             existingRequest.requestedBy = req.user?.username || 'Unknown';
             existingRequest.requestedByName = req.user?.name || '';
-            // Refresh student snapshot fields in case they changed
-            existingRequest.studentName = studentName || existingRequest.studentName;
-            existingRequest.pinNo       = pinNo || existingRequest.pinNo;
-            existingRequest.batch       = batch || existingRequest.batch;
-            existingRequest.category    = category || existingRequest.category;
+            // Refresh student snapshot — category = student quota
+            existingRequest.studentName = snapName || existingRequest.studentName;
+            existingRequest.pinNo       = snapPin || existingRequest.pinNo;
+            existingRequest.college     = snapCollege || existingRequest.college;
+            existingRequest.course      = snapCourse || existingRequest.course;
+            existingRequest.branch      = snapBranch || existingRequest.branch;
+            existingRequest.batch       = snapBatch || existingRequest.batch;
+            existingRequest.category    = studentQuota;
             await existingRequest.save();
             return res.status(200).json({ message: 'Pending request updated with new entries.', request: existingRequest });
         }
@@ -582,13 +604,13 @@ const submitConcessionRequest = async (req, res) => {
         // No existing pending request — create fresh
         const newRequest = await OverallConcessionRequest.create({
             admissionNumber,
-            pinNo:           pinNo || '-',
-            studentName:     studentName || '',
-            college:         college || '',
-            course:          course  || '',
-            branch:          branch  || '',
-            batch:           batch   || '',
-            category:        category || 'Regular',
+            pinNo:           snapPin,
+            studentName:     snapName,
+            college:         snapCollege,
+            course:          snapCourse,
+            branch:          snapBranch,
+            batch:           snapBatch,
+            category:        studentQuota,
             concessions:     normalizedEntries,
             status:          'PENDING',
             requestedBy:     req.user?.username || 'Unknown',
@@ -606,10 +628,12 @@ const submitConcessionRequest = async (req, res) => {
 // @route   GET /api/overall-concessions/requests
 const getConcessionRequests = async (req, res) => {
     try {
-        const { status, college, batch, admissionNumber } = req.query;
+        const { status, college, course, branch, batch, admissionNumber } = req.query;
         const filter = {};
         if (status)          filter.status = status.toUpperCase();
         if (college)         filter.college = college;
+        if (course)          filter.course = course;
+        if (branch)          filter.branch = branch;
         if (batch)           filter.batch = batch;
         if (admissionNumber) filter.admissionNumber = admissionNumber;
 
@@ -617,13 +641,26 @@ const getConcessionRequests = async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // Enrich with fee head names
+        // Enrich with fee head names + live student quota (stud_type)
         const feeHeads = await FeeHead.find({}).lean();
         const fhMap = {};
         feeHeads.forEach(fh => { fhMap[fh._id.toString()] = fh.name; });
 
+        const admissionNos = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
+        const quotaMap = {};
+        if (admissionNos.length > 0) {
+            const [studentRows] = await db.query(
+                `SELECT admission_number, stud_type FROM students WHERE admission_number IN (?)`,
+                [admissionNos]
+            );
+            studentRows.forEach(s => {
+                quotaMap[s.admission_number] = s.stud_type || '';
+            });
+        }
+
         const enriched = requests.map(r => ({
             ...r,
+            studentQuota: quotaMap[r.admissionNumber] || '',
             concessions: r.concessions.map(c => ({
                 ...c,
                 feeHeadName: fhMap[c.feeHeadId] || c.feeHeadCode || 'Unknown'
@@ -648,17 +685,31 @@ const approveConcessionRequest = async (req, res) => {
 
         const { admissionNumber, pinNo, studentName, college, course, branch, batch, category, concessions } = request;
 
+        // Prefer live student quota (students.stud_type → CONV/MANG/SPOT).
+        // Request.category is the quota snapshot; never confuse with student_status.
+        const [studentRows] = await db.query(
+            `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
+             FROM students WHERE admission_number = ?`,
+            [admissionNumber]
+        );
+        const student = studentRows[0] || null;
+        const effectiveQuota = student?.stud_type || category || 'Regular';
+        const effectiveCollege = student?.college || college;
+        const effectiveCourse = student?.course || course;
+        const effectiveBranch = student?.branch || branch;
+        const effectiveBatch = student?.batch || batch;
+
         // Re-use the exact same bulk-save logic -------------------------
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
         const validation = await validateRevisedEntriesAgainstStructures({
             entries: concessions,
-            college,
-            course,
-            branch,
-            batch,
-            category: category || 'Regular',
+            college: effectiveCollege,
+            course: effectiveCourse,
+            branch: effectiveBranch,
+            batch: effectiveBatch,
+            category: effectiveQuota,
             codeMap
         });
         if (!validation.ok) {
@@ -706,36 +757,29 @@ const approveConcessionRequest = async (req, res) => {
                 revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
         `;
         await db.query(upsertQuery, [
-            admissionNumber, pinNo || '-', studentName || '', batch || '', course || '', branch || '', revisedFeesJson,
-            revisedFeesJson, pinNo || '-', studentName || '', batch || '', course || '', branch || ''
+            admissionNumber, pinNo || '-', studentName || '', effectiveBatch || '', effectiveCourse || '', effectiveBranch || '', revisedFeesJson,
+            revisedFeesJson, pinNo || '-', studentName || '', effectiveBatch || '', effectiveCourse || '', effectiveBranch || ''
         ]);
 
         // 3. Re-sync MongoDB StudentFee amounts
         const standardFeesApplied = await StudentFee.exists({
             studentId: admissionNumber,
-            academicYear: batch,
+            academicYear: effectiveBatch,
             $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
         });
-        if (standardFeesApplied) {
-            const [students] = await db.query(
-                `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
-                 FROM students WHERE admission_number = ?`,
-                [admissionNumber]
-            );
-            if (students.length > 0) {
-                await syncStandardFees(students[0], admissionNumber);
-            }
+        if (standardFeesApplied && student) {
+            await syncStandardFees(student, admissionNumber);
         }
 
         // 3b. For REVISED entries: keep structured demand and post difference as CREDIT waiver
         await applyRevisedConcessionTransactions({
             admissionNumber,
-            studentName,
-            college,
-            course,
-            branch,
-            batch,
-            category: category || 'Regular',
+            studentName: student?.student_name || studentName,
+            college: effectiveCollege,
+            course: effectiveCourse,
+            branch: effectiveBranch,
+            batch: effectiveBatch,
+            category: effectiveQuota,
             entries: concessions,
             collectedBy: req.user?.username || 'system',
             collectedByName: req.user?.name || 'System',
@@ -745,6 +789,11 @@ const approveConcessionRequest = async (req, res) => {
 
         // 4. Mark request as APPROVED
         request.status           = 'APPROVED';
+        request.category         = effectiveQuota; // keep quota in sync with student
+        request.college          = effectiveCollege || request.college;
+        request.course           = effectiveCourse || request.course;
+        request.branch           = effectiveBranch || request.branch;
+        request.batch            = effectiveBatch || request.batch;
         request.approvedBy       = req.user?.username || 'Unknown';
         request.approvedByName   = req.user?.name || '';
         request.concessionGivenBy = concessionGivenBy || '';
@@ -770,6 +819,82 @@ const approveConcessionRequest = async (req, res) => {
         });
     } catch (error) {
         console.error('Error approving concession request:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+// @desc    Update the entries of a PENDING concession request (edit before approval)
+// @route   PUT /api/overall-concessions/requests/:id
+const updateConcessionRequestEntries = async (req, res) => {
+    try {
+        const { concessions } = req.body;
+        if (!Array.isArray(concessions) || concessions.length === 0) {
+            return res.status(400).json({ message: 'At least one concession entry is required.' });
+        }
+
+        const request = await OverallConcessionRequest.findById(req.params.id);
+        if (!request) return res.status(404).json({ message: 'Request not found' });
+        if (request.status !== 'PENDING') {
+            return res.status(400).json({ message: `Request is already ${request.status}` });
+        }
+
+        const feeHeads = await FeeHead.find({}).lean();
+        const { codeMap } = buildFeeHeadMaps(feeHeads);
+
+        const normalizedEntries = concessions.map(c => {
+            const resolvedId = resolveFeeHeadId(c, codeMap);
+            const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+            return {
+                feeHeadId:      resolvedId,
+                feeHeadCode:    resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
+                studentYear:    Number(c.studentYear),
+                semester:       normalizeSemester(c.semester),
+                amount:         getConcessionAmount(c),
+                concessionType: normalizeConcessionType(c.concessionType)
+            };
+        }).filter(e => e.feeHeadId && e.studentYear);
+
+        if (normalizedEntries.length === 0) {
+            return res.status(400).json({ message: 'No valid concession entries provided.' });
+        }
+
+        // Validate REVISED entries against the student's actual structure/quota
+        const [studentRows] = await db.query(
+            `SELECT college, course, branch, batch, stud_type FROM students WHERE admission_number = ?`,
+            [request.admissionNumber]
+        );
+        const student = studentRows[0];
+        const validation = await validateRevisedEntriesAgainstStructures({
+            entries: normalizedEntries,
+            college: student?.college || request.college,
+            course: student?.course || request.course,
+            branch: student?.branch || request.branch,
+            batch: student?.batch || request.batch,
+            category: student?.stud_type || request.category || 'Regular',
+            codeMap
+        });
+        if (!validation.ok) {
+            return res.status(400).json({ message: validation.message, warnings: validation.warnings });
+        }
+
+        request.concessions = normalizedEntries;
+        await request.save();
+
+        const enriched = {
+            ...request.toObject(),
+            studentQuota: student?.stud_type || '',
+            concessions: request.concessions.map(c => {
+                const fh = feeHeads.find(f => f._id.toString() === String(c.feeHeadId));
+                return {
+                    ...(c.toObject ? c.toObject() : c),
+                    feeHeadName: fh ? fh.name : (c.feeHeadCode || 'Unknown')
+                };
+            })
+        };
+
+        res.json({ message: 'Request updated successfully.', request: enriched });
+    } catch (error) {
+        console.error('Error updating concession request:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
@@ -804,5 +929,6 @@ module.exports = {
     submitConcessionRequest,
     getConcessionRequests,
     approveConcessionRequest,
+    updateConcessionRequestEntries,
     rejectConcessionRequest
 };

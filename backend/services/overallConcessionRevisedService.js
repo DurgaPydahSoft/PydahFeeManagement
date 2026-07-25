@@ -84,12 +84,9 @@ const validateRevisedEntriesAgainstStructures = async ({
       semester
     });
 
-    if (!structure) {
-      warnings.push(
-        `No fee structure found for ${label} (Year ${studentYear}${semester != null ? `, Sem ${semester}` : ''}).`
-      );
-      continue;
-    }
+    // No structure for this head/year is not a hard failure (e.g. transport/other).
+    // Only block when a structure exists and revised fee is higher than it.
+    if (!structure) continue;
 
     const structureAmount = Number(structure.amount) || 0;
     if (revisedAmount > structureAmount) {

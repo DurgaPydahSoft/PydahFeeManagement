@@ -201,12 +201,9 @@ const getStudentByAdmissionNumber = async (req, res) => {
       return res.status(403).json({ message: 'Access denied for this student' });
     }
 
-    // Fire fee sync in the background — does not block the student record response.
-    // This ensures StudentFee records are up-to-date by the time the frontend
-    // makes the follow-up call to /fee-structures/student/:admissionNo.
-    syncStudentFeesByAdmissionNumber(String(id)).catch(err =>
-      console.error(`[StudentController] Background fee sync failed for ${id}:`, err.message)
-    );
+    // Sync is explicit via POST /students/:id/sync-fees (Fee Collection Sync button).
+    // Do not kick off sync here — it hits transport/hostel Mongo and slows concurrent
+    // fee-detail reads when a cashier opens a student.
 
     res.json(rows[0]);
   } catch (error) {

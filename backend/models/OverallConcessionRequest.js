@@ -17,6 +17,7 @@ const overallConcessionRequestSchema = new mongoose.Schema({
     course:          { type: String, required: true },
     branch:          { type: String, required: true },
     batch:           { type: String, required: true },
+    // Student quota code (students.stud_type), e.g. CONV / MANG / SPOT — matches FeeStructure.category
     category:        { type: String, default: 'Regular' },
 
     // The full set of concession entries being requested

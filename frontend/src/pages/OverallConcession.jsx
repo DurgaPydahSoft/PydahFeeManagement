@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
-import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, X, Pencil, Save } from 'lucide-react';
 
 // ─── Status badge helper ───────────────────────────────────────────────────
 const StatusBadge = ({ status }) => {
@@ -59,14 +59,23 @@ const OverallConcession = () => {
     const [requests,          setRequests]          = useState([]);
     const [requestsLoading,   setRequestsLoading]   = useState(false);
     const [reqStatusFilter,   setReqStatusFilter]   = useState('PENDING');
-    const [expandedRequestId, setExpandedRequestId] = useState(null);
-    // per-request approve modal state
-    const [approvingId,       setApprovingId]       = useState(null);
+    const [reqFilters,        setReqFilters]        = useState({ college: '', course: '', branch: '', batch: '' });
+    const [reqCourses,        setReqCourses]        = useState([]);
+    const [reqBranches,       setReqBranches]       = useState([]);
+    const [selectedRequest,   setSelectedRequest]   = useState(null);
     const [approveBusy,       setApproveBusy]       = useState(false);
-    // per-request reject state
-    const [rejectingId,       setRejectingId]       = useState(null);
     const [rejectReason,      setRejectReason]      = useState('');
     const [rejectBusy,        setRejectBusy]        = useState(false);
+    const [modalMode,         setModalMode]         = useState('view'); // 'view' | 'reject'
+    const [modalTab,          setModalTab]          = useState('request'); // 'request' | 'structure'
+    const [modalStructures,   setModalStructures]   = useState([]);
+    const [modalStructuresLoading, setModalStructuresLoading] = useState(false);
+    // editing the pending request entries inside the modal
+    const [isEditingRequest,  setIsEditingRequest]  = useState(false);
+    const [editRows,          setEditRows]          = useState([]); // [{ key, feeHeadId, concessionType, amounts: { year: value } }]
+    const [editSaveBusy,      setEditSaveBusy]      = useState(false);
+    const [editNewHeadId,     setEditNewHeadId]     = useState('');
+    const [approveSuccess,    setApproveSuccess]    = useState(null); // { studentName, admissionNumber } | null
 
     // ── pending requests map (admissionNumber → true) for badge ──────────
     const [pendingAdmSet, setPendingAdmSet] = useState(new Set());
@@ -159,21 +168,189 @@ const OverallConcession = () => {
         setRequestsLoading(true);
         try {
             const res = await api.get('/overall-concessions/requests', {
-                params: { status: reqStatusFilter || undefined }
+                params: {
+                    status: reqStatusFilter || undefined,
+                    college: reqFilters.college || undefined,
+                    course: reqFilters.course || undefined,
+                    branch: reqFilters.branch || undefined,
+                    batch: reqFilters.batch || undefined
+                }
             });
             setRequests(res.data);
-            // Build pending set for badge
-            if (reqStatusFilter === 'PENDING' || reqStatusFilter === '') {
-                const pending = new Set(res.data.filter(r => r.status === 'PENDING').map(r => r.admissionNumber));
-                setPendingAdmSet(pending);
-            }
         } catch (err) { console.error('Error fetching requests', err); }
         finally { setRequestsLoading(false); }
-    }, [isAdminRole, reqStatusFilter]);
+    }, [isAdminRole, reqStatusFilter, reqFilters]);
 
     useEffect(() => {
         if (activeTab === 'requests') fetchRequests();
     }, [activeTab, fetchRequests]);
+
+    const closeRequestModal = () => {
+        setSelectedRequest(null);
+        setModalMode('view');
+        setModalTab('request');
+        setRejectReason('');
+        setModalStructures([]);
+        setIsEditingRequest(false);
+        setEditRows([]);
+        setEditNewHeadId('');
+    };
+
+    const fetchModalFeeStructures = async (req) => {
+        if (!req) return;
+        setModalStructuresLoading(true);
+        try {
+            const res = await api.get('/fee-structures', {
+                params: {
+                    college: req.college || undefined,
+                    course: req.course || undefined,
+                    branch: req.branch || undefined,
+                    batch: req.batch || undefined,
+                    category: req.studentQuota || undefined
+                }
+            });
+            setModalStructures(Array.isArray(res.data) ? res.data : []);
+        } catch (err) {
+            console.error('Error fetching fee structures for modal', err);
+            setModalStructures([]);
+        } finally {
+            setModalStructuresLoading(false);
+        }
+    };
+
+    const openRequestModal = (req) => {
+        setSelectedRequest(req);
+        setModalMode('view');
+        setModalTab('request');
+        setRejectReason('');
+        setErrorMessage('');
+        setIsEditingRequest(false);
+        setEditRows([]);
+        setEditNewHeadId('');
+        fetchModalFeeStructures(req);
+    };
+
+    // ── edit request entries inside the modal ─────────────────────────────
+    const buildEditRowsFromRequest = (req) => {
+        const grouped = new Map();
+        (req.concessions || []).forEach(c => {
+            const fhId = normalizeFeeHeadId(c.feeHeadId);
+            if (!grouped.has(fhId)) {
+                grouped.set(fhId, {
+                    key: `${fhId}_${grouped.size}`,
+                    feeHeadId: fhId,
+                    concessionType: normalizeConcessionType(c.concessionType || 'CONCESSION'),
+                    years: {}
+                });
+            }
+            const row = grouped.get(fhId);
+            row.years[Number(c.studentYear)] = String(c.amount ?? '');
+            row.concessionType = normalizeConcessionType(c.concessionType || row.concessionType);
+        });
+        return [...grouped.values()];
+    };
+
+    const startEditingRequest = () => {
+        if (!selectedRequest) return;
+        setEditRows(buildEditRowsFromRequest(selectedRequest));
+        setEditNewHeadId('');
+        setIsEditingRequest(true);
+        setModalMode('view');
+        setModalTab('request');
+        setRejectReason('');
+        setErrorMessage('');
+    };
+
+    const cancelEditingRequest = () => {
+        setIsEditingRequest(false);
+        setEditRows([]);
+        setEditNewHeadId('');
+    };
+
+    const updateEditRow = (key, patch) => {
+        setEditRows(rows => rows.map(r => (r.key === key ? { ...r, ...patch } : r)));
+    };
+
+    const updateEditAmount = (key, year, value) => {
+        setEditRows(rows => rows.map(r => (
+            r.key === key ? { ...r, years: { ...r.years, [year]: value } } : r
+        )));
+    };
+
+    const removeEditRow = (key) => setEditRows(rows => rows.filter(r => r.key !== key));
+
+    const addEditRow = () => {
+        if (!editNewHeadId) return;
+        if (editRows.some(r => r.feeHeadId === normalizeFeeHeadId(editNewHeadId))) return;
+        setEditRows(rows => [...rows, {
+            key: `${editNewHeadId}_${Date.now()}`,
+            feeHeadId: normalizeFeeHeadId(editNewHeadId),
+            concessionType: 'CONCESSION',
+            years: {}
+        }]);
+        setEditNewHeadId('');
+    };
+
+    const saveEditedRequest = async () => {
+        if (!selectedRequest) return;
+        const payload = [];
+        editRows.forEach(row => {
+            const fh = feeHeads.find(h => normalizeFeeHeadId(h._id) === row.feeHeadId);
+            Object.entries(row.years).forEach(([yr, val]) => {
+                if (val === undefined || val === null || String(val).trim() === '') return;
+                payload.push({
+                    feeHeadId: row.feeHeadId,
+                    feeHeadCode: fh?.code || '',
+                    studentYear: Number(yr),
+                    semester: null,
+                    amount: Number(val),
+                    concessionType: normalizeConcessionType(row.concessionType)
+                });
+            });
+        });
+
+        if (payload.length === 0) {
+            setErrorMessage('Enter at least one amount before saving.');
+            setTimeout(() => setErrorMessage(''), 5000);
+            return;
+        }
+
+        setEditSaveBusy(true);
+        try {
+            const res = await api.put(`/overall-concessions/requests/${selectedRequest._id}`, { concessions: payload });
+            const updated = res.data.request;
+            setSelectedRequest(prev => ({ ...prev, ...updated, studentQuota: updated.studentQuota || prev.studentQuota }));
+            setRequests(list => list.map(r => (r._id === updated._id
+                ? { ...r, ...updated, studentQuota: updated.studentQuota || r.studentQuota }
+                : r)));
+            setIsEditingRequest(false);
+            setEditRows([]);
+            setSuccessMessage('Request updated successfully.');
+            setTimeout(() => setSuccessMessage(''), 3000);
+        } catch (err) {
+            const data = err.response?.data;
+            const warningText = Array.isArray(data?.warnings) && data.warnings.length ? data.warnings.join(' ') : '';
+            setErrorMessage(warningText || data?.message || 'Failed to update request.');
+            setTimeout(() => setErrorMessage(''), 8000);
+        } finally { setEditSaveBusy(false); }
+    };
+
+    const handleReqCollegeChange = (e) => {
+        const college = e.target.value;
+        setReqFilters({ college, course: '', branch: '', batch: reqFilters.batch });
+        setReqCourses(college ? Object.keys(metadata[college] || {}) : []);
+        setReqBranches([]);
+    };
+
+    const handleReqCourseChange = (e) => {
+        const course = e.target.value;
+        setReqFilters({ ...reqFilters, course, branch: '' });
+        if (course && reqFilters.college) {
+            setReqBranches(metadata[reqFilters.college][course]?.branches || []);
+        } else {
+            setReqBranches([]);
+        }
+    };
 
     // also load pending set on mount for badge in Add/Manage tab
     useEffect(() => {
@@ -352,12 +529,25 @@ const OverallConcession = () => {
     const handleApprove = async (requestId) => {
         setApproveBusy(true);
         try {
+            const snapshot = selectedRequest
+                ? {
+                    studentName: selectedRequest.studentName,
+                    admissionNumber: selectedRequest.admissionNumber,
+                    pinNo: selectedRequest.pinNo,
+                    college: selectedRequest.college,
+                    course: selectedRequest.course,
+                    branch: selectedRequest.branch,
+                    batch: selectedRequest.batch,
+                    entryCount: Array.isArray(selectedRequest.concessions) ? selectedRequest.concessions.length : 0
+                }
+                : null;
             await api.put(`/overall-concessions/requests/${requestId}/approve`, {});
-            setApprovingId(null);
-            // refresh requests list and update pending set
+            closeRequestModal();
             await fetchRequests();
-            setSuccessMessage('Request approved and fees updated!');
-            setTimeout(() => setSuccessMessage(''), 4000);
+            api.get('/overall-concessions/requests', { params: { status: 'PENDING' } })
+                .then(res => setPendingAdmSet(new Set(res.data.map(r => r.admissionNumber))))
+                .catch(() => {});
+            setApproveSuccess(snapshot || { studentName: 'Student', admissionNumber: '', entryCount: 0 });
         } catch (err) {
             const data = err.response?.data;
             const warningText = Array.isArray(data?.warnings) && data.warnings.length
@@ -374,8 +564,13 @@ const OverallConcession = () => {
         setRejectBusy(true);
         try {
             await api.put(`/overall-concessions/requests/${requestId}/reject`, { rejectionReason: rejectReason });
-            setRejectingId(null); setRejectReason('');
+            closeRequestModal();
             await fetchRequests();
+            api.get('/overall-concessions/requests', { params: { status: 'PENDING' } })
+                .then(res => setPendingAdmSet(new Set(res.data.map(r => r.admissionNumber))))
+                .catch(() => {});
+            setSuccessMessage('Request rejected.');
+            setTimeout(() => setSuccessMessage(''), 4000);
         } catch (err) {
             setErrorMessage(err.response?.data?.message || 'Failed to reject request.');
         } finally { setRejectBusy(false); }
@@ -559,7 +754,9 @@ const OverallConcession = () => {
                                             <div className="flex flex-wrap gap-2 text-xs">
                                                 <span className="bg-slate-200 text-slate-800 px-2 py-1 rounded font-bold uppercase">{selectedStudent.batch} Batch</span>
                                                 <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-bold uppercase">{selectedStudent.course}</span>
-                                                <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded font-bold uppercase">{selectedStudent.stud_type}</span>
+                                                <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded font-bold uppercase">
+                                                    Quota: {selectedStudent.stud_type || '—'}
+                                                </span>
                                             </div>
                                         </div>
 
@@ -788,19 +985,56 @@ const OverallConcession = () => {
                                 </div>
                             )}
 
-                            {/* Status filter */}
-                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-3">
-                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter by Status:</span>
-                                {['PENDING', 'APPROVED', 'REJECTED', ''].map(s => (
-                                    <button key={s || 'ALL'} onClick={() => { setReqStatusFilter(s); }}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${reqStatusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
-                                        {s || 'All'}
+                            {/* Filters */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={reqFilters.college} onChange={handleReqCollegeChange}>
+                                            <option value="">All Colleges</option>
+                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={reqFilters.batch} onChange={e => setReqFilters({ ...reqFilters, batch: e.target.value })}>
+                                            <option value="">All Batches</option>
+                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={reqFilters.course} onChange={handleReqCourseChange} disabled={!reqFilters.college}>
+                                            <option value="">All Courses</option>
+                                            {reqCourses.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={reqFilters.branch} onChange={e => setReqFilters({ ...reqFilters, branch: e.target.value })} disabled={!reqFilters.course}>
+                                            <option value="">All Branches</option>
+                                            {reqBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status:</span>
+                                    {['PENDING', 'APPROVED', 'REJECTED', ''].map(s => (
+                                        <button key={s || 'ALL'} onClick={() => setReqStatusFilter(s)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${reqStatusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
+                                            {s || 'All'}
+                                        </button>
+                                    ))}
+                                    <button onClick={fetchRequests} disabled={requestsLoading}
+                                        className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition flex items-center gap-1">
+                                        <Filter size={12} /> {requestsLoading ? 'Loading...' : 'Refresh'}
                                     </button>
-                                ))}
-                                <button onClick={fetchRequests} disabled={requestsLoading}
-                                    className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition flex items-center gap-1">
-                                    <Filter size={12} /> {requestsLoading ? 'Loading...' : 'Refresh'}
-                                </button>
+                                </div>
                             </div>
 
                             {/* Requests list */}
@@ -808,139 +1042,370 @@ const OverallConcession = () => {
                                 <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400 italic">Loading requests...</div>
                             ) : requests.length === 0 ? (
                                 <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400">
-                                    No requests found for the selected filter.
+                                    No requests found for the selected filters.
                                 </div>
                             ) : (
-                                <div className="space-y-3">
-                                    {requests.map(req => {
-                                        const isExpanded  = expandedRequestId === req._id;
-                                        const isApprovingThis = approvingId === req._id;
-                                        const isRejectingThis = rejectingId === req._id;
-                                        return (
-                                            <div key={req._id} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase border-b border-slate-200">
+                                                    <th className="px-4 py-3 text-left">Student</th>
+                                                    <th className="px-4 py-3 text-left">College / Course</th>
+                                                    <th className="px-4 py-3 text-left">Batch</th>
+                                                    <th className="px-4 py-3 text-left">Quota</th>
+                                                    <th className="px-4 py-3 text-left">Requested By</th>
+                                                    <th className="px-4 py-3 text-center">Entries</th>
+                                                    <th className="px-4 py-3 text-center">Status</th>
+                                                    <th className="px-4 py-3 text-left">Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {requests.map(req => (
+                                                    <tr key={req._id}
+                                                        onClick={() => openRequestModal(req)}
+                                                        className="hover:bg-blue-50/50 cursor-pointer transition">
+                                                        <td className="px-4 py-3">
+                                                            <div className="font-bold text-slate-900">{req.studentName}</div>
+                                                            <div className="text-[10px] text-slate-500">Adm: {req.admissionNumber}</div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-700">
+                                                            <div>{req.college}</div>
+                                                            <div className="text-[10px] text-slate-500">{req.course} — {req.branch}</div>
+                                                        </td>
+                                                        <td className="px-4 py-3 font-semibold text-slate-800">{req.batch}</td>
+                                                        <td className="px-4 py-3">
+                                                            <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold uppercase text-[10px]">
+                                                                {req.studentQuota || '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-600">{req.requestedByName || req.requestedBy}</td>
+                                                        <td className="px-4 py-3 text-center font-bold text-slate-800">{req.concessions?.length || 0}</td>
+                                                        <td className="px-4 py-3 text-center"><StatusBadge status={req.status} /></td>
+                                                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                                                            {new Date(req.createdAt).toLocaleString('en-IN', {
+                                                                day: '2-digit', month: 'short', year: 'numeric',
+                                                                hour: '2-digit', minute: '2-digit', hour12: true
+                                                            })}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
 
-                                                {/* Request header row */}
-                                                <div className="p-4 flex flex-wrap items-start gap-4">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <span className="font-bold text-slate-900 text-sm">{req.studentName}</span>
-                                                            <StatusBadge status={req.status} />
-                                                        </div>
-                                                        <div className="text-xs text-slate-500 mt-0.5">
-                                                            Adm: <b>{req.admissionNumber}</b> &nbsp;|&nbsp;
-                                                            Pin: <b>{req.pinNo}</b> &nbsp;|&nbsp;
-                                                            {req.course} — {req.branch} &nbsp;|&nbsp;
-                                                            Batch: <b>{req.batch}</b>
-                                                        </div>
-                                                        <div className="text-[10px] text-slate-400 mt-1">
-                                                            Requested by <b>{req.requestedByName || req.requestedBy}</b> on {new Date(req.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
-                                                        </div>
-                                                        {req.status === 'APPROVED' && (
-                                                            <div className="text-[10px] text-emerald-600 mt-0.5">
-                                                                Approved by <b>{req.approvedByName || req.approvedBy}</b>
-                                                            </div>
-                                                        )}
-                                                        {req.status === 'REJECTED' && (
-                                                            <div className="text-[10px] text-rose-600 mt-0.5">
-                                                                Rejected by <b>{req.approvedByName || req.approvedBy}</b>
-                                                                {req.rejectionReason && <> — "{req.rejectionReason}"</>}
-                                                            </div>
-                                                        )}
-                                                    </div>
+                            {/* Request detail modal */}
+                            {selectedRequest && (() => {
+                                const req = selectedRequest;
+                                const reqYears = [...new Set(req.concessions.map(c => c.studentYear))].sort((a, b) => a - b);
+                                const byHead = {};
+                                req.concessions.forEach(c => {
+                                    const key = c.feeHeadId;
+                                    const matchedHead = feeHeads.find(h => normalizeFeeHeadId(h._id) === normalizeFeeHeadId(c.feeHeadId));
+                                    const code = c.feeHeadCode || matchedHead?.code || '';
+                                    if (!byHead[key]) {
+                                        byHead[key] = {
+                                            name: c.feeHeadName || matchedHead?.name || code || c.feeHeadId,
+                                            code,
+                                            concessionType: c.concessionType,
+                                            years: {}
+                                        };
+                                    }
+                                    byHead[key].years[c.studentYear] = c.amount;
+                                    byHead[key].concessionType = c.concessionType;
+                                    if (code && !byHead[key].code) byHead[key].code = code;
+                                });
 
-                                                    {/* Action buttons (PENDING only) */}
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        {req.status === 'PENDING' && (
-                                                            <>
-                                                                <button onClick={() => { setApprovingId(isApprovingThis ? null : req._id); setRejectingId(null); }}
-                                                                    className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition flex items-center gap-1 shadow-sm">
-                                                                    <CheckCircle size={13} /> Approve
-                                                                </button>
-                                                                <button onClick={() => { setRejectingId(isRejectingThis ? null : req._id); setApprovingId(null); }}
-                                                                    className="px-3 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition flex items-center gap-1 shadow-sm">
-                                                                    <XCircle size={13} /> Reject
-                                                                </button>
-                                                            </>
-                                                        )}
-                                                        <button onClick={() => setExpandedRequestId(isExpanded ? null : req._id)}
-                                                            className="px-2 py-1.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition flex items-center gap-1">
-                                                            {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                                                        </button>
+                                const structureYears = [...new Set(modalStructures.map(s => Number(s.studentYear)).filter(Boolean))]
+                                    .sort((a, b) => a - b);
+                                const structureByHead = {};
+                                modalStructures.forEach(s => {
+                                    const fhId = s.feeHead?._id?.toString?.() || s.feeHead?.toString?.() || String(s.feeHead || '');
+                                    if (!fhId) return;
+                                    if (!structureByHead[fhId]) {
+                                        structureByHead[fhId] = {
+                                            name: s.feeHead?.name || s.feeHead?.code || 'Fee Component',
+                                            code: s.feeHead?.code || '',
+                                            years: {}
+                                        };
+                                    }
+                                    const yr = Number(s.studentYear);
+                                    structureByHead[fhId].years[yr] = Number(s.amount) || 0;
+                                });
+
+                                const getYrSfx = yr => yr === 1 ? '1st' : yr === 2 ? '2nd' : yr === 3 ? '3rd' : `${yr}th`;
+
+                                // Year columns available while editing: request years + structure years + any added
+                                const editYears = [...new Set([
+                                    ...reqYears,
+                                    ...structureYears,
+                                    ...editRows.flatMap(r => Object.keys(r.years).map(Number))
+                                ])].filter(Boolean).sort((a, b) => a - b);
+                                const usedEditHeadIds = new Set(editRows.map(r => r.feeHeadId));
+                                const availableEditHeads = feeHeads.filter(h => !usedEditHeadIds.has(normalizeFeeHeadId(h._id)));
+                                const structureAmountFor = (fhId, yr) =>
+                                    structureByHead[normalizeFeeHeadId(fhId)]?.years?.[yr];
+
+                                return (
+                                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+                                        onClick={() => { if (!isEditingRequest) closeRequestModal(); }}>
+                                        <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+                                            onClick={e => e.stopPropagation()}>
+
+                                            <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3 shrink-0">
+                                                <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h3 className="text-base font-bold text-slate-900">{req.studentName}</h3>
+                                                        <StatusBadge status={req.status} />
                                                     </div>
+                                                    <p className="text-xs text-slate-500 mt-1">
+                                                        Adm: <b>{req.admissionNumber}</b> &nbsp;|&nbsp;
+                                                        Pin: <b>{req.pinNo}</b> &nbsp;|&nbsp;
+                                                        {req.college} — {req.course} / {req.branch} &nbsp;|&nbsp;
+                                                        Batch: <b>{req.batch}</b> &nbsp;|&nbsp;
+                                                        Quota: <b className="uppercase">{req.studentQuota || '—'}</b>
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-400 mt-1">
+                                                        Requested by <b>{req.requestedByName || req.requestedBy}</b> on{' '}
+                                                        {new Date(req.createdAt).toLocaleString('en-IN', {
+                                                            day: '2-digit', month: 'short', year: 'numeric',
+                                                            hour: '2-digit', minute: '2-digit', hour12: true
+                                                        })}
+                                                    </p>
+                                                    {req.status === 'APPROVED' && (
+                                                        <p className="text-[10px] text-emerald-600 mt-0.5">
+                                                            Approved by <b>{req.approvedByName || req.approvedBy}</b>
+                                                        </p>
+                                                    )}
+                                                    {req.status === 'REJECTED' && (
+                                                        <p className="text-[10px] text-rose-600 mt-0.5">
+                                                            Rejected by <b>{req.approvedByName || req.approvedBy}</b>
+                                                            {req.rejectionReason && <> — "{req.rejectionReason}"</>}
+                                                        </p>
+                                                    )}
                                                 </div>
+                                                <button onClick={closeRequestModal}
+                                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
+                                                    <X size={18} />
+                                                </button>
+                                            </div>
 
-                                                {/* Approve inline form */}
-                                                {isApprovingThis && (
-                                                    <div className="border-t border-slate-100 bg-emerald-50/50 p-4 flex flex-wrap items-end gap-3">
-                                                        <button onClick={() => handleApprove(req._id)} disabled={approveBusy}
-                                                            className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1">
-                                                            <Check size={13} /> {approveBusy ? 'Approving...' : 'Confirm Approve'}
-                                                        </button>
-                                                        <button onClick={() => setApprovingId(null)} className="px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
-                                                            Cancel
-                                                        </button>
+                                            {/* Tabs */}
+                                            <div className="px-5 pt-3 shrink-0 border-b border-slate-100 flex items-center justify-between gap-3">
+                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                                                    <button type="button" onClick={() => setModalTab('request')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${modalTab === 'request' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
+                                                        Requested Concessions
+                                                    </button>
+                                                    <button type="button" onClick={() => setModalTab('structure')} disabled={isEditingRequest}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-40 ${modalTab === 'structure' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
+                                                        Actual Fee Structure
+                                                    </button>
+                                                </div>
+                                                {req.status === 'PENDING' && modalTab === 'request' && !isEditingRequest && (
+                                                    <button type="button" onClick={startEditingRequest}
+                                                        className="mb-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition flex items-center gap-1">
+                                                        <Pencil size={12} /> Edit Entries
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <div className="p-5 overflow-y-auto flex-1">
+                                                {errorMessage && (
+                                                    <div className="mb-3 p-3 bg-rose-50 text-rose-700 rounded-lg border border-rose-200 text-xs font-semibold">
+                                                        {errorMessage}
                                                     </div>
                                                 )}
 
-                                                {/* Reject inline form */}
-                                                {isRejectingThis && (
-                                                    <div className="border-t border-slate-100 bg-rose-50/50 p-4 flex flex-wrap items-end gap-3">
-                                                        <div className="flex-1 min-w-[200px]">
-                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Rejection Reason <span className="text-rose-500">*</span></label>
-                                                            <input type="text" value={rejectReason} onChange={e => setRejectReason(e.target.value)}
-                                                                placeholder="Enter reason for rejection..."
-                                                                className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white" />
+                                                {modalTab === 'request' && isEditingRequest && (
+                                                    <>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                                            Editing Request Entries · leave a cell blank to drop that year
+                                                        </p>
+                                                        <div className="overflow-x-auto border border-blue-200 rounded-xl">
+                                                            <table className="w-full text-xs border-collapse">
+                                                                <thead>
+                                                                    <tr className="bg-blue-50/60 text-slate-500 text-[10px] uppercase">
+                                                                        <th className="px-3 py-2 text-left">Fee Component</th>
+                                                                        <th className="px-3 py-2 text-center">Type</th>
+                                                                        {editYears.map(yr => (
+                                                                            <th key={yr} className="px-3 py-2 text-right">{getYrSfx(yr)} Yr (₹)</th>
+                                                                        ))}
+                                                                        <th className="px-3 py-2 text-center w-10"></th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-100">
+                                                                    {editRows.length === 0 && (
+                                                                        <tr>
+                                                                            <td colSpan={editYears.length + 3} className="px-3 py-6 text-center text-slate-400 italic">
+                                                                                No fee components. Add one below.
+                                                                            </td>
+                                                                        </tr>
+                                                                    )}
+                                                                    {editRows.map(row => {
+                                                                        const fh = feeHeads.find(h => normalizeFeeHeadId(h._id) === row.feeHeadId);
+                                                                        return (
+                                                                            <tr key={row.key} className="bg-white">
+                                                                                <td className="px-3 py-2">
+                                                                                    <select value={row.feeHeadId}
+                                                                                        onChange={e => updateEditRow(row.key, { feeHeadId: normalizeFeeHeadId(e.target.value) })}
+                                                                                        className="w-44 border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white">
+                                                                                        {!fh && <option value={row.feeHeadId}>Unknown ({row.feeHeadId})</option>}
+                                                                                        {feeHeads
+                                                                                            .filter(h => normalizeFeeHeadId(h._id) === row.feeHeadId || !usedEditHeadIds.has(normalizeFeeHeadId(h._id)))
+                                                                                            .map(h => (
+                                                                                                <option key={h._id} value={normalizeFeeHeadId(h._id)}>
+                                                                                                    {h.name} ({h.code})
+                                                                                                </option>
+                                                                                            ))}
+                                                                                    </select>
+                                                                                </td>
+                                                                                <td className="px-3 py-2 text-center">
+                                                                                    <select value={row.concessionType}
+                                                                                        onChange={e => updateEditRow(row.key, { concessionType: e.target.value })}
+                                                                                        className="border border-slate-300 rounded-lg px-2 py-1.5 text-[10px] font-bold bg-white">
+                                                                                        <option value="CONCESSION">CONCESSION</option>
+                                                                                        <option value="REVISED">REVISED</option>
+                                                                                    </select>
+                                                                                </td>
+                                                                                {editYears.map(yr => {
+                                                                                    const structAmt = structureAmountFor(row.feeHeadId, yr);
+                                                                                    const val = row.years[yr] ?? '';
+                                                                                    const exceeds = row.concessionType === 'REVISED'
+                                                                                        && structAmt !== undefined
+                                                                                        && String(val).trim() !== ''
+                                                                                        && Number(val) > Number(structAmt);
+                                                                                    return (
+                                                                                        <td key={yr} className="px-2 py-2 text-right">
+                                                                                            <input type="number" min="0" value={val}
+                                                                                                onChange={e => updateEditAmount(row.key, yr, e.target.value)}
+                                                                                                placeholder="—"
+                                                                                                className={`w-24 border rounded-lg px-2 py-1.5 text-xs text-right bg-white ${exceeds ? 'border-rose-400 text-rose-600' : 'border-slate-300'}`} />
+                                                                                            {structAmt !== undefined && (
+                                                                                                <div className={`text-[9px] mt-0.5 ${exceeds ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                                                                                                    Structure ₹{Number(structAmt).toLocaleString()}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </td>
+                                                                                    );
+                                                                                })}
+                                                                                <td className="px-3 py-2 text-center">
+                                                                                    <button type="button" onClick={() => removeEditRow(row.key)}
+                                                                                        title="Remove fee component"
+                                                                                        className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition">
+                                                                                        <Trash2 size={13} />
+                                                                                    </button>
+                                                                                </td>
+                                                                            </tr>
+                                                                        );
+                                                                    })}
+                                                                </tbody>
+                                                            </table>
                                                         </div>
-                                                        <button onClick={() => handleReject(req._id)} disabled={rejectBusy || !rejectReason.trim()}
-                                                            className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1">
-                                                            <XCircle size={13} /> {rejectBusy ? 'Rejecting...' : 'Confirm Reject'}
-                                                        </button>
-                                                        <button onClick={() => setRejectingId(null)} className="px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
-                                                            Cancel
-                                                        </button>
-                                                    </div>
+
+                                                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                            <select value={editNewHeadId} onChange={e => setEditNewHeadId(e.target.value)}
+                                                                className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white">
+                                                                <option value="">Add fee component...</option>
+                                                                {availableEditHeads.map(h => (
+                                                                    <option key={h._id} value={normalizeFeeHeadId(h._id)}>
+                                                                        {h.name} ({h.code})
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                            <button type="button" onClick={addEditRow} disabled={!editNewHeadId}
+                                                                className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 disabled:opacity-40 transition flex items-center gap-1">
+                                                                <Plus size={12} /> Add
+                                                            </button>
+                                                            <button type="button"
+                                                                onClick={() => {
+                                                                    const nextYr = (editYears[editYears.length - 1] || 0) + 1;
+                                                                    setEditRows(rows => rows.map(r => ({ ...r, years: { ...r.years, [nextYr]: r.years[nextYr] ?? '' } })));
+                                                                }}
+                                                                className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition flex items-center gap-1">
+                                                                <Plus size={12} /> Add Year
+                                                            </button>
+                                                        </div>
+                                                    </>
                                                 )}
 
-                                                {/* Expanded concessions detail */}
-                                                {isExpanded && (() => {
-                                                    // Derive unique sorted years from this request's concessions
-                                                    const reqYears = [...new Set(req.concessions.map(c => c.studentYear))].sort((a, b) => a - b);
-                                                    // Group concessions by feeHeadId
-                                                    const byHead = {};
-                                                    req.concessions.forEach(c => {
-                                                        const key = c.feeHeadId;
-                                                        if (!byHead[key]) byHead[key] = { name: c.feeHeadName || c.feeHeadCode || c.feeHeadId, concessionType: c.concessionType, years: {} };
-                                                        byHead[key].years[c.studentYear] = c.amount;
-                                                        // if different rows have the same head but different type, last one wins (shouldn't happen)
-                                                        byHead[key].concessionType = c.concessionType;
-                                                    });
-                                                    const getYrSfx = yr => yr === 1 ? '1st' : yr === 2 ? '2nd' : yr === 3 ? '3rd' : `${yr}th`;
-                                                    return (
-                                                        <div className="border-t border-slate-100 p-4 bg-slate-50/30">
-                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                                                Requested Concessions ({req.concessions.length} entries)
-                                                            </p>
-                                                            <div className="overflow-x-auto">
+                                                {modalTab === 'request' && !isEditingRequest && (
+                                                    <>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                                            Requested Concessions ({req.concessions.length} entries)
+                                                        </p>
+                                                        <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                                                            <table className="w-full text-xs border-collapse">
+                                                                <thead>
+                                                                    <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
+                                                                        <th className="px-3 py-2 text-left">Fee Component</th>
+                                                                        <th className="px-3 py-2 text-left">Code</th>
+                                                                        <th className="px-3 py-2 text-center">Type</th>
+                                                                        {reqYears.map(yr => (
+                                                                            <th key={yr} className="px-3 py-2 text-right">{getYrSfx(yr)} Yr (₹)</th>
+                                                                        ))}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-100">
+                                                                    {Object.entries(byHead).map(([fhId, row]) => (
+                                                                        <tr key={fhId} className="bg-white">
+                                                                            <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
+                                                                            <td className="px-3 py-2 text-slate-500 font-mono text-[10px]">{row.code || '—'}</td>
+                                                                            <td className="px-3 py-2 text-center">
+                                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${row.concessionType === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+                                                                                    {row.concessionType}
+                                                                                </span>
+                                                                            </td>
+                                                                            {reqYears.map(yr => (
+                                                                                <td key={yr} className="px-3 py-2 text-right font-bold text-slate-900">
+                                                                                    {row.years[yr] !== undefined
+                                                                                        ? `₹${Number(row.years[yr]).toLocaleString()}`
+                                                                                        : <span className="text-slate-300 font-normal">—</span>}
+                                                                                </td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </>
+                                                )}
+
+                                                {modalTab === 'structure' && !isEditingRequest && (
+                                                    <>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                                            Actual Fee Structure
+                                                            {req.studentQuota ? ` · Quota ${req.studentQuota}` : ''}
+                                                            {req.batch ? ` · Batch ${req.batch}` : ''}
+                                                        </p>
+                                                        {modalStructuresLoading ? (
+                                                            <div className="border border-slate-200 rounded-xl p-10 text-center text-slate-400 italic text-xs">
+                                                                Loading fee structure...
+                                                            </div>
+                                                        ) : Object.keys(structureByHead).length === 0 ? (
+                                                            <div className="border border-slate-200 rounded-xl p-10 text-center text-slate-400 text-xs">
+                                                                No fee structure found for this student’s college / course / branch / batch / quota.
+                                                            </div>
+                                                        ) : (
+                                                            <div className="overflow-x-auto border border-slate-200 rounded-xl">
                                                                 <table className="w-full text-xs border-collapse">
                                                                     <thead>
-                                                                        <tr className="bg-slate-100 text-slate-500 text-[10px] uppercase">
+                                                                        <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
                                                                             <th className="px-3 py-2 text-left">Fee Component</th>
-                                                                            <th className="px-3 py-2 text-center">Type</th>
-                                                                            {reqYears.map(yr => (
+                                                                            <th className="px-3 py-2 text-left">Code</th>
+                                                                            {structureYears.map(yr => (
                                                                                 <th key={yr} className="px-3 py-2 text-right">{getYrSfx(yr)} Yr (₹)</th>
                                                                             ))}
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-slate-100">
-                                                                        {Object.entries(byHead).map(([fhId, row]) => (
-                                                                            <tr key={fhId} className="bg-white hover:bg-slate-50/40">
+                                                                        {Object.entries(structureByHead).map(([fhId, row]) => (
+                                                                            <tr key={fhId} className="bg-white">
                                                                                 <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{row.name}</td>
-                                                                                <td className="px-3 py-2 text-center">
-                                                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${row.concessionType === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
-                                                                                        {row.concessionType}
-                                                                                    </span>
-                                                                                </td>
-                                                                                {reqYears.map(yr => (
+                                                                                <td className="px-3 py-2 text-slate-500 font-mono text-[10px]">{row.code || '—'}</td>
+                                                                                {structureYears.map(yr => (
                                                                                     <td key={yr} className="px-3 py-2 text-right font-bold text-slate-900">
                                                                                         {row.years[yr] !== undefined
                                                                                             ? `₹${Number(row.years[yr]).toLocaleString()}`
@@ -952,12 +1417,111 @@ const OverallConcession = () => {
                                                                     </tbody>
                                                                 </table>
                                                             </div>
-                                                        </div>
-                                                    );
-                                                })()}
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {modalMode === 'reject' && !isEditingRequest && (
+                                                    <div className="mt-4 p-3 rounded-xl border border-rose-200 bg-rose-50/60">
+                                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                                            Rejection Reason <span className="text-rose-500">*</span>
+                                                        </label>
+                                                        <input type="text" value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+                                                            placeholder="Enter reason for rejection..."
+                                                            className="w-full border border-slate-300 rounded-lg p-2.5 text-xs bg-white" />
+                                                    </div>
+                                                )}
                                             </div>
-                                        );
-                                    })}
+
+                                            <div className="px-5 py-4 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-slate-50/50">
+                                                {isEditingRequest ? (
+                                                    <>
+                                                        <button onClick={cancelEditingRequest} disabled={editSaveBusy}
+                                                            className="px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition disabled:opacity-50">
+                                                            Cancel
+                                                        </button>
+                                                        <button onClick={saveEditedRequest} disabled={editSaveBusy}
+                                                            className="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1 shadow-sm">
+                                                            <Save size={13} /> {editSaveBusy ? 'Saving...' : 'Save Changes'}
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                <button onClick={closeRequestModal}
+                                                    className="px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+                                                    Close
+                                                </button>
+                                                )}
+                                                {req.status === 'PENDING' && modalMode === 'view' && !isEditingRequest && (
+                                                    <>
+                                                        <button onClick={() => setModalMode('reject')}
+                                                            className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition flex items-center gap-1 shadow-sm">
+                                                            <XCircle size={13} /> Reject
+                                                        </button>
+                                                        <button onClick={() => handleApprove(req._id)} disabled={approveBusy}
+                                                            className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1 shadow-sm">
+                                                            <CheckCircle size={13} /> {approveBusy ? 'Approving...' : 'Approve'}
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {req.status === 'PENDING' && modalMode === 'reject' && (
+                                                    <>
+                                                        <button onClick={() => { setModalMode('view'); setRejectReason(''); }}
+                                                            className="px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+                                                            Back
+                                                        </button>
+                                                        <button onClick={() => handleReject(req._id)} disabled={rejectBusy || !rejectReason.trim()}
+                                                            className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1 shadow-sm">
+                                                            <XCircle size={13} /> {rejectBusy ? 'Rejecting...' : 'Confirm Reject'}
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Approve success modal */}
+                            {approveSuccess && (
+                                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+                                    onClick={() => setApproveSuccess(null)}>
+                                    <div className="bg-white rounded-2xl shadow-2xl border border-emerald-100 w-full max-w-md overflow-hidden"
+                                        onClick={e => e.stopPropagation()}>
+                                        <div className="px-6 pt-8 pb-4 text-center">
+                                            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                                                <CheckCircle size={32} className="text-emerald-600" />
+                                            </div>
+                                            <h3 className="text-lg font-black text-slate-900">Request Approved</h3>
+                                            <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                                                Concession request has been approved and fees updated successfully.
+                                            </p>
+                                        </div>
+                                        <div className="mx-6 mb-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs space-y-1.5">
+                                            <p className="font-bold text-slate-800 text-sm">{approveSuccess.studentName}</p>
+                                            <p className="text-slate-500">
+                                                Adm: <b className="text-slate-700">{approveSuccess.admissionNumber || '—'}</b>
+                                                {approveSuccess.pinNo ? <> &nbsp;|&nbsp; Pin: <b className="text-slate-700">{approveSuccess.pinNo}</b></> : null}
+                                            </p>
+                                            {(approveSuccess.college || approveSuccess.course) && (
+                                                <p className="text-slate-500">
+                                                    {[approveSuccess.college, approveSuccess.course, approveSuccess.branch]
+                                                        .filter(Boolean).join(' — ')}
+                                                    {approveSuccess.batch ? <> &nbsp;|&nbsp; Batch <b className="text-slate-700">{approveSuccess.batch}</b></> : null}
+                                                </p>
+                                            )}
+                                            {approveSuccess.entryCount > 0 && (
+                                                <p className="text-emerald-700 font-semibold pt-1">
+                                                    {approveSuccess.entryCount} concession {approveSuccess.entryCount === 1 ? 'entry' : 'entries'} applied
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div className="px-6 pb-6">
+                                            <button type="button" onClick={() => setApproveSuccess(null)}
+                                                className="w-full py-2.5 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition shadow-sm">
+                                                Done
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>

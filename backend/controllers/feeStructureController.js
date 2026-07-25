@@ -6,12 +6,6 @@ const FeeHead = require('../models/FeeHead');
 const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const db = require('../config/sqlDb');
 const {
-  syncClubFees,
-  syncTransportFees,
-  syncHostelFees,
-  syncStandardFees
-} = require('../services/studentFeeSyncService');
-const {
   resolveStudentFeeAmount,
   buildFeeHeadMaps,
   resolveFeeHeadId
@@ -259,10 +253,18 @@ const createFeeStructure = async (req, res) => {
 // @route   GET /api/fee-structures
 const getFeeStructures = async (req, res) => {
   try {
-    const structures = await FeeStructure.find()
+    const { college, course, branch, batch, category } = req.query;
+    const filter = {};
+    if (college) filter.college = college;
+    if (course) filter.course = course;
+    if (branch) filter.branch = branch;
+    if (batch) filter.batch = batch;
+    if (category) filter.category = category;
+
+    const structures = await FeeStructure.find(filter)
       .populate('feeHead', 'name code')
       .populate('lateFeeHead', 'name code')
-      .sort({ createdAt: -1 });
+      .sort({ studentYear: 1, createdAt: -1 });
     res.json(structures);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -287,31 +289,23 @@ const getStudentFeeDetails = async (req, res) => {
     const branch = student ? student.branch : '';
     const category = student ? student.stud_type : 'Regular';
 
-    if (student) {
-      try {
-        await syncClubFees(student, admissionNo);
-        await syncTransportFees(student, admissionNo);
-        await syncHostelFees(student, admissionNo);
-        await syncStandardFees(student, admissionNo);
-      } catch (syncError) {
-        console.error('Fee sync error:', syncError);
-      }
-    }
+    // NOTE: Do NOT auto-sync club/transport/hostel/standard fees here.
+    // That path hits SQL + fee Mongo + transport Mongo + hostel Mongo and made
+    // Fee Collection student loads very slow. Sync only via POST /students/:id/sync-fees.
 
-    // 2. Fetch applicable Fee Structures for term definitions
-    const applicableStructures = await FeeStructure.find({
-      college,
-      course,
-      branch,
-      batch,
-      category
-    }).lean();
-
-    // 3. Fetch all Demands (StudentFee) - including any that were just synced
-    const studentFees = await StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code');
-
-    // 4. Fetch all Transactions (Payments)
-    const transactions = await Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } });
+    // 2–5. Fetch structures, demands, transactions, and fee heads in parallel
+    const [applicableStructures, studentFees, transactions, feeHeads] = await Promise.all([
+      FeeStructure.find({
+        college,
+        course,
+        branch,
+        batch,
+        category
+      }).lean(),
+      StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code'),
+      Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } }),
+      FeeHead.find().sort({ name: 1 })
+    ]);
 
     // Map structures by [headId-year-semester] for quick lookup
     const structureMap = {};
@@ -319,12 +313,6 @@ const getStudentFeeDetails = async (req, res) => {
       const key = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
       structureMap[key] = fs;
     });
-
-    // 5. Fetch all Fee Heads (for display convenience)
-    const feeHeads = await FeeHead.find().sort({ name: 1 });
-
-    // 5. Data Structures for aggregation
-    // Key: [HeadID]-[Year]
 
     const groupedData = {};
 

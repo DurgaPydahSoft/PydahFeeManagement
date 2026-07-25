@@ -831,6 +831,17 @@ const FeeCollection = () => {
         return Number(f.studentYear) === Number(viewFilterYear);
     });
 
+    const uniqueStudentYears = useMemo(() => {
+        const years = new Set();
+        feeDetails.forEach(f => {
+            const y = Number(f.studentYear);
+            if (y) years.add(y);
+        });
+        const current = Number(student?.current_year || 0);
+        for (let i = 1; i <= current; i++) years.add(i);
+        return [...years].sort((a, b) => a - b);
+    }, [feeDetails, student?.current_year]);
+
     const maxTerms = useMemo(() => {
         return Math.max(0, ...displayedFees.map(f => f.terms?.length || 0));
     }, [displayedFees]);
