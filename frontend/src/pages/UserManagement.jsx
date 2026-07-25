@@ -55,7 +55,6 @@ const UserManagement = () => {
         { name: 'Settings', path: '/settings' },
         { name: 'Reminder Config', path: '/reminders' },
         { name: 'Academic Calendar', path: '/academic-calendar' },
-        { name: 'Caution Deposit', path: '/caution-deposit' },
         { name: 'User Management', path: '/user-management' },
         { name: 'Permissions', path: '/permissions' }
     ];
@@ -740,7 +739,7 @@ const UserManagement = () => {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
                                                                         }
                                                                         if (path === '/reports') {
-                                                                            currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary' && p !== 'reports_account_wise');
+                                                                            currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary');
                                                                         }
                                                                     } else {
                                                                         currentPermissions = [...currentPermissions, path];
@@ -754,13 +753,14 @@ const UserManagement = () => {
                                                                             if (!currentPermissions.includes('reports_daily_collection')) currentPermissions.push('reports_daily_collection');
                                                                             if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
                                                                             if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
-                                                                            if (!currentPermissions.includes('reports_account_wise')) currentPermissions.push('reports_account_wise');
                                                                         }
                                                                         if (path === '/concessions') {
+                                                                            if (!currentPermissions.includes('concession_raise_request')) currentPermissions.push('concession_raise_request');
                                                                             if (!currentPermissions.includes('concession_approvals')) currentPermissions.push('concession_approvals');
                                                                             if (formData.role !== 'cashier' && !currentPermissions.includes('concession_approvers')) {
                                                                                 currentPermissions.push('concession_approvers');
                                                                             }
+                                                                            if (!currentPermissions.includes('concession_reports')) currentPermissions.push('concession_reports');
                                                                         }
                                                                     }
                                                                     setFormData({ ...formData, permissions: currentPermissions });
@@ -852,6 +852,23 @@ const UserManagement = () => {
                                                             <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                                 <input
                                                                     type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('concession_raise_request')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('concession_raise_request')) p = p.filter(x => x !== 'concession_raise_request');
+                                                                            else p = [...p, 'concession_raise_request'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Raise Request</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
                                                                     checked={(formData.permissions || []).includes('concession_approvals')}
                                                                     onChange={(() => {
                                                                         const toggle = () => {
@@ -864,7 +881,7 @@ const UserManagement = () => {
                                                                     })()}
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
-                                                                <span className="text-xs text-gray-600">Enable Approvals</span>
+                                                                <span className="text-xs text-gray-600">Approvals</span>
                                                             </label>
                                                             <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                                 <input
@@ -881,7 +898,24 @@ const UserManagement = () => {
                                                                     })()}
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
-                                                                <span className="text-xs text-gray-600">Manage Approvers</span>
+                                                                <span className="text-xs text-gray-600">Approvers</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('concession_reports')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('concession_reports')) p = p.filter(x => x !== 'concession_reports');
+                                                                            else p = [...p, 'concession_reports'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Reports</span>
                                                             </label>
                                                         </div>
                                                     )}
@@ -939,23 +973,6 @@ const UserManagement = () => {
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
                                                                 <span className="text-xs text-gray-600">College-wise Summary</span>
-                                                            </label>
-                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={(formData.permissions || []).includes('reports_account_wise')}
-                                                                    onChange={(() => {
-                                                                        const toggle = () => {
-                                                                            let p = formData.permissions || [];
-                                                                            if (p.includes('reports_account_wise')) p = p.filter(x => x !== 'reports_account_wise');
-                                                                            else p = [...p, 'reports_account_wise'];
-                                                                            setFormData({ ...formData, permissions: p });
-                                                                        };
-                                                                        return toggle;
-                                                                    })()}
-                                                                    className="rounded text-blue-600 focus:ring-blue-500"
-                                                                />
-                                                                <span className="text-xs text-gray-600">Account-wise Summary</span>
                                                             </label>
                                                         </div>
                                                     )}
