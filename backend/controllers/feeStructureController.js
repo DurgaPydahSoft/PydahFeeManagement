@@ -4,6 +4,7 @@ const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
+const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
 const db = require('../config/sqlDb');
 const {
   resolveStudentFeeAmount,
@@ -311,7 +312,7 @@ const getStudentFeeDetails = async (req, res) => {
     // Fee Collection student loads very slow. Sync only via POST /students/:id/sync-fees.
 
     // 2–5. Fetch structures, demands, transactions, and fee heads in parallel
-    const [applicableStructures, studentFees, transactions, feeHeads] = await Promise.all([
+    const [applicableStructures, studentFees, transactions, feeHeads, serviceConfigs] = await Promise.all([
       FeeStructure.find({
         college,
         course,
@@ -321,7 +322,10 @@ const getStudentFeeDetails = async (req, res) => {
       }).lean(),
       StudentFee.find({ studentId: admissionNo }).populate('feeHead', 'name code').lean(),
       Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } }).lean(),
-      getCachedFeeHeads()
+      getCachedFeeHeads(),
+      ServiceLateFeeConfig.find({ isActive: { $ne: false } })
+        .select('applicableFeeHead academicYear defaultTermsCount defaultTerms')
+        .lean()
     ]);
 
     // Map structures by [headId-year-semester] for quick lookup
@@ -330,6 +334,26 @@ const getStudentFeeDetails = async (req, res) => {
       const key = `${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
       structureMap[key] = fs;
     });
+
+    // Hostel/Transport heads have no FeeStructure — their term split comes from
+    // the per-academic-year service config (Late Fees > Hostel/Transport Config).
+    const serviceTermsMap = {};
+    (serviceConfigs || []).forEach(cfg => {
+      if (!cfg.applicableFeeHead || !cfg.academicYear) return;
+      const terms = (cfg.defaultTerms || [])
+        .filter(t => t && Number(t.percentage) > 0)
+        .map((t, idx) => ({
+          termNumber: Number(t.termNumber) || idx + 1,
+          percentage: Number(t.percentage) || 0
+        }));
+      if (terms.length === 0) return;
+      serviceTermsMap[`${cfg.applicableFeeHead.toString()}|${String(cfg.academicYear).trim()}`] = terms;
+    });
+
+    const getServiceTerms = (headId, feeAcademicYear) => {
+      if (!headId || !feeAcademicYear) return null;
+      return serviceTermsMap[`${headId}|${String(feeAcademicYear).trim()}`] || null;
+    };
 
     const groupedData = {};
 
@@ -386,6 +410,9 @@ const getStudentFeeDetails = async (req, res) => {
         // Find matching structure for terms
         const structKey = `${hId}-${year}-${fee.semester || 'null'}`;
         const matchedStructure = structureMap[structKey];
+        // Hostel/Transport: ServiceLateFeeConfig default terms win over FeeStructure
+        const serviceTerms = getServiceTerms(hId, fee.academicYear);
+        const effectiveTerms = serviceTerms || matchedStructure?.terms;
 
         groupedData[key] = {
           _id: fee._id, // Keep the actual demand ID if found
@@ -405,11 +432,13 @@ const getStudentFeeDetails = async (req, res) => {
           remarks: fee.remarks, // Important to pass back to frontend for correct payment matching
           remarksList: fee.remarks ? [fee.remarks] : [],
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
-          isTermsDivided: fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false),
+          isTermsDivided: serviceTerms
+            ? serviceTerms.length > 1
+            : (fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)),
           studentScholarStatus: student ? student.scholar_status : null,
           // Non-divided structures still expose Term 1 (100%) for dues + late-fee display
           terms: resolveEffectiveTerms(
-            matchedStructure?.terms,
+            effectiveTerms,
             fee.amount || matchedStructure?.amount || 0
           )
         };

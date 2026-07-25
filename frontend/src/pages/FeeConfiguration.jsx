@@ -4,6 +4,9 @@ import api from '../lib/api';
 import { Pencil, Trash2, Calendar, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, ToggleLeft, ToggleRight, BookOpen, Settings, ArrowRight, CheckCircle2, Info, Clock, Database, AlertCircle, ShieldAlert, Layers } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FeeConfigPrintButton from '../components/FeeConfigPrintButton';
+import ServiceLateFeeConfigPanel from '../components/ServiceLateFeeConfigPanel';
+import HostelConfiguration from './HostelConfiguration';
+import TransportConfiguration from './TransportConfiguration';
 import Swal from 'sweetalert2';
 
 const FeeConfiguration = () => {
@@ -1637,13 +1640,27 @@ const FeeConfiguration = () => {
                         </p>
                     </div>
                     {activeTab === 'latefees' && (
-                        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl shrink-0 self-start sm:self-auto">
+                        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl shrink-0 self-start sm:self-auto flex-wrap">
                             <button
                                 type="button"
                                 onClick={() => setLateFeeSubTab('view')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'view' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
-                                View Configurations
+                                Academic Config
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLateFeeSubTab('hostel')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'hostel' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Hostel Config
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLateFeeSubTab('transport')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${lateFeeSubTab === 'transport' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                Transport Config
                             </button>
                             <button
                                 type="button"
@@ -4058,6 +4075,24 @@ const FeeConfiguration = () => {
                         </>
                         )}
 
+                        {lateFeeSubTab === 'hostel' && (
+                            <div className="space-y-8">
+                                <ServiceLateFeeConfigPanel type="HOSTEL" title="Hostel" feeHeads={feeHeads} />
+                                <div className="border-t border-gray-200 pt-6">
+                                    <HostelConfiguration embedded />
+                                </div>
+                            </div>
+                        )}
+
+                        {lateFeeSubTab === 'transport' && (
+                            <div className="space-y-8">
+                                <ServiceLateFeeConfigPanel type="TRANSPORT" title="Transport" feeHeads={feeHeads} />
+                                <div className="border-t border-gray-200 pt-6">
+                                    <TransportConfiguration embedded />
+                                </div>
+                            </div>
+                        )}
+
                         {lateFeeSubTab === 'due-dates' && (
                             <div className="space-y-6">
                                 {/* Default Config List / Form Wrapper */}
@@ -4429,7 +4464,7 @@ const FeeConfiguration = () => {
                                                     <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow-xs">4</div>
                                                     <h4 className="text-xs font-bold text-gray-800">Customize Specific Timings (Optional)</h4>
                                                     <p className="text-xs text-gray-500 mt-1">
-                                                        If a course or batch requires custom timing, locate it in the <strong>View Configurations</strong> tab. Click <strong>Edit Rules</strong> to override offsets or specify fixed dates.
+                                                        If a course or batch requires custom timing, locate it in the <strong>Academic Config</strong> tab. Click <strong>Edit Rules</strong> to override offsets or specify fixed dates.
                                                     </p>
                                                 </div>
 

@@ -5,7 +5,7 @@ const User = require('../models/User');
 const db = require('../config/sqlDb');
 
 const { processRemindersBatch } = require('../controllers/reminderController');
-const { processLateFees } = require('../controllers/lateFeeController');
+const { processLateFees, processServiceLateFees } = require('../controllers/lateFeeController');
 const { syncAllRegularStudentFees } = require('./studentFeeSyncService');
 
 // Track the currently scheduled payment-reset job so we can reschedule if settings change
@@ -13,6 +13,27 @@ let paymentResetJob = null;
 
 // Track the scheduled email report job
 let emailReportJob = null;
+
+/**
+ * Run a nightly task without letting failures crash the process or skip siblings.
+ * Never rethrows — logs and returns { ok, error }.
+ */
+const runSafe = async (label, fn) => {
+    const started = Date.now();
+    try {
+        console.log(`[Scheduler] ▶ ${label} starting...`);
+        const result = await fn();
+        console.log(`[Scheduler] ✓ ${label} finished in ${Date.now() - started}ms`);
+        return { ok: true, result };
+    } catch (error) {
+        console.error(
+            `[Scheduler] ✗ ${label} failed (continuing remaining tasks):`,
+            error?.message || error
+        );
+        if (error?.stack) console.error(error.stack);
+        return { ok: false, error };
+    }
+};
 
 const scheduleEmailReport = (hour, minute, enabled, recipients) => {
     if (emailReportJob) {
@@ -29,7 +50,13 @@ const scheduleEmailReport = (hour, minute, enabled, recipients) => {
     
     emailReportJob = cron.schedule(cronExpr, async () => {
         console.log(`[EmailReportScheduler] Running daily collection report email task at ${hour}:${String(minute).padStart(2,'0')}...`);
-        await sendDailyAllCollegesReportEmail(recipients);
+        try {
+            await sendDailyAllCollegesReportEmail(recipients);
+            console.log('[EmailReportScheduler] Daily collection report email completed.');
+        } catch (err) {
+            console.error('[EmailReportScheduler] Daily report email failed (non-fatal):', err?.message || err);
+            if (err?.stack) console.error(err.stack);
+        }
     }, { timezone: 'Asia/Kolkata' });
 
     console.log(`[EmailReportScheduler] Scheduled daily email report at ${hour}:${String(minute).padStart(2,'0')} to recipients: ${recipients} (IST).`);
@@ -58,7 +85,8 @@ const schedulePaymentAccessReset = (hour, minute) => {
             );
             console.log('[PaymentReset] All user payment access overrides have been reset.');
         } catch (err) {
-            console.error('[PaymentReset] Error resetting payment access:', err);
+            console.error('[PaymentReset] Error resetting payment access (non-fatal):', err?.message || err);
+            if (err?.stack) console.error(err.stack);
         }
     }, { timezone: 'Asia/Kolkata' });
     console.log(`[PaymentReset] Scheduled payment access reset at ${hour}:${String(minute).padStart(2,'0')} daily (IST).`);
@@ -67,15 +95,21 @@ const schedulePaymentAccessReset = (hour, minute) => {
 const initScheduler = async () => {
     console.log('Initializing Timely Reminder & Late Fee Scheduler...');
 
-    // Run every day at 3:00 AM (safe time)
+    // Run every day at 3:00 AM (safe time). Each step is isolated so one failure
+    // never aborts siblings or crashes the Node process.
     cron.schedule('0 3 * * *', async () => {
-        console.log('Running Daily Automated Tasks...');
-        // 1) Sync student fee structures (standard + club + declaration credits; no transport/hostel)
-        await processStudentFeeStructureSync();
-        // 2) Then generate/update late fees against the latest dues
-        await processLateFees();
-        // 3) Reminder rules
-        await processReminderConfigs();
+        console.log('[Scheduler] ========== Nightly automated tasks start ==========');
+        try {
+            await runSafe('Student fee structure sync', () => processStudentFeeStructureSync());
+            await runSafe('Academic late fees', () => processLateFees());
+            await runSafe('Hostel/Transport late fees', () => processServiceLateFees());
+            await runSafe('Reminder configs', () => processReminderConfigs());
+        } catch (fatal) {
+            // Belts-and-suspenders: runSafe should never throw, but never let cron crash the server
+            console.error('[Scheduler] Unexpected nightly runner failure (non-fatal):', fatal?.message || fatal);
+            if (fatal?.stack) console.error(fatal.stack);
+        }
+        console.log('[Scheduler] ========== Nightly automated tasks end ==========');
     }, { timezone: 'Asia/Kolkata' });
 
     // Load current payment reset schedule from settings and start it
@@ -88,8 +122,12 @@ const initScheduler = async () => {
             schedulePaymentAccessReset(hour, minute);
         }
     } catch (err) {
-        console.error('[PaymentReset] Failed to read settings, defaulting to 9:00 AM reset:', err);
-        schedulePaymentAccessReset(9, 0);
+        console.error('[PaymentReset] Failed to read settings, defaulting to 9:00 AM reset:', err?.message || err);
+        try {
+            schedulePaymentAccessReset(9, 0);
+        } catch (scheduleErr) {
+            console.error('[PaymentReset] Failed to schedule default reset (non-fatal):', scheduleErr?.message || scheduleErr);
+        }
     }
 
     // Load email report configuration from settings and start it
@@ -103,7 +141,7 @@ const initScheduler = async () => {
             scheduleEmailReport(rHour, rMinute, enabled, recipients);
         }
     } catch (err) {
-        console.error('[EmailReportScheduler] Failed to initialize daily email report schedule:', err);
+        console.error('[EmailReportScheduler] Failed to initialize daily email report schedule (non-fatal):', err?.message || err);
     }
 };
 
@@ -120,7 +158,8 @@ const processStudentFeeStructureSync = async () => {
         );
         return result;
     } catch (error) {
-        console.error('[Scheduler] Student fee structure sync failed:', error);
+        console.error('[Scheduler] Student fee structure sync failed:', error?.message || error);
+        if (error?.stack) console.error(error.stack);
         return null;
     }
 };
@@ -136,11 +175,19 @@ const processReminderConfigs = async () => {
         today.setHours(0, 0, 0, 0); // Normalize to start of day
 
         for (const config of configs) {
-            await checkAndExecuteConfig(config, today);
+            try {
+                await checkAndExecuteConfig(config, today);
+            } catch (ruleErr) {
+                console.error(
+                    `[Scheduler] Reminder rule ${config?._id} failed (continuing):`,
+                    ruleErr?.message || ruleErr
+                );
+            }
         }
 
     } catch (error) {
-        console.error('Scheduler Error:', error);
+        console.error('[Scheduler] Reminder configs error (non-fatal):', error?.message || error);
+        if (error?.stack) console.error(error.stack);
     }
 };
 

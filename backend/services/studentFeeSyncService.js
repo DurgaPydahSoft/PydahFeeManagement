@@ -91,6 +91,40 @@ const findMergeableStudentFee = async ({
       remarks
     });
     if (byRemarks) return byRemarks;
+
+    // Legacy remarks omitted academic year — e.g. "Hostel: Girls Hostel - B"
+    // New format: "Hostel: Girls Hostel - B (2026-2027)"
+    const legacyBase = String(remarks).replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+    const sameYearFees = await StudentFee.find({
+      studentId: admissionNo,
+      feeHead: feeHeadId,
+      academicYear,
+      studentYear
+    }).sort({ createdAt: 1 });
+
+    if (legacyBase) {
+      const legacyMatch = sameYearFees.find((f) => {
+        const existing = String(f.remarks || '').trim();
+        if (!existing) return false;
+        if (existing === legacyBase) return true;
+        if (existing === remarks) return true;
+        // Same hostel/transport base with any year suffix
+        const existingBase = existing.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+        return existingBase === legacyBase;
+      });
+      if (legacyMatch) return legacyMatch;
+    }
+
+    // Older transport assignments used bare remarks like "Transport"
+    const vagueTransport = sameYearFees.find((f) => {
+      const existing = String(f.remarks || '').trim();
+      return !existing || /^transport$/i.test(existing);
+    });
+    if (vagueTransport) return vagueTransport;
+
+    // Transport/Hostel: never merge onto a different route/hostel demand
+    // (would overwrite the request fare with another amount).
+    return null;
   }
 
   const exact = await StudentFee.findOne({
@@ -232,6 +266,21 @@ const upsertStudentFeeDemand = async ({
       changed = true;
     }
 
+    if (semester !== undefined && normalizeSemester(existingFee.semester) !== normalizeSemester(semester)) {
+      existingFee.semester = semester ?? null;
+      changed = true;
+    }
+
+    if (academicYear && existingFee.academicYear !== academicYear) {
+      existingFee.academicYear = academicYear;
+      changed = true;
+    }
+
+    if (Number(existingFee.studentYear) !== Number(studentYear)) {
+      existingFee.studentYear = studentYear;
+      changed = true;
+    }
+
     Object.entries(extraFields).forEach(([key, value]) => {
       if (value !== undefined && existingFee[key] !== value) {
         existingFee[key] = value;
@@ -244,7 +293,11 @@ const upsertStudentFeeDemand = async ({
       updated += 1;
     }
 
-    await consolidateStudentFeeDemands(admissionNo, feeHeadId, academicYear, studentYear);
+    // Transport/Hostel request rows are unique by remarks — do not consolidate
+    // (would merge routes / take max amount and wipe the request fare).
+    if (!matchByRemarks) {
+      await consolidateStudentFeeDemands(admissionNo, feeHeadId, academicYear, studentYear);
+    }
     return { created, updated };
   }
 
@@ -273,7 +326,9 @@ const upsertStudentFeeDemand = async ({
   });
   created += 1;
 
-  await consolidateStudentFeeDemands(admissionNo, feeHeadId, academicYear, studentYear);
+  if (!matchByRemarks) {
+    await consolidateStudentFeeDemands(admissionNo, feeHeadId, academicYear, studentYear);
+  }
   return { created, updated };
 };
 
@@ -328,19 +383,32 @@ const findTransportFeeHead = async () => {
   return feeHead;
 };
 
-const buildTransportRemarks = (routeName, stageName) => {
+const buildTransportRemarks = (routeName, stageName, academicYear) => {
   const route = (routeName || '').trim();
   const stage = (stageName || '').trim();
-  return `Transport: ${route} - ${stage}`;
+  const base = `Transport: ${route} - ${stage}`;
+  const year = String(academicYear || '').trim();
+  return year ? `${base} (${year})` : base;
+};
+
+const buildHostelRemarks = (hostelName, categoryName, academicYear) => {
+  const hostel = (hostelName || 'Hostel').trim();
+  const category = (categoryName || 'Category').trim();
+  const base = `Hostel: ${hostel} - ${category}`;
+  const year = String(academicYear || '').trim();
+  return year ? `${base} (${year})` : base;
 };
 
 const syncTransportFees = async (student, admissionNo) => {
   let created = 0;
   let updated = 0;
+  const academicYears = new Set();
+  /** @type {Map<string, Set<string>>} academicYear -> expected remarks */
+  const expectedRemarksByYear = new Map();
 
   const transportConnection = getTransportConnection();
   if (!transportConnection) {
-    return { created, updated, requestsMatched: 0 };
+    return { created, updated, requestsMatched: 0, academicYears: [] };
   }
 
   const requests = await transportConnection.db
@@ -353,28 +421,39 @@ const syncTransportFees = async (student, admissionNo) => {
     .toArray();
 
   if (requests.length === 0) {
-    return { created, updated, requestsMatched: 0 };
+    return { created, updated, requestsMatched: 0, academicYears: [] };
   }
 
   const transportFeeHead = await findTransportFeeHead();
   if (!transportFeeHead) {
-    return { created, updated, requestsMatched: requests.length };
+    return { created, updated, requestsMatched: requests.length, academicYears: [] };
   }
 
   for (const request of requests) {
     const academicYear = request.academic_year;
     if (!academicYear) continue;
+    const yearKey = String(academicYear).trim();
+    academicYears.add(yearKey);
+
+    // Amount source of truth = transport request fare only (never stage/structure amount).
+    if (request.fare === null || request.fare === undefined || request.fare === '') {
+      continue;
+    }
+    const amount = Number(request.fare);
+    if (!Number.isFinite(amount) || amount < 0) continue;
 
     const studentYear = request.year_of_study || student.current_year || 1;
     const semester = request.semester_number || student.current_semester || 1;
-    const amount = Number(request.fare) || 0;
-    const remarks = buildTransportRemarks(request.route_name, request.stage_name);
+    const remarks = buildTransportRemarks(request.route_name, request.stage_name, academicYear);
+
+    if (!expectedRemarksByYear.has(yearKey)) expectedRemarksByYear.set(yearKey, new Set());
+    expectedRemarksByYear.get(yearKey).add(remarks);
 
     const result = await upsertStudentFeeDemand({
       admissionNo,
       student,
       feeHeadId: transportFeeHead._id,
-      academicYear,
+      academicYear: yearKey,
       studentYear,
       semester,
       amount,
@@ -385,7 +464,47 @@ const syncTransportFees = async (student, admissionNo) => {
     updated += result.updated;
   }
 
-  return { created, updated, requestsMatched: requests.length };
+  // Drop unpaid duplicate transport demands for synced years that are not
+  // the current approved request (e.g. old remarks "Transport" left after re-sync).
+  // Fee Collection groups all TRN rows for a year into one total — duplicates double the fare.
+  for (const [yearKey, expectedRemarks] of expectedRemarksByYear.entries()) {
+    const existing = await StudentFee.find({
+      studentId: admissionNo,
+      feeHead: transportFeeHead._id,
+      academicYear: yearKey
+    });
+
+    for (const fee of existing) {
+      const feeRemarks = String(fee.remarks || '').trim();
+      const feeBase = feeRemarks.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+      const isExpected = [...expectedRemarks].some((expected) => {
+        if (feeRemarks === expected) return true;
+        const expectedBase = expected.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+        return feeBase && feeBase === expectedBase;
+      });
+      if (isExpected) continue;
+
+      const txs = await Transaction.find({
+        studentId: admissionNo,
+        feeHead: transportFeeHead._id,
+        studentYear: String(fee.studentYear),
+        status: { $ne: 'cancelled' },
+        transactionType: 'DEBIT'
+      }).lean();
+      const paid = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      if (paid > 0) continue;
+
+      await StudentFee.deleteOne({ _id: fee._id });
+      updated += 1;
+    }
+  }
+
+  return {
+    created,
+    updated,
+    requestsMatched: requests.length,
+    academicYears: Array.from(academicYears).sort()
+  };
 };
 
 const findHostelFeeHead = async () => {
@@ -437,10 +556,11 @@ const findHostelFeeStructure = async (connection, request, student, studentYear)
 const syncHostelFees = async (student, admissionNo) => {
   let created = 0;
   let updated = 0;
+  const academicYears = new Set();
 
   const hostelConnection = getHostelConnection();
   if (!hostelConnection) {
-    return { created, updated, requestsMatched: 0 };
+    return { created, updated, requestsMatched: 0, academicYears: [] };
   }
 
   const requests = await hostelConnection.db
@@ -453,7 +573,7 @@ const syncHostelFees = async (student, admissionNo) => {
     .toArray();
 
   if (requests.length === 0) {
-    return { created, updated, requestsMatched: 0 };
+    return { created, updated, requestsMatched: 0, academicYears: [] };
   }
 
   const hostelFeeHead = await findHostelFeeHead();
@@ -462,6 +582,7 @@ const syncHostelFees = async (student, admissionNo) => {
 
   for (const request of requests) {
     if (!request.academicYear || !request.hostelId || !request.hostelCategoryId) continue;
+    academicYears.add(String(request.academicYear).trim());
 
     const studentYear = request.sdmsYearOfStudy || student.current_year || 1;
     const structure = await findHostelFeeStructure(
@@ -481,7 +602,11 @@ const syncHostelFees = async (student, admissionNo) => {
       0,
       (Number(structure.amount) || 0) - (Number(request.concession) || 0)
     );
-    const remarks = `Hostel: ${hostel?.name || 'Hostel'} - ${category?.name || 'Category'}`;
+    const remarks = buildHostelRemarks(
+      hostel?.name || 'Hostel',
+      category?.name || 'Category',
+      request.academicYear
+    );
 
     const result = await upsertStudentFeeDemand({
       admissionNo,
@@ -498,7 +623,12 @@ const syncHostelFees = async (student, admissionNo) => {
     updated += result.updated;
   }
 
-  return { created, updated, requestsMatched: requests.length };
+  return {
+    created,
+    updated,
+    requestsMatched: requests.length,
+    academicYears: Array.from(academicYears).sort()
+  };
 };
 
 const syncStandardFees = async (student, admissionNo) => {
@@ -518,9 +648,18 @@ const syncStandardFees = async (student, admissionNo) => {
     return { created, updated, structuresMatched: 0 };
   }
 
+  // Transport / Hostel amounts come only from approved requests — never from FeeStructure.
+  const serviceHeadIds = new Set();
+  const transportHead = await findTransportFeeHead();
+  const hostelHead = await findHostelFeeHead();
+  if (transportHead?._id) serviceHeadIds.add(String(transportHead._id));
+  if (hostelHead?._id) serviceHeadIds.add(String(hostelHead._id));
+
   const revisedFeesMap = await loadRevisedFeesMapForStudent(admissionNo);
 
   for (const fs of applicableStructures) {
+    if (serviceHeadIds.has(String(fs.feeHead))) continue;
+
     const targetAmount = resolveTargetAmount(fs.amount, revisedFeesMap, fs);
     const result = await upsertStudentFeeDemand({
       admissionNo,
@@ -589,10 +728,10 @@ const syncStudentFeesByAdmissionNumber = async (admissionNo, options = {}) => {
     ? { created: 0 }
     : await syncClubFees(student, admissionNo);
   const transportResult = skipTransport
-    ? { created: 0, updated: 0, requestsMatched: 0 }
+    ? { created: 0, updated: 0, requestsMatched: 0, academicYears: [] }
     : await syncTransportFees(student, admissionNo);
   const hostelResult = skipHostel
-    ? { created: 0, updated: 0, requestsMatched: 0 }
+    ? { created: 0, updated: 0, requestsMatched: 0, academicYears: [] }
     : await syncHostelFees(student, admissionNo);
   const standardResult = skipStandard
     ? { created: 0, updated: 0, structuresMatched: 0 }
@@ -604,9 +743,11 @@ const syncStudentFeesByAdmissionNumber = async (admissionNo, options = {}) => {
     transportFeesCreated: transportResult.created,
     transportFeesUpdated: transportResult.updated,
     transportRequestsMatched: transportResult.requestsMatched,
+    transportAcademicYears: transportResult.academicYears || [],
     hostelFeesCreated: hostelResult.created,
     hostelFeesUpdated: hostelResult.updated,
     hostelRequestsMatched: hostelResult.requestsMatched,
+    hostelAcademicYears: hostelResult.academicYears || [],
     standardFeesCreated: standardResult.created,
     standardFeesUpdated: standardResult.updated,
     structuresMatched: standardResult.structuresMatched
@@ -624,13 +765,21 @@ const syncAllRegularStudentFees = async ({
   skipClub = false,
   skipStandard = false
 } = {}) => {
-  const [students] = await db.query(`
-    SELECT admission_number
-    FROM students
-    WHERE LOWER(COALESCE(student_status, '')) = 'regular'
-      AND admission_number IS NOT NULL
-      AND TRIM(admission_number) <> ''
-  `);
+  let students = [];
+  try {
+    const [rows] = await db.query(`
+      SELECT admission_number
+      FROM students
+      WHERE LOWER(COALESCE(student_status, '')) = 'regular'
+        AND admission_number IS NOT NULL
+        AND TRIM(admission_number) <> ''
+    `);
+    students = rows || [];
+  } catch (err) {
+    console.error('[FeeSync] Failed to load regular students list:', err?.message || err);
+    if (err?.stack) console.error(err.stack);
+    return { total: 0, success: 0, failed: 0, aborted: true };
+  }
 
   const total = students.length;
   let success = 0;
@@ -646,13 +795,17 @@ const syncAllRegularStudentFees = async ({
   for (let i = 0; i < students.length; i += limit) {
     const batch = students.slice(i, i + limit);
     await Promise.all(batch.map(async (row) => {
-      const admissionNo = String(row.admission_number).trim();
+      const admissionNo = String(row.admission_number || '').trim();
+      if (!admissionNo) {
+        failed += 1;
+        return;
+      }
       try {
         await syncStudentFeesByAdmissionNumber(admissionNo, syncOptions);
         success += 1;
       } catch (err) {
         failed += 1;
-        console.error(`[FeeSync] Failed for ${admissionNo}:`, err.message);
+        console.error(`[FeeSync] Failed for ${admissionNo}:`, err?.message || err);
       }
     }));
 

@@ -3,7 +3,7 @@ import api from '../lib/api';
 import { Building2, X, DollarSign, UserPlus, Edit2, Trash2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 
-const HostelConfiguration = () => {
+const HostelConfiguration = ({ embedded = false } = {}) => {
   const [activeTab, setActiveTab] = useState('hostel-details'); // hostel-details | fee-structure
 
   // Hostel details (read-only)
@@ -73,7 +73,11 @@ const HostelConfiguration = () => {
     return Array.from({ length: total }, (_, i) => i + 1);
   }, [metadata, feeStructureForm.course]);
 
-  const academicYears = Array.from({ length: 5 }, (_, i) => `${currentYear - 2 + i}-${currentYear - 1 + i}`);
+  // Current calendar year ± 3 academic years (7 options)
+  const academicYears = Array.from({ length: 7 }, (_, i) => {
+    const y = currentYear - 3 + i;
+    return `${y}-${y + 1}`;
+  });
 
   const fetchHostels = async () => {
     setLoadingHostels(true);
@@ -171,7 +175,7 @@ const HostelConfiguration = () => {
       const categoryAmounts = {};
       categoriesForFeeTable.forEach((c) => { categoryAmounts[c._id] = ''; });
       setFeeStructureForm({
-        academicYear: feeStructureFilterYear || academicYears[0] || '',
+        academicYear: feeStructureFilterYear || academicYears[3] || academicYears[0] || '',
         hostelId: feeStructureFilterHostel || '',
         course: '',
         studentYears: [1],
@@ -336,14 +340,12 @@ const HostelConfiguration = () => {
     return Array.from(seen.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [feeStructureFilterHostel, categoriesForFeeTable, hostelFeeStructures]);
 
-  return (
-    <div className="flex min-h-screen bg-gray-50 font-sans">
-      <Sidebar />
-      <div className="flex-1 p-4 md:p-6">
-        <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+  const content = (
+    <>
+        <header className={`mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${embedded ? '' : ''}`}>
           <div>
-            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-              <Building2 className="text-gray-800" size={28} />
+            <h1 className={`${embedded ? 'text-lg' : 'text-2xl'} font-bold text-gray-800 flex items-center gap-2`}>
+              <Building2 className="text-gray-800" size={embedded ? 22 : 28} />
               Hostel Configuration
             </h1>
             <p className="text-sm text-gray-500 mt-1">View hostel details and manage fee structures (read-only hostel data).</p>
@@ -352,6 +354,7 @@ const HostelConfiguration = () => {
             {['hostel-details', 'fee-structure'].map((tab) => (
               <button
                 key={tab}
+                type="button"
                 onClick={() => setActiveTab(tab)}
                 className={`px-4 py-2 rounded-md text-sm font-bold transition whitespace-nowrap capitalize ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'}`}
               >
@@ -696,6 +699,18 @@ const HostelConfiguration = () => {
             </div>
           </div>
         )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="w-full">{content}</div>;
+  }
+
+  return (
+    <div className="flex min-h-screen bg-gray-50 font-sans">
+      <Sidebar />
+      <div className="flex-1 p-4 md:p-6">
+        {content}
       </div>
     </div>
   );

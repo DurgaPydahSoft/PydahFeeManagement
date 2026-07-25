@@ -366,14 +366,29 @@ const FeeCollection = () => {
             const matched = (data.structuresMatched || 0)
                 + (data.transportRequestsMatched || 0)
                 + (data.hostelRequestsMatched || 0);
+
+            const detailParts = [];
+            if ((data.structuresMatched || 0) > 0) {
+                detailParts.push(`Structures: ${data.structuresMatched}`);
+            }
+            if ((data.transportRequestsMatched || 0) > 0) {
+                const years = (data.transportAcademicYears || []).join(', ') || '—';
+                detailParts.push(`Transport: ${data.transportRequestsMatched} req (${years})`);
+            }
+            if ((data.hostelRequestsMatched || 0) > 0) {
+                const years = (data.hostelAcademicYears || []).join(', ') || '—';
+                detailParts.push(`Hostel: ${data.hostelRequestsMatched} req (${years})`);
+            }
+            const details = detailParts.length ? ` — ${detailParts.join(' · ')}` : '';
+
             if (created === 0 && updated === 0) {
                 showToastMessage(
-                    `Fees already in sync (${matched} structure/request(s) matched).`,
+                    `Fees already in sync (${matched} structure/request(s) matched)${details}.`,
                     'success'
                 );
             } else {
                 showToastMessage(
-                    `Synced: ${created} created, ${updated} updated (${matched} structure/request(s)).`,
+                    `Synced: ${created} created, ${updated} updated (${matched} structure/request(s))${details}.`,
                     'success'
                 );
             }
@@ -915,6 +930,34 @@ const FeeCollection = () => {
         return Math.max(1, fromFees || 0);
     }, [displayedFees]);
 
+    const getFeeTermBalance = (fee, termIndex) => {
+        const term = fee.terms?.[termIndex];
+        const tb = Array.isArray(fee.termBalances)
+            ? (fee.termBalances.find(b => Number(b.termNumber) === Number(term?.termNumber || termIndex + 1))
+                || fee.termBalances[termIndex])
+            : null;
+        if (!term && !tb) return null;
+        if (tb) return Number(tb.balance) || 0;
+
+        let remPaid = Number(fee.paidAmount) || 0;
+        let remConc = Number(fee.concessionAmount) || 0;
+        for (let j = 0; j <= termIndex; j++) {
+            const t = fee.terms?.[j];
+            if (!t && j > 0) continue;
+            const pct = Number(t?.percentage) || (j === 0 ? 100 : 0);
+            const target = Math.round((Number(fee.totalAmount || 0) * pct) / 100);
+            const conc = Math.min(remConc, target);
+            remConc -= conc;
+            const afterConc = target - conc;
+            const paid = Math.min(remPaid, afterConc);
+            remPaid -= paid;
+            if (j === termIndex) return afterConc - paid;
+        }
+        return 0;
+    };
+
+    const duesTableRows = displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0);
+
     const totalDueAmount = displayedFees.reduce((acc, curr) => {
         const isFeeActive = curr.isActive !== false;
         if (viewFilterStatus === 'ACTIVE' && !isFeeActive) return acc;
@@ -1384,11 +1427,11 @@ const FeeCollection = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-50">
-                                                {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0).length === 0 ? (
+                                                {duesTableRows.length === 0 ? (
                                                     <tr><td colSpan={6 + maxTerms} className="py-5 text-center text-gray-500 italic text-xs">No active fees found for this selection. Use the dropdown to collect a new fee.</td></tr>
                                                 ) : (
                                                     <>
-                                                        {displayedFees.filter(f => f.totalAmount > 0 || f.paidAmount > 0 || f.concessionAmount > 0).map((fee, idx) => {
+                                                        {duesTableRows.map((fee, idx) => {
                                                             const isFullyPaid = fee.dueAmount <= 0;
                                                             const isPartial = fee.paidAmount > 0 && fee.dueAmount > 0;
                                                             const isSelected = feeRows.some(row => row.feeHeadId === fee._id);
@@ -1443,51 +1486,17 @@ const FeeCollection = () => {
                                                                     <td className="py-1.5 px-3 text-xs text-right text-gray-600 font-mono">{fmtAmount(fee.totalAmount)}</td>
 
                                                                     {/* Dynamic Term Columns — non-divided heads show due under T1 */}
-                                                                    {(() => {
-                                                                        const termCells = [];
-                                                                        for (let i = 0; i < maxTerms; i++) {
-                                                                            const term = fee.terms?.[i];
-                                                                            const tb = Array.isArray(fee.termBalances)
-                                                                                ? (fee.termBalances.find(b => Number(b.termNumber) === Number(term?.termNumber || i + 1))
-                                                                                    || fee.termBalances[i])
-                                                                                : null;
-
-                                                                            if (term || tb) {
-                                                                                const termBalance = tb
-                                                                                    ? Number(tb.balance) || 0
-                                                                                    : (() => {
-                                                                                        // Fallback: paid-only waterfall (legacy)
-                                                                                        let remainingPaid = Number(fee.paidAmount) || 0;
-                                                                                        const remainingConcession = Number(fee.concessionAmount) || 0;
-                                                                                        // Apply concession then paid against term targets
-                                                                                        let remPaid = remainingPaid;
-                                                                                        let remConc = remainingConcession;
-                                                                                        for (let j = 0; j <= i; j++) {
-                                                                                            const t = fee.terms?.[j];
-                                                                                            if (!t && j > 0) continue;
-                                                                                            const pct = Number(t?.percentage) || (j === 0 ? 100 : 0);
-                                                                                            const target = Math.round((Number(fee.totalAmount || 0) * pct) / 100);
-                                                                                            const conc = Math.min(remConc, target);
-                                                                                            remConc -= conc;
-                                                                                            const afterConc = target - conc;
-                                                                                            const paid = Math.min(remPaid, afterConc);
-                                                                                            remPaid -= paid;
-                                                                                            if (j === i) return afterConc - paid;
-                                                                                        }
-                                                                                        return 0;
-                                                                                    })();
-
-                                                                                termCells.push(
-                                                                                    <td key={i} className={`py-1.5 px-3 text-[11px] text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                                                                                        {termBalance > 0 ? fmtAmount(termBalance) : '—'}
-                                                                                    </td>
-                                                                                );
-                                                                            } else {
-                                                                                termCells.push(<td key={i} className="py-1.5 px-3 text-right text-gray-400 bg-gray-50/20 text-[11px]">- - -</td>);
-                                                                            }
+                                                                    {Array.from({ length: maxTerms }, (_, i) => {
+                                                                        const termBalance = getFeeTermBalance(fee, i);
+                                                                        if (termBalance == null) {
+                                                                            return <td key={i} className="py-1.5 px-3 text-right text-gray-400 bg-gray-50/20 text-[11px]">- - -</td>;
                                                                         }
-                                                                        return termCells;
-                                                                    })()}
+                                                                        return (
+                                                                            <td key={i} className={`py-1.5 px-3 text-[11px] text-right font-mono border-x border-gray-100/50 ${termBalance > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                                                                                {termBalance > 0 ? fmtAmount(termBalance) : '—'}
+                                                                            </td>
+                                                                        );
+                                                                    })}
 
                                                                     <td className="py-1.5 px-3 text-xs text-right text-green-600 font-mono font-medium">{fmtAmount(fee.paidAmount)}</td>
                                                                     <td className="py-1.5 px-3 text-xs text-right text-purple-600 font-mono font-medium">{fmtAmount(fee.concessionAmount)}</td>
@@ -1528,51 +1537,58 @@ const FeeCollection = () => {
                                                                 </React.Fragment>
                                                             );
                                                         })}
-                                                        {/* Total Row */}
-                                                        <tr className="bg-gray-50/50 border-t border-gray-200">
-                                                            <td className="py-2 px-3" colSpan={4 + maxTerms}>
-                                                                <div className="flex justify-between items-center">
-                                                                    {/* Left: Stats */}
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {(() => {
-                                                                            const yearBreakdown = displayedFees.reduce((acc, curr) => {
-                                                                                if (Number(curr.dueAmount || 0) > 0) {
-                                                                                    const y = curr.studentYear;
-                                                                                    if (!acc[y]) acc[y] = 0;
-                                                                                    acc[y] += Number(curr.dueAmount || 0);
-                                                                                }
-                                                                                return acc;
-                                                                            }, {});
-
-                                                                            const sortedYears = Object.keys(yearBreakdown).sort((a, b) => Number(a) - Number(b));
-
-                                                                            if (sortedYears.length === 0) return <span className="text-[9px] text-gray-400 italic">No Dues</span>;
-
-                                                                            return sortedYears.map(yr => (
-                                                                                <div key={yr} className="flex items-center text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded-full shadow-sm">
-                                                                                    <span className="text-gray-500 font-bold mr-1">Yr {yr}:</span>
-                                                                                    <span className="font-mono font-medium text-red-600">{fmtAmount(yearBreakdown[yr])}</span>
-                                                                                </div>
-                                                                            ));
-                                                                        })()}
-                                                                    </div>
-
-                                                                    {/* Right: Label */}
-                                                                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wide">
-                                                                        Total Outstanding ({viewFilterYear === 'ALL' ? 'Cumulative' : `Year ${viewFilterYear}`}):
-                                                                    </span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-2 px-3 text-right">
-                                                                <div className="text-sm font-extrabold text-red-600 font-mono">{fmtAmount(totalDueAmount)}</div>
-                                                                {currentViewScholarshipAmount > 0 && (
-                                                                    <div className="text-[9px] text-yellow-600 font-bold mt-0.5">
-                                                                        (Sch: {fmtAmount(currentViewScholarshipAmount)})
-                                                                    </div>
-                                                                )}
-                                                            </td>
-                                                            <td></td>
-                                                        </tr>
+                                                        {/* Column totals: terms + paid + concession + balance */}
+                                                        {(() => {
+                                                            const termDues = Array.from({ length: maxTerms }, () => 0);
+                                                            let totalFee = 0;
+                                                            let paid = 0;
+                                                            let concession = 0;
+                                                            let balance = 0;
+                                                            duesTableRows.forEach(fee => {
+                                                                totalFee += Number(fee.totalAmount) || 0;
+                                                                paid += Number(fee.paidAmount) || 0;
+                                                                concession += Number(fee.concessionAmount) || 0;
+                                                                balance += Number(fee.dueAmount) || 0;
+                                                                for (let i = 0; i < maxTerms; i++) {
+                                                                    const tb = getFeeTermBalance(fee, i);
+                                                                    if (tb != null) termDues[i] += Number(tb) || 0;
+                                                                }
+                                                            });
+                                                            return (
+                                                                <tr className="bg-slate-100/80 border-t-2 border-slate-300">
+                                                                    <td className="py-2.5 px-3"></td>
+                                                                    <td className="py-2.5 px-3 text-[11px] font-extrabold text-slate-800 uppercase tracking-wide">
+                                                                        Total
+                                                                        <div className="text-[9px] font-semibold text-slate-500 normal-case tracking-normal mt-0.5">
+                                                                            {viewFilterYear === 'ALL' ? 'All years' : `Year ${viewFilterYear}`}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right text-xs font-bold text-slate-800 font-mono">
+                                                                        {fmtAmount(totalFee)}
+                                                                    </td>
+                                                                    {termDues.map((amt, i) => (
+                                                                        <td key={i} className={`py-2.5 px-3 text-right text-[11px] font-bold font-mono border-x border-slate-200/60 ${amt > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                                                            {amt > 0 ? fmtAmount(amt) : '—'}
+                                                                        </td>
+                                                                    ))}
+                                                                    <td className="py-2.5 px-3 text-right text-xs font-bold text-green-700 font-mono">
+                                                                        {fmtAmount(paid)}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right text-xs font-bold text-purple-700 font-mono">
+                                                                        {fmtAmount(concession)}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right text-sm font-extrabold text-red-600 font-mono">
+                                                                        {fmtAmount(balance)}
+                                                                        {currentViewScholarshipAmount > 0 && (
+                                                                            <div className="text-[9px] text-yellow-600 font-bold mt-0.5">
+                                                                                (Sch: {fmtAmount(currentViewScholarshipAmount)})
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3"></td>
+                                                                </tr>
+                                                            );
+                                                        })()}
                                                     </>
                                                 )}
                                             </tbody>

@@ -24,7 +24,20 @@ const { verifyS3Connection } = require('./utils/s3Upload');
 verifyS3Connection();
 
 const { initScheduler } = require('./services/scheduler');
-initScheduler();
+initScheduler().catch((err) => {
+  console.error('[Scheduler] initScheduler failed (server continues without cron):', err?.message || err);
+  if (err?.stack) console.error(err.stack);
+});
+
+// Keep the process alive if a background/async task fails outside Express handlers
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process] Unhandled promise rejection (non-fatal):', reason?.message || reason);
+  if (reason?.stack) console.error(reason.stack);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught exception (logged; process kept alive):', err?.message || err);
+  if (err?.stack) console.error(err.stack);
+});
 
 const app = express();
 
