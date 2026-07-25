@@ -62,6 +62,7 @@ const OverallConcession = () => {
     const [reqFilters,        setReqFilters]        = useState({ college: '', course: '', branch: '', batch: '' });
     const [reqCourses,        setReqCourses]        = useState([]);
     const [reqBranches,       setReqBranches]       = useState([]);
+    const [reqSearchTerm,     setReqSearchTerm]     = useState('');
     const [selectedRequest,   setSelectedRequest]   = useState(null);
     const [approveBusy,       setApproveBusy]       = useState(false);
     const [rejectReason,      setRejectReason]      = useState('');
@@ -180,6 +181,24 @@ const OverallConcession = () => {
         } catch (err) { console.error('Error fetching requests', err); }
         finally { setRequestsLoading(false); }
     }, [isAdminRole, reqStatusFilter, reqFilters]);
+
+    const filteredRequests = (() => {
+        const q = reqSearchTerm.trim().toLowerCase();
+        if (!q) return requests;
+        const clean = q.replace(/[^a-z0-9]/g, '');
+        return requests.filter(r => {
+            const name = String(r.studentName || '').toLowerCase();
+            const adm = String(r.admissionNumber || '').toLowerCase();
+            const pin = String(r.pinNo || '').toLowerCase();
+            const cleanAdm = adm.replace(/[^a-z0-9]/g, '');
+            const cleanPin = pin.replace(/[^a-z0-9]/g, '');
+            return name.includes(q)
+                || adm.includes(q)
+                || pin.includes(q)
+                || (clean && cleanAdm.includes(clean))
+                || (clean && cleanPin.includes(clean));
+        });
+    })();
 
     useEffect(() => {
         if (activeTab === 'requests') fetchRequests();
@@ -987,6 +1006,31 @@ const OverallConcession = () => {
 
                             {/* Filters */}
                             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3">
+                                <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                                    <div className="flex-1 min-w-0">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Search Student</label>
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                value={reqSearchTerm}
+                                                onChange={e => setReqSearchTerm(e.target.value)}
+                                                placeholder="Name, admission number, or pin..."
+                                                className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block pl-3 pr-10 py-2.5"
+                                            />
+                                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 pointer-events-none">
+                                                <Search size={14} />
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 shrink-0 pb-0.5">
+                                        {['PENDING', 'APPROVED', 'REJECTED', ''].map(s => (
+                                            <button key={s || 'ALL'} type="button" onClick={() => setReqStatusFilter(s)}
+                                                className={`px-3 py-2 rounded-lg text-xs font-bold border transition ${reqStatusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
+                                                {s || 'All'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
@@ -1021,26 +1065,12 @@ const OverallConcession = () => {
                                         </select>
                                     </div>
                                 </div>
-
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status:</span>
-                                    {['PENDING', 'APPROVED', 'REJECTED', ''].map(s => (
-                                        <button key={s || 'ALL'} onClick={() => setReqStatusFilter(s)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${reqStatusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'}`}>
-                                            {s || 'All'}
-                                        </button>
-                                    ))}
-                                    <button onClick={fetchRequests} disabled={requestsLoading}
-                                        className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition flex items-center gap-1">
-                                        <Filter size={12} /> {requestsLoading ? 'Loading...' : 'Refresh'}
-                                    </button>
-                                </div>
                             </div>
 
                             {/* Requests list */}
                             {requestsLoading ? (
                                 <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400 italic">Loading requests...</div>
-                            ) : requests.length === 0 ? (
+                            ) : filteredRequests.length === 0 ? (
                                 <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400">
                                     No requests found for the selected filters.
                                 </div>
@@ -1050,8 +1080,8 @@ const OverallConcession = () => {
                                         <table className="w-full text-xs">
                                             <thead>
                                                 <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase border-b border-slate-200">
-                                                    <th className="px-4 py-3 text-left">Student</th>
                                                     <th className="px-4 py-3 text-left">College / Course</th>
+                                                    <th className="px-4 py-3 text-left">Student</th>
                                                     <th className="px-4 py-3 text-left">Batch</th>
                                                     <th className="px-4 py-3 text-left">Quota</th>
                                                     <th className="px-4 py-3 text-left">Requested By</th>
@@ -1061,17 +1091,17 @@ const OverallConcession = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {requests.map(req => (
+                                                {filteredRequests.map(req => (
                                                     <tr key={req._id}
                                                         onClick={() => openRequestModal(req)}
                                                         className="hover:bg-blue-50/50 cursor-pointer transition">
-                                                        <td className="px-4 py-3">
-                                                            <div className="font-bold text-slate-900">{req.studentName}</div>
-                                                            <div className="text-[10px] text-slate-500">Adm: {req.admissionNumber}</div>
-                                                        </td>
                                                         <td className="px-4 py-3 text-slate-700">
                                                             <div>{req.college}</div>
                                                             <div className="text-[10px] text-slate-500">{req.course} — {req.branch}</div>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <div className="font-bold text-slate-900">{req.studentName}</div>
+                                                            <div className="text-[10px] text-slate-500">Adm: {req.admissionNumber}{req.pinNo ? ` · Pin: ${req.pinNo}` : ''}</div>
                                                         </td>
                                                         <td className="px-4 py-3 font-semibold text-slate-800">{req.batch}</td>
                                                         <td className="px-4 py-3">

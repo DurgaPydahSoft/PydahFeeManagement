@@ -570,7 +570,14 @@ const fetchStudentByAdmissionNumber = async (admissionNo) => {
   return students[0] || null;
 };
 
-const syncStudentFeesByAdmissionNumber = async (admissionNo) => {
+const syncStudentFeesByAdmissionNumber = async (admissionNo, options = {}) => {
+  const {
+    skipClub = false,
+    skipTransport = false,
+    skipHostel = false,
+    skipStandard = false
+  } = options;
+
   const student = await fetchStudentByAdmissionNumber(admissionNo);
   if (!student) {
     const error = new Error('Student not found');
@@ -578,10 +585,18 @@ const syncStudentFeesByAdmissionNumber = async (admissionNo) => {
     throw error;
   }
 
-  const clubResult = await syncClubFees(student, admissionNo);
-  const transportResult = await syncTransportFees(student, admissionNo);
-  const hostelResult = await syncHostelFees(student, admissionNo);
-  const standardResult = await syncStandardFees(student, admissionNo);
+  const clubResult = skipClub
+    ? { created: 0 }
+    : await syncClubFees(student, admissionNo);
+  const transportResult = skipTransport
+    ? { created: 0, updated: 0, requestsMatched: 0 }
+    : await syncTransportFees(student, admissionNo);
+  const hostelResult = skipHostel
+    ? { created: 0, updated: 0, requestsMatched: 0 }
+    : await syncHostelFees(student, admissionNo);
+  const standardResult = skipStandard
+    ? { created: 0, updated: 0, structuresMatched: 0 }
+    : await syncStandardFees(student, admissionNo);
 
   return {
     admissionNumber: admissionNo,
@@ -598,6 +613,59 @@ const syncStudentFeesByAdmissionNumber = async (admissionNo) => {
   };
 };
 
+/**
+ * Nightly / bulk sync for all regular students.
+ * Standard fee structures (+ club + declaration credits). Transport/hostel skipped by default.
+ */
+const syncAllRegularStudentFees = async ({
+  concurrency = 5,
+  skipTransport = true,
+  skipHostel = true,
+  skipClub = false,
+  skipStandard = false
+} = {}) => {
+  const [students] = await db.query(`
+    SELECT admission_number
+    FROM students
+    WHERE LOWER(COALESCE(student_status, '')) = 'regular'
+      AND admission_number IS NOT NULL
+      AND TRIM(admission_number) <> ''
+  `);
+
+  const total = students.length;
+  let success = 0;
+  let failed = 0;
+  const limit = Math.max(1, Number(concurrency) || 5);
+  const syncOptions = { skipTransport, skipHostel, skipClub, skipStandard };
+
+  console.log(
+    `[FeeSync] Starting nightly student fee sync for ${total} regular student(s)` +
+    ` (skipTransport=${skipTransport}, skipHostel=${skipHostel})...`
+  );
+
+  for (let i = 0; i < students.length; i += limit) {
+    const batch = students.slice(i, i + limit);
+    await Promise.all(batch.map(async (row) => {
+      const admissionNo = String(row.admission_number).trim();
+      try {
+        await syncStudentFeesByAdmissionNumber(admissionNo, syncOptions);
+        success += 1;
+      } catch (err) {
+        failed += 1;
+        console.error(`[FeeSync] Failed for ${admissionNo}:`, err.message);
+      }
+    }));
+
+    const done = Math.min(i + limit, total);
+    if (done % 200 === 0 || done === total) {
+      console.log(`[FeeSync] Progress ${done}/${total} (ok=${success}, failed=${failed})`);
+    }
+  }
+
+  console.log(`[FeeSync] Nightly student fee sync finished. total=${total}, ok=${success}, failed=${failed}`);
+  return { total, success, failed };
+};
+
 module.exports = {
   fetchStudentByAdmissionNumber,
   syncClubFees,
@@ -605,6 +673,7 @@ module.exports = {
   syncHostelFees,
   syncStandardFees,
   syncStudentFeesByAdmissionNumber,
+  syncAllRegularStudentFees,
   loadRevisedFeesMapForStudent,
   resolveTargetAmount
 };

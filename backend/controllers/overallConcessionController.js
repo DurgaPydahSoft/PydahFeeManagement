@@ -628,7 +628,7 @@ const submitConcessionRequest = async (req, res) => {
 // @route   GET /api/overall-concessions/requests
 const getConcessionRequests = async (req, res) => {
     try {
-        const { status, college, course, branch, batch, admissionNumber } = req.query;
+        const { status, college, course, branch, batch, admissionNumber, search } = req.query;
         const filter = {};
         if (status)          filter.status = status.toUpperCase();
         if (college)         filter.college = college;
@@ -636,6 +636,17 @@ const getConcessionRequests = async (req, res) => {
         if (branch)          filter.branch = branch;
         if (batch)           filter.batch = batch;
         if (admissionNumber) filter.admissionNumber = admissionNumber;
+
+        const q = String(search || '').trim();
+        if (q) {
+            const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const rx = new RegExp(escaped, 'i');
+            filter.$or = [
+                { studentName: rx },
+                { admissionNumber: rx },
+                { pinNo: rx }
+            ];
+        }
 
         const requests = await OverallConcessionRequest.find(filter)
             .sort({ createdAt: -1 })

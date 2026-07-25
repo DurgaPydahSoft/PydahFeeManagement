@@ -6,6 +6,7 @@ const db = require('../config/sqlDb');
 
 const { processRemindersBatch } = require('../controllers/reminderController');
 const { processLateFees } = require('../controllers/lateFeeController');
+const { syncAllRegularStudentFees } = require('./studentFeeSyncService');
 
 // Track the currently scheduled payment-reset job so we can reschedule if settings change
 let paymentResetJob = null;
@@ -69,8 +70,12 @@ const initScheduler = async () => {
     // Run every day at 3:00 AM (safe time)
     cron.schedule('0 3 * * *', async () => {
         console.log('Running Daily Automated Tasks...');
-        await processReminderConfigs();
+        // 1) Sync student fee structures (standard + club + declaration credits; no transport/hostel)
+        await processStudentFeeStructureSync();
+        // 2) Then generate/update late fees against the latest dues
         await processLateFees();
+        // 3) Reminder rules
+        await processReminderConfigs();
     }, { timezone: 'Asia/Kolkata' });
 
     // Load current payment reset schedule from settings and start it
@@ -99,6 +104,24 @@ const initScheduler = async () => {
         }
     } catch (err) {
         console.error('[EmailReportScheduler] Failed to initialize daily email report schedule:', err);
+    }
+};
+
+const processStudentFeeStructureSync = async () => {
+    try {
+        console.log('[Scheduler] Starting nightly student fee structure sync...');
+        const result = await syncAllRegularStudentFees({
+            concurrency: 5,
+            skipTransport: true,
+            skipHostel: true
+        });
+        console.log(
+            `[Scheduler] Student fee structure sync done: total=${result.total}, ok=${result.success}, failed=${result.failed}`
+        );
+        return result;
+    } catch (error) {
+        console.error('[Scheduler] Student fee structure sync failed:', error);
+        return null;
     }
 };
 
