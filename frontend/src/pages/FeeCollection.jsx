@@ -757,10 +757,13 @@ const FeeCollection = () => {
 
     const totalSelectedAmount = feeRows.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
-    // Filter Fee Details for Display
-    const uniqueStudentYears = [...new Set(feeDetails.map(f => f.studentYear))].sort((a, b) => b - a);
+    // Filter Fee Details for Display — only up to student's current year
+    const currentYear = Number(student?.current_year || 0);
+    const feeDetailsUpToCurrentYear = feeDetails.filter(f => Number(f.studentYear) <= currentYear);
 
-    const displayedFees = feeDetails.filter(f => {
+    const uniqueStudentYears = [...new Set(feeDetailsUpToCurrentYear.map(f => f.studentYear))].sort((a, b) => b - a);
+
+    const displayedFees = feeDetailsUpToCurrentYear.filter(f => {
         if (viewFilterYear === 'ALL') return true;
         return Number(f.studentYear) === Number(viewFilterYear);
     });
@@ -770,13 +773,13 @@ const FeeCollection = () => {
     }, [displayedFees]);
 
     const totalDueAmount = displayedFees.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
-    const globalTotalDue = feeDetails.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
+    const globalTotalDue = feeDetailsUpToCurrentYear.reduce((acc, curr) => acc + Number(curr.dueAmount || 0), 0);
 
     // Calculate Scholarship Amounts (Global & Current View)
     // Criteria: isScholarshipApplicable AND (studentScholarStatus is 'eligible', 'yes', or 'true')
     const isScholarshipEligible = (f) => f.isScholarshipApplicable && ['eligible', 'yes', 'true'].includes(String(f.studentScholarStatus || '').toLowerCase());
 
-    const globalScholarshipAmount = feeDetails.reduce((acc, curr) => {
+    const globalScholarshipAmount = feeDetailsUpToCurrentYear.reduce((acc, curr) => {
         return isScholarshipEligible(curr) ? acc + Number(curr.dueAmount || 0) : acc;
     }, 0);
 
@@ -1117,9 +1120,11 @@ const FeeCollection = () => {
                                             yearWiseStats[i] = { total: 0, paid: 0, due: 0, year: i };
                                         }
 
-                                        // Add years from feeDetails (in case there are dues for FUTURE years or old years not covered)
+                                        // Add years from feeDetails — only up to the student's current year
                                         feeDetails.forEach(curr => {
                                             const y = curr.studentYear;
+                                            // Skip future years beyond the student's current year
+                                            if (Number(y) > Number(student.current_year || 1)) return;
                                             if (!yearWiseStats[y]) yearWiseStats[y] = { total: 0, paid: 0, due: 0, year: y };
                                             yearWiseStats[y].total += Number(curr.totalAmount || 0);
                                             yearWiseStats[y].paid += Number(curr.paidAmount || 0);
