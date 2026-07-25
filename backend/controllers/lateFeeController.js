@@ -7,7 +7,8 @@ const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const {
   isDeclarationConcessionTxn,
   allocateTermBalances,
-  isUnderpaidThroughTerm
+  isUnderpaidThroughTerm,
+  resolveEffectiveTerms
 } = require('../utils/termConcessionAllocation');
 
 /**
@@ -56,10 +57,12 @@ const buildStudentTermAllocation = async (studentId, struct) => {
   const demandTotal = demands.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const structureTotal = (struct.terms || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const totalAmount = demandTotal > 0 ? demandTotal : (Number(struct.amount) || structureTotal);
+  // Non-divided structures → single Term 1
+  const terms = resolveEffectiveTerms(struct.terms, totalAmount);
 
   return allocateTermBalances({
     totalAmount,
-    terms: struct.terms || [],
+    terms,
     paidAmount,
     declarationConcession,
     applicationConcession
@@ -264,7 +267,9 @@ const processLateFees = async (req, res) => {
       }
 
       // Find matching default configuration for timing rules
-      const structTermsCount = Array.isArray(firstStruct.terms) ? firstStruct.terms.length : 1;
+      // Non-divided structures are treated as Term 1 (termsCount = 1)
+      const effectiveTerms = resolveEffectiveTerms(firstStruct.terms, firstStruct.amount || 0);
+      const structTermsCount = effectiveTerms.length || 1;
       const config = defaultConfigs.find(c => Number(c.termsCount) === Number(structTermsCount));
 
       // Resolve demand head from the first structure, or fall back to default config's lateFeeHead
@@ -276,7 +281,7 @@ const processLateFees = async (req, res) => {
       }
 
       // Map timing parameters from default config onto structure terms (using firstStruct as reference)
-      const activeTerms = firstStruct.terms.map(st => {
+      const activeTerms = effectiveTerms.map(st => {
         // Only terms where lateFeeAmount > 0 are processed for penalties
         if (Number(st.lateFeeAmount) <= 0) {
           return {

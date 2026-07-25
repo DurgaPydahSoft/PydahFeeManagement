@@ -12,7 +12,8 @@ const {
 } = require('../utils/overallConcessionFees');
 const {
   isDeclarationConcessionTxn,
-  allocateTermBalances
+  allocateTermBalances,
+  resolveEffectiveTerms
 } = require('../utils/termConcessionAllocation');
 
 // Small in-memory cache — FeeHead list rarely changes and was loaded on every student open
@@ -406,7 +407,11 @@ const getStudentFeeDetails = async (req, res) => {
           isScholarshipApplicable: fee.isScholarshipApplicable || false,
           isTermsDivided: fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false),
           studentScholarStatus: student ? student.scholar_status : null,
-          terms: ((fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)) && matchedStructure) ? matchedStructure.terms : [] // Attach terms ONLY if terms divided!
+          // Non-divided structures still expose Term 1 (100%) for dues + late-fee display
+          terms: resolveEffectiveTerms(
+            matchedStructure?.terms,
+            fee.amount || matchedStructure?.amount || 0
+          )
         };
       } else {
         if (fee.remarks && !groupedData[key].remarksList.includes(fee.remarks)) {
@@ -444,7 +449,7 @@ const getStudentFeeDetails = async (req, res) => {
           isActive: true,
           isScholarshipApplicable: fs.isScholarshipApplicable || false,
           isTermsDivided: fs.isTermsDivided || false,
-          terms: fs.isTermsDivided ? (fs.terms || []) : []
+          terms: resolveEffectiveTerms(fs.terms, fs.amount || 0)
         };
       }
     });
@@ -479,7 +484,10 @@ const getStudentFeeDetails = async (req, res) => {
             paidAmount: 0,
             dueAmount: 0,
             isActive: true,
-            terms: matchedStructure ? matchedStructure.terms : []
+            terms: resolveEffectiveTerms(
+              matchedStructure?.terms,
+              matchedStructure?.amount || 0
+            )
           };
         }
         if (t.transactionType === 'DEBIT') {
@@ -512,24 +520,22 @@ const getStudentFeeDetails = async (req, res) => {
     });
 
     // D. Final Calculation + term-wise concession distribution
+    // Non–terms-divided heads are treated as Term 1 (100%).
     let processedResults = Object.values(groupedData).map(item => {
       item.declarationConcessionAmount = Number(item.declarationConcessionAmount) || 0;
       item.applicationConcessionAmount = Number(item.applicationConcessionAmount) || 0;
       item.concessionAmount = Number(item.concessionAmount) || 0;
       item.dueAmount = Math.max(0, item.totalAmount - item.paidAmount - item.concessionAmount);
 
-      if (item.isTermsDivided && Array.isArray(item.terms) && item.terms.length > 0) {
-        const allocation = allocateTermBalances({
-          totalAmount: item.totalAmount,
-          terms: item.terms,
-          paidAmount: item.paidAmount,
-          declarationConcession: item.declarationConcessionAmount,
-          applicationConcession: item.applicationConcessionAmount
-        });
-        item.termBalances = allocation.terms;
-      } else {
-        item.termBalances = [];
-      }
+      item.terms = resolveEffectiveTerms(item.terms, item.totalAmount);
+      const allocation = allocateTermBalances({
+        totalAmount: item.totalAmount,
+        terms: item.terms,
+        paidAmount: item.paidAmount,
+        declarationConcession: item.declarationConcessionAmount,
+        applicationConcession: item.applicationConcessionAmount
+      });
+      item.termBalances = allocation.terms;
       return item;
     });
 
@@ -552,16 +558,15 @@ const getStudentFeeDetails = async (req, res) => {
           item.dueAmount -= allocationAmt;
           globalCreditPool -= allocationAmt;
 
-          if (item.isTermsDivided && Array.isArray(item.terms) && item.terms.length > 0) {
-            const allocation = allocateTermBalances({
-              totalAmount: item.totalAmount,
-              terms: item.terms,
-              paidAmount: item.paidAmount,
-              declarationConcession: item.declarationConcessionAmount,
-              applicationConcession: item.applicationConcessionAmount
-            });
-            item.termBalances = allocation.terms;
-          }
+          item.terms = resolveEffectiveTerms(item.terms, item.totalAmount);
+          const allocation = allocateTermBalances({
+            totalAmount: item.totalAmount,
+            terms: item.terms,
+            paidAmount: item.paidAmount,
+            declarationConcession: item.declarationConcessionAmount,
+            applicationConcession: item.applicationConcessionAmount
+          });
+          item.termBalances = allocation.terms;
         }
       });
     }
@@ -632,7 +637,10 @@ const updateFeeStructure = async (req, res) => {
         isScholarshipApplicable,
         isTermsDivided: isTermsDivided || false,
         lateFeeHead: finalLateFeeHead,
-        terms: (isTermsDivided && terms) ? terms : [],
+        // Non-divided structures still persist as Term 1 (100%) for dues + late fee
+        terms: (isTermsDivided && Array.isArray(terms) && terms.length > 0)
+          ? terms
+          : [{ termNumber: 1, percentage: 100, amount: Number(amount) || 0, dueDescription: 'Term 1' }],
         $push: { history: historyEntry }
       },
       { new: true }

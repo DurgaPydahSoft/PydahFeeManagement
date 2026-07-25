@@ -908,7 +908,11 @@ const FeeCollection = () => {
     }, [feeDetails, student?.current_year]);
 
     const maxTerms = useMemo(() => {
-        return Math.max(0, ...displayedFees.map(f => f.terms?.length || 0));
+        // Always show at least T1 — non-divided fee heads are treated as Term 1
+        const fromFees = Math.max(0, ...displayedFees.map(f =>
+            Math.max(f.terms?.length || 0, f.termBalances?.length || 0)
+        ));
+        return Math.max(1, fromFees || 0);
     }, [displayedFees]);
 
     const totalDueAmount = displayedFees.reduce((acc, curr) => {
@@ -1438,29 +1442,37 @@ const FeeCollection = () => {
                                                                     </td>
                                                                     <td className="py-1.5 px-3 text-xs text-right text-gray-600 font-mono">{fmtAmount(fee.totalAmount)}</td>
 
-                                                                    {/* Dynamic Term Columns */}
+                                                                    {/* Dynamic Term Columns — non-divided heads show due under T1 */}
                                                                     {(() => {
                                                                         const termCells = [];
                                                                         for (let i = 0; i < maxTerms; i++) {
                                                                             const term = fee.terms?.[i];
-                                                                            if (term && fee.isTermsDivided) {
-                                                                                // Prefer server-computed balances (declaration even + application waterfall)
-                                                                                const tb = Array.isArray(fee.termBalances)
-                                                                                    ? fee.termBalances.find(b => Number(b.termNumber) === Number(term.termNumber))
-                                                                                        || fee.termBalances[i]
-                                                                                    : null;
+                                                                            const tb = Array.isArray(fee.termBalances)
+                                                                                ? (fee.termBalances.find(b => Number(b.termNumber) === Number(term?.termNumber || i + 1))
+                                                                                    || fee.termBalances[i])
+                                                                                : null;
+
+                                                                            if (term || tb) {
                                                                                 const termBalance = tb
                                                                                     ? Number(tb.balance) || 0
                                                                                     : (() => {
                                                                                         // Fallback: paid-only waterfall (legacy)
-                                                                                        let remainingPaid = fee.paidAmount;
+                                                                                        let remainingPaid = Number(fee.paidAmount) || 0;
+                                                                                        const remainingConcession = Number(fee.concessionAmount) || 0;
+                                                                                        // Apply concession then paid against term targets
+                                                                                        let remPaid = remainingPaid;
+                                                                                        let remConc = remainingConcession;
                                                                                         for (let j = 0; j <= i; j++) {
                                                                                             const t = fee.terms?.[j];
-                                                                                            if (!t) continue;
-                                                                                            const target = Math.round((Number(fee.totalAmount || 0) * t.percentage) / 100);
-                                                                                            const paid = Math.min(remainingPaid, target);
-                                                                                            remainingPaid = Math.max(0, remainingPaid - paid);
-                                                                                            if (j === i) return target - paid;
+                                                                                            if (!t && j > 0) continue;
+                                                                                            const pct = Number(t?.percentage) || (j === 0 ? 100 : 0);
+                                                                                            const target = Math.round((Number(fee.totalAmount || 0) * pct) / 100);
+                                                                                            const conc = Math.min(remConc, target);
+                                                                                            remConc -= conc;
+                                                                                            const afterConc = target - conc;
+                                                                                            const paid = Math.min(remPaid, afterConc);
+                                                                                            remPaid -= paid;
+                                                                                            if (j === i) return afterConc - paid;
                                                                                         }
                                                                                         return 0;
                                                                                     })();

@@ -53,6 +53,23 @@ const buildTermTargets = (totalAmount, terms = []) => {
 };
 
 /**
+ * Non–terms-divided fee heads are treated as a single Term 1 (100%).
+ * If structure already has terms, keep them; otherwise synthesize Term 1.
+ */
+const resolveEffectiveTerms = (terms, totalAmount = 0) => {
+  const list = Array.isArray(terms) ? terms.filter(Boolean) : [];
+  if (list.length > 0) return list;
+  const amt = roundMoney(totalAmount);
+  return [{
+    termNumber: 1,
+    percentage: 100,
+    amount: amt,
+    lateFeeAmount: 0,
+    dueDescription: 'Term 1'
+  }];
+};
+
+/**
  * Split amount evenly across n buckets; remainder goes to the last bucket.
  */
 const splitEvenly = (amount, n) => {
@@ -144,6 +161,7 @@ module.exports = {
   DECLARATION_CONCESSION_REMARKS,
   isDeclarationConcessionTxn,
   buildTermTargets,
+  resolveEffectiveTerms,
   splitEvenly,
   allocateTermBalances,
   isUnderpaidThroughTerm
