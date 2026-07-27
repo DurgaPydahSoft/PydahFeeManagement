@@ -602,8 +602,9 @@ const processLateFees = async (req, res) => {
 
 /**
  * Resolve due date for a hostel/transport late-fee term using the student's academic calendar.
+ * Pass semesterCache (Map) to avoid repeating the same calendar SQL for every student.
  */
-const resolveServiceTermDueDate = async (term, student, studentYear) => {
+const resolveServiceTermDueDate = async (term, student, studentYear, semesterCache = null) => {
   const mode = term.dueDateMode === 'fixed' ? 'fixed' : 'offset';
 
   if (mode === 'fixed') {
@@ -621,24 +622,30 @@ const resolveServiceTermDueDate = async (term, student, studentYear) => {
   const batchKey = String(student.batch || '').split('-')[0].trim();
   if (!batchKey || !student.course || !student.college) return null;
 
-  const query = `
-    SELECT s.semester_number, s.start_date
-    FROM semesters s
-    JOIN courses c ON s.course_id = c.id
-    JOIN colleges cl ON s.college_id = cl.id
-    WHERE c.name = ?
-      AND s.batch = ?
-      AND s.year_of_study = ?
-      AND cl.name = ?
-      AND s.college_id IS NOT NULL
-      AND s.start_date IS NOT NULL
-  `;
-  const [semesters] = await db.query(query, [
-    student.course,
-    batchKey,
-    studentYear,
-    student.college
-  ]);
+  const cacheKey = `${student.college}|${student.course}|${batchKey}|${studentYear}`;
+  let semesters = semesterCache?.get(cacheKey);
+  if (!semesters) {
+    const query = `
+      SELECT s.semester_number, s.start_date
+      FROM semesters s
+      JOIN courses c ON s.course_id = c.id
+      JOIN colleges cl ON s.college_id = cl.id
+      WHERE c.name = ?
+        AND s.batch = ?
+        AND s.year_of_study = ?
+        AND cl.name = ?
+        AND s.college_id IS NOT NULL
+        AND s.start_date IS NOT NULL
+    `;
+    const [rows] = await db.query(query, [
+      student.course,
+      batchKey,
+      studentYear,
+      student.college
+    ]);
+    semesters = rows || [];
+    if (semesterCache) semesterCache.set(cacheKey, semesters);
+  }
 
   const targetSem = Number(term.referenceSemester) || 1;
   const semMatch = (semesters || []).find(
@@ -659,22 +666,12 @@ const resolveServiceTermDueDate = async (term, student, studentYear) => {
   return Number.isNaN(dueDate.getTime()) ? null : dueDate;
 };
 
-const buildServiceTermAllocation = async ({
-  studentId,
-  feeHeadId,
-  academicYear,
-  studentYear,
+/** Build allocation from preloaded transactions (no DB hit). */
+const allocateServiceTermsFromTxns = ({
+  txns = [],
   defaultTerms,
   demandTotal
 }) => {
-  const txnFilter = {
-    studentId,
-    feeHead: feeHeadId,
-    studentYear: String(studentYear),
-    status: { $ne: 'cancelled' }
-  };
-  const txns = await Transaction.find(txnFilter).lean();
-
   let paidAmount = 0;
   let declarationConcession = 0;
   let applicationConcession = 0;
@@ -699,6 +696,30 @@ const buildServiceTermAllocation = async ({
     declarationConcession,
     applicationConcession
   });
+};
+
+const buildServiceTermAllocation = async ({
+  studentId,
+  feeHeadId,
+  academicYear,
+  studentYear,
+  defaultTerms,
+  demandTotal
+}) => {
+  const txnFilter = {
+    studentId,
+    feeHead: feeHeadId,
+    studentYear: String(studentYear),
+    status: { $ne: 'cancelled' }
+  };
+  const txns = await Transaction.find(txnFilter).lean();
+  return allocateServiceTermsFromTxns({ txns, defaultTerms, demandTotal });
+};
+
+const chunkArray = (arr, size) => {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
 };
 
 // @desc    Process Hostel/Transport late fees from ServiceLateFeeConfig
@@ -726,6 +747,7 @@ const processServiceLateFees = async (req, res) => {
 
     const results = [];
     let skipped = 0;
+    const semesterCache = new Map();
 
     for (const config of configs) {
       try {
@@ -738,8 +760,7 @@ const processServiceLateFees = async (req, res) => {
       const applicableHeadName = applicableHead.name || config.type;
       const termsCount = Number(config.defaultTermsCount) || (config.defaultTerms || []).length || 1;
 
-      // Stamp term-division flag on applicable head demands for this year so Fee Collection
-      // resolves T1/T2/... from ServiceLateFeeConfig default terms (not a single Term 1).
+      // Stamp term-division flag once for the year
       await StudentFee.updateMany(
         {
           feeHead: applicableHeadId,
@@ -763,7 +784,6 @@ const processServiceLateFees = async (req, res) => {
       }
       const demandHeadId = demandHead._id || demandHead;
 
-      // Amounts must come from the year late-fee rule; timing may fall back to Default Rules
       if (!rule || !(rule.terms || []).some((t) => Number(t.lateFeeAmount) > 0)) {
         skipped += 1;
         continue;
@@ -791,13 +811,13 @@ const processServiceLateFees = async (req, res) => {
         continue;
       }
 
+      // 1) Applicable-head demands for this academic year only
       const demands = await StudentFee.find({
         feeHead: applicableHeadId,
         academicYear: config.academicYear,
         isActive: { $ne: false }
       }).lean();
 
-      // Group demands by student + studentYear (sum amounts for the year)
       const byStudent = {};
       for (const d of demands) {
         const key = `${d.studentId}|${d.studentYear}`;
@@ -817,96 +837,139 @@ const processServiceLateFees = async (req, res) => {
         byStudent[key].amount += Number(d.amount) || 0;
       }
 
-      for (const group of Object.values(byStudent)) {
-        if (group.amount <= 0) continue;
-        try {
+      const groups = Object.values(byStudent).filter((g) => g.amount > 0);
+      if (!groups.length) continue;
 
-        const [studentRows] = await db.query(
+      const studentIds = [...new Set(groups.map((g) => String(g.studentId)))];
+      const studentYears = [...new Set(groups.map((g) => String(g.studentYear)))];
+
+      // 2) Batch-load SQL student rows (chunked IN lists)
+      const studentMap = new Map();
+      for (const chunk of chunkArray(studentIds, 400)) {
+        const placeholders = chunk.map(() => '?').join(',');
+        const [rows] = await db.query(
           `SELECT admission_number, student_name, college, course, branch, batch, stud_type, current_year
-           FROM students WHERE admission_number = ? LIMIT 1`,
-          [group.studentId]
+           FROM students WHERE admission_number IN (${placeholders})`,
+          chunk
         );
-        const student = studentRows?.[0] || {
-          admission_number: group.studentId,
-          student_name: group.studentName,
-          college: group.college,
-          course: group.course,
-          branch: group.branch,
-          batch: null,
-          stud_type: group.stud_type,
-          current_year: group.studentYear
-        };
+        (rows || []).forEach((r) => studentMap.set(String(r.admission_number), r));
+      }
 
-        const allocation = await buildServiceTermAllocation({
-          studentId: group.studentId,
-          feeHeadId: applicableHeadId,
-          academicYear: config.academicYear,
-          studentYear: group.studentYear,
-          defaultTerms: config.defaultTerms,
-          demandTotal: group.amount
-        });
+      // 3) Batch-load applicable-head + late-fee-head transactions for these students
+      const allTxns = await Transaction.find({
+        studentId: { $in: studentIds },
+        feeHead: { $in: [applicableHeadId, demandHeadId] },
+        studentYear: { $in: studentYears },
+        status: { $ne: 'cancelled' }
+      }).lean();
 
-        for (const term of activeTerms) {
-          const dueDate = await resolveServiceTermDueDate(term, student, group.studentYear);
-          if (!dueDate) continue;
+      const applicableTxnMap = new Map(); // studentId|year -> txns
+      const lateFeePaidMap = new Map(); // studentId|year -> paid sum
+      for (const t of allTxns) {
+        const sid = String(t.studentId);
+        const sy = String(t.studentYear);
+        const key = `${sid}|${sy}`;
+        const headId = String(t.feeHead);
+        if (headId === String(applicableHeadId)) {
+          if (!applicableTxnMap.has(key)) applicableTxnMap.set(key, []);
+          applicableTxnMap.get(key).push(t);
+        }
+        if (headId === String(demandHeadId) && t.transactionType === 'DEBIT') {
+          lateFeePaidMap.set(key, (lateFeePaidMap.get(key) || 0) + (Number(t.amount) || 0));
+        }
+      }
 
-          const isOverdue = today > dueDate;
-          const isUnderpaid = isUnderpaidThroughTerm(allocation, term.termNumber);
-          const remarksBase = `${applicableHeadName} (${config.academicYear}) - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
-          const remarks = buildLateFeeRemarks(remarksBase, dueDate);
+      // 4) Batch-load existing late-fee demands for this year
+      const existingLateFees = await StudentFee.find({
+        studentId: { $in: studentIds },
+        feeHead: demandHeadId,
+        academicYear: config.academicYear,
+        studentYear: { $in: studentYears }
+      });
+      const existingByKey = new Map(); // studentId|year|term -> docs[]
+      for (const item of existingLateFees) {
+        const key = `${item.studentId}|${item.studentYear}|${item.termNumber}`;
+        if (!existingByKey.has(key)) existingByKey.set(key, []);
+        existingByKey.get(key).push(item);
+      }
 
-          const existingLateFees = await StudentFee.find({
-            studentId: group.studentId,
-            feeHead: demandHeadId,
-            academicYear: config.academicYear,
-            studentYear: group.studentYear,
-            termNumber: term.termNumber
+      const toCreate = [];
+      const toDeleteIds = [];
+
+      for (const group of groups) {
+        try {
+          const student = studentMap.get(String(group.studentId)) || {
+            admission_number: group.studentId,
+            student_name: group.studentName,
+            college: group.college,
+            course: group.course,
+            branch: group.branch,
+            batch: null,
+            stud_type: group.stud_type,
+            current_year: group.studentYear
+          };
+
+          const txnKey = `${group.studentId}|${group.studentYear}`;
+          const allocation = allocateServiceTermsFromTxns({
+            txns: applicableTxnMap.get(txnKey) || [],
+            defaultTerms: config.defaultTerms,
+            demandTotal: group.amount
           });
 
-          const matchingLateFee = existingLateFees.find((item) => {
-            const base = stripLateFeeDateSuffix(item.remarks);
-            if (base === remarksBase || item.remarks === remarks) return true;
-            const r = String(item.remarks || '');
-            return r.includes(`${applicableHeadName} (${config.academicYear})`)
-              && Number(item.termNumber) === Number(term.termNumber);
-          });
+          for (const term of activeTerms) {
+            const dueDate = await resolveServiceTermDueDate(
+              term,
+              student,
+              group.studentYear,
+              semesterCache
+            );
+            if (!dueDate) continue;
 
-          if (isOverdue && isUnderpaid) {
-            if (!matchingLateFee) {
-              await StudentFee.create({
-                studentId: group.studentId,
-                studentName: student.student_name || group.studentName || '',
-                feeHead: demandHeadId,
-                termNumber: term.termNumber,
-                college: student.college || group.college || 'ANY',
-                course: student.course || group.course || 'ANY',
-                branch: student.branch || group.branch || 'ANY',
-                academicYear: config.academicYear,
-                studentYear: group.studentYear,
-                semester: group.semester || null,
-                amount: term.lateFeeAmount,
-                remarks,
-                stud_type: student.stud_type || group.stud_type
-              });
-              results.push({
-                type: config.type,
-                academicYear: config.academicYear,
-                student: group.studentId,
-                status: 'Generated',
-                amount: term.lateFeeAmount,
-                term: term.termNumber,
-                dueDate: formatLateFeeDate(dueDate),
-                appliedDate: formatLateFeeDate(today)
-              });
-            } else {
-              const lateFeePaidTxns = await Transaction.find({
-                studentId: group.studentId,
-                feeHead: demandHeadId,
-                studentYear: String(group.studentYear),
-                status: { $ne: 'cancelled' }
-              });
-              const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-              if (lateFeePaid === 0) {
+            const isOverdue = today > dueDate;
+            const isUnderpaid = isUnderpaidThroughTerm(allocation, term.termNumber);
+            const remarksBase = `${applicableHeadName} (${config.academicYear}) - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
+            const remarks = buildLateFeeRemarks(remarksBase, dueDate);
+
+            const existKey = `${group.studentId}|${group.studentYear}|${term.termNumber}`;
+            const existingForTerm = existingByKey.get(existKey) || [];
+            const matchingLateFee = existingForTerm.find((item) => {
+              const base = stripLateFeeDateSuffix(item.remarks);
+              if (base === remarksBase || item.remarks === remarks) return true;
+              const r = String(item.remarks || '');
+              return r.includes(`${applicableHeadName} (${config.academicYear})`)
+                && Number(item.termNumber) === Number(term.termNumber);
+            });
+
+            const lateFeePaid = lateFeePaidMap.get(txnKey) || 0;
+
+            if (isOverdue && isUnderpaid) {
+              if (!matchingLateFee) {
+                toCreate.push({
+                  studentId: group.studentId,
+                  studentName: student.student_name || group.studentName || '',
+                  feeHead: demandHeadId,
+                  termNumber: term.termNumber,
+                  college: student.college || group.college || 'ANY',
+                  course: student.course || group.course || 'ANY',
+                  branch: student.branch || group.branch || 'ANY',
+                  academicYear: config.academicYear,
+                  studentYear: group.studentYear,
+                  semester: group.semester || null,
+                  amount: term.lateFeeAmount,
+                  remarks,
+                  stud_type: student.stud_type || group.stud_type
+                });
+                results.push({
+                  type: config.type,
+                  academicYear: config.academicYear,
+                  student: group.studentId,
+                  status: 'Generated',
+                  amount: term.lateFeeAmount,
+                  term: term.termNumber,
+                  dueDate: formatLateFeeDate(dueDate),
+                  appliedDate: formatLateFeeDate(today)
+                });
+              } else if (lateFeePaid === 0) {
                 let updated = false;
                 const syncedRemarks = buildLateFeeRemarks(remarksBase, dueDate, {
                   appliedDate: matchingLateFee.createdAt || today,
@@ -934,41 +997,48 @@ const processServiceLateFees = async (req, res) => {
                   });
                 }
               }
-            }
-          } else {
-            for (const item of existingLateFees) {
-              const base = stripLateFeeDateSuffix(item.remarks);
-              const isOurs = base === remarksBase
-                || item.remarks === remarks
-                || String(item.remarks || '').includes(`${applicableHeadName} (${config.academicYear})`);
-              if (!isOurs) continue;
-              const lateFeePaidTxns = await Transaction.find({
-                studentId: group.studentId,
-                feeHead: demandHeadId,
-                studentYear: String(group.studentYear),
-                status: { $ne: 'cancelled' }
-              });
-              const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-              if (lateFeePaid === 0) {
-                await StudentFee.findByIdAndDelete(item._id);
-                results.push({
-                  type: config.type,
-                  academicYear: config.academicYear,
-                  student: group.studentId,
-                  status: 'Removed (not overdue / paid)',
-                  amount: item.amount,
-                  term: term.termNumber
-                });
+            } else {
+              for (const item of existingForTerm) {
+                const base = stripLateFeeDateSuffix(item.remarks);
+                const isOurs = base === remarksBase
+                  || item.remarks === remarks
+                  || String(item.remarks || '').includes(`${applicableHeadName} (${config.academicYear})`);
+                if (!isOurs) continue;
+                if (lateFeePaid === 0) {
+                  toDeleteIds.push(item._id);
+                  results.push({
+                    type: config.type,
+                    academicYear: config.academicYear,
+                    student: group.studentId,
+                    status: 'Removed (not overdue / paid)',
+                    amount: item.amount,
+                    term: term.termNumber
+                  });
+                }
               }
             }
           }
-        }
         } catch (groupErr) {
           console.error(
             `[processServiceLateFees] Student ${group?.studentId} / ${config?.academicYear} failed (continuing):`,
             groupErr?.message || groupErr
           );
         }
+      }
+
+      if (toCreate.length) {
+        try {
+          await StudentFee.insertMany(toCreate, { ordered: false });
+        } catch (insertErr) {
+          // ordered:false may still throw on partial duplicate write errors — log and continue
+          console.error(
+            `[processServiceLateFees] insertMany partial error for ${config?.type} ${config?.academicYear}:`,
+            insertErr?.message || insertErr
+          );
+        }
+      }
+      if (toDeleteIds.length) {
+        await StudentFee.deleteMany({ _id: { $in: toDeleteIds } });
       }
       } catch (configErr) {
         skipped += 1;
@@ -996,7 +1066,6 @@ const processServiceLateFees = async (req, res) => {
     if (res) {
       return res.status(500).json({ message: 'Error processing hostel/transport late fees', error: error.message });
     }
-    // Scheduler / background call — never rethrow (would crash the nightly runner)
     return null;
   }
 };

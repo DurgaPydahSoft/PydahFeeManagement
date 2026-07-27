@@ -56,6 +56,23 @@ const normalizeSemester = (semester) => {
   return Number(semester);
 };
 
+/** Match Number or String studentYear stored in Mongo. */
+const studentYearQuery = (studentYear) => {
+  const n = Number(studentYear);
+  if (!Number.isFinite(n)) return studentYear;
+  return { $in: [n, String(n)] };
+};
+
+const isVagueTransportRemarks = (remarks) => {
+  const existing = String(remarks || '').trim();
+  return !existing || /^transport$/i.test(existing);
+};
+
+const isVagueHostelRemarks = (remarks) => {
+  const existing = String(remarks || '').trim();
+  return !existing || /^hostel$/i.test(existing);
+};
+
 const getTransactionsForDemand = async (admissionNo, feeHeadId, studentYear) => (
   Transaction.find({
     studentId: admissionNo,
@@ -82,12 +99,14 @@ const findMergeableStudentFee = async ({
   remarks,
   matchByRemarks = false
 }) => {
+  const yearQ = studentYearQuery(studentYear);
+
   if (matchByRemarks && remarks) {
     const byRemarks = await StudentFee.findOne({
       studentId: admissionNo,
       feeHead: feeHeadId,
       academicYear,
-      studentYear,
+      studentYear: yearQ,
       remarks
     });
     if (byRemarks) return byRemarks;
@@ -99,7 +118,7 @@ const findMergeableStudentFee = async ({
       studentId: admissionNo,
       feeHead: feeHeadId,
       academicYear,
-      studentYear
+      studentYear: yearQ
     }).sort({ createdAt: 1 });
 
     if (legacyBase) {
@@ -116,11 +135,42 @@ const findMergeableStudentFee = async ({
     }
 
     // Older transport assignments used bare remarks like "Transport"
-    const vagueTransport = sameYearFees.find((f) => {
-      const existing = String(f.remarks || '').trim();
-      return !existing || /^transport$/i.test(existing);
-    });
+    const vagueTransport = sameYearFees.find((f) => isVagueTransportRemarks(f.remarks));
     if (vagueTransport) return vagueTransport;
+
+    const vagueHostel = sameYearFees.find((f) => isVagueHostelRemarks(f.remarks));
+    if (vagueHostel) return vagueHostel;
+
+    // Broader legacy match: bare "Transport"/"Hostel" often has WRONG or missing academicYear
+    // (manual assign / old sync) while studentYear is correct — still upgrade that row.
+    const isTransportRemark = /^transport:/i.test(String(remarks).trim()) || /^transport$/i.test(legacyBase);
+    const isHostelRemark = /^hostel:/i.test(String(remarks).trim()) || /^hostel$/i.test(legacyBase);
+
+    if (isTransportRemark || isHostelRemark) {
+      // 1) Same studentYear, any academicYear, vague remarks
+      const byStudentYear = await StudentFee.find({
+        studentId: admissionNo,
+        feeHead: feeHeadId,
+        studentYear: yearQ
+      }).sort({ createdAt: 1 });
+
+      const vagueBySy = byStudentYear.find((f) =>
+        isTransportRemark ? isVagueTransportRemarks(f.remarks) : isVagueHostelRemarks(f.remarks)
+      );
+      if (vagueBySy) return vagueBySy;
+
+      // 2) Same academicYear, any studentYear, vague remarks
+      const byAy = await StudentFee.find({
+        studentId: admissionNo,
+        feeHead: feeHeadId,
+        academicYear
+      }).sort({ createdAt: 1 });
+
+      const vagueByAy = byAy.find((f) =>
+        isTransportRemark ? isVagueTransportRemarks(f.remarks) : isVagueHostelRemarks(f.remarks)
+      );
+      if (vagueByAy) return vagueByAy;
+    }
 
     // Transport/Hostel: never merge onto a different route/hostel demand
     // (would overwrite the request fare with another amount).
@@ -131,7 +181,7 @@ const findMergeableStudentFee = async ({
     studentId: admissionNo,
     feeHead: feeHeadId,
     academicYear,
-    studentYear,
+    studentYear: yearQ,
     semester: semester ?? null
   });
   if (exact) return exact;
@@ -140,7 +190,7 @@ const findMergeableStudentFee = async ({
     studentId: admissionNo,
     feeHead: feeHeadId,
     academicYear,
-    studentYear
+    studentYear: yearQ
   }).sort({ createdAt: 1 });
 
   if (sameYearFees.length > 0) {
@@ -167,7 +217,7 @@ const findMergeableStudentFee = async ({
     const broaderMatch = await StudentFee.findOne({
       studentId: admissionNo,
       feeHead: feeHeadId,
-      studentYear
+      studentYear: yearQ
     }).sort({ createdAt: 1 });
     if (broaderMatch) return broaderMatch;
   }
@@ -411,11 +461,18 @@ const syncTransportFees = async (student, admissionNo) => {
     return { created, updated, requestsMatched: 0, academicYears: [] };
   }
 
+  const admissionVariants = Array.from(new Set([
+    admissionNo,
+    String(admissionNo).trim(),
+    String(admissionNo).trim().toUpperCase(),
+    String(admissionNo).trim().toLowerCase()
+  ].filter(Boolean)));
+
   const requests = await transportConnection.db
     .collection('transport_requests')
     .find({
-      admission_number: admissionNo,
-      status: 'approved'
+      admission_number: { $in: admissionVariants },
+      status: { $regex: /^approved$/i }
     })
     .sort({ updated_at: -1 })
     .toArray();
@@ -429,21 +486,32 @@ const syncTransportFees = async (student, admissionNo) => {
     return { created, updated, requestsMatched: requests.length, academicYears: [] };
   }
 
+  // One demand per academic year — prefer latest updated request
+  const latestByYear = new Map();
   for (const request of requests) {
-    const academicYear = request.academic_year;
+    const academicYear = String(request.academic_year || '').trim();
     if (!academicYear) continue;
-    const yearKey = String(academicYear).trim();
+    if (!latestByYear.has(academicYear)) latestByYear.set(academicYear, request);
+  }
+
+  for (const request of latestByYear.values()) {
+    const academicYear = String(request.academic_year || '').trim();
+    const yearKey = academicYear;
     academicYears.add(yearKey);
 
     // Amount source of truth = transport request fare only (never stage/structure amount).
     if (request.fare === null || request.fare === undefined || request.fare === '') {
+      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: missing fare on request`);
       continue;
     }
     const amount = Number(request.fare);
-    if (!Number.isFinite(amount) || amount < 0) continue;
+    if (!Number.isFinite(amount) || amount < 0) {
+      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: invalid fare`, request.fare);
+      continue;
+    }
 
-    const studentYear = request.year_of_study || student.current_year || 1;
-    const semester = request.semester_number || student.current_semester || 1;
+    const studentYear = Number(request.year_of_study || student.current_year || 1) || 1;
+    const semester = Number(request.semester_number || student.current_semester || 1) || 1;
     const remarks = buildTransportRemarks(request.route_name, request.stage_name, academicYear);
 
     if (!expectedRemarksByYear.has(yearKey)) expectedRemarksByYear.set(yearKey, new Set());

@@ -70,14 +70,19 @@ const summarizeStudentFeeContext = (feeDetails = []) => {
 
     active.forEach((f) => {
         const due = Number(f.dueAmount) || 0;
-        dueAmount += due;
         const name = String(f.feeHeadName || '');
-        if (/late\s*fee/i.test(name) || /late\s*fee/i.test(String(f.feeHeadCode || ''))) {
-            lateFeeAmount += due;
-        }
-        if (due > 0 && name) headNames.push(name);
-
+        const code = String(f.feeHeadCode || '');
         const remarks = String(f.remarks || '');
+        const isLate = /late\s*fee/i.test(name) || /late\s*fee/i.test(code) || /late\s*fee/i.test(remarks);
+
+        // Pending fee = main dues; late fee stays in its own placeholder (matches Fee Collection split)
+        if (isLate) {
+            lateFeeAmount += due;
+        } else {
+            dueAmount += due;
+            if (due > 0 && name) headNames.push(name);
+        }
+
         const remarkDue = remarks.match(/\|\s*Due:\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i);
         if (remarkDue) dueDates.push(remarkDue[1]);
 
@@ -98,9 +103,9 @@ const summarizeStudentFeeContext = (feeDetails = []) => {
     return {
         due_amount: dueAmount > 0 ? dueAmount.toLocaleString('en-IN') : '0',
         late_fee_amount: lateFeeAmount > 0 ? lateFeeAmount.toLocaleString('en-IN') : '0',
-        due_date: dueDate || (dueAmount > 0 ? 'at the earliest' : 'N/A'),
+        due_date: dueDate || (dueAmount > 0 || lateFeeAmount > 0 ? 'at the earliest' : 'N/A'),
         fee_head_name: headNames.slice(0, 3).join(', ') || '',
-        academic_year: active[0]?.academicYear || '',
+        academic_year: active.find(f => f.academicYear)?.academicYear || active[0]?.academicYear || '',
         term_number: '',
         offset_days: '',
         // raw numbers for summary line
@@ -109,14 +114,14 @@ const summarizeStudentFeeContext = (feeDetails = []) => {
     };
 };
 
-const fetchStudentFeeContext = async (student) => {
+const fetchStudentFeeContext = async (student, { academicYear = '', dueSourceType = '' } = {}) => {
     if (!student?.admission_number) {
         return {
             due_amount: 0,
             late_fee_amount: 0,
             due_date: 'N/A',
             fee_head_name: '',
-            academic_year: '',
+            academic_year: academicYear || '',
             term_number: '',
             offset_days: ''
         };
@@ -126,10 +131,14 @@ const fetchStudentFeeContext = async (student) => {
             college: student.college,
             course: student.course,
             branch: student.branch,
-            studentYear: student.current_year
+            studentYear: student.current_year,
+            academicYear: academicYear || undefined,
+            dueSourceType: dueSourceType || undefined
         }
     });
-    return summarizeStudentFeeContext(res.data || []);
+    const ctx = summarizeStudentFeeContext(res.data || []);
+    if (academicYear && !ctx.academic_year) ctx.academic_year = academicYear;
+    return ctx;
 };
 
 const ReminderConfiguration = () => {
@@ -153,6 +162,8 @@ const ReminderConfiguration = () => {
     const [branches, setBranches] = useState([]);
     const [batches, setBatches] = useState([]);
     const [filters, setFilters] = useState({ college: '', course: '', branch: '', batch: '' });
+    const [sendDueSourceType, setSendDueSourceType] = useState('ACADEMIC');
+    const [sendAcademicYear, setSendAcademicYear] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [students, setStudents] = useState([]);
     const [selectedStudents, setSelectedStudents] = useState([]);
@@ -359,18 +370,34 @@ const ReminderConfiguration = () => {
     };
 
     const fetchStudents = async () => {
-        if (!filters.college) return alert("Please select a college at least.");
+        if (!filters.college) {
+            setSendResultModal({
+                type: 'info',
+                title: 'College Required',
+                message: 'Please select a college before fetching students.'
+            });
+            return;
+        }
         setIsFetching(true);
         try {
-            const res = await api.get(`/students`, { 
-                params: filters,
+            const res = await api.get(`/students`, {
+                params: {
+                    college: filters.college,
+                    course: filters.course || undefined,
+                    branch: filters.branch || undefined,
+                    batch: filters.batch || undefined
+                }
             });
             setStudents(res.data);
             setSelectedStudents([]); // Reset selection
             setSearchTerm('');
         } catch (error) {
             console.error(error);
-            alert('Failed to fetch students');
+            setSendResultModal({
+                type: 'error',
+                title: 'Fetch Failed',
+                message: 'Failed to fetch students. Please try again.'
+            });
         } finally {
             setIsFetching(false);
         }
@@ -423,7 +450,16 @@ const ReminderConfiguration = () => {
             return;
         }
 
-        const recipients = students.filter(s => selectedStudents.includes(s.admission_number));
+                const recipients = students.filter(s => selectedStudents.includes(s.admission_number));
+
+        if (!sendDueSourceType || !sendAcademicYear) {
+            setSendResultModal({
+                type: 'info',
+                title: 'Due Scope Required',
+                message: 'Please select Due Source and Academic Year in the Action panel so the message uses the correct dues.'
+            });
+            return;
+        }
 
         if (sendType === 'EMAIL') {
             const missing = recipients.find(r => !(r.student_email || r.email)?.trim());
@@ -473,7 +509,10 @@ const ReminderConfiguration = () => {
                     offset_days: ''
                 };
                 try {
-                    computed = await fetchStudentFeeContext(r);
+                    computed = await fetchStudentFeeContext(r, {
+                        academicYear: sendAcademicYear,
+                        dueSourceType: sendDueSourceType
+                    });
                 } catch (err) {
                     console.error('Fee context failed for', r.admission_number, err);
                 }
@@ -658,7 +697,10 @@ const ReminderConfiguration = () => {
             }
             setIsLoadingPreviewFees(true);
             try {
-                const ctx = await fetchStudentFeeContext(previewStudent);
+                const ctx = await fetchStudentFeeContext(previewStudent, {
+                    academicYear: sendAcademicYear,
+                    dueSourceType: sendDueSourceType
+                });
                 if (!cancelled) setPreviewFeeContext(ctx);
             } catch (err) {
                 console.error('Preview fee load failed', err);
@@ -668,7 +710,7 @@ const ReminderConfiguration = () => {
                         late_fee_amount: 0,
                         due_date: 'N/A',
                         fee_head_name: '',
-                        academic_year: '',
+                        academic_year: sendAcademicYear || '',
                         term_number: '',
                         offset_days: ''
                     });
@@ -679,7 +721,7 @@ const ReminderConfiguration = () => {
         };
         load();
         return () => { cancelled = true; };
-    }, [previewStudent?.admission_number, sendTemplateId, mode]);
+    }, [previewStudent?.admission_number, sendTemplateId, mode, sendAcademicYear, sendDueSourceType]);
 
     const previewMessage = React.useMemo(() => {
         if (!selectedSendTemplate || !previewStudent) return null;
@@ -798,13 +840,13 @@ const ReminderConfiguration = () => {
                     </div>
                 </header>
 
-                <main className="flex-1 overflow-hidden p-6 pt-2">
+                <main className="flex-1 overflow-hidden p-6 pt-2 min-h-0">
 
                     {/* --- CONFIGURATION MODE --- */}
                     {mode === 'CONFIG' && (
-                        <div className="w-full h-full flex gap-6">
+                        <div className="w-full h-full flex gap-6 min-h-0">
                             {/* Left: Template List */}
-                            <div className="w-1/3 flex flex-col bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden h-full">
+                            <div className="w-1/3 flex flex-col bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden h-full min-h-0">
                                 {/* Tabs */}
                                 <div className="flex border-b border-gray-100 shrink-0">
                                     {['SMS', 'EMAIL', 'PUSH'].map(type => (
@@ -855,12 +897,12 @@ const ReminderConfiguration = () => {
                                 </div>
                             </div>
                             {/* Right: Editor */}
-                            <div className="flex-1 bg-white border border-gray-200 rounded-2xl shadow-sm p-6 flex flex-col h-full">
-                                <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                            <div className="flex-1 bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
+                                <h2 className="text-lg font-bold text-gray-800 px-6 pt-6 pb-4 flex items-center gap-2 shrink-0">
                                     {editingTemplate ? <Edit2 size={18} className="text-blue-500" /> : <Plus size={18} className="text-green-500" />}
                                     {editingTemplate ? 'Edit Template' : `New ${activeTab} Template`}
                                 </h2>
-                                <div className="space-y-4 flex-1">
+                                <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-6 pb-2">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Template Name</label>
                                         <input
@@ -974,7 +1016,7 @@ const ReminderConfiguration = () => {
                                         </div>
                                     )}
                                 </div>
-                                <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
+                                <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-white">
                                     {editingTemplate && (
                                         <button
                                             onClick={resetForm}
@@ -998,12 +1040,12 @@ const ReminderConfiguration = () => {
 
                     {/* --- TIMELY MODE --- */}
                     {mode === 'TIMELY' && (
-                        <div className="w-full h-full flex gap-6">
-                            <div className="w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm p-6 overflow-y-auto">
-                                <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <div className="w-full h-full flex gap-6 min-h-0">
+                            <div className="w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
+                                <h2 className="text-lg font-bold text-gray-800 px-6 pt-6 pb-4 flex items-center gap-2 shrink-0">
                                     <Clock className="text-blue-600" size={20} /> Global Reminder Rule
                                 </h2>
-                                <div className="space-y-5">
+                                <div className="space-y-5 flex-1 min-h-0 overflow-y-auto px-6 pb-2">
                                     <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
                                         <h4 className="text-xs font-black uppercase text-gray-400">Scope</h4>
                                         <div>
@@ -1107,16 +1149,16 @@ const ReminderConfiguration = () => {
                                             </div>
                                         )}
                                     </div>
+                                </div>
 
-                                    <div className="flex gap-2">
-                                        {editingConfigId && (
-                                            <button type="button" onClick={cancelEdit} className="flex-1 py-3 rounded-xl bg-gray-200 text-gray-600 font-bold hover:bg-gray-300 transition">Cancel</button>
-                                        )}
-                                        <button type="button" onClick={handleConfigSubmit} disabled={isScheduling} className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition flex justify-center items-center gap-2">
-                                            {isScheduling ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                                            {editingConfigId ? 'Update Rule' : 'Save Rule'}
-                                        </button>
-                                    </div>
+                                <div className="px-6 py-4 border-t border-gray-100 flex gap-2 shrink-0 bg-white">
+                                    {editingConfigId && (
+                                        <button type="button" onClick={cancelEdit} className="flex-1 py-3 rounded-xl bg-gray-200 text-gray-600 font-bold hover:bg-gray-300 transition">Cancel</button>
+                                    )}
+                                    <button type="button" onClick={handleConfigSubmit} disabled={isScheduling} className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition flex justify-center items-center gap-2">
+                                        {isScheduling ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                        {editingConfigId ? 'Update Rule' : 'Save Rule'}
+                                    </button>
                                 </div>
                             </div>
 
@@ -1254,9 +1296,9 @@ const ReminderConfiguration = () => {
 
                     {/* --- SEND MODE --- */}
                     {mode === 'SEND' && (
-                        <div className="w-full h-full flex flex-col gap-4">
+                        <div className="w-full h-full flex flex-col gap-4 min-h-0">
                             {/* Control Panel */}
-                            <div className="w-full">
+                            <div className="w-full shrink-0">
                                 <div className="flex flex-wrap gap-4 items-end">
                                     <div className="w-48">
                                         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">College</label>
@@ -1311,9 +1353,9 @@ const ReminderConfiguration = () => {
                             </div>
 
                             {/* Main Content: Table & Actions */}
-                            <div className="flex gap-6 flex-1 h-full min-h-0">
+                            <div className="flex gap-6 flex-1 min-h-0">
                                 {/* Students Table */}
-                                <div className="w-full flex-[2] bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                                <div className="w-full flex-[2] bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0">
                                     <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center shrink-0">
                                         <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
                                             <Users size={16} /> Students ({filteredStudents.length}{searchTerm.trim() ? ` / ${students.length}` : ''})
@@ -1368,12 +1410,35 @@ const ReminderConfiguration = () => {
                                 </div>
 
                                 {/* Send Actions */}
-                                <div className="flex-1 w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm p-5 h-fit sticky top-6">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                <div className="flex-1 w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
+                                    <h3 className="text-lg font-bold text-gray-800 px-5 pt-5 pb-3 flex items-center gap-2 shrink-0">
                                         <Send size={20} className="text-blue-600" /> Action
                                     </h3>
 
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-5 pb-2">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Due Source</label>
+                                            <select
+                                                className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm"
+                                                value={sendDueSourceType}
+                                                onChange={e => setSendDueSourceType(e.target.value)}
+                                            >
+                                                <option value="ACADEMIC">Academic Fees</option>
+                                                <option value="HOSTEL">Hostel Fees</option>
+                                                <option value="TRANSPORT">Transport Fees</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Academic Year</label>
+                                            <select
+                                                className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm"
+                                                value={sendAcademicYear}
+                                                onChange={e => setSendAcademicYear(e.target.value)}
+                                            >
+                                                <option value="">Select Academic Year</option>
+                                                {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
+                                            </select>
+                                        </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Message Type</label>
                                             <div className="flex bg-gray-100 p-1 rounded-lg">
@@ -1440,25 +1505,25 @@ const ReminderConfiguration = () => {
                                                             )}
                                                         </p>
                                                         <p className="text-[10px] text-gray-400">
-                                                            Preview uses the first selected student. Values update when you change selection or template.
+                                                            Preview uses the first selected student for {sendDueSourceType} · {sendAcademicYear || 'AY'}. Values update when you change selection, template, due source, or year.
                                                         </p>
                                                     </>
                                                 )}
                                             </div>
                                         )}
+                                    </div>
 
-                                        <div className="pt-4 border-t border-gray-100">
-                                            <button
-                                                onClick={initiateSend}
-                                                disabled={selectedStudents.length === 0 || !sendTemplateId || isSending}
-                                                className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
-                                            >
-                                                {isSending ? 'Sending...' : 'Send Reminders'} {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                                            </button>
-                                            <p className="text-center text-[10px] text-gray-400 mt-2">
-                                                Will send to {selectedStudents.length} selected students.
-                                            </p>
-                                        </div>
+                                    <div className="px-5 py-4 border-t border-gray-100 shrink-0 bg-white">
+                                        <button
+                                            onClick={initiateSend}
+                                            disabled={selectedStudents.length === 0 || !sendTemplateId || !sendDueSourceType || !sendAcademicYear || isSending}
+                                            className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+                                        >
+                                            {isSending ? 'Sending...' : 'Send Reminders'} {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                        </button>
+                                        <p className="text-center text-[10px] text-gray-400 mt-2">
+                                            Will send to {selectedStudents.length} selected students.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -1521,7 +1586,9 @@ const ReminderConfiguration = () => {
                                         <span className="font-bold text-gray-900">
                                             {templates.find(t => t._id === sendTemplateId)?.name || 'selected template'}
                                         </span>{' '}
-                                        to <span className="font-bold text-gray-900">{pendingSendRecipients.length}</span> student{pendingSendRecipients.length === 1 ? '' : 's'}?
+                                        to <span className="font-bold text-gray-900">{pendingSendRecipients.length}</span> student{pendingSendRecipients.length === 1 ? '' : 's'}
+                                        {' '}for <span className="font-bold text-gray-900">{sendDueSourceType}</span> dues in{' '}
+                                        <span className="font-bold text-gray-900">{sendAcademicYear}</span>?
                                     </p>
                                 </div>
                             </div>

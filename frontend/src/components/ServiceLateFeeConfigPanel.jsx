@@ -351,7 +351,33 @@ const ServiceLateFeeConfigPanel = ({ type, feeHeads = [], title }) => {
   };
 
   const syncServiceLateFees = async ({ allYears = false } = {}) => {
+    if (syncing) return;
     setSyncing(true);
+
+    const scopeLabel = allYears ? 'All years' : (yearForm.academicYear || 'Selected year');
+    Swal.fire({
+      title: 'Syncing Late Fees…',
+      html: `
+        <div style="text-align:left;font-size:13px;line-height:1.5">
+          <p><b>Type:</b> ${serviceType}</p>
+          <p><b>Scope:</b> ${scopeLabel}</p>
+          <p style="margin-top:10px;color:#6b7280">
+            Checking ${serviceType === 'HOSTEL' ? 'hostel' : 'transport'} requests for this academic year
+            and applying late-fee rules for unpaid students.
+          </p>
+          <p style="margin-top:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;color:#9a3412;font-weight:700">
+            Please don’t close this window until sync finishes.
+          </p>
+        </div>
+      `,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
     try {
       const payload = { type: serviceType };
       if (!allYears && yearForm.academicYear) {
@@ -365,7 +391,7 @@ const ServiceLateFeeConfigPanel = ({ type, feeHeads = [], title }) => {
         title: 'Late Fee Sync Completed',
         html: `<div style="text-align:left;font-size:13px">
           <p><b>Type:</b> ${serviceType}</p>
-          <p><b>Scope:</b> ${allYears ? 'All years' : yearForm.academicYear}</p>
+          <p><b>Scope:</b> ${scopeLabel}</p>
           <p><b>Generated:</b> ${generated}</p>
           <p><b>Updated:</b> ${updated}</p>
           <p class="text-muted" style="margin-top:8px;color:#6b7280">Default terms for the applicable fee head are applied on sync (T1/T2/…). Late-fee details include Due and Applied dates.</p>

@@ -298,10 +298,10 @@ const getFeeStructures = async (req, res) => {
 
 // @desc    Get Student Fee Details (Due vs Paid) from StudentFee table (Explicit Assignment)
 // @route   GET /api/fee-structures/student/:admissionNo
-// @query   college, course, branch, academicYear, studentYear
+// @query   college, course, branch, academicYear, studentYear, dueSourceType
 const getStudentFeeDetails = async (req, res) => {
   const { admissionNo } = req.params;
-  const { academicYear, studentYear: queryYear } = req.query; // academicYear used as filter if provided
+  const { academicYear, studentYear: queryYear, dueSourceType } = req.query;
 
   try {
     // 1. Fetch Student Info (to get current batch and year)
@@ -331,7 +331,7 @@ const getStudentFeeDetails = async (req, res) => {
       Transaction.find({ studentId: admissionNo, status: { $ne: 'cancelled' } }).lean(),
       getCachedFeeHeads(),
       ServiceLateFeeConfig.find({ isActive: { $ne: false } })
-        .select('applicableFeeHead academicYear defaultTermsCount defaultTerms')
+        .select('type applicableFeeHead academicYear defaultTermsCount defaultTerms lateFeeRules')
         .lean()
     ]);
 
@@ -607,9 +607,91 @@ const getStudentFeeDetails = async (req, res) => {
       });
     }
 
-    // Filter by academicYear if requested
+    const isLateFeeRow = (r) => {
+      const name = String(r.feeHeadName || '');
+      const code = String(r.feeHeadCode || '');
+      const remarks = String(r.remarks || '');
+      return /late\s*fee/i.test(name) || /late\s*fee/i.test(code) || /late\s*fee/i.test(remarks);
+    };
+
+    // Filter by academicYear if requested.
+    // Shared LATE FEE head may store AY only in remarks: "Transport Fee (2026-2027) - ..."
     if (academicYear) {
-      processedResults = processedResults.filter(r => String(r.academicYear) === String(academicYear));
+      const ay = String(academicYear).trim();
+      processedResults = processedResults.filter((r) => {
+        if (String(r.academicYear || '').trim() === ay) return true;
+        if (isLateFeeRow(r) && String(r.remarks || '').includes(ay)) return true;
+        // Also check remarksList if present
+        if (isLateFeeRow(r) && Array.isArray(r.remarksList) && r.remarksList.some((x) => String(x || '').includes(ay))) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    // Filter by due source (Academic / Hostel / Transport) for reminder send previews.
+    // All late fees (academic / hostel / transport) share ONE "LATE FEE" head —
+    // distinguish them by remarks, e.g. "Transport Fee (2026-2027) - Term 1 Late Fee".
+    const source = String(dueSourceType || '').toUpperCase();
+
+    if (source === 'HOSTEL' || source === 'TRANSPORT') {
+      const matchedConfigs = (serviceConfigs || [])
+        .filter((c) => String(c.type || '').toUpperCase() === source)
+        .filter((c) => !academicYear || String(c.academicYear).trim() === String(academicYear).trim());
+
+      const serviceHeads = new Set(
+        matchedConfigs.map((c) => String(c.applicableFeeHead)).filter(Boolean)
+      );
+
+      processedResults = processedResults.filter((r) => {
+        const headId = r.feeHeadId ? String(r.feeHeadId) : '';
+        const code = String(r.feeHeadCode || '');
+        const name = String(r.feeHeadName || '');
+        const remarks = String(r.remarks || '');
+
+        // Main applicable head dues (transport / hostel fee itself)
+        if (headId && serviceHeads.has(headId)) return true;
+        if (source === 'TRANSPORT' && (/trn/i.test(code) || (/transport/i.test(name) && !isLateFeeRow(r)))) {
+          return true;
+        }
+        if (source === 'HOSTEL' && (/hos/i.test(code) || (/hostel/i.test(name) && !isLateFeeRow(r)))) {
+          return true;
+        }
+
+        // Shared LATE FEE head → keep only rows whose remarks identify this source
+        if (isLateFeeRow(r)) {
+          if (source === 'TRANSPORT') return /transport/i.test(remarks);
+          return /hostel/i.test(remarks);
+        }
+
+        return false;
+      });
+    } else if (source === 'ACADEMIC') {
+      const serviceHeadIds = new Set(
+        (serviceConfigs || [])
+          .map((c) => String(c.applicableFeeHead))
+          .filter(Boolean)
+      );
+
+      processedResults = processedResults.filter((r) => {
+        const headId = r.feeHeadId ? String(r.feeHeadId) : '';
+        const code = String(r.feeHeadCode || '');
+        const name = String(r.feeHeadName || '');
+        const remarks = String(r.remarks || '');
+
+        // Exclude hostel/transport main heads
+        if (headId && serviceHeadIds.has(headId)) return false;
+        if (/trn/i.test(code) || (/transport/i.test(name) && !isLateFeeRow(r))) return false;
+        if (/hos/i.test(code) || (/hostel/i.test(name) && !isLateFeeRow(r))) return false;
+
+        // Shared LATE FEE head → exclude hostel/transport late fees (identified by remarks)
+        if (isLateFeeRow(r)) {
+          if (/transport/i.test(remarks) || /hostel/i.test(remarks)) return false;
+          return true; // academic late fee (or group late fee remarks without transport/hostel)
+        }
+
+        return true;
+      });
     }
 
     // Sort for display (Year descending, Name ascending)
