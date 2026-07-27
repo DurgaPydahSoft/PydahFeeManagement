@@ -1,10 +1,139 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
-import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity } from 'lucide-react';
+import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity, Search, BookOpen, Layers, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
+
+const EMPTY_CONFIG_FORM = {
+    academicYear: '',
+    dueSourceType: 'ACADEMIC',
+    triggerType: 'BEFORE',
+    offsets: [],
+    currentOffsetInput: '',
+    smsTemplateId: '',
+    emailTemplateId: '',
+    enableSMS: true,
+    enableEmail: false
+};
+
+const EMPTY_TEMPLATE_FORM = {
+    name: '',
+    subject: '',
+    templateId: '',
+    senderId: '',
+    body: '',
+    variableMap: []
+};
+
+/** Sync dropdown rows from {#var#} (positional) and {{named}} placeholders. */
+const syncVariableMapFromBody = (body, existingMap = []) => {
+    const text = String(body || '');
+    const keys = [];
+    const dltCount = (text.match(/\{#var#\}/gi) || []).length;
+    for (let i = 1; i <= dltCount; i += 1) keys.push(`var_${i}`);
+    for (const m of text.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)) {
+        if (!keys.includes(m[1])) keys.push(m[1]);
+    }
+    return keys.map((key, idx) => {
+        const existing = (existingMap || []).find(m => m.key === key);
+        return {
+            key,
+            index: key.startsWith('var_') ? Number(key.replace('var_', '')) || (idx + 1) : undefined,
+            source: existing?.source || ''
+        };
+    });
+};
+
+const variableRowLabel = (row) => {
+    if (row.key?.startsWith('var_')) {
+        const n = row.index || Number(row.key.replace('var_', '')) || 1;
+        return `Variable ${n}  ({#var#} #${n})`;
+    }
+    return `{{${row.key}}}`;
+};
+
+const formatPreviewDate = (d) => {
+    if (!d) return '';
+    const dt = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(dt.getTime())) return String(d);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${dd}-${months[dt.getMonth()]}-${dt.getFullYear()}`;
+};
+
+/** Summarize Fee Collection dues for reminder placeholders. */
+const summarizeStudentFeeContext = (feeDetails = []) => {
+    const active = (feeDetails || []).filter(f => f && f.isActive !== false);
+    let dueAmount = 0;
+    let lateFeeAmount = 0;
+    const headNames = [];
+    const dueDates = [];
+
+    active.forEach((f) => {
+        const due = Number(f.dueAmount) || 0;
+        dueAmount += due;
+        const name = String(f.feeHeadName || '');
+        if (/late\s*fee/i.test(name) || /late\s*fee/i.test(String(f.feeHeadCode || ''))) {
+            lateFeeAmount += due;
+        }
+        if (due > 0 && name) headNames.push(name);
+
+        const remarks = String(f.remarks || '');
+        const remarkDue = remarks.match(/\|\s*Due:\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i);
+        if (remarkDue) dueDates.push(remarkDue[1]);
+
+        (f.terms || []).forEach((t) => {
+            if (t?.fixedDueDate) {
+                const formatted = formatPreviewDate(t.fixedDueDate);
+                if (formatted) dueDates.push(formatted);
+            }
+        });
+    });
+
+    // Prefer earliest parsed fixed due date string; fallback empty for caller
+    let dueDate = '';
+    if (dueDates.length) {
+        dueDate = dueDates[0];
+    }
+
+    return {
+        due_amount: dueAmount > 0 ? dueAmount.toLocaleString('en-IN') : '0',
+        late_fee_amount: lateFeeAmount > 0 ? lateFeeAmount.toLocaleString('en-IN') : '0',
+        due_date: dueDate || (dueAmount > 0 ? 'at the earliest' : 'N/A'),
+        fee_head_name: headNames.slice(0, 3).join(', ') || '',
+        academic_year: active[0]?.academicYear || '',
+        term_number: '',
+        offset_days: '',
+        // raw numbers for summary line
+        _due_amount_raw: dueAmount,
+        _late_fee_amount_raw: lateFeeAmount
+    };
+};
+
+const fetchStudentFeeContext = async (student) => {
+    if (!student?.admission_number) {
+        return {
+            due_amount: 0,
+            late_fee_amount: 0,
+            due_date: 'N/A',
+            fee_head_name: '',
+            academic_year: '',
+            term_number: '',
+            offset_days: ''
+        };
+    }
+    const res = await api.get(`/fee-structures/student/${student.admission_number}`, {
+        params: {
+            college: student.college,
+            course: student.course,
+            branch: student.branch,
+            studentYear: student.current_year
+        }
+    });
+    return summarizeStudentFeeContext(res.data || []);
+};
 
 const ReminderConfiguration = () => {
-    // Top Level Mode: 'CONFIG' or 'SEND' or 'CALENDAR'
+    // Top Level Mode: 'CONFIG' | 'SEND' | 'TIMELY' | 'SETUP'
     const [mode, setMode] = useState('CONFIG');
 
     // --- CONFIG MODE STATE ---
@@ -14,13 +143,8 @@ const ReminderConfiguration = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [isFetching, setIsFetching] = useState(false);
     const [isSending, setIsSending] = useState(false);
-    const [formData, setFormData] = useState({
-        name: '',
-        subject: '',
-        templateId: '', // For SMS
-        senderId: '',   // For Email
-        body: ''
-    });
+    const [formData, setFormData] = useState({ ...EMPTY_TEMPLATE_FORM });
+    const [variableSources, setVariableSources] = useState([]);
 
     // --- SEND MODE STATE ---
     const [metadata, setMetadata] = useState({});
@@ -29,12 +153,17 @@ const ReminderConfiguration = () => {
     const [branches, setBranches] = useState([]);
     const [batches, setBatches] = useState([]);
     const [filters, setFilters] = useState({ college: '', course: '', branch: '', batch: '' });
+    const [searchTerm, setSearchTerm] = useState('');
     const [students, setStudents] = useState([]);
     const [selectedStudents, setSelectedStudents] = useState([]);
     const [sendTemplateId, setSendTemplateId] = useState('');
     const [sendType, setSendType] = useState('SMS'); // SMS or EMAIL
     const [missingEmailStudent, setMissingEmailStudent] = useState(null); // { student, email: '' } for modal
     const [newEmail, setNewEmail] = useState('');
+    const [previewFeeContext, setPreviewFeeContext] = useState(null);
+    const [isLoadingPreviewFees, setIsLoadingPreviewFees] = useState(false);
+    const [pendingSendRecipients, setPendingSendRecipients] = useState(null); // confirm modal
+    const [sendResultModal, setSendResultModal] = useState(null); // { type: 'success'|'error'|'info', title, message }
 
     const [academicYears, setAcademicYears] = useState([]);
     const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
@@ -43,27 +172,11 @@ const ReminderConfiguration = () => {
     // --- TIMELY MODE STATE ---
     const [configs, setConfigs] = useState([]);
     const [isScheduling, setIsScheduling] = useState(false);
-    const [configForm, setConfigForm] = useState({
-        college: '',
-        course: '',
-        branch: '',
-        academicYear: '',
-        yearOfStudy: '',
-        semester: 'BOTH',
-        eventType: 'START_DATE',
-        triggerType: 'BEFORE',
-        offsets: [],
-        currentOffsetInput: '',
-        smsTemplateId: '',
-        emailTemplateId: '',
-        enableSMS: true,
-        enableEmail: false
-    });
+    const [configForm, setConfigForm] = useState({ ...EMPTY_CONFIG_FORM });
 
     // Filters for Active Rules List
     const [ruleFilters, setRuleFilters] = useState({
-        college: '',
-        course: '',
+        dueSourceType: '',
         academicYear: ''
     });
 
@@ -94,6 +207,7 @@ const ReminderConfiguration = () => {
         fetchTemplates();
         fetchMetadata();
         fetchAcademicYears();
+        fetchVariableSources();
     }, []);
 
     useEffect(() => {
@@ -102,6 +216,14 @@ const ReminderConfiguration = () => {
         }
     }, [mode]);
 
+    const fetchVariableSources = async () => {
+        try {
+            const res = await api.get(`/reminders/variable-sources`);
+            setVariableSources(res.data || []);
+        } catch (error) {
+            console.error(error);
+        }
+    };
     const fetchAcademicYears = async () => {
         setIsFetchingCalendar(true);
         try {
@@ -141,12 +263,19 @@ const ReminderConfiguration = () => {
         if (!formData.name || !formData.body) return alert("Name and Body are required");
         if (activeTab === 'EMAIL' && (!formData.subject || !formData.senderId)) return alert("Subject and Sender ID are required for Email");
 
+        const map = syncVariableMapFromBody(formData.body, formData.variableMap);
+        const unmapped = map.filter(m => !m.source);
+        if (map.length && unmapped.length) {
+            return alert(`Map a source for every variable: ${unmapped.map(variableRowLabel).join(', ')}`);
+        }
+
         setIsSaving(true);
         try {
             await api.post(`/reminders/templates`, {
                 _id: editingTemplate?._id,
                 type: activeTab,
-                ...formData
+                ...formData,
+                variableMap: map
             });
             fetchTemplates();
             resetForm();
@@ -171,7 +300,7 @@ const ReminderConfiguration = () => {
 
     const resetForm = () => {
         setEditingTemplate(null);
-        setFormData({ name: '', subject: '', templateId: '', senderId: '', body: '' });
+        setFormData({ ...EMPTY_TEMPLATE_FORM });
     };
 
     const startEdit = (tpl) => {
@@ -181,15 +310,37 @@ const ReminderConfiguration = () => {
             subject: tpl.subject || '',
             templateId: tpl.templateId || '',
             senderId: tpl.senderId || '',
-            body: tpl.body
+            body: tpl.body,
+            variableMap: syncVariableMapFromBody(tpl.body, tpl.variableMap || [])
         });
         setActiveTab(tpl.type);
     };
 
     const insertVariable = (variable) => {
-        setFormData(prev => ({ ...prev, body: prev.body + variable }));
+        setFormData(prev => {
+            const body = prev.body + variable;
+            return {
+                ...prev,
+                body,
+                variableMap: syncVariableMapFromBody(body, prev.variableMap)
+            };
+        });
     };
 
+    const updateBody = (body) => {
+        setFormData(prev => ({
+            ...prev,
+            body,
+            variableMap: syncVariableMapFromBody(body, prev.variableMap)
+        }));
+    };
+
+    const updateVariableSource = (key, source) => {
+        setFormData(prev => ({
+            ...prev,
+            variableMap: (prev.variableMap || []).map(m => m.key === key ? { ...m, source } : m)
+        }));
+    };
     // --- SEND MODE HANDLERS ---
     const handleCollegeChange = (e) => {
         const college = e.target.value;
@@ -216,6 +367,7 @@ const ReminderConfiguration = () => {
             });
             setStudents(res.data);
             setSelectedStudents([]); // Reset selection
+            setSearchTerm('');
         } catch (error) {
             console.error(error);
             alert('Failed to fetch students');
@@ -224,11 +376,24 @@ const ReminderConfiguration = () => {
         }
     };
 
+    const filteredStudents = React.useMemo(() => {
+        const term = searchTerm.trim().toLowerCase();
+        if (!term) return students;
+        return students.filter(s =>
+            (s.student_name || '').toLowerCase().includes(term) ||
+            (s.admission_number || '').toLowerCase().includes(term) ||
+            (s.pin_no || '').toLowerCase().includes(term) ||
+            String(s.student_mobile || '').toLowerCase().includes(term)
+        );
+    }, [students, searchTerm]);
+
     const toggleSelectAll = () => {
-        if (selectedStudents.length === students.length) {
-            setSelectedStudents([]);
+        const visibleIds = filteredStudents.map(s => s.admission_number);
+        const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedStudents.includes(id));
+        if (allVisibleSelected) {
+            setSelectedStudents(prev => prev.filter(id => !visibleIds.includes(id)));
         } else {
-            setSelectedStudents(students.map(s => s.admission_number));
+            setSelectedStudents(prev => [...new Set([...prev, ...visibleIds])]);
         }
     };
 
@@ -241,14 +406,27 @@ const ReminderConfiguration = () => {
     };
 
     const initiateSend = () => {
-        if (selectedStudents.length === 0) return alert("No students selected.");
-        if (!sendTemplateId) return alert("Please select a template.");
+        if (selectedStudents.length === 0) {
+            setSendResultModal({
+                type: 'info',
+                title: 'No Students Selected',
+                message: 'Please select at least one student before sending reminders.'
+            });
+            return;
+        }
+        if (!sendTemplateId) {
+            setSendResultModal({
+                type: 'info',
+                title: 'Template Required',
+                message: 'Please select an SMS or Email template to continue.'
+            });
+            return;
+        }
 
-        // Check for missing contact info
         const recipients = students.filter(s => selectedStudents.includes(s.admission_number));
 
         if (sendType === 'EMAIL') {
-            const missing = recipients.find(r => !r.student_email || r.student_email.trim() === '');
+            const missing = recipients.find(r => !(r.student_email || r.email)?.trim());
             if (missing) {
                 setMissingEmailStudent(missing);
                 setNewEmail('');
@@ -256,14 +434,19 @@ const ReminderConfiguration = () => {
             }
         }
 
-        // If all good, send
-        performSend(recipients);
+        setPendingSendRecipients(recipients);
     };
 
     const handleMissingEmailSave = () => {
-        if (!newEmail || !newEmail.includes('@')) return alert("Invalid Email");
+        if (!newEmail || !newEmail.includes('@')) {
+            setSendResultModal({
+                type: 'info',
+                title: 'Invalid Email',
+                message: 'Please enter a valid email address to continue.'
+            });
+            return;
+        }
 
-        // Ideally, update student in DB here. For now, update local state
         const updatedStudents = students.map(s =>
             s.admission_number === missingEmailStudent.admission_number
                 ? { ...s, student_email: newEmail }
@@ -271,30 +454,81 @@ const ReminderConfiguration = () => {
         );
         setStudents(updatedStudents);
         setMissingEmailStudent(null);
-
-        // Immediately try sending again if no other missing emails
-        // Or user can click sending again
     };
 
-    const performSend = async (recipients) => {
-        if (!window.confirm(`Send ${sendType} to ${recipients.length} students?`)) return;
+    const confirmAndSend = async () => {
+        const recipients = pendingSendRecipients;
+        if (!recipients?.length) return;
 
         setIsSending(true);
         try {
-            await api.post(`/reminders/send`, {
-                templateId: sendTemplateId,
-                recipients: recipients.map(r => ({
+            const enriched = await Promise.all(recipients.map(async (r) => {
+                let computed = {
+                    due_amount: 0,
+                    late_fee_amount: 0,
+                    due_date: 'N/A',
+                    fee_head_name: '',
+                    academic_year: '',
+                    term_number: '',
+                    offset_days: ''
+                };
+                try {
+                    computed = await fetchStudentFeeContext(r);
+                } catch (err) {
+                    console.error('Fee context failed for', r.admission_number, err);
+                }
+                return {
                     admission_number: r.admission_number,
-                    email: r.student_email,
-                    phone: r.student_mobile
-                }))
+                    student_name: r.student_name,
+                    email: r.student_email || r.email,
+                    phone: r.student_mobile,
+                    student: {
+                        admission_number: r.admission_number,
+                        student_name: r.student_name,
+                        pin_no: r.pin_no,
+                        college: r.college,
+                        course: r.course,
+                        branch: r.branch,
+                        batch: r.batch,
+                        student_mobile: r.student_mobile,
+                        email: r.student_email || r.email,
+                        stud_type: r.stud_type
+                    },
+                    computed,
+                    due_amount: computed.due_amount,
+                    due_date: computed.due_date,
+                    late_fee_amount: computed.late_fee_amount
+                };
+            }));
+
+            const res = await api.post(`/reminders/send`, {
+                templateId: sendTemplateId,
+                recipients: enriched
             });
-            alert('Reminders Sent Successfully!');
+
+            const results = res.data?.results || [];
+            const ok = results.filter(r => r.status === 'success').length;
+            const failed = results.filter(r => r.status === 'failed').length;
+            const tplName = templates.find(t => t._id === sendTemplateId)?.name || sendType;
+
+            setPendingSendRecipients(null);
             setSelectedStudents([]);
             setSendTemplateId('');
+            setSendResultModal({
+                type: failed > 0 && ok === 0 ? 'error' : (failed > 0 ? 'info' : 'success'),
+                title: failed > 0 && ok === 0 ? 'Send Failed' : (failed > 0 ? 'Partially Sent' : 'Reminders Sent'),
+                message: failed > 0
+                    ? `${sendType} via “${tplName}”: ${ok} succeeded, ${failed} failed out of ${recipients.length}.`
+                    : `${sendType} reminder “${tplName}” was sent to ${ok || recipients.length} student(s) successfully.`
+            });
         } catch (error) {
             console.error(error);
-            alert('Failed to send reminders.');
+            setPendingSendRecipients(null);
+            setSendResultModal({
+                type: 'error',
+                title: 'Send Failed',
+                message: error?.response?.data?.message || 'Failed to send reminders. Please try again.'
+            });
         } finally {
             setIsSending(false);
         }
@@ -311,10 +545,10 @@ const ReminderConfiguration = () => {
     };
 
     const handleConfigSubmit = async () => {
-        const { college, course, academicYear, yearOfStudy, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId } = configForm;
+        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType } = configForm;
 
-        if (!college || !course || !academicYear || !yearOfStudy || offsets.length === 0) {
-            return alert("College, Course, Academic Year, Year of Study, and at least ONE Offset are required.");
+        if (!academicYear || !dueSourceType || offsets.length === 0) {
+            return alert("Academic Year, Due Source Type, and at least ONE Offset are required.");
         }
         if (!enableSMS && !enableEmail) {
             return alert("Please select at least one channel (SMS or Email).");
@@ -324,9 +558,11 @@ const ReminderConfiguration = () => {
 
         setIsScheduling(true);
         try {
-            // Only send the templates for enabled channels
             const payload = {
-                ...configForm,
+                academicYear,
+                dueSourceType,
+                triggerType,
+                offsets,
                 smsTemplateId: enableSMS ? smsTemplateId : null,
                 emailTemplateId: enableEmail ? emailTemplateId : null
             };
@@ -340,27 +576,11 @@ const ReminderConfiguration = () => {
                 alert('Rule Saved Successfully!');
             }
 
-            // Proper Reset
-            setConfigForm({
-                college: '',
-                course: '',
-                branch: '',
-                academicYear: '',
-                yearOfStudy: '',
-                semester: 'BOTH',
-                eventType: 'START_DATE',
-                triggerType: 'BEFORE',
-                offsets: [],
-                currentOffsetInput: '',
-                smsTemplateId: '',
-                emailTemplateId: '',
-                enableSMS: true,
-                enableEmail: false
-            });
+            setConfigForm({ ...EMPTY_CONFIG_FORM });
             fetchConfigs();
         } catch (error) {
             console.error(error);
-            alert('Failed to save rule.');
+            alert(error?.response?.data?.message || 'Failed to save rule.');
         } finally {
             setIsScheduling(false);
         }
@@ -380,18 +600,13 @@ const ReminderConfiguration = () => {
     const handleEditConfig = (cfg) => {
         setEditingConfigId(cfg._id);
         setConfigForm({
-            college: cfg.college,
-            course: cfg.course,
-            branch: cfg.branch || '',
-            academicYear: cfg.academicYear,
-            yearOfStudy: cfg.yearOfStudy,
-            semester: cfg.semester,
-            eventType: cfg.eventType,
-            triggerType: cfg.triggerType,
+            academicYear: cfg.academicYear || '',
+            dueSourceType: cfg.dueSourceType || 'ACADEMIC',
+            triggerType: cfg.triggerType || 'BEFORE',
             offsets: cfg.offsets || [],
             currentOffsetInput: '',
-            smsTemplateId: cfg.smsTemplateId?._id || '',
-            emailTemplateId: cfg.emailTemplateId?._id || '',
+            smsTemplateId: cfg.smsTemplateId?._id || cfg.smsTemplateId || '',
+            emailTemplateId: cfg.emailTemplateId?._id || cfg.emailTemplateId || '',
             enableSMS: !!cfg.smsTemplateId,
             enableEmail: !!cfg.emailTemplateId
         });
@@ -399,29 +614,14 @@ const ReminderConfiguration = () => {
 
     const cancelEdit = () => {
         setEditingConfigId(null);
-        setConfigForm({
-            college: '',
-            course: '',
-            branch: '',
-            academicYear: '',
-            yearOfStudy: '',
-            semester: 'BOTH',
-            eventType: 'START_DATE',
-            triggerType: 'BEFORE',
-            offsets: [],
-            currentOffsetInput: '',
-            smsTemplateId: '',
-            emailTemplateId: '',
-            enableSMS: true,
-            enableEmail: false
-        });
+        setConfigForm({ ...EMPTY_CONFIG_FORM });
     };
 
     // Extract Unique Academic Years for Dropdown
     const uniqueAcademicYears = [...new Set(academicYears.map(ay => ay.year_label))];
 
     const addOffset = () => {
-        if (configForm.currentOffsetInput && !configForm.offsets.includes(Number(configForm.currentOffsetInput))) {
+        if (configForm.currentOffsetInput !== '' && !configForm.offsets.includes(Number(configForm.currentOffsetInput))) {
             setConfigForm(prev => ({
                 ...prev,
                 offsets: [...prev.offsets, Number(prev.currentOffsetInput)].sort((a, b) => a - b),
@@ -436,12 +636,125 @@ const ReminderConfiguration = () => {
             offsets: prev.offsets.filter(o => o !== val)
         }));
     };
-
     // Filtered templates for dropdown
     const smsTemplates = templates.filter(t => t.type === 'SMS');
     const emailTemplates = templates.filter(t => t.type === 'EMAIL');
     const sendTemplates = templates.filter(t => t.type === sendType);
     const currentTemplates = templates.filter(t => t.type === activeTab);
+
+    const selectedSendTemplate = sendTemplates.find(t => t._id === sendTemplateId) || null;
+    const previewStudent = React.useMemo(() => {
+        if (!selectedStudents.length) return students[0] || null;
+        return students.find(s => s.admission_number === selectedStudents[0]) || null;
+    }, [students, selectedStudents]);
+
+    // Load real pending/late fee totals for preview (same API as Fee Collection)
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            if (!previewStudent?.admission_number || !sendTemplateId || mode !== 'SEND') {
+                setPreviewFeeContext(null);
+                return;
+            }
+            setIsLoadingPreviewFees(true);
+            try {
+                const ctx = await fetchStudentFeeContext(previewStudent);
+                if (!cancelled) setPreviewFeeContext(ctx);
+            } catch (err) {
+                console.error('Preview fee load failed', err);
+                if (!cancelled) {
+                    setPreviewFeeContext({
+                        due_amount: 0,
+                        late_fee_amount: 0,
+                        due_date: 'N/A',
+                        fee_head_name: '',
+                        academic_year: '',
+                        term_number: '',
+                        offset_days: ''
+                    });
+                }
+            } finally {
+                if (!cancelled) setIsLoadingPreviewFees(false);
+            }
+        };
+        load();
+        return () => { cancelled = true; };
+    }, [previewStudent?.admission_number, sendTemplateId, mode]);
+
+    const previewMessage = React.useMemo(() => {
+        if (!selectedSendTemplate || !previewStudent) return null;
+
+        const getByPath = (obj, path) => {
+            if (!path) return undefined;
+            return path.split('.').reduce((acc, part) => (acc == null ? undefined : acc[part]), obj);
+        };
+
+        const feeCtx = previewFeeContext || {};
+        const recipient = {
+            admission_number: previewStudent.admission_number,
+            student_name: previewStudent.student_name,
+            student: {
+                admission_number: previewStudent.admission_number,
+                student_name: previewStudent.student_name,
+                father_name: previewStudent.father_name,
+                pin_no: previewStudent.pin_no,
+                college: previewStudent.college,
+                course: previewStudent.course,
+                branch: previewStudent.branch,
+                batch: previewStudent.batch,
+                student_mobile: previewStudent.student_mobile,
+                email: previewStudent.student_email || previewStudent.email,
+                current_year: previewStudent.current_year,
+                current_semester: previewStudent.current_semester,
+                stud_type: previewStudent.stud_type
+            },
+            computed: {
+                due_date: feeCtx.due_date || 'N/A',
+                due_amount: feeCtx.due_amount != null ? feeCtx.due_amount : '',
+                late_fee_amount: feeCtx.late_fee_amount != null ? feeCtx.late_fee_amount : '',
+                term_number: feeCtx.term_number || '',
+                fee_head_name: feeCtx.fee_head_name || '',
+                academic_year: feeCtx.academic_year || '',
+                offset_days: feeCtx.offset_days || ''
+            }
+        };
+
+        const mapByKey = {};
+        (selectedSendTemplate.variableMap || []).forEach((m) => {
+            if (m?.key && m?.source) mapByKey[m.key] = m.source;
+        });
+
+        const resolveKey = (key) => {
+            const source = mapByKey[key];
+            if (source) {
+                const fromPath = getByPath(recipient, source);
+                if (fromPath !== undefined && fromPath !== null && fromPath !== '') return String(fromPath);
+                const flat = source.includes('.') ? source.split('.').pop() : source;
+                if (recipient[flat] != null && recipient[flat] !== '') return String(recipient[flat]);
+            }
+            if (recipient[key] != null && recipient[key] !== '') return String(recipient[key]);
+            if (recipient.student?.[key] != null) return String(recipient.student[key]);
+            if (recipient.computed?.[key] != null && recipient.computed[key] !== '') return String(recipient.computed[key]);
+            return `[${key}]`;
+        };
+
+        let out = String(selectedSendTemplate.body || '');
+        out = out.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => resolveKey(key));
+        let dltIndex = 0;
+        out = out.replace(/\{#var#\}/gi, () => {
+            dltIndex += 1;
+            return resolveKey(`var_${dltIndex}`);
+        });
+
+        return {
+            subject: selectedSendTemplate.subject
+                ? String(selectedSendTemplate.subject).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => resolveKey(key))
+                : '',
+            body: out,
+            studentLabel: `${previewStudent.student_name || 'Student'} (${previewStudent.admission_number})`,
+            dueAmount: feeCtx.due_amount
+        };
+    }, [selectedSendTemplate, previewStudent, previewFeeContext]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -475,6 +788,12 @@ const ReminderConfiguration = () => {
                             className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'TIMELY' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
                         >
                             Timely Reminders
+                        </button>
+                        <button
+                            onClick={() => setMode('SETUP')}
+                            className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'SETUP' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
+                        >
+                            Setup Guide
                         </button>
                     </div>
                 </header>
@@ -589,12 +908,20 @@ const ReminderConfiguration = () => {
                                         </div>
                                     )}
                                     <div className="flex-1 flex flex-col">
-                                        <div className="flex justify-between items-center mb-1">
+                                        <div className="flex justify-between items-center mb-1 gap-2">
                                             <label className="block text-xs font-bold text-gray-500 uppercase">Message Body</label>
-                                            <div className="flex gap-1">
-                                                {['{{student_name}}', '{{due_amount}}', '{{due_date}}', '{{pay_link}}'].map(v => (
+                                            <div className="flex gap-1 flex-wrap justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => insertVariable('{#var#}')}
+                                                    className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded border border-indigo-200 transition font-bold"
+                                                >
+                                                    {'{#var#}'}
+                                                </button>
+                                                {['{{student_name}}', '{{due_amount}}', '{{due_date}}'].map(v => (
                                                     <button
                                                         key={v}
+                                                        type="button"
                                                         onClick={() => insertVariable(v)}
                                                         className="text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded border border-gray-200 transition"
                                                     >
@@ -604,12 +931,48 @@ const ReminderConfiguration = () => {
                                             </div>
                                         </div>
                                         <textarea
-                                            className="w-full h-full min-h-[200px] flex-1 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition resize-none font-mono"
-                                            placeholder="Type your message here..."
+                                            className="w-full h-full min-h-[140px] flex-1 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition resize-none font-mono"
+                                            placeholder={'Paste DLT text, e.g.\nDear {#var#}, Pending fee: {#var#}. Late fee: {#var#}. - Pydah Group'}
                                             value={formData.body}
-                                            onChange={e => setFormData({ ...formData, body: e.target.value })}
+                                            onChange={e => updateBody(e.target.value)}
                                         ></textarea>
                                     </div>
+                                    {(formData.variableMap || []).length > 0 && (
+                                        <div className="border border-indigo-100 rounded-xl p-3 bg-indigo-50/40 space-y-2">
+                                            <h4 className="text-xs font-black uppercase text-indigo-600 flex items-center gap-1">
+                                                <Info size={12} /> Map Variables (by order)
+                                            </h4>
+                                            <p className="text-[10px] text-gray-500">
+                                                Each {'{#var#}'} in the message is Variable 1, 2, 3… in left-to-right order. Pick what fills each slot.
+                                            </p>
+                                            {(formData.variableMap || []).map(row => (
+                                                <div key={row.key} className="flex items-center gap-2">
+                                                    <div className="w-40 shrink-0">
+                                                        <code className="text-[11px] font-bold text-indigo-800 bg-white px-2 py-1 rounded border border-indigo-100 block truncate">
+                                                            {variableRowLabel(row)}
+                                                        </code>
+                                                    </div>
+                                                    <select
+                                                        className="flex-1 bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                        value={row.source || ''}
+                                                        onChange={e => updateVariableSource(row.key, e.target.value)}
+                                                    >
+                                                        <option value="">Select source…</option>
+                                                        <optgroup label="Student table">
+                                                            {variableSources.filter(s => s.group === 'Student').map(s => (
+                                                                <option key={s.value} value={s.value}>{s.label}</option>
+                                                            ))}
+                                                        </optgroup>
+                                                        <optgroup label="Computed at send time">
+                                                            {variableSources.filter(s => s.group === 'Computed').map(s => (
+                                                                <option key={s.value} value={s.value}>{s.label}</option>
+                                                            ))}
+                                                        </optgroup>
+                                                    </select>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
                                     {editingTemplate && (
@@ -636,117 +999,59 @@ const ReminderConfiguration = () => {
                     {/* --- TIMELY MODE --- */}
                     {mode === 'TIMELY' && (
                         <div className="w-full h-full flex gap-6">
-                            {/* Left: Configuration Form */}
                             <div className="w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm p-6 overflow-y-auto">
                                 <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
-                                    <Clock className="text-blue-600" size={20} /> Configure Reminder Rule
+                                    <Clock className="text-blue-600" size={20} /> Global Reminder Rule
                                 </h2>
-
                                 <div className="space-y-5">
-                                    {/* Filters */}
                                     <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                        <h4 className="text-xs font-black uppercase text-gray-400">Target Group</h4>
+                                        <h4 className="text-xs font-black uppercase text-gray-400">Scope</h4>
                                         <div>
-                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">College</label>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Academic Year</label>
                                             <select
                                                 className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                value={configForm.college}
-                                                onChange={e => {
-                                                    const val = e.target.value;
-                                                    setConfigForm({ ...configForm, college: val, course: '', branch: '' });
-                                                }}
+                                                value={configForm.academicYear}
+                                                onChange={e => setConfigForm({ ...configForm, academicYear: e.target.value })}
                                             >
-                                                <option value="">Select College</option>
-                                                {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                                <option value="">Select AY</option>
+                                                {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
                                             </select>
                                         </div>
-                                        {configForm.college && (
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Course</label>
-                                                <select
-                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                    value={configForm.course}
-                                                    onChange={e => setConfigForm({ ...configForm, course: e.target.value, branch: '' })}
-                                                >
-                                                    <option value="">Select Course</option>
-                                                    {Object.keys(metadata[configForm.college] || {}).map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                            </div>
-                                        )}
-                                        {configForm.course && (
-                                            <>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Branch (Optional)</label>
-                                                    <select
-                                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                        value={configForm.branch}
-                                                        onChange={e => setConfigForm(prev => ({ ...prev, branch: e.target.value }))}
-                                                    >
-                                                        <option value="">All Branches</option>
-                                                        {(metadata[configForm.college]?.[configForm.course]?.branches || []).map(b => <option key={b} value={b}>{b}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Academic Year</label>
-                                                    <select
-                                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                        value={configForm.academicYear}
-                                                        onChange={e => setConfigForm(prev => ({ ...prev, academicYear: e.target.value }))}
-                                                    >
-                                                        <option value="">Select AY</option>
-                                                        {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    <div className="flex-1">
-                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Year of Study</label>
-                                                        <select
-                                                            className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                            value={configForm.yearOfStudy}
-                                                            onChange={e => setConfigForm(prev => ({ ...prev, yearOfStudy: e.target.value }))}
-                                                        >
-                                                            <option value="">Select Year</option>
-                                                            {[1, 2, 3, 4].map(y => <option key={y} value={y}>{y}</option>)}
-                                                        </select>
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Semester</label>
-                                                        <select
-                                                            className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                            value={configForm.semester}
-                                                            onChange={e => setConfigForm(prev => ({ ...prev, semester: e.target.value }))}
-                                                        >
-                                                            <option value="BOTH">Both</option>
-                                                            <option value="1">Sem 1</option>
-                                                            <option value="2">Sem 2</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Due Source Type</label>
+                                            <select
+                                                className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                value={configForm.dueSourceType}
+                                                onChange={e => setConfigForm({ ...configForm, dueSourceType: e.target.value })}
+                                            >
+                                                <option value="ACADEMIC">Academic Fees</option>
+                                                <option value="HOSTEL">Hostel Fees</option>
+                                                <option value="TRANSPORT">Transport Fees</option>
+                                            </select>
+                                            <p className="text-[10px] text-gray-400 mt-1">Uses the same due dates as Late Fee configs for this type.</p>
+                                        </div>
                                     </div>
 
-                                    {/* Offset Logic */}
                                     <div className="space-y-4">
-                                        <h4 className="text-xs font-black uppercase text-gray-400">Trigger Logic</h4>
+                                        <h4 className="text-xs font-black uppercase text-gray-400">When to Send</h4>
                                         <div className="flex gap-2 items-end">
-                                            <div className="w-32 shrink-0">
+                                            <div className="flex-1">
                                                 <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Add Offset (Days)</label>
                                                 <div className="flex gap-1">
                                                     <input
                                                         type="number"
                                                         min="0"
                                                         className="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm font-bold"
-                                                        placeholder="e.g. 1"
+                                                        placeholder="e.g. 3"
                                                         value={configForm.currentOffsetInput}
                                                         onChange={e => setConfigForm({ ...configForm, currentOffsetInput: e.target.value })}
                                                         onKeyDown={e => e.key === 'Enter' && addOffset()}
                                                     />
-                                                    <button onClick={addOffset} className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-3 font-bold">+</button>
+                                                    <button type="button" onClick={addOffset} className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-3 font-bold">+</button>
                                                 </div>
                                             </div>
-                                            <div className="w-24 shrink-0">
+                                            <div className="w-28 shrink-0">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Relative to Due</label>
                                                 <select
                                                     className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
                                                     value={configForm.triggerType}
@@ -756,110 +1061,46 @@ const ReminderConfiguration = () => {
                                                     <option value="AFTER">AFTER</option>
                                                 </select>
                                             </div>
-                                            <div className="flex-1">
-                                                <select
-                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
-                                                    value={configForm.eventType}
-                                                    onChange={e => setConfigForm({ ...configForm, eventType: e.target.value })}
-                                                >
-                                                    <option value="START_DATE">Semester Start</option>
-                                                    <option value="END_DATE">Semester End</option>
-                                                </select>
-                                            </div>
                                         </div>
-
-                                        {/* Selected Offsets Tags */}
                                         <div className="flex flex-wrap gap-2">
                                             {configForm.offsets.map(offset => (
                                                 <span key={offset} className="px-3 py-1 bg-gray-800 text-white rounded-full text-xs font-bold flex items-center gap-1.5">
-                                                    {offset} Days
-                                                    <button onClick={() => removeOffset(offset)} className="bg-gray-600 rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-500 text-[9px] transition">×</button>
+                                                    {offset} Days {configForm.triggerType}
+                                                    <button type="button" onClick={() => removeOffset(offset)} className="bg-gray-600 rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-500 text-[9px] transition">×</button>
                                                 </span>
                                             ))}
                                             {configForm.offsets.length === 0 && <span className="text-xs text-gray-400 italic">No offsets added.</span>}
                                         </div>
-
-                                        {/* Inline Date Preview */}
-                                        {configForm.academicYear && configForm.yearOfStudy && configForm.semester !== 'BOTH' && (
-                                            (() => {
-                                                const match = academicYears.find(ay =>
-                                                    ay.course_name === configForm.course &&
-                                                    ay.year_label === configForm.academicYear &&
-                                                    Number(ay.year_of_study) === Number(configForm.yearOfStudy) &&
-                                                    String(ay.semester_number) === String(configForm.semester)
-                                                );
-
-                                                if (match) {
-                                                    const targetDate = configForm.eventType === 'START_DATE' ? match.start_date : match.end_date;
-                                                    const dateObj = new Date(targetDate);
-                                                    return (
-                                                        <div className="mt-4 text-[10px] text-blue-600 font-bold bg-blue-50 p-2 rounded border border-blue-100 flex items-center justify-between gap-2">
-                                                            <div className="flex items-center gap-1">
-                                                                <Calendar size={12} />
-                                                                <span>{configForm.eventType === 'START_DATE' ? 'Semester Start' : 'Semester End'} Date:</span>
-                                                            </div>
-                                                            <span className="text-sm bg-white px-2 py-0.5 rounded border border-blue-100 shadow-sm">{dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                                                        </div>
-                                                    );
-                                                }
-                                                return (
-                                                    <div className="mt-4 text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded border border-red-100 text-center">
-                                                        Date not found in Academic Calendar
-                                                    </div>
-                                                );
-                                            })()
-                                        )}
                                         <div className="text-[10px] text-gray-500 leading-tight bg-blue-50 p-2 rounded border border-blue-100 italic">
-                                            Example: "3 Days BEFORE Semester Start" means messages will send 3 days prior to the start date found in the calendar.
+                                            Example: "3 Days BEFORE" sends to unpaid students 3 days before their fee due date (from late-fee timing). Offset 0 BEFORE = on due date.
                                         </div>
                                     </div>
 
                                     <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
                                         <h4 className="text-xs font-black uppercase text-gray-400">Message Channels</h4>
-
                                         <div className="flex gap-4">
                                             <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                    checked={configForm.enableSMS}
-                                                    onChange={e => setConfigForm({ ...configForm, enableSMS: e.target.checked })}
-                                                />
+                                                <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={configForm.enableSMS} onChange={e => setConfigForm({ ...configForm, enableSMS: e.target.checked })} />
                                                 <span className="text-xs font-bold text-gray-700">Send SMS</span>
                                             </label>
                                             <label className="flex items-center gap-2 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                    checked={configForm.enableEmail}
-                                                    onChange={e => setConfigForm({ ...configForm, enableEmail: e.target.checked })}
-                                                />
+                                                <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={configForm.enableEmail} onChange={e => setConfigForm({ ...configForm, enableEmail: e.target.checked })} />
                                                 <span className="text-xs font-bold text-gray-700">Send Email</span>
                                             </label>
                                         </div>
-
                                         {configForm.enableSMS && (
                                             <div>
                                                 <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">SMS Template</label>
-                                                <select
-                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                    value={configForm.smsTemplateId}
-                                                    onChange={e => setConfigForm({ ...configForm, smsTemplateId: e.target.value })}
-                                                >
+                                                <select className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs" value={configForm.smsTemplateId} onChange={e => setConfigForm({ ...configForm, smsTemplateId: e.target.value })}>
                                                     <option value="">Select SMS Template</option>
                                                     {smsTemplates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
                                                 </select>
                                             </div>
                                         )}
-
                                         {configForm.enableEmail && (
                                             <div>
                                                 <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email Template</label>
-                                                <select
-                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                    value={configForm.emailTemplateId}
-                                                    onChange={e => setConfigForm({ ...configForm, emailTemplateId: e.target.value })}
-                                                >
+                                                <select className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs" value={configForm.emailTemplateId} onChange={e => setConfigForm({ ...configForm, emailTemplateId: e.target.value })}>
                                                     <option value="">Select Email Template</option>
                                                     {emailTemplates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
                                                 </select>
@@ -867,122 +1108,145 @@ const ReminderConfiguration = () => {
                                         )}
                                     </div>
 
-
-
                                     <div className="flex gap-2">
                                         {editingConfigId && (
-                                            <button
-                                                onClick={cancelEdit}
-                                                className="flex-1 py-3 rounded-xl bg-gray-200 text-gray-600 font-bold hover:bg-gray-300 transition"
-                                            >
-                                                Cancel
-                                            </button>
+                                            <button type="button" onClick={cancelEdit} className="flex-1 py-3 rounded-xl bg-gray-200 text-gray-600 font-bold hover:bg-gray-300 transition">Cancel</button>
                                         )}
-                                        <button
-                                            onClick={handleConfigSubmit}
-                                            disabled={isScheduling}
-                                            className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition flex justify-center items-center gap-2"
-                                        >
-                                            {isScheduling ? <Loader2 size={16} className="animate-spin" /> : (editingConfigId ? <Save size={16} /> : <Save size={16} />)}
+                                        <button type="button" onClick={handleConfigSubmit} disabled={isScheduling} className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition flex justify-center items-center gap-2">
+                                            {isScheduling ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                                             {editingConfigId ? 'Update Rule' : 'Save Rule'}
                                         </button>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Right: Active Configs List */}
                             <div className="flex-1 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div className="p-4 border-b border-gray-100 bg-gray-50/50 space-y-3">
                                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        <Activity className="text-blue-600" size={18} /> Active Reminder Rules
+                                        <Activity className="text-blue-600" size={18} /> Active Global Rules
                                     </h3>
-                                    {/* Filters */}
                                     <div className="flex gap-2">
-                                        <select
-                                            className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]"
-                                            value={ruleFilters.college}
-                                            onChange={e => setRuleFilters({ ...ruleFilters, college: e.target.value })}
-                                        >
-                                            <option value="">Filter College</option>
-                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                        <select className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]" value={ruleFilters.dueSourceType} onChange={e => setRuleFilters({ ...ruleFilters, dueSourceType: e.target.value })}>
+                                            <option value="">All Types</option>
+                                            <option value="ACADEMIC">Academic</option>
+                                            <option value="HOSTEL">Hostel</option>
+                                            <option value="TRANSPORT">Transport</option>
                                         </select>
-                                        <select
-                                            className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]"
-                                            value={ruleFilters.course}
-                                            onChange={e => setRuleFilters({ ...ruleFilters, course: e.target.value })}
-                                        >
-                                            <option value="">Filter Course</option>
-                                            {(ruleFilters.college ? Object.keys(metadata[ruleFilters.college] || {}) : []).map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                        <select
-                                            className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]"
-                                            value={ruleFilters.academicYear}
-                                            onChange={e => setRuleFilters({ ...ruleFilters, academicYear: e.target.value })}
-                                        >
-                                            <option value="">Filter AY</option>
+                                        <select className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]" value={ruleFilters.academicYear} onChange={e => setRuleFilters({ ...ruleFilters, academicYear: e.target.value })}>
+                                            <option value="">All AY</option>
                                             {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
                                         </select>
                                     </div>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                                     {configs
-                                        .filter(cfg => !ruleFilters.college || cfg.college === ruleFilters.college)
-                                        .filter(cfg => !ruleFilters.course || cfg.course === ruleFilters.course)
+                                        .filter(cfg => !ruleFilters.dueSourceType || cfg.dueSourceType === ruleFilters.dueSourceType)
                                         .filter(cfg => !ruleFilters.academicYear || cfg.academicYear === ruleFilters.academicYear)
                                         .length === 0 ? (
                                         <div className="text-center text-gray-400 mt-20">
                                             <Activity size={48} className="mx-auto mb-4 opacity-20" />
-                                            <p className="text-sm">No active configurations found.</p>
+                                            <p className="text-sm">No global rules yet. Create one for an academic year + fee type.</p>
                                         </div>
                                     ) : (
                                         configs
-                                            .filter(cfg => !ruleFilters.college || cfg.college === ruleFilters.college)
-                                            .filter(cfg => !ruleFilters.course || cfg.course === ruleFilters.course)
+                                            .filter(cfg => !ruleFilters.dueSourceType || cfg.dueSourceType === ruleFilters.dueSourceType)
                                             .filter(cfg => !ruleFilters.academicYear || cfg.academicYear === ruleFilters.academicYear)
                                             .map(cfg => (
                                                 <div key={cfg._id} className={`p-4 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:shadow-sm transition group relative flex justify-between items-center ${editingConfigId === cfg._id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
                                                     <div className="flex-1">
-                                                        <div className="flex items-center gap-2 mb-2">
+                                                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-700">
+                                                                {cfg.dueSourceType || 'LEGACY'}
+                                                            </span>
                                                             <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
-                                                                {cfg.offsets?.join(', ')} DAYS {cfg.triggerType}
+                                                                {(cfg.offsets || []).join(', ')} DAYS {cfg.triggerType}
                                                             </span>
                                                             <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                                                                {cfg.eventType.replace('_', ' ')} {cfg.semester !== 'BOTH' && `(SEM ${cfg.semester})`}
+                                                                DUE DATE
                                                             </span>
                                                         </div>
-
-                                                        {/* Detail Table-like View */}
                                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
                                                             <div><span className="font-bold text-gray-400">AY:</span> {cfg.academicYear}</div>
-                                                            <div><span className="font-bold text-gray-400">Year:</span> {cfg.yearOfStudy}</div>
-                                                            <div><span className="font-bold text-gray-400">Course:</span> {cfg.course}</div>
-                                                            <div><span className="font-bold text-gray-400">College:</span> {cfg.college}</div>
+                                                            <div><span className="font-bold text-gray-400">Audience:</span> Unpaid only</div>
                                                         </div>
-
                                                         <div className="text-xs text-gray-500 mt-1 flex flex-col gap-0.5 border-t border-gray-50 pt-1">
-                                                            {cfg.smsTemplateId && <div>📱 SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name}</span></div>}
-                                                            {cfg.emailTemplateId && <div>📧 Email: <span className="font-medium text-gray-700">{cfg.emailTemplateId?.name}</span></div>}
+                                                            {cfg.smsTemplateId && <div>SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name || 'Template'}</span></div>}
+                                                            {cfg.emailTemplateId && <div>Email: <span className="font-medium text-gray-700">{cfg.emailTemplateId?.name || 'Template'}</span></div>}
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-col gap-1 ml-4">
-                                                        <button
-                                                            onClick={() => handleEditConfig(cfg)}
-                                                            className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
-                                                            title="Edit Rule"
-                                                        >
-                                                            <Edit size={16} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteConfig(cfg._id)}
-                                                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                                                            title="Delete Rule"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
+                                                        <button type="button" onClick={() => handleEditConfig(cfg)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="Edit Rule"><Edit size={16} /></button>
+                                                        <button type="button" onClick={() => handleDeleteConfig(cfg._id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Delete Rule"><Trash2 size={16} /></button>
                                                     </div>
                                                 </div>
                                             ))
                                     )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- SETUP GUIDE --- */}
+                    {mode === 'SETUP' && (
+                        <div className="w-full h-full overflow-y-auto space-y-6 pb-8">
+                            <div className="bg-white border border-gray-200 p-6 rounded-xl">
+                                <div className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg mb-2">
+                                    <BookOpen size={14} /> Reminder System Guide
+                                </div>
+                                <h2 className="text-xl font-bold text-gray-800">How Timely Reminders Work</h2>
+                                <p className="text-xs text-gray-500 mt-1 max-w-3xl">
+                                    Templates hold the message and variable mapping. Global rules pick academic year, fee type (Academic / Hostel / Transport), and when to send relative to due dates from Late Fee configuration. The nightly job (3 AM IST) sends only to students with unpaid balance through that term.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                <div className="lg:col-span-7 bg-white border border-gray-200 p-6 rounded-xl space-y-6">
+                                    <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2 border-b border-gray-100 pb-3">
+                                        <Layers size={14} /> Setup Steps
+                                    </h3>
+                                    <div className="relative pl-6 border-l-2 border-gray-100 space-y-6 ml-3">
+                                        <div className="relative">
+                                            <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">1</div>
+                                            <h4 className="text-xs font-bold text-gray-800">Configure Late Fee due dates</h4>
+                                            <p className="text-xs text-gray-500 mt-1">In Fee Configuration → Late Fees, set Academic / Hostel / Transport due timing (Default Rules + structure or service configs). Reminders reuse those same due dates.</p>
+                                        </div>
+                                        <div className="relative">
+                                            <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">2</div>
+                                            <h4 className="text-xs font-bold text-gray-800">Create SMS / Email templates</h4>
+                                            <p className="text-xs text-gray-500 mt-1">Under Configuration, write the DLT-approved body with placeholders like {'{{student_name}}'}. Map each placeholder to a student column or computed field (due date, unpaid amount).</p>
+                                        </div>
+                                        <div className="relative">
+                                            <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">3</div>
+                                            <h4 className="text-xs font-bold text-gray-800">Save a global Timely rule</h4>
+                                            <p className="text-xs text-gray-500 mt-1">Pick Academic Year + type (Academic / Hostel / Transport), add offsets (e.g. 3 days BEFORE due), and attach templates. No college filter — all colleges covered for that AY and type.</p>
+                                        </div>
+                                        <div className="relative">
+                                            <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">4</div>
+                                            <h4 className="text-xs font-bold text-gray-800">Nightly send (automatic)</h4>
+                                            <p className="text-xs text-gray-500 mt-1">Scheduler resolves due dates, finds unpaid students through that term, fills template variables from the map, and sends SMS/Email via BulkSMS / Brevo. Manual blast remains available under Send Reminders.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="lg:col-span-5 space-y-4">
+                                    <div className="bg-white border border-gray-200 p-5 rounded-xl">
+                                        <h3 className="font-bold text-gray-800 text-sm mb-3">Audience rule</h3>
+                                        <ul className="text-xs text-gray-600 space-y-2 list-disc pl-4">
+                                            <li>Only <strong>regular</strong> students with unpaid balance through the due term (same underpaid logic as late fees).</li>
+                                            <li>Paid / fully conceded students are skipped.</li>
+                                            <li>Separate rules for Academic, Hostel, and Transport.</li>
+                                        </ul>
+                                    </div>
+                                    <div className="bg-white border border-gray-200 p-5 rounded-xl">
+                                        <h3 className="font-bold text-gray-800 text-sm mb-3">Example</h3>
+                                        <p className="text-xs text-gray-600 leading-relaxed">
+                                            AY <strong>2025-2026</strong>, type <strong>ACADEMIC</strong>, offsets <strong>3, 0 BEFORE</strong>, SMS template linked.
+                                            If Term 1 due is 30 Jul, unpaid students get SMS on 27 Jul and again on 30 Jul. Hostel and Transport need their own rules for the same AY.
+                                        </p>
+                                    </div>
+                                    <div className="bg-amber-50 border border-amber-100 p-5 rounded-xl">
+                                        <h3 className="font-bold text-amber-900 text-sm mb-2">Note on old rules</h3>
+                                        <p className="text-xs text-amber-800">College-scoped legacy rules are skipped by the new scheduler. Delete them and recreate as global AY + type rules.</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1022,6 +1286,19 @@ const ReminderConfiguration = () => {
                                             {batches.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
                                     </div>
+                                    <div className="w-56">
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Search</label>
+                                        <div className="relative">
+                                            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 pl-8 pr-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                placeholder="Name, Adm No, Pin, Mobile..."
+                                                value={searchTerm}
+                                                onChange={e => setSearchTerm(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
                                     <button
                                         onClick={fetchStudents}
                                         disabled={isFetching}
@@ -1039,7 +1316,7 @@ const ReminderConfiguration = () => {
                                 <div className="w-full flex-[2] bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                     <div className="p-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center shrink-0">
                                         <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                                            <Users size={16} /> Students ({students.length})
+                                            <Users size={16} /> Students ({filteredStudents.length}{searchTerm.trim() ? ` / ${students.length}` : ''})
                                         </h3>
                                         <div className="text-xs text-blue-600 font-semibold bg-blue-100 px-3 py-1 rounded-full">
                                             {selectedStudents.length} Selected
@@ -1051,7 +1328,7 @@ const ReminderConfiguration = () => {
                                                 <tr>
                                                     <th className="p-3 w-10 text-center">
                                                         <button onClick={toggleSelectAll}>
-                                                            {selectedStudents.length === students.length && students.length > 0 ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
+                                                            {filteredStudents.length > 0 && filteredStudents.every(s => selectedStudents.includes(s.admission_number)) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
                                                         </button>
                                                     </th>
                                                     <th className="p-3 font-semibold">Admission No</th>
@@ -1062,8 +1339,10 @@ const ReminderConfiguration = () => {
                                             <tbody className="divide-y divide-gray-100">
                                                 {students.length === 0 ? (
                                                     <tr><td colSpan="4" className="p-10 text-center text-gray-400">No students fetched.</td></tr>
+                                                ) : filteredStudents.length === 0 ? (
+                                                    <tr><td colSpan="4" className="p-10 text-center text-gray-400">No students match your search.</td></tr>
                                                 ) : (
-                                                    students.map(s => (
+                                                    filteredStudents.map(s => (
                                                         <tr key={s.admission_number} className={`hover:bg-blue-50 transition ${selectedStudents.includes(s.admission_number) ? 'bg-blue-50/50' : ''}`}>
                                                             <td className="p-3 text-center">
                                                                 <button onClick={() => toggleStudent(s.admission_number)}>
@@ -1077,7 +1356,7 @@ const ReminderConfiguration = () => {
                                                                     <MessageSquare size={10} /> {s.student_mobile || <span className="text-red-400 italic">No Mobile</span>}
                                                                 </div>
                                                                 <div className="flex items-center gap-1.5 text-gray-500">
-                                                                    <Mail size={10} /> {s.student_email || <span className="text-red-400 italic">No Email</span>}
+                                                                    <Mail size={10} /> {s.student_email || s.email || <span className="text-red-400 italic">No Email</span>}
                                                                 </div>
                                                             </td>
                                                         </tr>
@@ -1124,6 +1403,49 @@ const ReminderConfiguration = () => {
                                             </select>
                                             {sendTemplates.length === 0 && <p className="text-[10px] text-red-500 mt-1">No templates found for {sendType}. Configure one first.</p>}
                                         </div>
+
+                                        {sendTemplateId && (
+                                            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <h4 className="text-[11px] font-black uppercase text-blue-700 tracking-wide">Message Preview</h4>
+                                                    {previewMessage && (
+                                                        <span className="text-[10px] text-blue-600 font-semibold truncate max-w-[55%]" title={previewMessage.studentLabel}>
+                                                            Sample: {previewMessage.studentLabel}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {!previewStudent ? (
+                                                    <p className="text-xs text-gray-500 italic">Fetch students to preview filled values.</p>
+                                                ) : isLoadingPreviewFees ? (
+                                                    <div className="flex items-center gap-2 text-xs text-gray-500 py-4 justify-center">
+                                                        <Loader2 size={14} className="animate-spin" /> Loading fee dues…
+                                                    </div>
+                                                ) : !previewMessage ? (
+                                                    <p className="text-xs text-gray-500 italic">Select a template to preview.</p>
+                                                ) : (
+                                                    <>
+                                                        {sendType === 'EMAIL' && previewMessage.subject && (
+                                                            <div className="text-[11px] text-gray-600">
+                                                                <span className="font-bold text-gray-500">Subject: </span>
+                                                                {previewMessage.subject}
+                                                            </div>
+                                                        )}
+                                                        <div className="bg-white border border-blue-100 rounded-lg p-3 text-xs text-gray-800 whitespace-pre-wrap leading-relaxed font-mono max-h-48 overflow-y-auto">
+                                                            {previewMessage.body}
+                                                        </div>
+                                                        <p className="text-[10px] text-gray-500">
+                                                            Pending fee from Fee Collection: <span className="font-bold text-gray-700">₹{Number((previewFeeContext?._due_amount_raw ?? previewFeeContext?.due_amount) || 0).toLocaleString('en-IN')}</span>
+                                                            {Number(previewFeeContext?._late_fee_amount_raw || 0) > 0 && (
+                                                                <> · Late fee: <span className="font-bold text-gray-700">₹{Number(previewFeeContext._late_fee_amount_raw).toLocaleString('en-IN')}</span></>
+                                                            )}
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400">
+                                                            Preview uses the first selected student. Values update when you change selection or template.
+                                                        </p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
 
                                         <div className="pt-4 border-t border-gray-100">
                                             <button
@@ -1180,6 +1502,80 @@ const ReminderConfiguration = () => {
                                     Save & Continue
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Confirm Send Modal */}
+                {pendingSendRecipients && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+                            <div className="flex items-start gap-3 mb-4">
+                                <div className="p-2 rounded-full bg-blue-50 text-blue-600 shrink-0">
+                                    <Send size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-800">Confirm Send</h3>
+                                    <p className="text-sm text-gray-600 mt-1">
+                                        Send <span className="font-bold text-gray-900">{sendType}</span> using{' '}
+                                        <span className="font-bold text-gray-900">
+                                            {templates.find(t => t._id === sendTemplateId)?.name || 'selected template'}
+                                        </span>{' '}
+                                        to <span className="font-bold text-gray-900">{pendingSendRecipients.length}</span> student{pendingSendRecipients.length === 1 ? '' : 's'}?
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingSendRecipients(null)}
+                                    disabled={isSending}
+                                    className="px-4 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={confirmAndSend}
+                                    disabled={isSending}
+                                    className="px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md flex items-center gap-2 disabled:opacity-70"
+                                >
+                                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                    {isSending ? 'Sending…' : 'Confirm & Send'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Success / Failure / Info Modal */}
+                {sendResultModal && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+                            <div className="flex flex-col items-center text-center gap-3 mb-6">
+                                <div className={`p-3 rounded-full ${
+                                    sendResultModal.type === 'success' ? 'bg-emerald-50 text-emerald-600'
+                                        : sendResultModal.type === 'error' ? 'bg-red-50 text-red-600'
+                                            : 'bg-amber-50 text-amber-600'
+                                }`}>
+                                    {sendResultModal.type === 'success' ? <CheckCircle2 size={28} />
+                                        : sendResultModal.type === 'error' ? <AlertTriangle size={28} />
+                                            : <Info size={28} />}
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-800">{sendResultModal.title}</h3>
+                                <p className="text-sm text-gray-600 leading-relaxed">{sendResultModal.message}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSendResultModal(null)}
+                                className={`w-full py-2.5 text-sm font-bold text-white rounded-xl shadow-md ${
+                                    sendResultModal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700'
+                                        : sendResultModal.type === 'error' ? 'bg-red-600 hover:bg-red-700'
+                                            : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                            >
+                                OK
+                            </button>
                         </div>
                     </div>
                 )}

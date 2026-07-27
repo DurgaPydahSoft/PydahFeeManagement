@@ -1,30 +1,32 @@
 const mongoose = require('mongoose');
 
+/**
+ * Global timely reminder rule (not college-scoped).
+ * Timing is relative to fee due dates from late-fee configs
+ * (Academic FeeStructure / DefaultLateFeeConfig, or Hostel/Transport ServiceLateFeeConfig).
+ * Audience: students with unpaid balance through that term only.
+ */
 const reminderConfigSchema = new mongoose.Schema({
-    college: {
-        type: String,
-        required: true
-    },
-    course: {
-        type: String,
-        required: true
-    },
-    branch: {
-        type: String, // Optional
-        default: ''
-    },
     academicYear: {
-        type: String, // e.g., "2024-2025"
-        required: true
+        type: String, // e.g. "2025-2026"
+        required: true,
+        trim: true
     },
-    yearOfStudy: {
-        type: Number, // 1, 2, 3, 4
-        required: true
-    },
-    semester: {
+    dueSourceType: {
         type: String,
-        enum: ['1', '2', 'BOTH'],
-        default: 'BOTH'
+        enum: ['ACADEMIC', 'HOSTEL', 'TRANSPORT'],
+        required: true
+    },
+    /** BEFORE = dueDate - offset days; AFTER = dueDate + offset days; ON uses offset 0 */
+    triggerType: {
+        type: String,
+        enum: ['BEFORE', 'AFTER'],
+        required: true
+    },
+    /** Day offsets relative to due date, e.g. [1, 3, 7] */
+    offsets: {
+        type: [Number],
+        default: []
     },
     smsTemplateId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -34,29 +36,22 @@ const reminderConfigSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'NotificationTemplate'
     },
-    eventType: {
-        type: String,
-        enum: ['START_DATE', 'END_DATE'],
-        required: true
-    },
-    triggerType: {
-        type: String,
-        enum: ['BEFORE', 'AFTER'],
-        required: true
-    },
-    offsets: {
-        type: [Number], // Array of days, e.g. [1, 2, 5]
-        default: []
-    },
     isActive: {
         type: Boolean,
         default: true
     },
     lastExecutedDate: {
-        type: Date // To track when this rule was last successfully run
+        type: Date
+    },
+    /** Track which offsets already ran on a calendar day: ["2026-07-27:3", ...] */
+    lastRunKeys: {
+        type: [String],
+        default: []
     }
 }, {
     timestamps: true
 });
+
+reminderConfigSchema.index({ academicYear: 1, dueSourceType: 1, triggerType: 1 });
 
 module.exports = mongoose.model('ReminderConfig', reminderConfigSchema);

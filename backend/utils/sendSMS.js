@@ -1,14 +1,12 @@
 const axios = require('axios');
 
-const BULKSMS_API_KEY = process.env.BULKSMS_API_KEY || "7c9c967a-4ce9-4748-9dc7-d2aaef847275";
-const BULKSMS_SENDER_ID = process.env.BULKSMS_SENDER_ID || "PYDAHK";
+const BULKSMS_API_KEY = process.env.BULKSMS_API_KEY;
+const BULKSMS_SENDER_ID = process.env.BULKSMS_SENDER_ID;
 // API URLs based on BulkSMS documentation
 // For English SMS (regular)
-const BULKSMS_ENGLISH_API_URL = process.env.BULKSMS_ENGLISH_API_URL || "https://www.bulksmsapps.com/api/apismsv2.aspx";
+const BULKSMS_ENGLISH_API_URL = process.env.BULKSMS_ENGLISH_API_URL;
 // For Unicode/Non-English SMS (Telugu)
-const BULKSMS_UNICODE_API_URL = process.env.BULKSMS_UNICODE_API_URL || "https://www.bulksmsapps.com/api/apibulkv2.aspx";
-const BULKSMS_DLT_TEMPLATE_ID = process.env.BULKSMS_DLT_TEMPLATE_ID || "1707175151835691501";
-const BULKSMS_ENGLISH_DLT_TEMPLATE_ID = process.env.BULKSMS_ENGLISH_DLT_TEMPLATE_ID || "1707175151753778713";
+const BULKSMS_UNICODE_API_URL = process.env.BULKSMS_UNICODE_API_URL;
 
 // Helper function to check if response is valid
 const isValidSMSResponse = (responseData) => {
