@@ -29,6 +29,9 @@ const getCachedFeeHeads = async () => {
   return rows;
 };
 
+const hasPositiveLateFeeAmount = (terms = []) =>
+  Array.isArray(terms) && terms.some((t) => Number(t?.lateFeeAmount) > 0);
+
 // Helper to automatically apply a fee structure to all students in the batch
 const applyFeeStructureToBatchInternal = async (structure) => {
   if (!structure) return;
@@ -133,18 +136,14 @@ const createFeeStructure = async (req, res) => {
       return res.status(400).json({ message: 'Category is required' });
     }
 
-    // Automatically check and apply default late fee configuration if available
+    // Build effective terms first, then only keep/apply a late-fee head when
+    // a real late-fee amount is configured on at least one term.
     const rawTerms = (isTermsDivided && Array.isArray(terms) && terms.length > 0)
       ? terms
       : [{ termNumber: 1, percentage: 100, amount: Number(amount) }];
     const termsCount = rawTerms.length;
 
     const defaultConfig = await DefaultLateFeeConfig.findOne({ termsCount, isActive: true });
-
-    let autoLateFeeHead = req.body.lateFeeHead || null;
-    if (!autoLateFeeHead && defaultConfig && defaultConfig.lateFeeHead) {
-      autoLateFeeHead = defaultConfig.lateFeeHead;
-    }
 
     const processedTerms = rawTerms.map(t => {
       const dTerm = defaultConfig?.terms?.find(dt => Number(dt.termNumber) === Number(t.termNumber));
@@ -157,6 +156,14 @@ const createFeeStructure = async (req, res) => {
         dueDescription: t.dueDescription || (dTerm ? dTerm.dueDescription : '')
       };
     });
+
+    const hasConfiguredLateFee = hasPositiveLateFeeAmount(processedTerms);
+    let autoLateFeeHead = req.body.lateFeeHead || null;
+    if (!hasConfiguredLateFee) {
+      autoLateFeeHead = null;
+    } else if (!autoLateFeeHead && defaultConfig && defaultConfig.lateFeeHead) {
+      autoLateFeeHead = defaultConfig.lateFeeHead;
+    }
 
     const results = [];
     const errors = [];
@@ -187,8 +194,8 @@ const createFeeStructure = async (req, res) => {
             isTermsDivided: isTermsDivided || false,
             terms: processedTerms,
             semester: sem, // Explicitly set/update semester in document to match index
-            isGroupWiseLateFee: !!isGroupWiseLateFee,
-            ...(autoLateFeeHead ? { lateFeeHead: autoLateFeeHead } : {})
+            isGroupWiseLateFee: hasConfiguredLateFee ? !!isGroupWiseLateFee : false,
+            lateFeeHead: autoLateFeeHead || null
           }
         };
 
@@ -640,8 +647,11 @@ const updateFeeStructure = async (req, res) => {
     const fHead = feeHeadId || req.body.feeHead;
     const finalFeeHead = mongoose.Types.ObjectId.isValid(fHead) ? new mongoose.Types.ObjectId(fHead) : (fHead?._id || fHead);
 
+    const hasConfiguredLateFee = hasPositiveLateFeeAmount(terms);
     let finalLateFeeHead = existing.lateFeeHead;
-    if (lateFeeHead !== undefined) {
+    if (!hasConfiguredLateFee) {
+      finalLateFeeHead = null;
+    } else if (lateFeeHead !== undefined) {
       if (!lateFeeHead) {
         finalLateFeeHead = null;
       } else {
@@ -670,6 +680,7 @@ const updateFeeStructure = async (req, res) => {
         terms: (isTermsDivided && Array.isArray(terms) && terms.length > 0)
           ? terms
           : [{ termNumber: 1, percentage: 100, amount: Number(amount) || 0, dueDescription: 'Term 1' }],
+        isGroupWiseLateFee: hasConfiguredLateFee ? !!req.body.isGroupWiseLateFee : false,
         $push: { history: historyEntry }
       },
       { new: true }
