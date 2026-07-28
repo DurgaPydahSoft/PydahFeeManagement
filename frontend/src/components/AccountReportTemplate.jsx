@@ -162,7 +162,19 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             else courseEntry.bankAmt += amount;
         });
     }
-    const sortedCourses = Object.values(courseHierarchy).sort((a, b) => b.netTotal - a.netTotal);
+    const sortedCourses = [];
+    sortedColleges.forEach(college => {
+        college.courses.forEach(course => {
+            sortedCourses.push({
+                collegeName: college.collegeName,
+                courseName: course.courseName,
+                receiptsCount: course.receiptsCount,
+                cashAmt: course.cashAmt,
+                bankAmt: course.bankAmt,
+                netTotal: course.netTotal
+            });
+        });
+    });
 
     // User-wise / Cashier-wise hierarchy for global accounts
     const userHierarchy = {};
