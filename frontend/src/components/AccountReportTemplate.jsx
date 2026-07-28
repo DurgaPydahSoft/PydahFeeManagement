@@ -134,6 +134,36 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
         }))
         .sort((a, b) => b.netTotal - a.netTotal);
 
+    // Course-wise hierarchy for global accounts
+    const courseHierarchy = {};
+    if (isGlobalAccount) {
+        activeTransactions.forEach(tx => {
+            if (tx.transactionType !== 'DEBIT') return;
+            const collegeName = tx.college || 'Unknown College';
+            const courseName = tx.course || 'Unknown Course';
+            const amount = tx.amount || 0;
+            const isCash = tx.paymentMode === 'Cash';
+            const key = `${collegeName}||${courseName}`;
+
+            if (!courseHierarchy[key]) {
+                courseHierarchy[key] = {
+                    collegeName,
+                    courseName,
+                    receiptsCount: 0,
+                    cashAmt: 0,
+                    bankAmt: 0,
+                    netTotal: 0
+                };
+            }
+            const courseEntry = courseHierarchy[key];
+            courseEntry.receiptsCount += 1;
+            courseEntry.netTotal += amount;
+            if (isCash) courseEntry.cashAmt += amount;
+            else courseEntry.bankAmt += amount;
+        });
+    }
+    const sortedCourses = Object.values(courseHierarchy).sort((a, b) => b.netTotal - a.netTotal);
+
     // User-wise / Cashier-wise hierarchy for global accounts
     const userHierarchy = {};
     if (isGlobalAccount) {
@@ -299,6 +329,40 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                             <tr style={{ backgroundColor: '#d0d0d0', fontWeight: 'bold' }}>
                                 <td colSpan={2}>TOTAL</td>
                                 <td style={{ textAlign: 'center' }}>{sortedColleges.reduce((s, c) => s + c.receiptsCount, 0)}</td>
+                                <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Course-wise Consolidated Collections (Global accounts only) */}
+            {showSummary && isGlobalAccount && sortedCourses.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Course-wise Consolidated Collections
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ width: '5%' }}>S.No</th>
+                                <th style={{ width: '55%' }}>Course</th>
+                                <th style={{ textAlign: 'center', width: '10%' }}>Receipts</th>
+                                <th style={{ textAlign: 'right', width: '30%', fontWeight: 'bold' }}>Collection</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedCourses.map((course, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{course.courseName}</td>
+                                    <td style={{ textAlign: 'center' }}>{course.receiptsCount}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(course.netTotal).toLocaleString('en-IN')}</td>
+                                </tr>
+                            ))}
+                            <tr style={{ backgroundColor: '#e0e0e0', fontWeight: 'bold' }}>
+                                <td colSpan={2}>TOTAL</td>
+                                <td style={{ textAlign: 'center' }}>{sortedCourses.reduce((s, course) => s + course.receiptsCount, 0)}</td>
                                 <td style={{ textAlign: 'right' }}>₹{Number(displayData.debitAmount || 0).toLocaleString('en-IN')}</td>
                             </tr>
                         </tbody>
