@@ -26,7 +26,7 @@ flowchart TD
 
     G --> G1[1. Declaration concession<br/>split across all terms]
     G1 --> G2[2. Paid amount applied<br/>term by term]
-    G2 --> G3[3. Application concession applied<br/>to first unpaid term(s)]
+    G2 --> G3[3. Application concession applied<br/>to first unpaid terms]
 
     G3 --> H[Calculate term balance<br/>Balance = term target - declaration - paid - application concession]
 
