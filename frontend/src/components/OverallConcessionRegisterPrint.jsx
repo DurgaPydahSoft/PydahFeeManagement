@@ -50,6 +50,9 @@ const SingleStudentPrint = ({ request }) => {
         if (c.feeHeadName) byHead[key].name = c.feeHeadName;
     });
 
+    // Fee components become columns; academic years become rows
+    const feeHeadEntries = Object.entries(byHead);
+
     const grandTotal = concessions.reduce((s, c) => s + Number(c.amount ?? 0), 0);
 
     const approvedDate = request.updatedAt
@@ -82,56 +85,38 @@ const SingleStudentPrint = ({ request }) => {
                 </div>
             </div>
 
-            {/* Fee head × year table */}
+            {/* Years (rows) × Fee heads (columns) */}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', border: '2px solid #000', marginBottom: '18px' }}>
                 <thead>
                     <tr style={{ backgroundColor: '#f0f0f0' }}>
-                        <th style={th('left')}>S.No</th>
-                        <th style={th('left')}>Fee Component</th>
-                        <th style={th('center')}>Code</th>
-                        <th style={th('center')}>Type</th>
-                        {years.map(yr => (
-                            <th key={yr} style={th('right')}>{yrSfx(yr)} Yr (₹)</th>
+                        <th style={th('left', { width: '90px' })}>Year</th>
+                        {feeHeadEntries.map(([fhId, row]) => (
+                            <th
+                                key={fhId}
+                                style={th('left', {
+                                    fontSize: '9px',
+                                    textTransform: 'none',
+                                    wordBreak: 'break-word',
+                                    whiteSpace: 'normal'
+                                })}
+                            >
+                                {row.name}
+                            </th>
                         ))}
-                        <th style={th('right')}>Total (₹)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {Object.entries(byHead).map(([fhId, row], idx) => {
-                        const rowTotal = Object.values(row.years).reduce((s, v) => s + v, 0);
-                        return (
-                            <tr key={fhId} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
-                                <td style={td('center')}>{idx + 1}</td>
-                                <td style={{ ...td('left'), fontWeight: '700' }}>{row.name}</td>
-                                <td style={{ ...td('center'), fontFamily: 'monospace', fontSize: '10px' }}>{row.code || '—'}</td>
-                                <td style={td('center')}>
-                                    <span style={{
-                                        background: row.type === 'REVISED' ? '#dcfce7' : '#fef9c3',
-                                        color:      row.type === 'REVISED' ? '#166534' : '#854d0e',
-                                        padding: '1px 6px', borderRadius: '4px',
-                                        fontWeight: '800', fontSize: '9px', textTransform: 'uppercase'
-                                    }}>{row.type}</span>
+                    {years.map((yr, rowIdx) => (
+                        <tr key={yr} style={{ backgroundColor: rowIdx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
+                            <td style={{ ...td('left'), fontWeight: '900' }}>{yrSfx(yr)} Yr</td>
+                            {feeHeadEntries.map(([fhId, row]) => (
+                                <td key={`${yr}-${fhId}`} style={{ ...td('right'), fontWeight: '700' }}>
+                                    {row.years[yr] !== undefined ? `₹${fmt(row.years[yr])}` : '—'}
                                 </td>
-                                {years.map(yr => (
-                                    <td key={yr} style={{ ...td('right'), fontWeight: '700' }}>
-                                        {row.years[yr] !== undefined ? `₹${fmt(row.years[yr])}` : '—'}
-                                    </td>
-                                ))}
-                                <td style={{ ...td('right'), fontWeight: '800' }}>₹{fmt(rowTotal)}</td>
-                            </tr>
-                        );
-                    })}
+                            ))}
+                        </tr>
+                    ))}
                 </tbody>
-                <tfoot>
-                    <tr style={{ backgroundColor: '#1e293b', color: '#fff' }}>
-                        <td colSpan={years.length + 4} style={{ border: '2px solid #000', padding: '7px 10px', textAlign: 'right', fontWeight: '900', textTransform: 'uppercase', fontSize: '11px' }}>
-                            Grand Total Concession
-                        </td>
-                        <td style={{ border: '2px solid #000', padding: '7px 10px', textAlign: 'right', fontWeight: '900', fontSize: '12px' }}>
-                            ₹{fmt(grandTotal)}
-                        </td>
-                    </tr>
-                </tfoot>
             </table>
 
             {/* Footer strip */}
@@ -149,7 +134,7 @@ const SingleStudentPrint = ({ request }) => {
                 ))}
             </div>
 
-            <style dangerouslySetInnerHTML={{ __html: `@media print { @page { size: A4 landscape; margin: 15mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }` }} />
+            <style dangerouslySetInnerHTML={{ __html: `@media print { @page { size: A4; margin: 10mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }` }} />
         </div>
     );
 };
@@ -216,9 +201,245 @@ const AllStudentsPrint = ({ requests, filters }) => {
     if (filters.batch)   filterParts.push(`Batch ${filters.batch}`);
     const filterLabel = filterParts.length ? filterParts.join(' · ') : 'All Colleges / Courses / Branches';
 
-    // Fixed col count: S.No + Name + PIN + Adm + College + Course/Branch + Batch + Approved By + [years] + Total
-    const fixedCols = 8;
-    const totalCols = fixedCols + allYears.length + 1;
+    const toSortNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    };
+
+    const sortedReqs = [...requests].sort((a, b) => {
+        const aCollege = String(a.college || 'Unknown');
+        const bCollege = String(b.college || 'Unknown');
+        const cCmp = aCollege.localeCompare(bCollege);
+        if (cCmp !== 0) return cCmp;
+
+        const aBatchN = toSortNum(a.batch);
+        const bBatchN = toSortNum(b.batch);
+        if (aBatchN !== null && bBatchN !== null) {
+            if (aBatchN !== bBatchN) return aBatchN - bBatchN;
+        } else {
+            const bCmp = String(a.batch || '').localeCompare(String(b.batch || ''));
+            if (bCmp !== 0) return bCmp;
+        }
+
+        const aCourse = String(a.course || '');
+        const bCourse = String(b.course || '');
+        const courseCmp = aCourse.localeCompare(bCourse);
+        if (courseCmp !== 0) return courseCmp;
+
+        const aBranch = String(a.branch || '');
+        const bBranch = String(b.branch || '');
+        return aBranch.localeCompare(bBranch);
+    });
+
+    const renderStudentMatrix = (req, yearsOverride, feeHeadEntriesOverride) => {
+        const concessions = req.concessions || [];
+        const studentYears = yearsOverride || [...new Set(concessions.map(c => Number(c.studentYear)))].filter(Boolean).sort((a, b) => a - b);
+
+        const studentByHead = {};
+        concessions.forEach(c => {
+            const key = c.feeHeadId;
+            if (!studentByHead[key]) {
+                studentByHead[key] = {
+                    name: c.feeHeadName || c.feeHeadCode || key,
+                    code: c.feeHeadCode || '',
+                    type: c.concessionType,
+                    years: {}
+                };
+            }
+            studentByHead[key].years[Number(c.studentYear)] = Number(c.amount ?? 0);
+            studentByHead[key].type = c.concessionType;
+            if (c.feeHeadName) studentByHead[key].name = c.feeHeadName;
+        });
+
+        const feeHeadEntries = (() => {
+            if (Array.isArray(feeHeadEntriesOverride) && feeHeadEntriesOverride.length) {
+                // Use group-wide fee-head order, but inject THIS student's per-year amounts.
+                return feeHeadEntriesOverride.map(([fhId, base]) => {
+                    const key = String(fhId);
+                    const studentRow = studentByHead[key];
+                    return [
+                        key,
+                        {
+                            ...base,
+                            years: studentRow?.years || {},
+                            type: studentRow?.type ?? base.type
+                        }
+                    ];
+                });
+            }
+
+            // Fallback: student-specific fee-head columns.
+            return Object.entries(studentByHead).sort((x, y) => {
+                const xn = String(x?.[1]?.name || '');
+                const yn = String(y?.[1]?.name || '');
+                return xn.localeCompare(yn);
+            });
+        })();
+
+        return (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', border: '1.5px solid #000', tableLayout: 'fixed' }}>
+                <thead>
+                    <tr>
+                        {/* Student name as the column header for the Year column */}
+                        <th style={th('center', {
+                            fontSize: '9px',
+                            textTransform: 'uppercase',
+                            width: '190px',
+                            maxWidth: '190px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                        })}>{req.studentName || 'Student'}</th>
+                        {feeHeadEntries.map(([fhId, row]) => (
+                            <th
+                                key={fhId}
+                                style={th('center', {
+                                    fontSize: '8px',
+                                    textTransform: 'none',
+                                    wordBreak: 'break-word',
+                                    whiteSpace: 'normal'
+                                })}
+                            >
+                                {row.name}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {studentYears.map((yr, idx) => (
+                        <tr key={yr} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
+                            <td style={td('center', { fontWeight: '900', fontSize: '9px', width: '190px', maxWidth: '190px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', border: '1.5px solid #000' })}>{yrSfx(yr)} Yr</td>
+                            {feeHeadEntries.map(([fhId, row]) => (
+                                <td key={`${yr}-${fhId}`} style={td('center', { fontWeight: '700', fontSize: '9px', border: '1.5px solid #000' })}>
+                                    {row.years[yr] !== undefined ? `₹${fmt(row.years[yr])}` : '—'}
+                                </td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        );
+    };
+
+    const compactBlocks = [];
+    const groupKey = (req) => {
+        const college = String(req.college || 'Unknown');
+        const batch = String(req.batch || '');
+        const course = String(req.course || '');
+        const branch = String(req.branch || '');
+        return `${college}|${batch}|${course}|${branch}`;
+    };
+
+    // Group by: College → Batch → Course → Branch
+    const groups = [];
+    let currentKey = null;
+    let currentGroup = null;
+
+    sortedReqs.forEach((req) => {
+        const k = groupKey(req);
+        if (k !== currentKey) {
+            currentKey = k;
+            currentGroup = {
+                college: String(req.college || 'Unknown'),
+                batch: String(req.batch || ''),
+                course: String(req.course || ''),
+                branch: String(req.branch || ''),
+                reqs: []
+            };
+            groups.push(currentGroup);
+        }
+        currentGroup.reqs.push(req);
+    });
+
+    let prevCollege = null;
+    let prevBatch = null;
+    let prevCourse = null;
+    let prevBranch = null;
+
+    groups.forEach((group) => {
+        // Group-wide union so every student's table has the same column structure.
+        const yearsSet = new Set();
+        const feeHeadMap = new Map(); // feeHeadId -> { name, code, type }
+
+        group.reqs.forEach((req) => {
+            (req.concessions || []).forEach((c) => {
+                const yr = Number(c.studentYear);
+                if (Number.isFinite(yr) && yr > 0) yearsSet.add(yr);
+
+                const hid = String(c.feeHeadId);
+                if (!feeHeadMap.has(hid)) {
+                    feeHeadMap.set(hid, {
+                        name: c.feeHeadName || c.feeHeadCode || hid,
+                        code: c.feeHeadCode || '',
+                        type: c.concessionType
+                    });
+                }
+            });
+        });
+
+        const groupYears = [...yearsSet].sort((a, b) => a - b);
+        const groupFeeHeadEntries = [...feeHeadMap.entries()].sort((a, b) => {
+            return String(a[1]?.name || '').localeCompare(String(b[1]?.name || ''));
+        });
+
+        if (group.college !== prevCollege) {
+            prevCollege = group.college;
+            prevBatch = null;
+            prevCourse = null;
+            prevBranch = null;
+            compactBlocks.push(
+                <div key={`college-${group.college}`} style={{ marginTop: '14px' }}>
+                    <div style={{ background: '#1e293b', color: '#fff', padding: '6px 12px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>
+                        {group.college}
+                    </div>
+                </div>
+            );
+        }
+
+        if (group.batch !== prevBatch) {
+            prevBatch = group.batch;
+            prevCourse = null;
+            prevBranch = null;
+            compactBlocks.push(
+                <div key={`batch-${group.college}-${group.batch}`} style={{ marginLeft: '10px', marginTop: '10px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>Batch: {group.batch || '—'}</div>
+                </div>
+            );
+        }
+
+        if (group.course !== prevCourse) {
+            prevCourse = group.course;
+            prevBranch = null;
+            compactBlocks.push(
+                <div key={`course-${group.college}-${group.batch}-${group.course}`} style={{ marginLeft: '20px', marginTop: '8px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>Course: {group.course || '—'}</div>
+                </div>
+            );
+        }
+
+        if (group.branch !== prevBranch) {
+            prevBranch = group.branch;
+            compactBlocks.push(
+                <div key={`branch-${group.college}-${group.batch}-${group.course}-${group.branch}`} style={{ marginLeft: '30px', marginTop: '6px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>Branch: {group.branch || '—'}</div>
+                </div>
+            );
+        }
+
+        group.reqs.forEach((req) => {
+            compactBlocks.push(
+                <div key={`student-${req._id || req.admissionNumber}`} style={{ marginLeft: '30px', marginTop: '6px', marginBottom: '12px', pageBreakInside: 'avoid' }}>
+                    <div style={{ fontWeight: '900', fontSize: '10px', marginBottom: '2px' }}>
+                        {req.studentName} · Adm: {req.admissionNumber}
+                    </div>
+                    <div style={{ fontSize: '8px', color: '#444', fontWeight: '800', textTransform: 'uppercase', marginBottom: '6px' }}>
+                        {req.course || '—'} · {req.branch || '—'} · Batch {req.batch || '—'}
+                    </div>
+                    {renderStudentMatrix(req, groupYears, groupFeeHeadEntries)}
+                </div>
+            );
+        });
+    });
 
     return (
         <div style={{ fontFamily: 'Arial, sans-serif', padding: '20px 30px', color: '#111', background: '#fff', minHeight: '297mm' }}>
@@ -230,146 +451,16 @@ const AllStudentsPrint = ({ requests, filters }) => {
                 <span>Total Students: <span style={{ fontWeight: '900' }}>{rows.length}</span></span>
             </div>
 
-            {/* College summary */}
-            <div style={{ border: '2px solid #000', borderRadius: '4px', marginBottom: '20px', overflow: 'hidden' }}>
-                <div style={{ background: '#1e293b', color: '#fff', padding: '6px 14px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
-                    Summary
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                    <thead>
-                        <tr style={{ background: '#f0f0f0' }}>
-                            <th style={th('left',   { border: '1.5px solid #000' })}>College</th>
-                            <th style={th('center', { border: '1.5px solid #000' })}>Students</th>
-                            {allYears.map(yr => (
-                                <th key={yr} style={th('right', { border: '1.5px solid #000' })}>{yrSfx(yr)} Yr (₹)</th>
-                            ))}
-                            <th style={th('right', { border: '1.5px solid #000' })}>Total (₹)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {Object.entries(byCollege).map(([col, d], idx) => {
-                            // year totals per college
-                            const colYearTotals = {};
-                            allYears.forEach(yr => {
-                                colYearTotals[yr] = rows
-                                    .filter(r => r.req.college === col)
-                                    .reduce((s, r) => s + (r.yearTotals[yr] || 0), 0);
-                            });
-                            return (
-                                <tr key={col} style={{ background: idx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
-                                    <td style={{ border: '1.5px solid #ccc', padding: '5px 12px', fontWeight: '700' }}>{col}</td>
-                                    <td style={{ border: '1.5px solid #ccc', padding: '5px 12px', textAlign: 'center', fontWeight: '700' }}>{d.count}</td>
-                                    {allYears.map(yr => (
-                                        <td key={yr} style={{ border: '1.5px solid #ccc', padding: '5px 12px', textAlign: 'right', fontWeight: '700' }}>
-                                            {colYearTotals[yr] ? `₹${fmt(colYearTotals[yr])}` : '—'}
-                                        </td>
-                                    ))}
-                                    <td style={{ border: '1.5px solid #ccc', padding: '5px 12px', textAlign: 'right', fontWeight: '800' }}>₹{fmt(d.total)}</td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                    <tfoot>
-                        <tr style={{ background: '#1e293b', color: '#fff' }}>
-                            <td colSpan={2} style={{ border: '2px solid #000', padding: '7px 12px', textAlign: 'right', fontWeight: '900', textTransform: 'uppercase', fontSize: '11px' }}>
-                                Grand Total
-                            </td>
-                            {allYears.map(yr => (
-                                <td key={yr} style={{ border: '2px solid #000', padding: '7px 12px', textAlign: 'right', fontWeight: '900', fontSize: '12px' }}>
-                                    ₹{fmt(grandYearTotals[yr] || 0)}
-                                </td>
-                            ))}
-                            <td style={{ border: '2px solid #000', padding: '7px 12px', textAlign: 'right', fontWeight: '900', fontSize: '13px' }}>
-                                ₹{fmt(grandTotal)}
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-
-            {/* Student-wise breakdown with year columns */}
-            <div style={{ border: '2px solid #000', borderRadius: '4px', overflow: 'hidden' }}>
-                <div style={{ background: '#1e293b', color: '#fff', padding: '6px 14px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}>
-                    Student-wise Breakdown
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                    <thead>
-                        <tr style={{ background: '#f0f0f0' }}>
-                            <th style={th('center', { border: '1.5px solid #000', width: '28px' })}>S.No</th>
-                            <th style={th('left',   { border: '1.5px solid #000' })}>Student Name</th>
-                            <th style={th('center', { border: '1.5px solid #000' })}>PIN</th>
-                            <th style={th('left',   { border: '1.5px solid #000' })}>Adm. No.</th>
-                            <th style={th('left',   { border: '1.5px solid #000' })}>College</th>
-                            <th style={th('left',   { border: '1.5px solid #000' })}>Course / Branch</th>
-                            <th style={th('center', { border: '1.5px solid #000' })}>Batch</th>
-                            <th style={th('left',   { border: '1.5px solid #000' })}>Fee Components</th>
-                            {allYears.map(yr => (
-                                <th key={yr} style={th('right', { border: '1.5px solid #000' })}>{yrSfx(yr)} Yr (₹)</th>
-                            ))}
-                            <th style={th('right', { border: '1.5px solid #000' })}>Total (₹)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map(({ req, totalAmount, byHead, yearTotals }, idx) => (
-                            <tr key={req._id || idx} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa', verticalAlign: 'top' }}>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', textAlign: 'center' }}>{idx + 1}</td>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', fontWeight: '800' }}>{req.studentName}</td>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{req.pinNo || '—'}</td>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', fontFamily: 'monospace', fontSize: '10px' }}>{req.admissionNumber}</td>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', fontSize: '10px' }}>{req.college}</td>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', fontSize: '10px' }}>
-                                    <div style={{ fontWeight: '700' }}>{req.course}</div>
-                                    <div style={{ color: '#555', fontSize: '9px' }}>{req.branch}</div>
-                                </td>
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', textAlign: 'center', fontSize: '10px' }}>{req.batch}</td>
-                                {/* Fee components: name + type badge, no amount here (amounts in year columns) */}
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', fontSize: '9px' }}>
-                                    {Object.entries(byHead).map(([fhId, h]) => (
-                                        <div key={fhId} style={{ marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                            <span style={{ fontWeight: '700' }}>{h.name}</span>
-                                            <span style={{
-                                                background: h.type === 'REVISED' ? '#dcfce7' : '#fef9c3',
-                                                color:      h.type === 'REVISED' ? '#166534' : '#854d0e',
-                                                padding: '0 4px', borderRadius: '3px', fontSize: '8px', fontWeight: '800'
-                                            }}>{h.type}</span>
-                                        </div>
-                                    ))}
-                                </td>
-                                {/* Year-wise total columns */}
-                                {allYears.map(yr => (
-                                    <td key={yr} style={{ border: '1.5px solid #ccc', padding: '5px 8px', textAlign: 'right', fontWeight: '700', fontSize: '11px' }}>
-                                        {yearTotals[yr] ? `₹${fmt(yearTotals[yr])}` : '—'}
-                                    </td>
-                                ))}
-                                <td style={{ border: '1.5px solid #ccc', padding: '5px 8px', textAlign: 'right', fontWeight: '900', fontSize: '11px' }}>
-                                    ₹{fmt(totalAmount)}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr style={{ background: '#1e293b', color: '#fff' }}>
-                            <td colSpan={8} style={{ border: '2px solid #000', padding: '7px 8px', textAlign: 'right', fontWeight: '900', textTransform: 'uppercase', fontSize: '11px' }}>
-                                Grand Total — {rows.length} Students
-                            </td>
-                            {allYears.map(yr => (
-                                <td key={yr} style={{ border: '2px solid #000', padding: '7px 8px', textAlign: 'right', fontWeight: '900', fontSize: '12px' }}>
-                                    ₹{fmt(grandYearTotals[yr] || 0)}
-                                </td>
-                            ))}
-                            <td style={{ border: '2px solid #000', padding: '7px 8px', textAlign: 'right', fontWeight: '900', fontSize: '13px' }}>
-                                ₹{fmt(grandTotal)}
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
+            {/* Compact grouped student matrices (College → Batch → Course → Branch) */}
+            <div>
+                {compactBlocks}
             </div>
 
             <div style={{ marginTop: '14px', paddingTop: '8px', borderTop: '1px solid #ddd', fontSize: '9px', color: '#888', textAlign: 'center', fontStyle: 'italic' }}>
                 This is a computer-generated Overall Concession Report for internal records only.
             </div>
 
-            <style dangerouslySetInnerHTML={{ __html: `@media print { @page { size: A3 landscape; margin: 12mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }` }} />
+            <style dangerouslySetInnerHTML={{ __html: `@media print { @page { size: A4; margin: 10mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }` }} />
         </div>
     );
 };
@@ -382,7 +473,13 @@ const OverallConcessionRegisterPrint = (props) => {
     if (props.request) {
         return <SingleStudentPrint request={props.request} />;
     }
-    return <AllStudentsPrint requests={props.requests || []} filters={props.filters || {}} />;
+    const reqs = props.requests || [];
+    // If only one student is printed from the "All" view, render the single-student layout
+    // (no summary + correct orientation).
+    if (reqs.length === 1) {
+        return <SingleStudentPrint request={reqs[0]} />;
+    }
+    return <AllStudentsPrint requests={reqs} filters={props.filters || {}} />;
 };
 
 export default OverallConcessionRegisterPrint;

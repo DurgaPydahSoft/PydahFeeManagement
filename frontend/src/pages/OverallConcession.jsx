@@ -82,7 +82,7 @@ const OverallConcession = () => {
     // ── register tab state ────────────────────────────────────────────────
     const [regRequests,        setRegRequests]        = useState([]);
     const [regLoading,         setRegLoading]         = useState(false);
-    const [regStatusFilter,    setRegStatusFilter]    = useState('APPROVED');
+    const [regStatusFilter] = useState('APPROVED');
     const [regFilters,         setRegFilters]         = useState({ college: '', course: '', branch: '', batch: '' });
     const [regCourses,         setRegCourses]         = useState([]);
     const [regBranches,        setRegBranches]        = useState([]);
@@ -1645,22 +1645,10 @@ const OverallConcession = () => {
                             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3">
                                 {/* Status pills */}
                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                    <div className="flex flex-wrap gap-2">
-                                        {[
-                                            { key: 'APPROVED', label: 'Approved', icon: <CheckCircle size={12} /> },
-                                            { key: 'PENDING',  label: 'Pending',  icon: <Clock size={12} /> },
-                                            { key: 'REJECTED', label: 'Rejected', icon: <XCircle size={12} /> },
-                                            { key: '',         label: 'All',      icon: null },
-                                        ].map(tab => (
-                                            <button key={tab.key} onClick={() => setRegStatusFilter(tab.key)}
-                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                                                    regStatusFilter === tab.key
-                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                                                        : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
-                                                }`}>
-                                                {tab.icon}{tab.label}
-                                            </button>
-                                        ))}
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100 uppercase">
+                                            Approved only
+                                        </span>
                                     </div>
                                     <button onClick={handleRegPrintAll} disabled={regPrintAllBusy || regRequests.length === 0}
                                         className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 cursor-pointer shrink-0">
@@ -1810,21 +1798,6 @@ const OverallConcession = () => {
                                                                 <tr>
                                                                     <td colSpan={9} className="p-0">
                                                                         <div className="bg-slate-50 border-t border-slate-200 px-6 py-4">
-                                                                            {/* Student meta */}
-                                                                            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500 mb-3">
-                                                                                <span>College: <b className="text-slate-700">{req.college}</b></span>
-                                                                                <span>Course: <b className="text-slate-700">{req.course}</b></span>
-                                                                                <span>Branch: <b className="text-slate-700">{req.branch}</b></span>
-                                                                                <span>Batch: <b className="text-slate-700">{req.batch}</b></span>
-                                                                                <span>Quota: <b className="text-slate-700 uppercase">{req.category || req.studentQuota || '—'}</b></span>
-                                                                                {req.status === 'APPROVED' && (
-                                                                                    <span>Approved by: <b className="text-emerald-700">{req.approvedByName || req.approvedBy || '—'}</b></span>
-                                                                                )}
-                                                                                {req.status === 'REJECTED' && req.rejectionReason && (
-                                                                                    <span className="text-rose-600">Reason: <b>{req.rejectionReason}</b></span>
-                                                                                )}
-                                                                                <span>Requested by: <b className="text-slate-700">{req.requestedByName || req.requestedBy}</b></span>
-                                                                            </div>
                                                                             {/* Concession table */}
                                                                             <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
                                                                                 <table className="w-full text-xs border-collapse">
@@ -1861,12 +1834,6 @@ const OverallConcession = () => {
                                                                                             );
                                                                                         })}
                                                                                     </tbody>
-                                                                                    <tfoot>
-                                                                                        <tr className="bg-slate-800 text-white">
-                                                                                            <td colSpan={years.length + 3} className="px-3 py-2 text-right font-bold text-xs uppercase">Grand Total</td>
-                                                                                            <td className="px-3 py-2 text-right font-extrabold text-sm">₹{fmt(total)}</td>
-                                                                                        </tr>
-                                                                                    </tfoot>
                                                                                 </table>
                                                                             </div>
                                                                         </div>
