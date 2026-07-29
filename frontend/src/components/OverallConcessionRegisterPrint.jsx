@@ -351,11 +351,6 @@ const AllStudentsPrint = ({ requests, filters }) => {
         currentGroup.reqs.push(req);
     });
 
-    let prevCollege = null;
-    let prevBatch = null;
-    let prevCourse = null;
-    let prevBranch = null;
-
     groups.forEach((group) => {
         // Group-wide union so every student's table has the same column structure.
         const yearsSet = new Set();
@@ -382,58 +377,11 @@ const AllStudentsPrint = ({ requests, filters }) => {
             return String(a[1]?.name || '').localeCompare(String(b[1]?.name || ''));
         });
 
-        if (group.college !== prevCollege) {
-            prevCollege = group.college;
-            prevBatch = null;
-            prevCourse = null;
-            prevBranch = null;
-            compactBlocks.push(
-                <div key={`college-${group.college}`} style={{ marginTop: '14px' }}>
-                    <div style={{ background: '#1e293b', color: '#fff', padding: '6px 12px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>
-                        {group.college}
-                    </div>
-                </div>
-            );
-        }
-
-        if (group.batch !== prevBatch) {
-            prevBatch = group.batch;
-            prevCourse = null;
-            prevBranch = null;
-            compactBlocks.push(
-                <div key={`batch-${group.college}-${group.batch}`} style={{ marginLeft: '10px', marginTop: '10px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>Batch: {group.batch || '—'}</div>
-                </div>
-            );
-        }
-
-        if (group.course !== prevCourse) {
-            prevCourse = group.course;
-            prevBranch = null;
-            compactBlocks.push(
-                <div key={`course-${group.college}-${group.batch}-${group.course}`} style={{ marginLeft: '20px', marginTop: '8px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>Course: {group.course || '—'}</div>
-                </div>
-            );
-        }
-
-        if (group.branch !== prevBranch) {
-            prevBranch = group.branch;
-            compactBlocks.push(
-                <div key={`branch-${group.college}-${group.batch}-${group.course}-${group.branch}`} style={{ marginLeft: '30px', marginTop: '6px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase' }}>Branch: {group.branch || '—'}</div>
-                </div>
-            );
-        }
-
         group.reqs.forEach((req) => {
             compactBlocks.push(
-                <div key={`student-${req._id || req.admissionNumber}`} style={{ marginLeft: '30px', marginTop: '6px', marginBottom: '12px', pageBreakInside: 'avoid' }}>
-                    <div style={{ fontWeight: '900', fontSize: '10px', marginBottom: '2px' }}>
+                <div key={`student-${req._id || req.admissionNumber}`} style={{ marginTop: '6px', marginBottom: '12px', pageBreakInside: 'avoid' }}>
+                    <div style={{ fontWeight: '700', fontSize: '9px', marginBottom: '4px' }}>
                         {req.studentName} · Adm: {req.admissionNumber}
-                    </div>
-                    <div style={{ fontSize: '8px', color: '#444', fontWeight: '800', textTransform: 'uppercase', marginBottom: '6px' }}>
-                        {req.course || '—'} · {req.branch || '—'} · Batch {req.batch || '—'}
                     </div>
                     {renderStudentMatrix(req, groupYears, groupFeeHeadEntries)}
                 </div>

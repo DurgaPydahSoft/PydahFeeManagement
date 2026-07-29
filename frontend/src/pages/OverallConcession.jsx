@@ -1650,8 +1650,11 @@ const OverallConcession = () => {
                                             Approved only
                                         </span>
                                     </div>
-                                    <button onClick={handleRegPrintAll} disabled={regPrintAllBusy || regRequests.length === 0}
-                                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 cursor-pointer shrink-0">
+                                    <button
+                                        onClick={handleRegPrintAll}
+                                        disabled={regPrintAllBusy || regRequests.length === 0 || !regFilters.college || !regFilters.course || !regFilters.branch || !regFilters.batch}
+                                        title={(!regFilters.college || !regFilters.course || !regFilters.branch || !regFilters.batch) ? 'Please select all filters (College, Course, Branch, Batch) to enable Print All' : 'Print all approved records'}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0">
                                         <Printer size={14} />
                                         {regPrintAllBusy ? 'Printing...' : `Print All (${regRequests.length})`}
                                     </button>
