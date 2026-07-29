@@ -140,58 +140,59 @@ const SingleStudentPrint = ({ request }) => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════
-// ALL STUDENTS PRINT
-// — year-wise columns per student row, no date anywhere
+// ALL STUDENTS PRINT — Bulk Load style grid
+// Columns: S.No | Student Name | Adm No | Year | FeeHead1 | FeeHead2 | ...
+// Rows: one row per student × year (student cells use rowSpan)
 // ══════════════════════════════════════════════════════════════════════════
 const AllStudentsPrint = ({ requests, filters }) => {
-
-    // Collect all distinct years across every request
-    const allYears = [...new Set(
-        requests.flatMap(req => (req.concessions || []).map(c => Number(c.studentYear)))
-    )].filter(Boolean).sort((a, b) => a - b);
-
-    const rows = requests.map(req => {
-        const concessions = req.concessions || [];
-        const totalAmount = concessions.reduce((s, c) => s + Number(c.amount ?? 0), 0);
-
-        // byHead: feeHeadId → { name, type, years: { yr: amount } }
-        const byHead = {};
-        concessions.forEach(c => {
-            const key = c.feeHeadId;
-            if (!byHead[key]) byHead[key] = {
-                name: c.feeHeadName || c.feeHeadCode || key,
-                type: c.concessionType,
-                years: {}
-            };
-            byHead[key].years[Number(c.studentYear)] = (byHead[key].years[Number(c.studentYear)] || 0) + Number(c.amount ?? 0);
-            byHead[key].type = c.concessionType;
-            if (c.feeHeadName) byHead[key].name = c.feeHeadName;
-        });
-
-        // year totals for this student: { yr: sum across all fee heads }
-        const yearTotals = {};
-        allYears.forEach(yr => {
-            yearTotals[yr] = Object.values(byHead).reduce((s, h) => s + (h.years[yr] || 0), 0);
-        });
-
-        return { req, totalAmount, byHead, yearTotals };
+    const sortedReqs = [...requests].sort((a, b) => {
+        const nameCmp = String(a.studentName || '').localeCompare(String(b.studentName || ''));
+        if (nameCmp !== 0) return nameCmp;
+        return String(a.admissionNumber || '').localeCompare(String(b.admissionNumber || ''));
     });
 
-    const grandTotal = rows.reduce((s, r) => s + r.totalAmount, 0);
+    // Union of fee heads across all students (same columns for everyone)
+    const feeHeadMap = new Map();
+    const yearsSet = new Set();
+    sortedReqs.forEach((req) => {
+        (req.concessions || []).forEach((c) => {
+            const yr = Number(c.studentYear);
+            if (Number.isFinite(yr) && yr > 0) yearsSet.add(yr);
 
-    // Grand year totals across all students
-    const grandYearTotals = {};
-    allYears.forEach(yr => {
-        grandYearTotals[yr] = rows.reduce((s, r) => s + (r.yearTotals[yr] || 0), 0);
+            const hid = String(c.feeHeadId);
+            if (!feeHeadMap.has(hid)) {
+                feeHeadMap.set(hid, {
+                    name: c.feeHeadName || c.feeHeadCode || hid,
+                    code: c.feeHeadCode || ''
+                });
+            }
+        });
     });
 
-    // College summary
-    const byCollege = {};
-    rows.forEach(({ req, totalAmount }) => {
-        const col = req.college || 'Unknown';
-        if (!byCollege[col]) byCollege[col] = { total: 0, count: 0 };
-        byCollege[col].total += totalAmount;
-        byCollege[col].count += 1;
+    const feeHeadEntries = [...feeHeadMap.entries()].sort((a, b) =>
+        String(a[1].name || '').localeCompare(String(b[1].name || ''))
+    );
+
+    // Prefer courseYears from filters if provided; otherwise use concession years
+    const courseYearsHint = Number(filters?.courseYears);
+    let years = [...yearsSet].sort((a, b) => a - b);
+    if (Number.isFinite(courseYearsHint) && courseYearsHint > 0) {
+        years = Array.from({ length: courseYearsHint }, (_, i) => i + 1);
+    } else if (years.length === 0) {
+        years = [1, 2, 3, 4];
+    }
+
+    // Per-student lookup: admissionNumber → feeHeadId → year → amount
+    const amountLookup = {};
+    sortedReqs.forEach((req) => {
+        const adm = String(req.admissionNumber || '');
+        if (!amountLookup[adm]) amountLookup[adm] = {};
+        (req.concessions || []).forEach((c) => {
+            const hid = String(c.feeHeadId);
+            const yr = Number(c.studentYear);
+            if (!amountLookup[adm][hid]) amountLookup[adm][hid] = {};
+            amountLookup[adm][hid][yr] = Number(c.amount ?? 0);
+        });
     });
 
     const filterParts = [];
@@ -201,214 +202,83 @@ const AllStudentsPrint = ({ requests, filters }) => {
     if (filters.batch)   filterParts.push(`Batch ${filters.batch}`);
     const filterLabel = filterParts.length ? filterParts.join(' · ') : 'All Colleges / Courses / Branches';
 
-    const toSortNum = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : null;
+    const cellBorder = { border: '1.5px solid #000', padding: '4px 6px', textAlign: 'center', fontSize: '9px' };
+    const headBorder = {
+        border: '1.5px solid #000',
+        padding: '5px 6px',
+        textAlign: 'center',
+        fontWeight: '700',
+        fontSize: '9px',
+        textTransform: 'uppercase',
+        background: '#f0f0f0'
     };
-
-    const sortedReqs = [...requests].sort((a, b) => {
-        const aCollege = String(a.college || 'Unknown');
-        const bCollege = String(b.college || 'Unknown');
-        const cCmp = aCollege.localeCompare(bCollege);
-        if (cCmp !== 0) return cCmp;
-
-        const aBatchN = toSortNum(a.batch);
-        const bBatchN = toSortNum(b.batch);
-        if (aBatchN !== null && bBatchN !== null) {
-            if (aBatchN !== bBatchN) return aBatchN - bBatchN;
-        } else {
-            const bCmp = String(a.batch || '').localeCompare(String(b.batch || ''));
-            if (bCmp !== 0) return bCmp;
-        }
-
-        const aCourse = String(a.course || '');
-        const bCourse = String(b.course || '');
-        const courseCmp = aCourse.localeCompare(bCourse);
-        if (courseCmp !== 0) return courseCmp;
-
-        const aBranch = String(a.branch || '');
-        const bBranch = String(b.branch || '');
-        return aBranch.localeCompare(bBranch);
-    });
-
-    const renderStudentMatrix = (req, yearsOverride, feeHeadEntriesOverride) => {
-        const concessions = req.concessions || [];
-        const studentYears = yearsOverride || [...new Set(concessions.map(c => Number(c.studentYear)))].filter(Boolean).sort((a, b) => a - b);
-
-        const studentByHead = {};
-        concessions.forEach(c => {
-            const key = c.feeHeadId;
-            if (!studentByHead[key]) {
-                studentByHead[key] = {
-                    name: c.feeHeadName || c.feeHeadCode || key,
-                    code: c.feeHeadCode || '',
-                    type: c.concessionType,
-                    years: {}
-                };
-            }
-            studentByHead[key].years[Number(c.studentYear)] = Number(c.amount ?? 0);
-            studentByHead[key].type = c.concessionType;
-            if (c.feeHeadName) studentByHead[key].name = c.feeHeadName;
-        });
-
-        const feeHeadEntries = (() => {
-            if (Array.isArray(feeHeadEntriesOverride) && feeHeadEntriesOverride.length) {
-                // Use group-wide fee-head order, but inject THIS student's per-year amounts.
-                return feeHeadEntriesOverride.map(([fhId, base]) => {
-                    const key = String(fhId);
-                    const studentRow = studentByHead[key];
-                    return [
-                        key,
-                        {
-                            ...base,
-                            years: studentRow?.years || {},
-                            type: studentRow?.type ?? base.type
-                        }
-                    ];
-                });
-            }
-
-            // Fallback: student-specific fee-head columns.
-            return Object.entries(studentByHead).sort((x, y) => {
-                const xn = String(x?.[1]?.name || '');
-                const yn = String(y?.[1]?.name || '');
-                return xn.localeCompare(yn);
-            });
-        })();
-
-        return (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', border: '1.5px solid #000', tableLayout: 'fixed' }}>
-                <thead>
-                    <tr>
-                        {/* Student name as the column header for the Year column */}
-                        <th style={th('center', {
-                            fontSize: '9px',
-                            textTransform: 'uppercase',
-                            width: '190px',
-                            maxWidth: '190px',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                        })}>{req.studentName || 'Student'}</th>
-                        {feeHeadEntries.map(([fhId, row]) => (
-                            <th
-                                key={fhId}
-                                style={th('center', {
-                                    fontSize: '8px',
-                                    textTransform: 'none',
-                                    wordBreak: 'break-word',
-                                    whiteSpace: 'normal'
-                                })}
-                            >
-                                {row.name}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {studentYears.map((yr, idx) => (
-                        <tr key={yr} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
-                            <td style={td('center', { fontWeight: '900', fontSize: '9px', width: '190px', maxWidth: '190px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', border: '1.5px solid #000' })}>{yrSfx(yr)} Yr</td>
-                            {feeHeadEntries.map(([fhId, row]) => (
-                                <td key={`${yr}-${fhId}`} style={td('center', { fontWeight: '700', fontSize: '9px', border: '1.5px solid #000' })}>
-                                    {row.years[yr] !== undefined ? `₹${fmt(row.years[yr])}` : '—'}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        );
-    };
-
-    const compactBlocks = [];
-    const groupKey = (req) => {
-        const college = String(req.college || 'Unknown');
-        const batch = String(req.batch || '');
-        const course = String(req.course || '');
-        const branch = String(req.branch || '');
-        return `${college}|${batch}|${course}|${branch}`;
-    };
-
-    // Group by: College → Batch → Course → Branch
-    const groups = [];
-    let currentKey = null;
-    let currentGroup = null;
-
-    sortedReqs.forEach((req) => {
-        const k = groupKey(req);
-        if (k !== currentKey) {
-            currentKey = k;
-            currentGroup = {
-                college: String(req.college || 'Unknown'),
-                batch: String(req.batch || ''),
-                course: String(req.course || ''),
-                branch: String(req.branch || ''),
-                reqs: []
-            };
-            groups.push(currentGroup);
-        }
-        currentGroup.reqs.push(req);
-    });
-
-    groups.forEach((group) => {
-        // Group-wide union so every student's table has the same column structure.
-        const yearsSet = new Set();
-        const feeHeadMap = new Map(); // feeHeadId -> { name, code, type }
-
-        group.reqs.forEach((req) => {
-            (req.concessions || []).forEach((c) => {
-                const yr = Number(c.studentYear);
-                if (Number.isFinite(yr) && yr > 0) yearsSet.add(yr);
-
-                const hid = String(c.feeHeadId);
-                if (!feeHeadMap.has(hid)) {
-                    feeHeadMap.set(hid, {
-                        name: c.feeHeadName || c.feeHeadCode || hid,
-                        code: c.feeHeadCode || '',
-                        type: c.concessionType
-                    });
-                }
-            });
-        });
-
-        const groupYears = [...yearsSet].sort((a, b) => a - b);
-        const groupFeeHeadEntries = [...feeHeadMap.entries()].sort((a, b) => {
-            return String(a[1]?.name || '').localeCompare(String(b[1]?.name || ''));
-        });
-
-        group.reqs.forEach((req) => {
-            compactBlocks.push(
-                <div key={`student-${req._id || req.admissionNumber}`} style={{ marginTop: '6px', marginBottom: '12px', pageBreakInside: 'avoid' }}>
-                    <div style={{ fontWeight: '700', fontSize: '9px', marginBottom: '4px' }}>
-                        {req.studentName} · Adm: {req.admissionNumber}
-                    </div>
-                    {renderStudentMatrix(req, groupYears, groupFeeHeadEntries)}
-                </div>
-            );
-        });
-    });
 
     return (
-        <div style={{ fontFamily: 'Arial, sans-serif', padding: '20px 30px', color: '#111', background: '#fff', minHeight: '297mm' }}>
-            <Header subtitle="Overall Concession (Revised Fees) — Reports" />
+        <div style={{ fontFamily: 'Arial, sans-serif', padding: '16px 20px', color: '#111', background: '#fff', minHeight: '297mm' }}>
+            <Header subtitle="Overall Concession (Revised Fees) — Overview" />
 
-            {/* Meta strip — NO date */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: '700', marginBottom: '18px', borderBottom: '1px solid #ccc', paddingBottom: '8px' }}>
-                <span>Filter: <span style={{ fontWeight: '900' }}>{filterLabel}</span></span>
-                <span>Total Students: <span style={{ fontWeight: '900' }}>{rows.length}</span></span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: '700', marginBottom: '12px', borderBottom: '1px solid #ccc', paddingBottom: '6px' }}>
+                <span>Filter: <span style={{ fontWeight: '700' }}>{filterLabel}</span></span>
+                <span>Total Students: <span style={{ fontWeight: '700' }}>{sortedReqs.length}</span></span>
             </div>
 
-            {/* Compact grouped student matrices (College → Batch → Course → Branch) */}
-            <div>
-                {compactBlocks}
-            </div>
+            {feeHeadEntries.length === 0 ? (
+                <div style={{ fontSize: '11px', color: '#666', padding: '20px 0', textAlign: 'center' }}>
+                    No revised fee entries to display for the selected students.
+                </div>
+            ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', border: '1.5px solid #000', tableLayout: 'fixed' }}>
+                    <thead>
+                        <tr>
+                            <th style={{ ...headBorder, width: '36px' }}>S.No</th>
+                            <th style={{ ...headBorder, width: '140px', textAlign: 'left' }}>Student Name</th>
+                            <th style={{ ...headBorder, width: '80px' }}>Adm No</th>
+                            <th style={{ ...headBorder, width: '56px' }}>Year</th>
+                            {feeHeadEntries.map(([fhId, row]) => (
+                                <th key={fhId} style={{ ...headBorder, textTransform: 'none', fontSize: '8px', wordBreak: 'break-word', whiteSpace: 'normal' }}>
+                                    {row.name}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sortedReqs.map((req, sIdx) => {
+                            const adm = String(req.admissionNumber || '');
+                            const studentAmounts = amountLookup[adm] || {};
+                            return years.map((yr, yrIdx) => (
+                                <tr key={`${adm}_${yr}`} style={{ backgroundColor: sIdx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
+                                    {yrIdx === 0 && (
+                                        <>
+                                            <td style={{ ...cellBorder, fontWeight: '700' }} rowSpan={years.length}>{sIdx + 1}</td>
+                                            <td style={{ ...cellBorder, textAlign: 'left', fontWeight: '700' }} rowSpan={years.length}>
+                                                {req.studentName || '—'}
+                                            </td>
+                                            <td style={{ ...cellBorder, fontFamily: 'monospace', fontSize: '8px' }} rowSpan={years.length}>
+                                                {req.admissionNumber || '—'}
+                                            </td>
+                                        </>
+                                    )}
+                                    <td style={{ ...cellBorder, fontWeight: '700' }}>{yrSfx(yr)} Yr</td>
+                                    {feeHeadEntries.map(([fhId]) => {
+                                        const amt = studentAmounts[fhId]?.[yr];
+                                        return (
+                                            <td key={`${adm}_${yr}_${fhId}`} style={{ ...cellBorder, fontWeight: '700' }}>
+                                                {amt !== undefined && Number(amt) > 0 ? `₹${fmt(amt)}` : '—'}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ));
+                        })}
+                    </tbody>
+                </table>
+            )}
 
             <div style={{ marginTop: '14px', paddingTop: '8px', borderTop: '1px solid #ddd', fontSize: '9px', color: '#888', textAlign: 'center', fontStyle: 'italic' }}>
                 This is a computer-generated Overall Concession Report for internal records only.
             </div>
 
-            <style dangerouslySetInnerHTML={{ __html: `@media print { @page { size: A4; margin: 10mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }` }} />
+            <style dangerouslySetInnerHTML={{ __html: `@media print { @page { size: A4 landscape; margin: 8mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }` }} />
         </div>
     );
 };
@@ -421,13 +291,7 @@ const OverallConcessionRegisterPrint = (props) => {
     if (props.request) {
         return <SingleStudentPrint request={props.request} />;
     }
-    const reqs = props.requests || [];
-    // If only one student is printed from the "All" view, render the single-student layout
-    // (no summary + correct orientation).
-    if (reqs.length === 1) {
-        return <SingleStudentPrint request={reqs[0]} />;
-    }
-    return <AllStudentsPrint requests={reqs} filters={props.filters || {}} />;
+    return <AllStudentsPrint requests={props.requests || []} filters={props.filters || {}} />;
 };
 
 export default OverallConcessionRegisterPrint;

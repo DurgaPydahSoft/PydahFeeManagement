@@ -5,6 +5,7 @@ const {
     saveOverallConcession,
     deleteOverallConcession,
     bulkSaveOverallConcessions,
+    bulkSaveMultipleStudents,
     submitConcessionRequest,
     getConcessionRequests,
     approveConcessionRequest,
@@ -21,6 +22,9 @@ router.route('/')
 
 router.route('/bulk')
     .post(bulkSaveOverallConcessions);
+
+router.route('/bulk-multi')
+    .post(bulkSaveMultipleStudents);
 
 // Request workflow
 router.route('/request')

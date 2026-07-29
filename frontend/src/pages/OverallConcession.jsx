@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
-import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, X, Pencil, Save, BookOpen, Printer, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, X, Pencil, Save, BookOpen, Printer, ChevronDown, ChevronUp, LayoutGrid } from 'lucide-react';
 import { printHtmlDocument } from '../utils/printService';
 
 // ─── Status badge helper ───────────────────────────────────────────────────
@@ -90,6 +90,21 @@ const OverallConcession = () => {
     const [regExpandedId,      setRegExpandedId]      = useState(null);
     const [regPrintSingleBusy, setRegPrintSingleBusy] = useState(null);
     const [regPrintAllBusy,    setRegPrintAllBusy]    = useState(false);
+
+    // ── bulk load tab state ────────────────────────────────────────────────
+    const [bulkSelectedHeads,  setBulkSelectedHeads]  = useState([]);
+    const [bulkStudents,       setBulkStudents]       = useState([]);
+    const [bulkAmounts,        setBulkAmounts]        = useState({});
+    const [bulkConcTypes,      setBulkConcTypes]      = useState({});
+    const [bulkSaving,         setBulkSaving]         = useState(false);
+    const [bulkLoaded,         setBulkLoaded]         = useState(false);
+    const [bulkSuccess,        setBulkSuccess]        = useState('');
+    const [bulkError,          setBulkError]          = useState('');
+    const [bulkHeadDropOpen,   setBulkHeadDropOpen]   = useState(false);
+
+    // ── view overview list filter + print ─────────────────────────────────
+    const [viewListMode,      setViewListMode]      = useState('all'); // 'all' | 'revised'
+    const [viewPrintBusy,     setViewPrintBusy]     = useState(false);
 
     // ── pending requests map (admissionNumber → true) for badge ──────────
     const [pendingAdmSet, setPendingAdmSet] = useState(new Set());
@@ -277,6 +292,69 @@ const OverallConcession = () => {
             printHtmlDocument(res.data);
         } catch (err) { alert('Print failed: ' + (err.response?.data?.message || err.message)); }
         finally { setRegPrintAllBusy(false); }
+    };
+
+    // ── View Overview print (All loaded students vs Revised-fees only) ──
+    const handleViewPrint = async (mode) => {
+        const includeAll = mode === 'all';
+
+        const selectedStudents = includeAll
+            ? students
+            : students.filter(s => (s.revisedFees || []).length > 0);
+
+        if (selectedStudents.length === 0) {
+            alert(includeAll ? 'No students loaded to print.' : 'No revised-fee students to print.');
+            return;
+        }
+
+        // Convert the GET /overall-concessions student shape into the shape
+        // expected by the print template (overall-concession-list).
+        const requests = selectedStudents.map(s => ({
+            _id: s.admission_number,
+            studentName: s.student_name,
+            admissionNumber: s.admission_number,
+            pinNo: s.pin_no,
+            college: s.college,
+            course: s.course,
+            branch: s.branch,
+            batch: s.batch,
+            concessions: (s.revisedFees || [])
+                .map(rf => {
+                    const fhId = resolveRevisedFeeHeadId(rf) || normalizeFeeHeadId(rf.feeHeadId);
+                    const amt = Number(rf.amount ?? rf.revisedAmount ?? 0);
+                    return {
+                        feeHeadId: fhId,
+                        feeHeadCode: rf.feeHeadCode || '',
+                        feeHeadName: getFeeHeadName(fhId, rf.feeHeadCode),
+                        studentYear: rf.studentYear,
+                        semester: rf.semester ?? null,
+                        amount: amt,
+                        concessionType: normalizeConcessionType(rf.concessionType)
+                    };
+                })
+                // Avoid printing empty/0 concessions. The report grid will show dashes anyway.
+                .filter(c => Number.isFinite(c.amount) && c.amount > 0)
+        }));
+
+        setViewPrintBusy(true);
+        try {
+            const res = await api.post('/print', {
+                template: 'overall-concession-list',
+                data: {
+                    requests,
+                    filters: {
+                        ...filters,
+                        courseYears: courseYears[filters.course] || undefined
+                    },
+                    generatedOn: new Date().toLocaleString('en-IN')
+                }
+            });
+            printHtmlDocument(res.data);
+        } catch (err) {
+            alert('Print failed: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setViewPrintBusy(false);
+        }
     };
 
     const closeRequestModal = () => {
@@ -507,6 +585,98 @@ const OverallConcession = () => {
         finally { setLoading(false); }
     };
 
+    // ── bulk load helpers ────────────────────────────────────────────────
+    const handleBulkLoad = async () => {
+        if (!filters.college || !filters.course || !filters.branch || !filters.batch) {
+            setBulkError('Please select all filters (College, Course, Branch, Batch).');
+            return;
+        }
+        if (bulkSelectedHeads.length === 0) {
+            setBulkError('Please select at least one fee head column.');
+            return;
+        }
+        setBulkError(''); setBulkSuccess(''); setBulkLoaded(false);
+        setLoading(true);
+        try {
+            const res = await api.get('/overall-concessions', { params: { ...filters } });
+            const loadedStudents = res.data || [];
+            setBulkStudents(loadedStudents);
+
+            const amounts = {};
+            const types = {};
+            const selectedIds = new Set(bulkSelectedHeads);
+            loadedStudents.forEach(s => {
+                (s.revisedFees || []).forEach(rf => {
+                    if (selectedIds.has(rf.feeHeadId)) {
+                        const key = `${s.admission_number}_${rf.studentYear}_${rf.feeHeadId}`;
+                        amounts[key] = String(rf.amount ?? rf.revisedAmount ?? '');
+                        types[`${s.admission_number}_${rf.feeHeadId}`] = rf.concessionType || 'REVISED';
+                    }
+                });
+            });
+            setBulkAmounts(amounts);
+            setBulkConcTypes(types);
+            setBulkLoaded(true);
+        } catch { setBulkError('Failed to load students.'); }
+        finally { setLoading(false); }
+    };
+
+    const handleBulkAmountChange = (admNo, yr, fhId, value) => {
+        setBulkAmounts(prev => ({ ...prev, [`${admNo}_${yr}_${fhId}`]: value }));
+    };
+
+    const handleBulkSaveAll = async () => {
+        setBulkSaving(true); setBulkError(''); setBulkSuccess('');
+        try {
+            const numYears = courseYears[filters.course] || 4;
+            const studentsPayload = bulkStudents.map(s => {
+                const concessions = [];
+                for (let yr = 1; yr <= numYears; yr++) {
+                    bulkSelectedHeads.forEach(fhId => {
+                        const key = `${s.admission_number}_${yr}_${fhId}`;
+                        const val = bulkAmounts[key];
+                        const num = Number(val);
+                        if (val !== undefined && val !== '' && Number.isFinite(num) && num > 0) {
+                            const fh = feeHeads.find(h => h._id === fhId);
+                            concessions.push({
+                                feeHeadId: fhId,
+                                feeHeadCode: fh?.code || '',
+                                studentYear: yr,
+                                semester: null,
+                                amount: num,
+                                concessionType: bulkConcTypes[`${s.admission_number}_${fhId}`] || 'REVISED'
+                            });
+                        }
+                    });
+                }
+                return {
+                    admissionNumber: s.admission_number,
+                    pinNo: s.pin_no,
+                    studentName: s.student_name,
+                    college: s.college,
+                    course: s.course,
+                    branch: s.branch,
+                    batch: s.batch,
+                    category: s.stud_type || 'Regular',
+                    concessions
+                };
+            }).filter(s => s.concessions.length > 0);
+
+            if (studentsPayload.length === 0) {
+                setBulkError('No amounts entered for any student.');
+                setBulkSaving(false);
+                return;
+            }
+
+            const res = await api.post('/overall-concessions/bulk-multi', { students: studentsPayload });
+            const d = res.data;
+            setBulkSuccess(`Saved ${d.saved} of ${d.total} students successfully.${d.errors?.length ? ` ${d.errors.length} errors.` : ''}`);
+            if (d.errors?.length) setBulkError(d.errors.map(e => `${e.admissionNumber}: ${e.message}`).join('; '));
+        } catch (err) {
+            setBulkError(err.response?.data?.message || 'Failed to save.');
+        } finally { setBulkSaving(false); }
+    };
+
     // ── select a student ─────────────────────────────────────────────────
     const handleSelectStudent = (student) => {
         markFormClean();
@@ -698,6 +868,10 @@ const OverallConcession = () => {
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'view' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
                                 <Eye size={14} /> View Overview
                             </button>
+                            <button onClick={() => setActiveTab('bulk')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'bulk' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
+                                <LayoutGrid size={14} /> Bulk Load
+                            </button>
                             {isAdminRole && (
                                 <button onClick={() => setActiveTab('requests')}
                                     className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'requests' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
@@ -709,14 +883,11 @@ const OverallConcession = () => {
                                     )}
                                 </button>
                             )}
-                            <button onClick={() => setActiveTab('register')}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'register' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
-                                <BookOpen size={14} /> Reports
-                            </button>                        </div>
+                        </div>
                     </header>
 
                     {/* ── Filter Bar (shown on add + view tabs only) ── */}
-                    {activeTab !== 'requests' && activeTab !== 'register' && (
+                    {activeTab !== 'requests' && activeTab !== 'register' && activeTab !== 'bulk' && (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
                             <div className="flex flex-col xl:flex-row gap-4 items-end">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full xl:w-auto flex-1">
@@ -985,74 +1156,163 @@ const OverallConcession = () => {
                     {/* ══════════════════════════════════════════════════
                         VIEW OVERVIEW TAB
                     ══════════════════════════════════════════════════ */}
-                    {activeTab === 'view' && (
+                    {activeTab === 'view' && (() => {
+                        const revisedCount = students.filter(s => (s.revisedFees || []).length > 0).length;
+                        const viewStudents = viewListMode === 'revised'
+                            ? students.filter(s => (s.revisedFees || []).length > 0)
+                            : students;
+
+                        return (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-fadeIn">
-                            <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-slate-800">Concessions Overview Roster</h2>
-                                <span className="text-xs text-slate-500 font-semibold">{students.length} Students Loaded</span>
+                            <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-sm font-bold text-slate-800">Concessions Overview Roster</h2>
+                                    <span className="text-xs text-slate-500 font-semibold">{students.length} Students Loaded</span>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                    {students.length > 0 && (
+                                        <div className="flex bg-slate-200/80 p-1 rounded-xl border border-slate-300/40">
+                                            <button
+                                                type="button"
+                                                onClick={() => setViewListMode('all')}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                                    viewListMode === 'all'
+                                                        ? 'bg-white text-blue-600 shadow-sm'
+                                                        : 'text-slate-600 hover:text-slate-800'
+                                                }`}
+                                            >
+                                                All <span className="ml-1 opacity-80">({students.length})</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setViewListMode('revised')}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                                    viewListMode === 'revised'
+                                                        ? 'bg-white text-emerald-600 shadow-sm'
+                                                        : 'text-slate-600 hover:text-slate-800'
+                                                }`}
+                                            >
+                                                Revised only <span className="ml-1 opacity-80">({revisedCount})</span>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleViewPrint(viewListMode)}
+                                        disabled={loading || viewPrintBusy || viewStudents.length === 0}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={viewStudents.length === 0 ? 'No students to print for this filter.' : `Print ${viewListMode === 'revised' ? 'revised-only' : 'all'} students`}
+                                    >
+                                        <Printer size={14} />
+                                        {viewPrintBusy ? 'Printing...' : `Print (${viewStudents.length})`}
+                                    </button>
+                                </div>
                             </div>
+
                             <div className="overflow-x-auto w-full">
                                 <table className="w-full text-xs text-left border-collapse min-w-[800px]">
                                     <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-[10px] uppercase">
                                         <tr>
                                             <th className="p-4 w-3/12">Student Info</th>
-                                            <th className="p-4 w-5/12">Revised Fees</th>
-                                            <th className="p-4 w-2/12">College / Batch</th>
-                                            <th className="p-4 w-2/12">Course / Branch</th>
+                                            <th className="p-4 w-9/12">Revised Fees</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-slate-700">
                                         {loading ? (
-                                            <tr><td colSpan="4" className="text-center py-20 text-slate-400 italic">Querying SQL database...</td></tr>
+                                            <tr><td colSpan="2" className="text-center py-20 text-slate-400 italic">Querying SQL database...</td></tr>
                                         ) : students.length === 0 ? (
-                                            <tr><td colSpan="4" className="text-center py-24 text-slate-400 p-6">
+                                            <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
                                                 {hasSearched ? 'No active regular students found matching criteria.' : 'Select filters and click Load Students.'}
                                             </td></tr>
+                                        ) : viewStudents.length === 0 ? (
+                                            <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
+                                                No students with revised fees in the current list.
+                                            </td></tr>
                                         ) : (
-                                            students.map(s => {
-                                                const grouped = {};
+                                            viewStudents.map(s => {
+                                                const byHead = {};
+                                                const yearsSet = new Set();
                                                 (s.revisedFees || []).forEach(rf => {
                                                     const fhId = resolveRevisedFeeHeadId(rf) || normalizeFeeHeadId(rf.feeHeadId);
                                                     if (!fhId) return;
-                                                    if (!grouped[fhId]) grouped[fhId] = [];
-                                                    grouped[fhId].push(rf);
+                                                    const yr = Number(rf.studentYear);
+                                                    if (Number.isFinite(yr) && yr > 0) yearsSet.add(yr);
+                                                    if (!byHead[fhId]) {
+                                                        byHead[fhId] = {
+                                                            name: getFeeHeadName(fhId, rf.feeHeadCode),
+                                                            type: rf.concessionType || 'REVISED',
+                                                            years: {}
+                                                        };
+                                                    }
+                                                    byHead[fhId].years[yr] = {
+                                                        amount: Number(rf.amount ?? rf.revisedAmount ?? 0),
+                                                        type: rf.concessionType || 'REVISED',
+                                                        id: rf.id
+                                                    };
+                                                    byHead[fhId].type = rf.concessionType || byHead[fhId].type;
                                                 });
-                                                const hasConcessions = Object.keys(grouped).length > 0;
+
+                                                const headEntries = Object.entries(byHead).sort((a, b) =>
+                                                    String(a[1].name).localeCompare(String(b[1].name))
+                                                );
+                                                const years = [...yearsSet].sort((a, b) => a - b);
+                                                const courseDur = courseYears[s.course] || (years.length ? Math.max(...years) : 0);
+                                                const displayYears = courseDur > 0
+                                                    ? Array.from({ length: courseDur }, (_, i) => i + 1)
+                                                    : years;
+                                                const hasConcessions = headEntries.length > 0;
+
                                                 return (
-                                                    <tr key={s.admission_number} className="hover:bg-slate-50/30">
+                                                    <tr key={s.admission_number} className="hover:bg-slate-50/30 align-top">
                                                         <td className="p-4">
                                                             <div className="font-bold text-slate-900 text-sm">{s.student_name}</div>
                                                             <div className="text-slate-500 mt-0.5 font-medium">Pin: <span className="font-semibold text-slate-700">{s.pin_no}</span> | Adm: {s.admission_number}</div>
                                                         </td>
                                                         <td className="p-4">
                                                             {hasConcessions ? (
-                                                                <div className="space-y-2">
-                                                                    {Object.entries(grouped).map(([fhId, items]) => (
-                                                                        <div key={fhId} className="flex flex-col sm:flex-row sm:items-start gap-2">
-                                                                            <span className="font-bold text-slate-700 bg-slate-100 rounded px-2 py-0.5 text-[10px] uppercase tracking-wide inline-block shrink-0 mt-0.5">
-                                                                                {getFeeHeadName(fhId, items[0]?.feeHeadCode)}:
-                                                                            </span>
-                                                                            <div className="flex flex-wrap gap-1.5">
-                                                                                {items.map(rf => (
-                                                                                    <span key={rf.id} className={`border rounded px-1.5 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${rf.concessionType === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
-                                                                                        Yr {rf.studentYear}: {rf.concessionType === 'CONCESSION' ? '-' : ''}₹{(rf.amount ?? rf.revisedAmount ?? 0).toLocaleString()} {rf.concessionType === 'CONCESSION' ? '(Conc.)' : '(Revised)'}
-                                                                                    </span>
+                                                                <div className="overflow-x-auto">
+                                                                    <table className="w-full text-[11px] border-collapse border border-slate-200 rounded-lg overflow-hidden">
+                                                                        <thead>
+                                                                            <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
+                                                                                <th className="px-3 py-2 text-left font-bold border border-slate-200 min-w-[140px]">Fee Component</th>
+                                                                                {displayYears.map(yr => (
+                                                                                    <th key={yr} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap min-w-[90px]">
+                                                                                        {getYearSuffix(yr)} Yr
+                                                                                    </th>
                                                                                 ))}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {headEntries.map(([fhId, row]) => (
+                                                                                <tr key={fhId} className="bg-white">
+                                                                                    <td className="px-3 py-2 font-semibold text-slate-800 border border-slate-200 whitespace-nowrap">
+                                                                                        {row.name}
+                                                                                        <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold border ${row.type === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+                                                                                            {row.type === 'CONCESSION' ? 'Conc.' : 'Revised'}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                    {displayYears.map(yr => {
+                                                                                        const cell = row.years[yr];
+                                                                                        return (
+                                                                                            <td key={yr} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap">
+                                                                                                {cell && Number(cell.amount) > 0
+                                                                                                    ? <span className={cell.type === 'CONCESSION' ? 'text-amber-700' : 'text-emerald-700'}>
+                                                                                                        {cell.type === 'CONCESSION' ? '-' : ''}₹{Number(cell.amount).toLocaleString('en-IN')}
+                                                                                                      </span>
+                                                                                                    : <span className="text-slate-300 font-normal">—</span>}
+                                                                                            </td>
+                                                                                        );
+                                                                                    })}
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
                                                                 </div>
                                                             ) : (
-                                                                <span className="text-slate-400 font-bold text-sm">-</span>
+                                                                <span className="text-slate-400 font-bold text-sm">—</span>
                                                             )}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="font-semibold text-slate-800 uppercase">{s.college}</div>
-                                                            <div className="text-slate-500 mt-0.5">{s.batch} Batch</div>
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="font-semibold text-slate-800 uppercase">{s.course}</div>
-                                                            <div className="text-slate-500 mt-0.5 truncate max-w-[180px]">{s.branch}</div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -1062,7 +1322,8 @@ const OverallConcession = () => {
                                 </table>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* ══════════════════════════════════════════════════
                         REQUESTS TAB (admin/superadmin only)
@@ -1851,6 +2112,208 @@ const OverallConcession = () => {
                                     </div>
                                 )}
                             </div>
+                        </div>
+                    )}
+
+                    {/* ══════════════════════════════════════════════════
+                        BULK LOAD TAB
+                    ══════════════════════════════════════════════════ */}
+                    {activeTab === 'bulk' && (
+                        <div className="space-y-4 animate-fadeIn">
+
+                            {/* Config bar */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
+                                <h3 className="text-sm font-bold text-slate-700">Configure Bulk Load</h3>
+
+                                {/* Filters row */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.college} onChange={e => {
+                                                const college = e.target.value;
+                                                setFilters({ college, course: '', branch: '', batch: filters.batch });
+                                                setCourses(college ? Object.keys(metadata[college] || {}) : []);
+                                                setBranches([]);
+                                            }}>
+                                            <option value="">Select College</option>
+                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.batch} onChange={e => setFilters(f => ({ ...f, batch: e.target.value }))}>
+                                            <option value="">Select Batch</option>
+                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.course} onChange={e => {
+                                                const course = e.target.value;
+                                                setFilters(f => ({ ...f, course, branch: '' }));
+                                                if (course && filters.college) setBranches(metadata[filters.college][course]?.branches || []);
+                                                else setBranches([]);
+                                            }} disabled={!filters.college}>
+                                            <option value="">Select Course</option>
+                                            {courses.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.branch} onChange={e => setFilters(f => ({ ...f, branch: e.target.value }))} disabled={!filters.course}>
+                                            <option value="">Select Branch</option>
+                                            {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Fee head picker */}
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Fee Head Columns</label>
+                                    <div className="relative">
+                                        <button type="button" onClick={() => setBulkHeadDropOpen(v => !v)}
+                                            className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg p-2.5 text-left flex justify-between items-center cursor-pointer">
+                                            <span>{bulkSelectedHeads.length ? `${bulkSelectedHeads.length} fee head(s) selected` : 'Select fee heads...'}</span>
+                                            <ChevronDown size={14} className={`transition ${bulkHeadDropOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+                                        {bulkHeadDropOpen && (
+                                            <div className="mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                                {feeHeads.map(fh => (
+                                                    <label key={fh._id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer text-xs">
+                                                        <input type="checkbox"
+                                                            checked={bulkSelectedHeads.includes(fh._id)}
+                                                            onChange={e => {
+                                                                if (e.target.checked) setBulkSelectedHeads(prev => [...prev, fh._id]);
+                                                                else setBulkSelectedHeads(prev => prev.filter(id => id !== fh._id));
+                                                            }}
+                                                            className="rounded border-slate-300"
+                                                        />
+                                                        <span className="font-semibold">{fh.name}</span>
+                                                        {fh.code && <span className="text-slate-400">({fh.code})</span>}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Load button */}
+                                <div className="flex items-center gap-3">
+                                    <button onClick={handleBulkLoad}
+                                        disabled={loading || !filters.college || !filters.course || !filters.branch || !filters.batch || bulkSelectedHeads.length === 0}
+                                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2">
+                                        {loading ? <><span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> Loading...</> : <><Search size={14} /> Load Students</>}
+                                    </button>
+                                    {bulkSelectedHeads.length > 0 && (
+                                        <button onClick={() => { setBulkSelectedHeads([]); setBulkStudents([]); setBulkAmounts({}); setBulkConcTypes({}); setBulkLoaded(false); setBulkSuccess(''); setBulkError(''); }}
+                                            className="px-3 py-2.5 text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
+                                            Clear All
+                                        </button>
+                                    )}
+                                </div>
+
+                                {bulkError && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{bulkError}</div>}
+                                {bulkSuccess && <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{bulkSuccess}</div>}
+                            </div>
+
+                            {/* Editable grid */}
+                            {bulkLoaded && bulkStudents.length > 0 && (() => {
+                                const numYears = courseYears[filters.course] || 4;
+                                const selectedFeeHeadObjs = bulkSelectedHeads.map(id => feeHeads.find(fh => fh._id === id)).filter(Boolean);
+
+                                return (
+                                    <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+                                        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                                            <h3 className="text-sm font-bold text-slate-700">{bulkStudents.length} Students × {numYears} Years × {selectedFeeHeadObjs.length} Fee Heads</h3>
+                                        </div>
+                                        <div className="overflow-auto max-h-[70vh]">
+                                            <table className="w-full text-xs border-collapse">
+                                                <thead className="sticky top-0 z-10">
+                                                    <tr className="bg-slate-100">
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap">S.No</th>
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[160px]">Student Name</th>
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap">Adm No</th>
+                                                        <th className="px-3 py-2 text-center font-bold text-slate-600 border border-slate-300 whitespace-nowrap">Year</th>
+                                                        {selectedFeeHeadObjs.map(fh => (
+                                                            <th key={fh._id} className="px-3 py-2 text-center font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[120px]">
+                                                                <div>{fh.name}</div>
+                                                                <select
+                                                                    className="mt-1 text-[10px] bg-slate-50 border border-slate-300 rounded px-1 py-0.5 cursor-pointer"
+                                                                    value={bulkConcTypes[`_global_${fh._id}`] || 'REVISED'}
+                                                                    onChange={e => {
+                                                                        const type = e.target.value;
+                                                                        setBulkConcTypes(prev => {
+                                                                            const next = { ...prev, [`_global_${fh._id}`]: type };
+                                                                            bulkStudents.forEach(s => { next[`${s.admission_number}_${fh._id}`] = type; });
+                                                                            return next;
+                                                                        });
+                                                                    }}>
+                                                                    <option value="REVISED">Revised</option>
+                                                                    <option value="CONCESSION">Concession</option>
+                                                                </select>
+                                                            </th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {bulkStudents.map((s, sIdx) => (
+                                                        Array.from({ length: numYears }, (_, yrIdx) => {
+                                                            const yr = yrIdx + 1;
+                                                            return (
+                                                                <tr key={`${s.admission_number}_${yr}`} className={sIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                                                    {yrIdx === 0 && (
+                                                                        <>
+                                                                            <td className="px-3 py-2 border border-slate-200 text-center font-bold text-slate-500" rowSpan={numYears}>{sIdx + 1}</td>
+                                                                            <td className="px-3 py-2 border border-slate-200 font-semibold text-slate-800" rowSpan={numYears}>{s.student_name}</td>
+                                                                            <td className="px-3 py-2 border border-slate-200 text-slate-600 font-mono" rowSpan={numYears}>{s.admission_number}</td>
+                                                                        </>
+                                                                    )}
+                                                                    <td className="px-3 py-2 border border-slate-200 text-center font-bold text-slate-600">{yr === 1 ? '1st' : yr === 2 ? '2nd' : yr === 3 ? '3rd' : `${yr}th`} Yr</td>
+                                                                    {selectedFeeHeadObjs.map(fh => {
+                                                                        const cellKey = `${s.admission_number}_${yr}_${fh._id}`;
+                                                                        return (
+                                                                            <td key={cellKey} className="px-1 py-1 border border-slate-200">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    className="w-full px-2 py-1.5 text-xs text-right border border-slate-200 rounded focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none"
+                                                                                    placeholder="—"
+                                                                                    value={bulkAmounts[cellKey] ?? ''}
+                                                                                    onChange={e => handleBulkAmountChange(s.admission_number, yr, fh._id, e.target.value)}
+                                                                                />
+                                                                            </td>
+                                                                        );
+                                                                    })}
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {/* Save bar */}
+                                        <div className="p-4 border-t border-slate-200 flex items-center justify-between sticky bottom-0 bg-white rounded-b-xl">
+                                            <span className="text-xs text-slate-500">{bulkStudents.length} students loaded</span>
+                                            <button onClick={handleBulkSaveAll} disabled={bulkSaving}
+                                                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2">
+                                                {bulkSaving ? <><span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> Saving...</> : <><Save size={14} /> Save All ({bulkStudents.length} students)</>}
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {bulkLoaded && bulkStudents.length === 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-12 text-center">
+                                    <User size={40} className="mx-auto text-slate-300 mb-3" />
+                                    <p className="text-sm text-slate-500">No students found matching the selected filters.</p>
+                                </div>
+                            )}
                         </div>
                     )}
 

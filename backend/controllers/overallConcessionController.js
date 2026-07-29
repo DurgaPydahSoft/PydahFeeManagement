@@ -52,8 +52,6 @@ const getOverallConcessions = async (req, res) => {
             params.push(searchPattern, searchPattern, searchPattern);
         }
 
-        sqlQuery += ` LIMIT 100`;
-
         const [students] = await db.query(sqlQuery, params);
 
         if (students.length === 0) {
@@ -344,19 +342,117 @@ const deleteOverallConcession = async (req, res) => {
     }
 };
 
+// ── Shared helper: save concessions for ONE student inside a given connection/transaction ──
+const _saveStudentConcessions = async ({
+    connection, admissionNumber, pinNo, studentName, college, course, branch, batch,
+    category, concessions, feeHeads, codeMap, user
+}) => {
+    const normalizeIncomingEntry = (c) => {
+        const sem = normalizeSemester(c.semester);
+        const resolvedId = resolveFeeHeadId(c, codeMap);
+        const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+        return formatConcessionEntry({
+            feeHeadId: resolvedId,
+            feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
+            studentYear: Number(c.studentYear),
+            semester: sem,
+            amount: getConcessionAmount(c),
+            concessionType: c.concessionType
+        });
+    };
+
+    const updatedConcessions = concessions.map(normalizeIncomingEntry);
+
+    const validation = await validateRevisedEntriesAgainstStructures({
+        entries: updatedConcessions, college, course, branch, batch,
+        category: category || 'Regular', codeMap
+    });
+    if (!validation.ok) {
+        return { ok: false, message: validation.message, warnings: validation.warnings };
+    }
+
+    const [existingRows] = await connection.query(
+        `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
+        [admissionNumber]
+    );
+    let previousFees = [];
+    if (existingRows.length > 0) {
+        const raw = existingRows[0].revised_fees;
+        previousFees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+    }
+
+    if (concessions.length === 0) {
+        await connection.query(`DELETE FROM overall_concessions WHERE admission_number = ?`, [admissionNumber]);
+    } else {
+        const revisedFeesJson = JSON.stringify(updatedConcessions);
+        await connection.query(`
+            INSERT INTO overall_concessions 
+                (admission_number, pin_no, student_name, batch, course, branch, revised_fees)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
+        `, [
+            admissionNumber, pinNo || '-', studentName || '', batch || '', course || '', branch || '', revisedFeesJson,
+            revisedFeesJson, pinNo || '-', studentName || '', batch || '', course || '', branch || ''
+        ]);
+    }
+
+    const nextKeys = new Set(
+        updatedConcessions
+            .filter(e => normalizeConcessionType(e.concessionType) === 'REVISED')
+            .map(e => `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`)
+    );
+    const removedRevised = previousFees.filter(e => {
+        if (normalizeConcessionType(e.concessionType) !== 'REVISED') return false;
+        const key = `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`;
+        return !nextKeys.has(key);
+    });
+    if (removedRevised.length > 0 || concessions.length === 0) {
+        await cancelDeclarationConcessionTransactions({
+            admissionNumber,
+            entries: concessions.length === 0 ? previousFees : removedRevised,
+            collectedBy: user?.username || 'system',
+            collectedByName: user?.name || 'System',
+            codeMap
+        });
+    }
+
+    const standardFeesApplied = await StudentFee.exists({
+        studentId: admissionNumber,
+        academicYear: batch,
+        $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+    });
+
+    if (standardFeesApplied) {
+        const [students] = await db.query(
+            `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
+             FROM students WHERE admission_number = ?`,
+            [admissionNumber]
+        );
+        if (students.length > 0) {
+            await syncStandardFees(students[0], admissionNumber);
+        }
+
+        if (updatedConcessions.length > 0) {
+            await applyRevisedConcessionTransactions({
+                admissionNumber, studentName, college, course, branch, batch,
+                category: category || 'Regular', entries: updatedConcessions,
+                collectedBy: user?.username || 'system',
+                collectedByName: user?.name || 'System',
+                codeMap
+            });
+        }
+    }
+
+    return { ok: true, updatedConcessions };
+};
+
 // @desc    Bulk Assign, Update or Delete revised fees (concessions) for a student
 // @route   POST /api/overall-concessions/bulk
 const bulkSaveOverallConcessions = async (req, res) => {
     const { 
-        admissionNumber, 
-        pinNo, 
-        studentName, 
-        college, 
-        course, 
-        branch, 
-        batch, 
-        category,
-        concessions // Array of { feeHeadId, feeHeadCode, studentYear, semester, amount }
+        admissionNumber, pinNo, studentName, college, course, branch, batch,
+        category, concessions
     } = req.body;
 
     if (!admissionNumber || !Array.isArray(concessions)) {
@@ -367,133 +463,25 @@ const bulkSaveOverallConcessions = async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Persist concessions in SQL
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
-        const normalizeIncomingEntry = (c) => {
-            const sem = normalizeSemester(c.semester);
-            const resolvedId = resolveFeeHeadId(c, codeMap);
-            const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
-            return formatConcessionEntry({
-                feeHeadId: resolvedId,
-                feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
-                studentYear: Number(c.studentYear),
-                semester: sem,
-                amount: getConcessionAmount(c),
-                concessionType: c.concessionType
-            });
-        };
-
-        const updatedConcessions = concessions.map(normalizeIncomingEntry);
-
-        const validation = await validateRevisedEntriesAgainstStructures({
-            entries: updatedConcessions,
-            college,
-            course,
-            branch,
-            batch,
-            category: category || 'Regular',
-            codeMap
+        const result = await _saveStudentConcessions({
+            connection, admissionNumber, pinNo, studentName, college, course,
+            branch, batch, category, concessions, feeHeads, codeMap, user: req.user
         });
-        if (!validation.ok) {
+
+        if (!result.ok) {
             await connection.rollback();
-            return res.status(400).json({ message: validation.message, warnings: validation.warnings });
-        }
-
-        // Fetch previous REVISED entries so we can cancel removed ones later
-        const [existingRows] = await connection.query(
-            `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNumber]
-        );
-        let previousFees = [];
-        if (existingRows.length > 0) {
-            const raw = existingRows[0].revised_fees;
-            previousFees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
-        }
-
-        // 2. Normalize incoming concessions for storage
-        if (concessions.length === 0) {
-            await connection.query(`DELETE FROM overall_concessions WHERE admission_number = ?`, [admissionNumber]);
-        } else {
-            const revisedFeesJson = JSON.stringify(updatedConcessions);
-            const insertQuery = `
-                INSERT INTO overall_concessions 
-                    (admission_number, pin_no, student_name, batch, course, branch, revised_fees)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE 
-                    revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
-            `;
-            const insertParams = [
-                admissionNumber, pinNo || '-', studentName || '', batch || '', course || '', branch || '', revisedFeesJson,
-                revisedFeesJson, pinNo || '-', studentName || '', batch || '', course || '', branch || ''
-            ];
-            await connection.query(insertQuery, insertParams);
+            return res.status(400).json({ message: result.message, warnings: result.warnings });
         }
 
         await connection.commit();
 
-        // Cancel declaration CREDITs for REVISED entries that were removed
-        const nextKeys = new Set(
-            updatedConcessions
-                .filter(e => normalizeConcessionType(e.concessionType) === 'REVISED')
-                .map(e => `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`)
-        );
-        const removedRevised = previousFees.filter(e => {
-            if (normalizeConcessionType(e.concessionType) !== 'REVISED') return false;
-            const key = `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`;
-            return !nextKeys.has(key);
-        });
-        if (removedRevised.length > 0 || concessions.length === 0) {
-            await cancelDeclarationConcessionTransactions({
-                admissionNumber,
-                entries: concessions.length === 0 ? previousFees : removedRevised,
-                collectedBy: req.user?.username || 'system',
-                collectedByName: req.user?.name || 'System',
-                codeMap
-            });
-        }
-
-        // 4. Re-sync MongoDB fee amounts from structure + remaining concessions
-        const standardFeesApplied = await StudentFee.exists({
-            studentId: admissionNumber,
-            academicYear: batch,
-            $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
-        });
-
-        if (standardFeesApplied) {
-            const [students] = await db.query(
-                `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
-                 FROM students WHERE admission_number = ?`,
-                [admissionNumber]
-            );
-            if (students.length > 0) {
-                await syncStandardFees(students[0], admissionNumber);
-            }
-
-            if (updatedConcessions.length > 0) {
-                await applyRevisedConcessionTransactions({
-                    admissionNumber,
-                    studentName,
-                    college,
-                    course,
-                    branch,
-                    batch,
-                    category: category || 'Regular',
-                    entries: updatedConcessions,
-                    collectedBy: req.user?.username || 'system',
-                    collectedByName: req.user?.name || 'System',
-                    codeMap
-                });
-            }
-        }
-
-        // Fetch all concessions for this student again to return updated state
         const [updatedList] = await db.query(
             `SELECT * FROM overall_concessions WHERE admission_number = ?`,
             [admissionNumber]
         );
-
         const updatedRow = updatedList[0];
         const responseConcessions = updatedRow 
             ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => ({
@@ -502,14 +490,70 @@ const bulkSaveOverallConcessions = async (req, res) => {
             }))
             : [];
 
-        res.json({
-            message: 'Revised fees updated successfully',
-            revisedFees: responseConcessions
-        });
+        res.json({ message: 'Revised fees updated successfully', revisedFees: responseConcessions });
 
     } catch (error) {
         await connection.rollback();
         console.error('Error performing bulk concession update:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    } finally {
+        connection.release();
+    }
+};
+
+// @desc    Bulk save concessions for MULTIPLE students at once
+// @route   POST /api/overall-concessions/bulk-multi
+const bulkSaveMultipleStudents = async (req, res) => {
+    const { students } = req.body;
+    if (!Array.isArray(students) || students.length === 0) {
+        return res.status(400).json({ message: 'No students provided' });
+    }
+
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const feeHeads = await FeeHead.find({}).lean();
+        const { codeMap } = buildFeeHeadMaps(feeHeads);
+
+        const errors = [];
+        let saved = 0;
+
+        for (const s of students) {
+            if (!s.admissionNumber || !Array.isArray(s.concessions)) {
+                errors.push({ admissionNumber: s.admissionNumber || '?', message: 'Missing required fields' });
+                continue;
+            }
+            try {
+                const result = await _saveStudentConcessions({
+                    connection,
+                    admissionNumber: s.admissionNumber,
+                    pinNo: s.pinNo,
+                    studentName: s.studentName,
+                    college: s.college,
+                    course: s.course,
+                    branch: s.branch,
+                    batch: s.batch,
+                    category: s.category,
+                    concessions: s.concessions,
+                    feeHeads, codeMap, user: req.user
+                });
+                if (!result.ok) {
+                    errors.push({ admissionNumber: s.admissionNumber, message: result.message });
+                } else {
+                    saved++;
+                }
+            } catch (err) {
+                errors.push({ admissionNumber: s.admissionNumber, message: err.message });
+            }
+        }
+
+        await connection.commit();
+        res.json({ message: `Saved ${saved} of ${students.length} students`, saved, total: students.length, errors });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error performing bulk-multi concession update:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     } finally {
         connection.release();
@@ -937,6 +981,7 @@ module.exports = {
     saveOverallConcession,
     deleteOverallConcession,
     bulkSaveOverallConcessions,
+    bulkSaveMultipleStudents,
     submitConcessionRequest,
     getConcessionRequests,
     approveConcessionRequest,
