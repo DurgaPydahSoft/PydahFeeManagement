@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
-import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, X, Pencil, Save } from 'lucide-react';
+import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, X, Pencil, Save, BookOpen, Printer, ChevronDown, ChevronUp } from 'lucide-react';
+import { printHtmlDocument } from '../utils/printService';
 
 // ─── Status badge helper ───────────────────────────────────────────────────
 const StatusBadge = ({ status }) => {
@@ -77,6 +78,18 @@ const OverallConcession = () => {
     const [editSaveBusy,      setEditSaveBusy]      = useState(false);
     const [editNewHeadId,     setEditNewHeadId]     = useState('');
     const [approveSuccess,    setApproveSuccess]    = useState(null); // { studentName, admissionNumber } | null
+
+    // ── register tab state ────────────────────────────────────────────────
+    const [regRequests,        setRegRequests]        = useState([]);
+    const [regLoading,         setRegLoading]         = useState(false);
+    const [regStatusFilter,    setRegStatusFilter]    = useState('APPROVED');
+    const [regFilters,         setRegFilters]         = useState({ college: '', course: '', branch: '', batch: '' });
+    const [regCourses,         setRegCourses]         = useState([]);
+    const [regBranches,        setRegBranches]        = useState([]);
+    const [regSearchTerm,      setRegSearchTerm]      = useState('');
+    const [regExpandedId,      setRegExpandedId]      = useState(null);
+    const [regPrintSingleBusy, setRegPrintSingleBusy] = useState(null);
+    const [regPrintAllBusy,    setRegPrintAllBusy]    = useState(false);
 
     // ── pending requests map (admissionNumber → true) for badge ──────────
     const [pendingAdmSet, setPendingAdmSet] = useState(new Set());
@@ -203,6 +216,68 @@ const OverallConcession = () => {
     useEffect(() => {
         if (activeTab === 'requests') fetchRequests();
     }, [activeTab, fetchRequests]);
+
+    // ── register tab: fetch ───────────────────────────────────────────────
+    const fetchRegisterRequests = useCallback(async () => {
+        setRegLoading(true);
+        try {
+            const res = await api.get('/overall-concessions/requests', {
+                params: {
+                    status:  regStatusFilter || undefined,
+                    college: regFilters.college || undefined,
+                    course:  regFilters.course  || undefined,
+                    branch:  regFilters.branch  || undefined,
+                    batch:   regFilters.batch   || undefined,
+                    search:  regSearchTerm.trim() || undefined
+                }
+            });
+            setRegRequests(res.data);
+        } catch (err) { console.error('Error fetching register', err); }
+        finally { setRegLoading(false); }
+    }, [regStatusFilter, regFilters, regSearchTerm]);
+
+    useEffect(() => {
+        if (activeTab === 'register') fetchRegisterRequests();
+    }, [activeTab, fetchRegisterRequests]);
+
+    const handleRegCollegeChange = (e) => {
+        const college = e.target.value;
+        setRegFilters({ college, course: '', branch: '', batch: regFilters.batch });
+        setRegCourses(college ? Object.keys(metadata[college] || {}) : []);
+        setRegBranches([]);
+    };
+    const handleRegCourseChange = (e) => {
+        const course = e.target.value;
+        setRegFilters(f => ({ ...f, course, branch: '' }));
+        if (course && regFilters.college) setRegBranches(metadata[regFilters.college][course]?.branches || []);
+        else setRegBranches([]);
+    };
+
+    const handleRegPrintSingle = async (req, e) => {
+        e.stopPropagation();
+        setRegPrintSingleBusy(req._id);
+        try {
+            const res = await api.post('/print', {
+                template: 'overall-concession-register',
+                data: { request: req, generatedOn: new Date().toLocaleString('en-IN') }
+            });
+            printHtmlDocument(res.data);
+        } catch (err) { alert('Print failed: ' + (err.response?.data?.message || err.message)); }
+        finally { setRegPrintSingleBusy(null); }
+    };
+
+    const handleRegPrintAll = async () => {
+        if (regRequests.length === 0) { alert('No records to print.'); return; }
+        setRegPrintAllBusy(true);
+        try {
+            const res = await api.post('/print', {
+                template: 'overall-concession-list',
+                data: { requests: regRequests, filters: regFilters, generatedOn: new Date().toLocaleString('en-IN') }
+            });
+            printHtmlDocument(res.data);
+        } catch (err) { alert('Print failed: ' + (err.response?.data?.message || err.message)); }
+        finally { setRegPrintAllBusy(false); }
+    };
 
     const closeRequestModal = () => {
         setSelectedRequest(null);
@@ -634,11 +709,14 @@ const OverallConcession = () => {
                                     )}
                                 </button>
                             )}
-                        </div>
+                            <button onClick={() => setActiveTab('register')}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'register' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
+                                <BookOpen size={14} /> Reports
+                            </button>                        </div>
                     </header>
 
-                    {/* ── Filter Bar (shown on add + view tabs) ── */}
-                    {activeTab !== 'requests' && (
+                    {/* ── Filter Bar (shown on add + view tabs only) ── */}
+                    {activeTab !== 'requests' && activeTab !== 'register' && (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
                             <div className="flex flex-col xl:flex-row gap-4 items-end">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full xl:w-auto flex-1">
@@ -1554,6 +1632,255 @@ const OverallConcession = () => {
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {/* ══════════════════════════════════════════════════
+                        REPORTS TAB
+                    ══════════════════════════════════════════════════ */}
+                    {activeTab === 'register' && (
+                        <div className="space-y-4 animate-fadeIn">
+
+                            {/* Controls row: filters + print all */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3">
+                                {/* Status pills */}
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex flex-wrap gap-2">
+                                        {[
+                                            { key: 'APPROVED', label: 'Approved', icon: <CheckCircle size={12} /> },
+                                            { key: 'PENDING',  label: 'Pending',  icon: <Clock size={12} /> },
+                                            { key: 'REJECTED', label: 'Rejected', icon: <XCircle size={12} /> },
+                                            { key: '',         label: 'All',      icon: null },
+                                        ].map(tab => (
+                                            <button key={tab.key} onClick={() => setRegStatusFilter(tab.key)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                                                    regStatusFilter === tab.key
+                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                        : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
+                                                }`}>
+                                                {tab.icon}{tab.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button onClick={handleRegPrintAll} disabled={regPrintAllBusy || regRequests.length === 0}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 cursor-pointer shrink-0">
+                                        <Printer size={14} />
+                                        {regPrintAllBusy ? 'Printing...' : `Print All (${regRequests.length})`}
+                                    </button>
+                                </div>
+
+                                {/* Filter dropdowns + search */}
+                                <div className="flex flex-col xl:flex-row gap-3 items-end">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
+                                            <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                                value={regFilters.college} onChange={handleRegCollegeChange}>
+                                                <option value="">All Colleges</option>
+                                                {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
+                                            <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                                value={regFilters.batch} onChange={e => setRegFilters(f => ({ ...f, batch: e.target.value }))}>
+                                                <option value="">All Batches</option>
+                                                {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
+                                            <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                                value={regFilters.course} onChange={handleRegCourseChange} disabled={!regFilters.college}>
+                                                <option value="">All Courses</option>
+                                                {regCourses.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
+                                            <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                                value={regFilters.branch} onChange={e => setRegFilters(f => ({ ...f, branch: e.target.value }))} disabled={!regFilters.course}>
+                                                <option value="">All Branches</option>
+                                                {regBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 items-center xl:w-auto w-full">
+                                        <div className="relative flex-1 xl:w-60">
+                                            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            <input type="text" value={regSearchTerm}
+                                                onChange={e => setRegSearchTerm(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && fetchRegisterRequests()}
+                                                placeholder="Name / Adm No / Pin..."
+                                                className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-8 p-2.5" />
+                                        </div>
+                                        <button onClick={fetchRegisterRequests} disabled={regLoading}
+                                            className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-60 cursor-pointer shrink-0">
+                                            <Filter size={13} /> {regLoading ? 'Loading...' : 'Search'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Table */}
+                            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                {regLoading ? (
+                                    <div className="text-center py-16 text-slate-400 italic text-sm">Loading...</div>
+                                ) : regRequests.length === 0 ? (
+                                    <div className="text-center py-16 text-slate-400 text-sm">No records found for the selected filters.</div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase border-b border-slate-200">
+                                                    <th className="px-4 py-3 text-left">Student</th>
+                                                    <th className="px-4 py-3 text-left">College / Course</th>
+                                                    <th className="px-4 py-3 text-left">Batch</th>
+                                                    <th className="px-4 py-3 text-center">Quota</th>
+                                                    <th className="px-4 py-3 text-center">Entries</th>
+                                                    <th className="px-4 py-3 text-right">Total (₹)</th>
+                                                    <th className="px-4 py-3 text-center">Status</th>
+                                                    <th className="px-4 py-3 text-center">Date</th>
+                                                    <th className="px-4 py-3 text-center">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {regRequests.map(req => {
+                                                    const isExpanded = regExpandedId === req._id;
+                                                    const total = (req.concessions || []).reduce((s, c) => s + Number(c.amount ?? 0), 0);
+                                                    const concessions = req.concessions || [];
+                                                    const years = [...new Set(concessions.map(c => Number(c.studentYear)))].sort((a, b) => a - b);
+                                                    const byHead = {};
+                                                    concessions.forEach(c => {
+                                                        const k = c.feeHeadId;
+                                                        if (!byHead[k]) byHead[k] = { name: c.feeHeadName || c.feeHeadCode || k, code: c.feeHeadCode || '', type: c.concessionType, years: {} };
+                                                        byHead[k].years[Number(c.studentYear)] = Number(c.amount ?? 0);
+                                                        byHead[k].type = c.concessionType;
+                                                        if (c.feeHeadName) byHead[k].name = c.feeHeadName;
+                                                    });
+                                                    const getYrSfx = yr => yr === 1 ? '1st' : yr === 2 ? '2nd' : yr === 3 ? '3rd' : `${yr}th`;
+                                                    const fmt = n => Number(n ?? 0).toLocaleString('en-IN');
+                                                    const dateStr = new Date(req.createdAt).toLocaleString('en-IN', {
+                                                        day: '2-digit', month: 'short', year: 'numeric',
+                                                        hour: '2-digit', minute: '2-digit', hour12: true
+                                                    });
+                                                    return (
+                                                        <React.Fragment key={req._id}>
+                                                            <tr onClick={() => setRegExpandedId(prev => prev === req._id ? null : req._id)}
+                                                                className={`border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer transition ${isExpanded ? 'bg-blue-50/30' : ''}`}>
+                                                                <td className="px-4 py-3">
+                                                                    <div className="font-bold text-slate-900">{req.studentName}</div>
+                                                                    <div className="text-[10px] text-slate-500 mt-0.5">
+                                                                        Adm: {req.admissionNumber}{req.pinNo ? ` · Pin: ${req.pinNo}` : ''}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-slate-700">
+                                                                    <div className="font-semibold">{req.college}</div>
+                                                                    <div className="text-[10px] text-slate-500">{req.course} — {req.branch}</div>
+                                                                </td>
+                                                                <td className="px-4 py-3 font-semibold text-slate-800">{req.batch}</td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold uppercase text-[10px]">
+                                                                        {req.category || req.studentQuota || '—'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center font-bold text-slate-800">{concessions.length}</td>
+                                                                <td className="px-4 py-3 text-right font-extrabold text-slate-900">₹{fmt(total)}</td>
+                                                                <td className="px-4 py-3 text-center"><StatusBadge status={req.status} /></td>
+                                                                <td className="px-4 py-3 text-center text-slate-500 whitespace-nowrap text-[10px]">{dateStr}</td>
+                                                                <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <button onClick={() => setRegExpandedId(prev => prev === req._id ? null : req._id)}
+                                                                            title={isExpanded ? 'Collapse' : 'View Details'}
+                                                                            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition cursor-pointer">
+                                                                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                                        </button>
+                                                                        <button onClick={e => handleRegPrintSingle(req, e)}
+                                                                            disabled={regPrintSingleBusy === req._id}
+                                                                            title="Print this student"
+                                                                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition disabled:opacity-50 cursor-pointer">
+                                                                            <Printer size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* ── Inline expanded detail ── */}
+                                                            {isExpanded && (
+                                                                <tr>
+                                                                    <td colSpan={9} className="p-0">
+                                                                        <div className="bg-slate-50 border-t border-slate-200 px-6 py-4">
+                                                                            {/* Student meta */}
+                                                                            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500 mb-3">
+                                                                                <span>College: <b className="text-slate-700">{req.college}</b></span>
+                                                                                <span>Course: <b className="text-slate-700">{req.course}</b></span>
+                                                                                <span>Branch: <b className="text-slate-700">{req.branch}</b></span>
+                                                                                <span>Batch: <b className="text-slate-700">{req.batch}</b></span>
+                                                                                <span>Quota: <b className="text-slate-700 uppercase">{req.category || req.studentQuota || '—'}</b></span>
+                                                                                {req.status === 'APPROVED' && (
+                                                                                    <span>Approved by: <b className="text-emerald-700">{req.approvedByName || req.approvedBy || '—'}</b></span>
+                                                                                )}
+                                                                                {req.status === 'REJECTED' && req.rejectionReason && (
+                                                                                    <span className="text-rose-600">Reason: <b>{req.rejectionReason}</b></span>
+                                                                                )}
+                                                                                <span>Requested by: <b className="text-slate-700">{req.requestedByName || req.requestedBy}</b></span>
+                                                                            </div>
+                                                                            {/* Concession table */}
+                                                                            <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                                                                                <table className="w-full text-xs border-collapse">
+                                                                                    <thead>
+                                                                                        <tr className="bg-slate-100 text-slate-500 text-[10px] uppercase">
+                                                                                            <th className="px-3 py-2 text-left font-bold">Fee Component</th>
+                                                                                            <th className="px-3 py-2 text-left font-bold">Code</th>
+                                                                                            <th className="px-3 py-2 text-center font-bold">Type</th>
+                                                                                            {years.map(yr => (
+                                                                                                <th key={yr} className="px-3 py-2 text-right font-bold">{getYrSfx(yr)} Yr (₹)</th>
+                                                                                            ))}
+                                                                                            <th className="px-3 py-2 text-right font-bold">Total (₹)</th>
+                                                                                        </tr>
+                                                                                    </thead>
+                                                                                    <tbody className="divide-y divide-slate-100">
+                                                                                        {Object.entries(byHead).map(([fhId, row], idx) => {
+                                                                                            const rowTotal = Object.values(row.years).reduce((s, v) => s + v, 0);
+                                                                                            return (
+                                                                                                <tr key={fhId} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                                                                                                    <td className="px-3 py-2 font-semibold text-slate-800">{row.name}</td>
+                                                                                                    <td className="px-3 py-2 font-mono text-[10px] text-slate-500">{row.code || '—'}</td>
+                                                                                                    <td className="px-3 py-2 text-center">
+                                                                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${row.type === 'REVISED' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                                                                                                            {row.type}
+                                                                                                        </span>
+                                                                                                    </td>
+                                                                                                    {years.map(yr => (
+                                                                                                        <td key={yr} className="px-3 py-2 text-right font-bold text-slate-900">
+                                                                                                            {row.years[yr] !== undefined ? `₹${fmt(row.years[yr])}` : <span className="text-slate-300 font-normal">—</span>}
+                                                                                                        </td>
+                                                                                                    ))}
+                                                                                                    <td className="px-3 py-2 text-right font-extrabold text-slate-900">₹{fmt(rowTotal)}</td>
+                                                                                                </tr>
+                                                                                            );
+                                                                                        })}
+                                                                                    </tbody>
+                                                                                    <tfoot>
+                                                                                        <tr className="bg-slate-800 text-white">
+                                                                                            <td colSpan={years.length + 3} className="px-3 py-2 text-right font-bold text-xs uppercase">Grand Total</td>
+                                                                                            <td className="px-3 py-2 text-right font-extrabold text-sm">₹{fmt(total)}</td>
+                                                                                        </tr>
+                                                                                    </tfoot>
+                                                                                </table>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </React.Fragment>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 

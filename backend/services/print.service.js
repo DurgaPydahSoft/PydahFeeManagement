@@ -24,6 +24,7 @@ const CollegeReportTemplate = require('../../frontend/src/components/CollegeRepo
 const DailyReportTemplate = require('../../frontend/src/components/DailyReportTemplate').default;
 const AccountReportTemplate = require('../../frontend/src/components/AccountReportTemplate').default;
 const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
+const OverallConcessionRegisterPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
 
 const renderTemplate = async (templateName, data) => {
     let renderedMarkup = '';
@@ -152,6 +153,30 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = `Fee_Configuration_${variant}`;
+
+    } else if (templateName === 'overall-concession-register') {
+        const { request, generatedOn } = data;
+        if (!request) throw new Error('Missing request data for overall-concession-register');
+        try { delete require.cache[require.resolve('../../frontend/src/components/OverallConcessionRegisterPrint')]; } catch (e) {}
+        const DynamicRegisterPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
+        const element = React.createElement(DynamicRegisterPrint, {
+            request,
+            generatedOn: generatedOn || null
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = `Concession_Register_${request.admissionNumber || 'Student'}`;
+
+    } else if (templateName === 'overall-concession-list') {
+        const { requests = [], filters = {}, generatedOn } = data;
+        try { delete require.cache[require.resolve('../../frontend/src/components/OverallConcessionRegisterPrint')]; } catch (e) {}
+        const DynamicListPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
+        const element = React.createElement(DynamicListPrint, {
+            requests,
+            filters,
+            generatedOn: generatedOn || null
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = 'Overall_Concession_Register';
 
     } else {
         throw new Error(`Unsupported template: ${templateName}`);
