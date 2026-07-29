@@ -213,9 +213,19 @@ const Proceedings = () => {
                                                 <td className="p-4 text-slate-600 font-medium">{new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                                                 <td className="p-4 text-right">
                                                     <div className="font-bold text-slate-800">₹{proc.amount?.toLocaleString('en-IN')}</div>
-                                                    {expandedRows[proc._id] && (
-                                                        <div className="text-[10px] font-bold text-blue-600">USED: ₹{expandedRows[proc._id].totalUsed.toLocaleString('en-IN')}</div>
-                                                    )}
+                                                    {(() => {
+                                                        const used = expandedRows[proc._id] ? expandedRows[proc._id].totalUsed : (proc.totalUsed || 0);
+                                                        const rem = Math.max(0, (proc.amount || 0) - used);
+                                                        return (
+                                                            <div className="text-[10px] font-bold">
+                                                                <span className="text-slate-500">USED: ₹{used.toLocaleString('en-IN')}</span>
+                                                                <span className="mx-1 text-slate-300">|</span>
+                                                                <span className={rem === 0 ? "text-red-600 font-extrabold" : "text-emerald-600"}>
+                                                                    REM: ₹{rem.toLocaleString('en-IN')}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
                                                 <td className="p-4">
                                                     <div className="font-bold text-slate-700 text-xs">{proc.college}</div>

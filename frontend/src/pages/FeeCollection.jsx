@@ -650,6 +650,47 @@ const FeeCollection = () => {
                 showToastMessage('Selected target account is invalid for this student.', 'error');
                 return;
             }
+
+            if (paymentForm.paymentMode === 'RTF') {
+                if (!paymentForm.proceedingId) {
+                    showToastMessage('Please select a proceeding for RTF payment.', 'error');
+                    return;
+                }
+                const selectedProc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
+                if (!selectedProc) {
+                    showToastMessage('Selected proceeding is invalid or not found.', 'error');
+                    return;
+                }
+
+                const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selectedProc._id) ? Number(editingTransaction.amount) : 0;
+                const procRem = (selectedProc.amount || 0) - (selectedProc.totalUsed || 0) + existingTxAmount;
+
+                if (procRem <= 0) {
+                    showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' has been exhausted (₹0 remaining balance).`, 'error');
+                    return;
+                }
+
+                let rtfPayAmount = 0;
+                if (paymentCategory === 'Bank') {
+                    rtfPayAmount = validRows.reduce((sum, r) => sum + Number(r.amount), 0);
+                } else if (paymentCategory === 'Split') {
+                    rtfPayAmount = validRows.reduce((sum, r) => {
+                        const rowTotal = Number(r.amount);
+                        const cashVal = Number(perRowSplitCash[r.id]) || 0;
+                        return sum + Math.max(0, rowTotal - cashVal);
+                    }, 0);
+                }
+
+                if (rtfPayAmount <= 0) {
+                    showToastMessage('Please enter a valid payment amount for RTF collection.', 'error');
+                    return;
+                }
+
+                if (rtfPayAmount > procRem) {
+                    showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' only has ₹${fmtAmount(procRem)} remaining balance, but requested RTF amount is ₹${fmtAmount(rtfPayAmount)}.`, 'error');
+                    return;
+                }
+            }
         }
 
         if (isEditMode) {
@@ -1932,7 +1973,7 @@ const FeeCollection = () => {
                                                                     </select>
                                                                 </div>
 
-                                                                {paymentForm.paymentMode === 'RTF' && (
+                                                                 {paymentForm.paymentMode === 'RTF' && (
                                                                     <div className="space-y-2 animate-fadeIn">
                                                                         <div>
                                                                             <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Proceeding *</label>
@@ -1943,14 +1984,56 @@ const FeeCollection = () => {
                                                                                 required
                                                                             >
                                                                                 <option value="">-- Select Proceeding --</option>
-                                                                                {availableProceedings.map(p => (
-                                                                                    <option key={p._id} value={p._id}>
-                                                                                        {p.proceedingNumber} - Rem: ₹{fmtAmount(p.amount - (p.totalUsed || 0))} (Total: ₹{fmtAmount(p.amount)})
-                                                                                    </option>
-                                                                                ))}
+                                                                                {availableProceedings.map(p => {
+                                                                                    const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === p._id) ? Number(editingTransaction.amount) : 0;
+                                                                                    const rem = (p.amount || 0) - (p.totalUsed || 0) + existingTxAmount;
+                                                                                    const isExhausted = rem <= 0;
+                                                                                    return (
+                                                                                        <option key={p._id} value={p._id} disabled={isExhausted}>
+                                                                                            {p.proceedingNumber} - Rem: ₹{fmtAmount(Math.max(0, rem))} (Total: ₹{fmtAmount(p.amount)}){isExhausted ? ' - [EXHAUSTED]' : ''}
+                                                                                        </option>
+                                                                                    );
+                                                                                })}
                                                                                 {isFetchingProceedings && <option disabled>Fetching...</option>}
                                                                                 {!isFetchingProceedings && availableProceedings.length === 0 && <option disabled>No proceedings found</option>}
                                                                             </select>
+
+                                                                            {paymentForm.proceedingId && (() => {
+                                                                                const selProc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
+                                                                                if (!selProc) return null;
+                                                                                const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selProc._id) ? Number(editingTransaction.amount) : 0;
+                                                                                const rem = (selProc.amount || 0) - (selProc.totalUsed || 0) + existingTxAmount;
+                                                                                const isExhausted = rem <= 0;
+
+                                                                                const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
+                                                                                let currentRtfInput = 0;
+                                                                                if (paymentCategory === 'Bank') {
+                                                                                    currentRtfInput = validRows.reduce((sum, r) => sum + Number(r.amount), 0);
+                                                                                } else if (paymentCategory === 'Split') {
+                                                                                    currentRtfInput = validRows.reduce((sum, r) => {
+                                                                                        const rowTotal = Number(r.amount);
+                                                                                        const cashVal = Number(perRowSplitCash[r.id]) || 0;
+                                                                                        return sum + Math.max(0, rowTotal - cashVal);
+                                                                                    }, 0);
+                                                                                }
+
+                                                                                const isExceeding = currentRtfInput > rem;
+
+                                                                                return (
+                                                                                    <div className={`mt-1.5 p-2 rounded-lg text-xs space-y-1 ${isExceeding || isExhausted ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>
+                                                                                        <div className="flex justify-between items-center font-bold">
+                                                                                            <span>Remaining Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
+                                                                                            <span className="text-[10px] font-mono opacity-80">Limit: ₹{fmtAmount(selProc.amount)}</span>
+                                                                                        </div>
+                                                                                        {isExhausted && (
+                                                                                            <p className="text-[10px] font-semibold text-red-600">⚠️ This proceeding balance is exhausted (₹0 remaining).</p>
+                                                                                        )}
+                                                                                        {!isExhausted && isExceeding && (
+                                                                                            <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds remaining balance (₹{fmtAmount(rem)}).</p>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })()}
                                                                         </div>
                                                                     </div>
                                                                 )}

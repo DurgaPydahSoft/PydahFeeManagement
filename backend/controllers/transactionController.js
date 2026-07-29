@@ -1,4 +1,5 @@
 const Transaction = require('../models/Transaction');
+const Proceeding = require('../models/Proceeding');
 const FeeGroup = require('../models/FeeGroup');
 const Setting = require('../models/Setting');
 const ReceiptSequence = require('../models/ReceiptSequence');
@@ -150,6 +151,30 @@ const addTransaction = async (req, res) => {
     if (req.body.transactions && Array.isArray(req.body.transactions)) {
        const collector = getCollectorFromRequest(req);
        
+       // Proceeding validation for batch items
+       const proceedingAmountsMap = {};
+       for (const item of req.body.transactions) {
+         if (item.proceedingId) {
+           const pId = String(item.proceedingId);
+           proceedingAmountsMap[pId] = (proceedingAmountsMap[pId] || 0) + (Number(item.amount) || 0);
+         }
+       }
+       for (const [pId, requestedAmount] of Object.entries(proceedingAmountsMap)) {
+         const proc = await Proceeding.findById(pId);
+         if (!proc) {
+           return res.status(404).json({ message: 'Selected proceeding not found' });
+         }
+         const existingTxns = await Transaction.find({ proceedingId: pId, status: { $ne: 'cancelled' } }).select('amount');
+         const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
+         const remaining = proc.amount - totalUsed;
+         if (requestedAmount > remaining) {
+           const avail = remaining < 0 ? 0 : remaining;
+           return res.status(400).json({
+             message: `Proceeding '${proc.proceedingNumber}' amount limit exceeded. Remaining balance is ₹${avail.toLocaleString('en-IN')}, but attempting to collect ₹${requestedAmount.toLocaleString('en-IN')}.`
+           });
+         }
+       }
+
        // Group transaction items by their fee head group code (or 'GEN' if ungrouped)
        const groupedItems = {};
        for (const item of req.body.transactions) {
@@ -208,6 +233,22 @@ const addTransaction = async (req, res) => {
     // Validation
     if (!studentId || !amount || (transactionType !== 'CREDIT' && !feeHeadId)) {
       return res.status(400).json({ message: 'Please provide all required transaction details' });
+    }
+
+    if (proceedingId) {
+      const proc = await Proceeding.findById(proceedingId);
+      if (!proc) {
+        return res.status(404).json({ message: 'Selected proceeding not found' });
+      }
+      const existingTxns = await Transaction.find({ proceedingId, status: { $ne: 'cancelled' } }).select('amount');
+      const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
+      const remaining = proc.amount - totalUsed;
+      if (Number(amount) > remaining) {
+        const avail = remaining < 0 ? 0 : remaining;
+        return res.status(400).json({
+          message: `Proceeding '${proc.proceedingNumber}' amount limit exceeded. Remaining balance is ₹${avail.toLocaleString('en-IN')}, but attempting to collect ₹${Number(amount).toLocaleString('en-IN')}.`
+        });
+      }
     }
 
     // Default to 'Waiver' if it's a CREDIT (Concession) and no mode provided
@@ -422,7 +463,23 @@ const updateTransactionPaymentMode = async (req, res) => {
       transaction.paymentConfigId = (paymentConfigId === '' || !paymentConfigId) ? null : paymentConfigId;
     }
     if (proceedingId !== undefined) {
-      transaction.proceedingId = (proceedingId === '' || !proceedingId) ? null : proceedingId;
+      const targetProcId = (proceedingId === '' || !proceedingId) ? null : proceedingId;
+      if (targetProcId) {
+        const proc = await Proceeding.findById(targetProcId);
+        if (!proc) {
+          return res.status(404).json({ message: 'Selected proceeding not found' });
+        }
+        const existingTxns = await Transaction.find({ proceedingId: targetProcId, _id: { $ne: id }, status: { $ne: 'cancelled' } }).select('amount');
+        const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
+        const remaining = proc.amount - totalUsed;
+        if (transaction.amount > remaining) {
+          const avail = remaining < 0 ? 0 : remaining;
+          return res.status(400).json({
+            message: `Proceeding '${proc.proceedingNumber}' amount limit exceeded. Remaining balance is ₹${avail.toLocaleString('en-IN')}, but transaction amount is ₹${transaction.amount.toLocaleString('en-IN')}.`
+          });
+        }
+      }
+      transaction.proceedingId = targetProcId;
     }
 
     const updatedTransaction = await transaction.save();

@@ -10,7 +10,14 @@ const getProceedings = async (req, res) => {
         if (college) query.college = college;
         if (course) query.course = course;
         if (batch) query.batch = batch;
-        if (caste) query.caste = caste;
+        if (caste) {
+            query.$or = [
+                { caste: caste },
+                { caste: '' },
+                { caste: null },
+                { caste: { $exists: false } }
+            ];
+        }
 
         const proceedings = await Proceeding.find(query).sort({ createdAt: -1 });
         
