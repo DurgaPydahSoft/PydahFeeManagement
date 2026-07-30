@@ -2,6 +2,7 @@ const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
+const OverallConcessionRequest = require('../models/OverallConcessionRequest');
 const db = require('../config/sqlDb');
 const { getHostelConnection } = require('../config/dbHostel');
 const { getTransportConnection } = require('../config/dbTransport');
@@ -11,7 +12,7 @@ const {
   resolveStudentFeeAmount,
   buildFeeHeadMaps
 } = require('../utils/overallConcessionFees');
-const { applyRevisedConcessionTransactions } = require('./overallConcessionRevisedService');
+const { applyRevisedConcessionTransactions, cancelAllDeclarationConcessionTransactions } = require('./overallConcessionRevisedService');
 
 const STUDENT_SELECT = `
   SELECT id, admission_number, student_name, current_year, batch, current_semester,
@@ -20,17 +21,27 @@ const STUDENT_SELECT = `
   WHERE admission_number = ?
 `;
 
+/**
+ * Only APPROVED overall-concession requests drive revised demand + DECL credits
+ * during nightly sync. Pending/rejected/direct SQL rows alone are ignored here.
+ */
+const loadApprovedOverallConcessionEntries = async (admissionNo) => {
+  const approved = await OverallConcessionRequest.findOne({
+    admissionNumber: admissionNo,
+    status: 'APPROVED'
+  })
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .lean();
+
+  if (!approved || !Array.isArray(approved.concessions) || approved.concessions.length === 0) {
+    return [];
+  }
+  return approved.concessions;
+};
+
 const loadRevisedFeesMapForStudent = async (admissionNo) => {
-  const [concessions] = await db.query(
-    `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-    [admissionNo]
-  );
-
-  if (concessions.length === 0) return {};
-
-  const fees = typeof concessions[0].revised_fees === 'string'
-    ? JSON.parse(concessions[0].revised_fees)
-    : (concessions[0].revised_fees || []);
+  const fees = await loadApprovedOverallConcessionEntries(admissionNo);
+  if (fees.length === 0) return {};
 
   const feeHeads = await FeeHead.find({}).lean();
   const { codeMap } = buildFeeHeadMaps(feeHeads);
@@ -748,15 +759,10 @@ const syncStandardFees = async (student, admissionNo) => {
     updated += result.updated;
   }
 
-  // Ensure REVISED overall-concession entries keep structured demand and
-  // have an upserted CREDIT "Concession as per declaration" transaction.
-  const [concessionRows] = await db.query(
-    `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-    [admissionNo]
-  );
-  if (concessionRows.length > 0) {
-    const raw = concessionRows[0].revised_fees;
-    const fees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+  // DECL credits only when an APPROVED overall-concession request exists.
+  // If none, cancel any leftover DECL credits from earlier syncs.
+  const approvedEntries = await loadApprovedOverallConcessionEntries(admissionNo);
+  if (approvedEntries.length > 0) {
     await applyRevisedConcessionTransactions({
       admissionNumber: admissionNo,
       studentName: student.student_name,
@@ -765,7 +771,12 @@ const syncStandardFees = async (student, admissionNo) => {
       branch: student.branch,
       batch: student.batch,
       category: student.stud_type || 'Regular',
-      entries: fees
+      entries: approvedEntries
+    });
+  } else {
+    await cancelAllDeclarationConcessionTransactions({
+      admissionNumber: admissionNo,
+      reason: 'No approved overall concession request'
     });
   }
 

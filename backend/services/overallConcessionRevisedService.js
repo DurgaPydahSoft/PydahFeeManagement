@@ -333,10 +333,24 @@ const cancelDeclarationConcessionTransactions = async ({
   return { cancelled };
 };
 
+/** Permanently delete DECL "Concession as per declaration" credits for a student. */
+const cancelAllDeclarationConcessionTransactions = async ({
+  admissionNumber
+}) => {
+  const result = await Transaction.deleteMany({
+    studentId: admissionNumber,
+    transactionType: 'CREDIT',
+    remarks: DECLARATION_CONCESSION_REMARKS
+  });
+
+  return { cancelled: result.deletedCount || 0, deleted: result.deletedCount || 0 };
+};
+
 module.exports = {
   DECLARATION_CONCESSION_REMARKS,
   findMatchingFeeStructure,
   validateRevisedEntriesAgainstStructures,
   applyRevisedConcessionTransactions,
-  cancelDeclarationConcessionTransactions
+  cancelDeclarationConcessionTransactions,
+  cancelAllDeclarationConcessionTransactions
 };
