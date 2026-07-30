@@ -3,8 +3,7 @@ const mongoose = require('mongoose');
 const proceedingSchema = mongoose.Schema({
     proceedingNumber: {
         type: String,
-        required: true,
-        unique: true
+        required: true
     },
     proceedingDate: {
         type: Date,
@@ -46,5 +45,9 @@ const proceedingSchema = mongoose.Schema({
 }, {
     timestamps: true
 });
+
+// Same proceeding number can be used for different courses;
+// uniqueness is on (proceedingNumber + course).
+proceedingSchema.index({ proceedingNumber: 1, course: 1 }, { unique: true });
 
 module.exports = mongoose.model('Proceeding', proceedingSchema);

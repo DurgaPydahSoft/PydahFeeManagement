@@ -61,9 +61,11 @@ const createProceeding = async (req, res) => {
             return res.status(400).json({ message: 'Please provide all required fields' });
         }
 
-        const proceedingExists = await Proceeding.findOne({ proceedingNumber });
+        const proceedingExists = await Proceeding.findOne({ proceedingNumber, course });
         if (proceedingExists) {
-            return res.status(400).json({ message: 'Proceeding number already exists' });
+            return res.status(400).json({
+                message: `Proceeding number '${proceedingNumber}' already exists for course '${course}'`
+            });
         }
 
         const proceeding = await Proceeding.create({
@@ -81,6 +83,11 @@ const createProceeding = async (req, res) => {
 
         res.status(201).json(proceeding);
     } catch (error) {
+        if (error?.code === 11000) {
+            return res.status(400).json({
+                message: `Proceeding number '${req.body.proceedingNumber}' already exists for course '${req.body.course}'`
+            });
+        }
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
@@ -110,6 +117,20 @@ const updateProceeding = async (req, res) => {
             return res.status(404).json({ message: 'Proceeding not found' });
         }
 
+        const nextProceedingNumber = req.body.proceedingNumber ?? proceeding.proceedingNumber;
+        const nextCourse = req.body.course ?? proceeding.course;
+
+        const duplicate = await Proceeding.findOne({
+            proceedingNumber: nextProceedingNumber,
+            course: nextCourse,
+            _id: { $ne: proceeding._id }
+        });
+        if (duplicate) {
+            return res.status(400).json({
+                message: `Proceeding number '${nextProceedingNumber}' already exists for course '${nextCourse}'`
+            });
+        }
+
         const updatedProceeding = await Proceeding.findByIdAndUpdate(
             req.params.id,
             req.body,
@@ -118,7 +139,12 @@ const updateProceeding = async (req, res) => {
 
         res.json(updatedProceeding);
     } catch (error) {
-        res.status(500).json({ message: 'Server Error' });
+        if (error?.code === 11000) {
+            return res.status(400).json({
+                message: `Proceeding number '${req.body.proceedingNumber}' already exists for course '${req.body.course}'`
+            });
+        }
+        res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
 
