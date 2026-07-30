@@ -11,6 +11,42 @@ const getCollectorFromRequest = (req) => ({
   collectedByName: req.user?.name || 'Unknown',
 });
 
+const canEditTransactionDate = (user) => {
+  if (!user) return false;
+  if (user.role === 'superadmin') return true;
+  const permissions = user.permissions || [];
+  return permissions.includes('fee_collection_edit');
+};
+
+/**
+ * Resolve collection/payment date for a new transaction.
+ * Only users with fee_collection_edit (or admin) may backdate; others always get now.
+ * Sets both paymentDate and createdAt so daily reports (filtered by createdAt) respect the date.
+ */
+const resolveCollectionTimestamps = (req, paymentDateInput) => {
+  const now = new Date();
+  if (!paymentDateInput || !canEditTransactionDate(req.user)) {
+    return { paymentDate: now, createdAt: now, updatedAt: now };
+  }
+
+  const raw = String(paymentDateInput).trim();
+  // Expect YYYY-MM-DD from <input type="date">
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) {
+    return { paymentDate: now, createdAt: now, updatedAt: now };
+  }
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  // Keep current clock time on the chosen calendar day (local server/IST wall clock).
+  const chosen = new Date(y, mo, d, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  if (Number.isNaN(chosen.getTime())) {
+    return { paymentDate: now, createdAt: now, updatedAt: now };
+  }
+  return { paymentDate: chosen, createdAt: chosen, updatedAt: chosen };
+};
+
 // Helper to determine the current financial year (e.g. 2026-27)
 const calculateFinancialYear = (date, resetMonth = 4, resetDay = 1) => {
   const currentYear = date.getFullYear();
@@ -199,6 +235,7 @@ const addTransaction = async (req, res) => {
          const receiptNumber = await generateReceiptNumber(firstFeeHeadId);
 
          for (const item of items) {
+           const timestamps = resolveCollectionTimestamps(req, item.paymentDate);
            batch.push({
              ...item,
              feeHead: sanitizeObjectId(item.feeHeadId),
@@ -210,13 +247,16 @@ const addTransaction = async (req, res) => {
              transactionType: item.transactionType || 'DEBIT',
              remarks: item.remarks,
              referenceDate: item.referenceDate,
+             paymentDate: timestamps.paymentDate,
+             createdAt: timestamps.createdAt,
+             updatedAt: timestamps.updatedAt,
              collectedBy: collector.collectedBy,
              collectedByName: collector.collectedByName,
            });
          }
        }
        
-       const createdTransactions = await Transaction.insertMany(batch);
+       const createdTransactions = await Transaction.insertMany(batch, { timestamps: false });
 
        // Populate feeHead for proper display in response
        const populatedTransactions = await Transaction.find({ _id: { $in: createdTransactions.map(t => t._id) } }).populate('feeHead', 'name');
@@ -227,7 +267,7 @@ const addTransaction = async (req, res) => {
     }
 
     // SINGLE TRANSACTION (Backward Compatibility)
-    const { studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId, concessionRequestId } = req.body;
+    const { studentName, feeHeadId, amount, paymentMode, remarks, semester, studentYear, transactionType, paymentConfigId, depositedToAccount, referenceDate, proceedingId, concessionRequestId, paymentDate } = req.body;
     const { collectedBy, collectedByName } = getCollectorFromRequest(req);
 
     // Validation
@@ -258,8 +298,9 @@ const addTransaction = async (req, res) => {
     }
 
     const receiptNumber = await generateReceiptNumber(sanitizeObjectId(feeHeadId));
+    const timestamps = resolveCollectionTimestamps(req, paymentDate);
 
-    const transaction = await Transaction.create({
+    const transactionDoc = new Transaction({
       studentId,
       studentName,
       feeHead: sanitizeObjectId(feeHeadId),
@@ -279,8 +320,12 @@ const addTransaction = async (req, res) => {
       paymentConfigId: sanitizeObjectId(paymentConfigId),
       depositedToAccount: req.body.depositedToAccount,
       proceedingId: sanitizeObjectId(proceedingId),
-      concessionRequestId: sanitizeObjectId(concessionRequestId)
+      concessionRequestId: sanitizeObjectId(concessionRequestId),
+      paymentDate: timestamps.paymentDate,
+      createdAt: timestamps.createdAt,
+      updatedAt: timestamps.updatedAt
     });
+    const transaction = await transactionDoc.save({ timestamps: false });
 
     res.status(201).json(transaction);
   } catch (error) {
@@ -480,6 +525,15 @@ const updateTransactionPaymentMode = async (req, res) => {
         }
       }
       transaction.proceedingId = targetProcId;
+    }
+
+    if (req.body.paymentDate !== undefined && canEditTransactionDate(req.user)) {
+      const timestamps = resolveCollectionTimestamps(req, req.body.paymentDate);
+      transaction.paymentDate = timestamps.paymentDate;
+      transaction.set('createdAt', timestamps.createdAt);
+      await transaction.save({ timestamps: false });
+      const populated = await Transaction.findById(transaction._id).populate('feeHead', 'name');
+      return res.json(populated);
     }
 
     const updatedTransaction = await transaction.save();

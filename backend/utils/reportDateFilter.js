@@ -1,22 +1,56 @@
 /**
- * Build MongoDB createdAt filter aligned to IST (+05:30), matching dashboard stats.
+ * Build IST (+05:30) day bounds for report date filtering.
  */
-const buildReportDateFilter = (startDate, endDate) => {
-    const filter = {};
-    if (!startDate && !endDate) return filter;
-
-    filter.createdAt = {};
+const buildIstDayBounds = (startDate, endDate) => {
+    const bounds = {};
     if (startDate) {
         const start = new Date(`${startDate}T00:00:00.000Z`);
         start.setMinutes(start.getMinutes() - 330);
-        filter.createdAt.$gte = start;
+        bounds.$gte = start;
     }
     if (endDate) {
         const end = new Date(`${endDate}T23:59:59.999Z`);
         end.setMinutes(end.getMinutes() - 330);
-        filter.createdAt.$lte = end;
+        bounds.$lte = end;
     }
-    return filter;
+    return bounds;
 };
 
-module.exports = { buildReportDateFilter };
+/**
+ * Match clause: prefer paymentDate, fallback to createdAt for legacy rows.
+ * Safe to spread into find()/aggregate $match.
+ */
+const buildCollectionDateMatch = (startDate, endDate) => {
+    if (!startDate && !endDate) return {};
+    const range = buildIstDayBounds(startDate, endDate);
+    return {
+        $or: [
+            { paymentDate: range },
+            { paymentDate: { $exists: false }, createdAt: range },
+            { paymentDate: null, createdAt: range }
+        ]
+    };
+};
+
+/**
+ * Build MongoDB date filter for collection/transaction date.
+ */
+const buildReportDateFilter = (startDate, endDate) => buildCollectionDateMatch(startDate, endDate);
+
+/**
+ * Apply collection-date filter onto a Mongo match stage.
+ */
+const applyReportDateToMatch = (matchStage, startDate, endDate) => {
+    const clause = buildCollectionDateMatch(startDate, endDate);
+    if (!clause.$or) return matchStage;
+    if (!matchStage.$and) matchStage.$and = [];
+    matchStage.$and.push(clause);
+    return matchStage;
+};
+
+module.exports = {
+    buildReportDateFilter,
+    applyReportDateToMatch,
+    buildIstDayBounds,
+    buildCollectionDateMatch
+};

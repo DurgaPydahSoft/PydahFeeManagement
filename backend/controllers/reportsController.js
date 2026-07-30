@@ -3,7 +3,7 @@ const StudentFee = require('../models/StudentFee');
 const mongoose = require('mongoose');
 const db = require('../config/sqlDb');
 const collegeScope = require('../utils/collegeScope');
-const { buildReportDateFilter } = require('../utils/reportDateFilter');
+const { buildReportDateFilter, applyReportDateToMatch, buildIstDayBounds, buildCollectionDateMatch } = require('../utils/reportDateFilter');
 
 // @desc    Get Transaction Reports (Daily, Cashier, FeeHead, Mode)
 // @route   GET /api/reports/transactions
@@ -38,11 +38,8 @@ const getTransactionReports = async (req, res) => {
             matchStage.collectedBy = req.user.username;
         }
 
-        // Date Filter (IST-aligned, same as dashboard stats)
-        const dateFilter = buildReportDateFilter(startDate, endDate);
-        if (dateFilter.createdAt) {
-            matchStage.createdAt = dateFilter.createdAt;
-        }
+        // Date Filter (IST-aligned) — paymentDate (collection date), fallback createdAt
+        applyReportDateToMatch(matchStage, startDate, endDate);
 
         // College Filter (Note: Transaction doesn't have college directly, it's on Student... 
         // We might need to join or assume filtering handles this upstream? 
@@ -815,7 +812,11 @@ const getTransactionReports = async (req, res) => {
 
         } else {
             // Default Day
-            groupId = { year: { $year: "$createdAt" }, month: { $month: "$createdAt" }, day: { $dayOfMonth: "$createdAt" } };
+            groupId = {
+                year: { $year: { $ifNull: ["$paymentDate", "$createdAt"] } },
+                month: { $month: { $ifNull: ["$paymentDate", "$createdAt"] } },
+                day: { $dayOfMonth: { $ifNull: ["$paymentDate", "$createdAt"] } }
+            };
             pipeline = [
                 { $match: matchStage },
                 {
@@ -1124,56 +1125,27 @@ const getDashboardStats = async (req, res) => {
         const studentScopeFilter = await collegeScope.applyStudentIdFilter(req.user, campusId, {});
         const hasNoAccess = studentScopeFilter.studentId?.$in?.[0] === '__none__';
 
-        // Base date matching stage - timezone aware for IST (+05:30)
-        const dateFilter = {};
-        if (startDate || endDate) {
-            dateFilter.createdAt = {};
-            if (startDate) {
-                const start = new Date(startDate + "T00:00:00.000Z");
-                start.setMinutes(start.getMinutes() - 330); // Offset IST by 5h 30m
-                dateFilter.createdAt.$gte = start;
-            }
-            if (endDate) {
-                const end = new Date(endDate + "T23:59:59.999Z");
-                end.setMinutes(end.getMinutes() - 330); // Offset IST by 5h 30m
-                dateFilter.createdAt.$lte = end;
-            }
-        } else {
-            // Default to today (IST) if no dates provided
+        // Base date matching — paymentDate (collection date), fallback createdAt
+        let effectiveStart = startDate;
+        let effectiveEnd = endDate;
+        if (!startDate && !endDate) {
             const now = new Date();
             const istTime = new Date(now.getTime() + (330 * 60 * 1000));
             const istDateStr = istTime.toISOString().split('T')[0];
-
-            const start = new Date(istDateStr + "T00:00:00.000Z");
-            start.setMinutes(start.getMinutes() - 330);
-
-            const end = new Date(istDateStr + "T23:59:59.999Z");
-            end.setMinutes(end.getMinutes() - 330);
-
-            dateFilter.createdAt = { $gte: start, $lte: end };
+            effectiveStart = istDateStr;
+            effectiveEnd = istDateStr;
         }
 
-        // Trend date filter - defaults to last 7 days (IST) if date range is a single day (e.g. today only default)
-        const trendDateFilter = { ...dateFilter };
+        const dateFilter = buildCollectionDateMatch(effectiveStart, effectiveEnd);
+
+        // Trend date filter - defaults to last 7 days (IST) if date range is a single day
+        let trendDateFilter = { ...dateFilter };
         if (!startDate || startDate === endDate) {
-            let refEndDateStr;
-            if (endDate) {
-                refEndDateStr = endDate;
-            } else {
-                const now = new Date();
-                const istTime = new Date(now.getTime() + (330 * 60 * 1000));
-                refEndDateStr = istTime.toISOString().split('T')[0];
-            }
-
+            let refEndDateStr = effectiveEnd;
             const refEnd = new Date(refEndDateStr + "T00:00:00.000Z");
-            refEnd.setDate(refEnd.getDate() - 6); // 6 days prior + today = 7 days trend
-            const trendStart = refEnd;
-            trendStart.setMinutes(trendStart.getMinutes() - 330); // Offset IST by 5h 30m
-
-            trendDateFilter.createdAt = {
-                $gte: trendStart,
-                $lte: dateFilter.createdAt.$lte
-            };
+            refEnd.setDate(refEnd.getDate() - 6);
+            const trendStartStr = refEnd.toISOString().split('T')[0];
+            trendDateFilter = buildCollectionDateMatch(trendStartStr, effectiveEnd);
         }
 
         // 1. Collections (DEBIT transactions) within date range
@@ -1235,7 +1207,7 @@ const getDashboardStats = async (req, res) => {
             },
             {
                 $group: {
-                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "+05:30" } },
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: { $ifNull: ["$paymentDate", "$createdAt"] }, timezone: "+05:30" } },
                     amount: { $sum: "$amount" }
                 }
             },

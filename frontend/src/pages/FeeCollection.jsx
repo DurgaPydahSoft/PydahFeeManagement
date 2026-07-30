@@ -62,7 +62,8 @@ const FeeCollection = () => {
         referenceNo: '',
         referenceDate: '',
         paymentConfigId: '',
-        proceedingId: ''
+        proceedingId: '',
+        paymentDate: new Date().toLocaleDateString('en-CA')
     });
     const [paymentCategory, setPaymentCategory] = useState('Cash');
     // perRowSplitCash: { [feeRowId]: cashAmountString }
@@ -108,6 +109,7 @@ const FeeCollection = () => {
     const isSuperAdmin = user?.role === 'superadmin';
     const permissions = user?.permissions || [];
     const canCollectFee = permissions.includes('fee_collection_pay');
+    const canEditTransactionDate = isSuperAdmin || permissions.includes('fee_collection_edit');
 
     // Reactive paymentAccess — updated after /users/me fetch so the UI re-renders
     const [paymentAccess, setPaymentAccess] = useState(() => {
@@ -427,7 +429,8 @@ const FeeCollection = () => {
             referenceNo: '',
             referenceDate: '',
             paymentConfigId: '',
-            proceedingId: '' 
+            proceedingId: '',
+            paymentDate: new Date().toLocaleDateString('en-CA')
         })); // Reset form
         setPaymentCategory('Cash');
         setPerRowSplitCash({});
@@ -505,7 +508,10 @@ const FeeCollection = () => {
             referenceNo: tx.referenceNo || '',
             referenceDate: tx.referenceDate ? tx.referenceDate.split('T')[0] : '',
             paymentConfigId: tx.paymentConfigId || '',
-            proceedingId: tx.proceedingId || ''
+            proceedingId: tx.proceedingId || '',
+            paymentDate: (tx.paymentDate || tx.createdAt)
+                ? String(tx.paymentDate || tx.createdAt).split('T')[0]
+                : new Date().toLocaleDateString('en-CA')
         });
 
         // Scroll to the fee collection form
@@ -526,7 +532,8 @@ const FeeCollection = () => {
             referenceNo: '',
             referenceDate: '',
             paymentConfigId: '',
-            proceedingId: ''
+            proceedingId: '',
+            paymentDate: new Date().toLocaleDateString('en-CA')
         });
     };
 
@@ -731,6 +738,10 @@ const FeeCollection = () => {
                     remarks: paymentForm.remarks
                 };
 
+                if (canEditTransactionDate && paymentForm.paymentDate) {
+                    payload.paymentDate = paymentForm.paymentDate;
+                }
+
                 if (paymentCategory === 'Bank') {
                     payload.bankName = paymentForm.bankName;
                     payload.instrumentDate = paymentForm.instrumentDate;
@@ -774,6 +785,7 @@ const FeeCollection = () => {
                 studentYear: viewFilterYear !== 'ALL' ? Number(viewFilterYear) : student.current_year,
                 transactionType: 'DEBIT',
                 remarks: paymentForm.remarks,
+                paymentDate: paymentForm.paymentDate || new Date().toLocaleDateString('en-CA'),
                 collectedBy: JSON.parse(localStorage.getItem('user'))?.username || 'Unknown',
                 collectedByName: JSON.parse(localStorage.getItem('user'))?.name || 'Unknown'
             };
@@ -915,7 +927,8 @@ const FeeCollection = () => {
                 ...prev,
                 remarks: '',
                 amount: '',
-                bankName: '', instrumentDate: '', referenceNo: '', referenceDate: ''
+                bankName: '', instrumentDate: '', referenceNo: '', referenceDate: '',
+                paymentDate: new Date().toLocaleDateString('en-CA')
             }));
 
         } catch (error) {
@@ -1219,7 +1232,7 @@ const FeeCollection = () => {
                                                             </span>
                                                         </td>
                                                         <td className="py-3 px-3 text-slate-400 font-mono">
-                                                            {new Date(tx.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                            {new Date(tx.paymentDate || tx.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                                                         </td>
                                                         <td className="py-3 px-3 text-center">
                                                              <div className="flex items-center justify-center">
@@ -1743,9 +1756,20 @@ const FeeCollection = () => {
                                                     <h3 className="text-base font-bold text-gray-800">
                                                         {isEditMode ? 'Transaction Details' : 'Payment Details'}
                                                     </h3>
-                                                    <p className="text-[11px] text-gray-400 mt-0.5">
-                                                        {isEditMode ? `Receipt: ${editingTransaction?.receiptNumber}` : 'Add fee heads and amount below'}
-                                                    </p>
+                                                    {!canEditTransactionDate ? (
+                                                        <p className="text-[11px] text-slate-600 mt-0.5 font-medium">
+                                                            Date: {paymentForm.paymentDate
+                                                                ? new Date(paymentForm.paymentDate + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                                : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                            {isEditMode && editingTransaction?.receiptNumber
+                                                                ? ` · Receipt: ${editingTransaction.receiptNumber}`
+                                                                : ''}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                                            {isEditMode ? `Receipt: ${editingTransaction?.receiptNumber}` : 'Add fee heads and amount below'}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 {!isEditMode && (
                                                     <button
@@ -2081,6 +2105,22 @@ const FeeCollection = () => {
                                                         )}
                                                     </div>
 
+                                                {canEditTransactionDate && (
+                                                    <div className="mb-3">
+                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                                            Collection / Transaction Date
+                                                        </label>
+                                                        <input
+                                                            type="date"
+                                                            className="w-full border rounded-xl p-2.5 text-xs outline-none transition-all border-gray-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
+                                                            value={paymentForm.paymentDate || ''}
+                                                            onChange={e => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
+                                                            title="You can change the transaction date. Backdated payments will not appear in today's report."
+                                                            required
+                                                        />
+                                                    </div>
+                                                )}
+
                                                 <div className="mb-3">
                                                     <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
                                                         Remarks / Notes (Optional)
@@ -2138,6 +2178,14 @@ const FeeCollection = () => {
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">Mode:</span>
                                         <span className="font-bold text-gray-800">{paymentForm.paymentMode}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Transaction Date:</span>
+                                        <span className="font-bold text-gray-800">
+                                            {paymentForm.paymentDate
+                                                ? new Date(paymentForm.paymentDate + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                : 'Today'}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">Verification:</span>
@@ -2389,7 +2437,7 @@ const FeeCollection = () => {
 const TransactionRow = ({ transaction, allTransactions, student, totalDue, settings, onEdit, onDelete }) => {
     const loggedInUser = JSON.parse(localStorage.getItem('user'));
     const isSuperAdmin = loggedInUser?.role === 'superadmin';
-    const hasEditPermission = loggedInUser?.permissions?.includes('fee_collection_edit') || isSuperAdmin || loggedInUser?.role === 'admin';
+    const hasEditPermission = loggedInUser?.permissions?.includes('fee_collection_edit') || isSuperAdmin;
     const hasDeletePermission = loggedInUser?.permissions?.includes('fee_collection_delete') || isSuperAdmin;
     const isCancelled = transaction.status === 'cancelled';
     const showEditButton = hasEditPermission && transaction.transactionType !== 'CREDIT' && !isCancelled;
@@ -2423,8 +2471,8 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
     return (
         <tr className={`transition-colors group ${isCancelled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'}`}>
             <td className="py-1.5 px-3 text-[11px] text-gray-500 whitespace-nowrap">
-                {new Date(transaction.createdAt).toLocaleDateString()}
-                <div className="text-[9px] text-gray-400">{new Date(transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                {new Date(transaction.paymentDate || transaction.createdAt).toLocaleDateString()}
+                <div className="text-[9px] text-gray-400">{new Date(transaction.paymentDate || transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 {transaction.referenceDate && (
                     <div className="text-[9px] text-blue-600 mt-0.5" title="Original Transfer Date">
                         Ref: {new Date(transaction.referenceDate).toLocaleDateString()}
