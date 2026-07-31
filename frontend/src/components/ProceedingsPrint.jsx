@@ -49,8 +49,8 @@ const ProceedingsPrint = forwardRef(({ data = [], filters = {} }, ref) => {
                 <thead>
                     <tr>
                         <th style={{ textAlign: 'center', width: '4%' }}>S.No</th>
-                        <th style={{ width: '28%' }}>College / Course / Caste</th>
-                        <th style={{ width: '10%' }}>Academic Year</th>
+                        <th style={{ width: '23%' }}>College / Course / Caste</th>
+                        <th style={{ width: '15%' }}>Academic Year</th>
                         <th style={{ width: '12%' }}>Proceeding No</th>
                         <th style={{ width: '12%' }}>Proceeding Date</th>
                         <th style={{ textAlign: 'right', width: '11%' }}>Total (₹)</th>
