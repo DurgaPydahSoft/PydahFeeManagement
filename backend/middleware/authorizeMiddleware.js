@@ -175,6 +175,14 @@ const authorize = (req, res, next) => {
     return next();
   }
 
+  // Restrict proceeding approve to proceedings_approve (controller also enforces)
+  if (path.match(/^\/api\/proceedings\/[^/]+\/approve$/) && req.method === 'PUT') {
+    if (hasPermission(user, ['proceedings_approve'])) {
+      return next();
+    }
+    return res.status(403).json({ message: 'Forbidden: proceedings approve permission required' });
+  }
+
   // Restrict Concession process/bulk-process/modify-approved (PUT requests) strictly to /concessions permission
   if (path.startsWith('/api/concessions') && req.method === 'PUT') {
     if (hasPermission(user, ['/concessions'])) {

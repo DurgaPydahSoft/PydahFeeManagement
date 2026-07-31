@@ -39,8 +39,27 @@ const proceedingSchema = mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['Active', 'Completed', 'Cancelled'],
-        default: 'Active'
+        enum: ['Pending', 'Active', 'Completed', 'Cancelled'],
+        default: 'Pending'
+    },
+    requestedBy: {
+        type: String,
+        default: ''
+    },
+    requestedByName: {
+        type: String,
+        default: ''
+    },
+    approvedBy: {
+        type: String,
+        default: ''
+    },
+    approvedByName: {
+        type: String,
+        default: ''
+    },
+    approvedAt: {
+        type: Date
     }
 }, {
     timestamps: true

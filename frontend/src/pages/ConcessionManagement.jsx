@@ -1299,6 +1299,10 @@ const ConcessionManagement = () => {
                                                 <option value="Vice Principal">Vice Principal</option>
                                                 <option value="Manager">Manager</option>
                                                 <option value="Academic Director">Academic Director</option>
+                                                <option value="Academic Coordinator">Academic Coordinator</option>
+                                                <option value="Secretary">Secretary</option>
+                                                <option value="Joint Secretary">Joint Secretary</option>
+                                                <option value="Finance Officer">Chairman</option>
                                             </select>
                                         </div>
                                         <button 

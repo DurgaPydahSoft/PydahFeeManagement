@@ -1,20 +1,21 @@
 const express = require('express');
 const router = express.Router();
-const proceedingController = require('../controllers/proceedingController');
-
 const {
     getProceedings,
     createProceeding,
     getProceedingById,
     updateProceeding,
-    deleteProceeding
-} = proceedingController;
+    approveProceeding,
+    deleteProceeding,
+    getProceedingSummary
+} = require('../controllers/proceedingController');
 
 router.route('/')
     .get(getProceedings)
     .post(createProceeding);
 
-router.get('/:id/summary', proceedingController.getProceedingSummary);
-router.route('/:id').get(proceedingController.getProceedingById).put(proceedingController.updateProceeding).delete(proceedingController.deleteProceeding);
+router.get('/:id/summary', getProceedingSummary);
+router.put('/:id/approve', approveProceeding);
+router.route('/:id').get(getProceedingById).put(updateProceeding).delete(deleteProceeding);
 
 module.exports = router;

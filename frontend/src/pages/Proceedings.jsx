@@ -2,9 +2,20 @@ import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Plus, Search, Trash2, Edit2, Calendar, DollarSign, University, GraduationCap, Users, ChevronDown, ChevronRight, User } from 'lucide-react';
+import { FileText, Plus, Search, Trash2, Edit2, Calendar, DollarSign, University, GraduationCap, Users, ChevronDown, ChevronRight, User, CheckCircle } from 'lucide-react';
+
+const STATUS_BADGE = {
+    Pending: 'bg-amber-50 text-amber-700 border-amber-200',
+    Active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    Completed: 'bg-slate-100 text-slate-600 border-slate-200',
+    Cancelled: 'bg-red-50 text-red-600 border-red-200'
+};
 
 const Proceedings = () => {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    const permissions = user?.permissions || [];
+    const canApprove = user?.role === 'superadmin' || permissions.includes('proceedings_approve');
+
     const [proceedings, setProceedings] = useState([]);
     const [loading, setLoading] = useState(false);
     const [metadata, setMetadata] = useState({ hierarchy: {}, batches: [], categories: [], castes: [] });
@@ -12,6 +23,7 @@ const Proceedings = () => {
     const [showModal, setShowModal] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All');
     const [expandedRows, setExpandedRows] = useState({}); // { id: { data: [], loading: false } }
 
     const [formData, setFormData] = useState({
@@ -62,11 +74,12 @@ const Proceedings = () => {
         e.preventDefault();
         try {
             if (isEditing) {
-                await api.put(`/proceedings/${formData._id}`, formData);
+                const { status, approvedBy, approvedByName, approvedAt, requestedBy, requestedByName, ...editPayload } = formData;
+                await api.put(`/proceedings/${formData._id}`, editPayload);
                 Swal.fire('Success', 'Proceeding updated successfully', 'success');
             } else {
                 await api.post(`/proceedings`, formData);
-                Swal.fire('Success', 'Proceeding created successfully', 'success');
+                Swal.fire('Success', 'Proceeding created — pending approval', 'success');
             }
             setShowModal(false);
             resetForm();
@@ -104,8 +117,30 @@ const Proceedings = () => {
                 Swal.fire('Deleted!', 'Proceeding has been deleted.', 'success');
                 fetchInitialData();
             } catch (error) {
-                Swal.fire('Error', 'Failed to delete proceeding', 'error');
+                Swal.fire('Error', error.response?.data?.message || 'Failed to delete proceeding', 'error');
             }
+        }
+    };
+
+    const handleApprove = async (proc) => {
+        const result = await Swal.fire({
+            title: 'Approve proceeding?',
+            text: `${proc.proceedingNumber} will become Active and available for RTF fee collection.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#059669',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Yes, approve'
+        });
+
+        if (!result.isConfirmed) return;
+
+        try {
+            await api.put(`/proceedings/${proc._id}/approve`);
+            Swal.fire('Approved', 'Proceeding is now Active.', 'success');
+            fetchInitialData();
+        } catch (error) {
+            Swal.fire('Error', error.response?.data?.message || 'Failed to approve proceeding', 'error');
         }
     };
 
@@ -125,11 +160,16 @@ const Proceedings = () => {
         setIsEditing(false);
     };
 
-    const filteredProceedings = proceedings.filter(p => 
-        p.proceedingNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.college.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.course.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredProceedings = proceedings.filter(p => {
+        const matchesSearch =
+            p.proceedingNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.college?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.course?.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
+        return matchesSearch && matchesStatus;
+    });
+
+    const pendingCount = proceedings.filter(p => p.status === 'Pending').length;
 
     const toggleRow = async (id) => {
         if (expandedRows[id]) {
@@ -161,7 +201,7 @@ const Proceedings = () => {
                     <div className="mb-8 flex justify-between items-center">
                         <div>
                             <h1 className="text-3xl font-bold text-slate-800">Proceedings Management</h1>
-                            <p className="text-slate-500 mt-1">Create and manage financial proceedings</p>
+                            <p className="text-slate-500 mt-1">Create proceedings (Pending), then approve to use in RTF collection</p>
                         </div>
                         <button
                             onClick={() => { resetForm(); setShowModal(true); }}
@@ -172,8 +212,8 @@ const Proceedings = () => {
                     </div>
 
                     {/* Filters & Search */}
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex items-center gap-4">
-                        <div className="relative flex-1">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-wrap items-center gap-4">
+                        <div className="relative flex-1 min-w-[200px]">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                             <input
                                 type="text"
@@ -182,6 +222,22 @@ const Proceedings = () => {
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all"
                             />
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {['All', 'Pending', 'Active', 'Completed', 'Cancelled'].map(s => (
+                                <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => setStatusFilter(s)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                        statusFilter === s
+                                            ? 'bg-blue-600 text-white border-blue-600'
+                                            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                                    }`}
+                                >
+                                    {s}{s === 'Pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+                                </button>
+                            ))}
                         </div>
                     </div>
 
@@ -208,7 +264,15 @@ const Proceedings = () => {
                                                 </td>
                                                 <td className="p-4">
                                                     <div className="font-bold text-slate-800">{proc.proceedingNumber}</div>
-                                                    <div className="text-[10px] uppercase font-bold text-slate-400">{proc.status}</div>
+                                                    <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Active}`}>
+                                                        {proc.status || 'Active'}
+                                                    </span>
+                                                    {proc.status === 'Pending' && proc.requestedByName && (
+                                                        <div className="text-[9px] text-slate-400 mt-0.5">by {proc.requestedByName}</div>
+                                                    )}
+                                                    {proc.status === 'Active' && proc.approvedByName && (
+                                                        <div className="text-[9px] text-slate-400 mt-0.5">approved by {proc.approvedByName}</div>
+                                                    )}
                                                 </td>
                                                 <td className="p-4 text-slate-600 font-medium">{new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                                                 <td className="p-4 text-right">
@@ -236,9 +300,18 @@ const Proceedings = () => {
                                                     <div className="text-[10px] text-slate-500 font-bold">{proc.bankCreditedDate ? new Date(proc.bankCreditedDate).toLocaleDateString() : 'PENDING'}</div>
                                                 </td>
                                                 <td className="p-4 text-center">
-                                                    <div className="flex justify-center gap-1">
-                                                        <button onClick={(e) => { e.stopPropagation(); handleEdit(proc); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16} /></button>
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(proc._id); }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                                                    <div className="flex justify-center gap-1 items-center">
+                                                        {canApprove && proc.status === 'Pending' && (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleApprove(proc); }}
+                                                                className="px-2.5 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1"
+                                                                title="Approve"
+                                                            >
+                                                                <CheckCircle size={14} /> Approve
+                                                            </button>
+                                                        )}
+                                                        <button onClick={(e) => { e.stopPropagation(); handleEdit(proc); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(proc._id); }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
                                                     </div>
                                                 </td>
                                             </tr>

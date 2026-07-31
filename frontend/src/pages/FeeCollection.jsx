@@ -260,7 +260,8 @@ const FeeCollection = () => {
                             college: student.college,
                             course: student.course,
                             batch: student.academic_year, // Map to batch
-                            caste: student.caste
+                            caste: student.caste,
+                            status: 'Active'
                         },
                     });
                     setAvailableProceedings(res.data);

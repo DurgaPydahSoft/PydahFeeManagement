@@ -200,6 +200,11 @@ const addTransaction = async (req, res) => {
          if (!proc) {
            return res.status(404).json({ message: 'Selected proceeding not found' });
          }
+         if (proc.status !== 'Active') {
+           return res.status(400).json({
+             message: `Proceeding '${proc.proceedingNumber}' is ${proc.status || 'not Active'} and cannot be used for collection until approved.`
+           });
+         }
          const existingTxns = await Transaction.find({ proceedingId: pId, status: { $ne: 'cancelled' } }).select('amount');
          const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
          const remaining = proc.amount - totalUsed;
@@ -279,6 +284,11 @@ const addTransaction = async (req, res) => {
       const proc = await Proceeding.findById(proceedingId);
       if (!proc) {
         return res.status(404).json({ message: 'Selected proceeding not found' });
+      }
+      if (proc.status !== 'Active') {
+        return res.status(400).json({
+          message: `Proceeding '${proc.proceedingNumber}' is ${proc.status || 'not Active'} and cannot be used for collection until approved.`
+        });
       }
       const existingTxns = await Transaction.find({ proceedingId, status: { $ne: 'cancelled' } }).select('amount');
       const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
@@ -513,6 +523,11 @@ const updateTransactionPaymentMode = async (req, res) => {
         const proc = await Proceeding.findById(targetProcId);
         if (!proc) {
           return res.status(404).json({ message: 'Selected proceeding not found' });
+        }
+        if (proc.status !== 'Active') {
+          return res.status(400).json({
+            message: `Proceeding '${proc.proceedingNumber}' is ${proc.status || 'not Active'} and cannot be used for collection until approved.`
+          });
         }
         const existingTxns = await Transaction.find({ proceedingId: targetProcId, _id: { $ne: id }, status: { $ne: 'cancelled' } }).select('amount');
         const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
