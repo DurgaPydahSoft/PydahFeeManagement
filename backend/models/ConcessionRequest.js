@@ -58,6 +58,15 @@ const concessionRequestSchema = mongoose.Schema({
   approvedBy: {
     type: String, // Username
   },
+  approvedAt: {
+    type: Date,
+  },
+  lastModifiedBy: {
+    type: String,
+  },
+  lastModifiedAt: {
+    type: Date,
+  },
   rejectionReason: {
     type: String,
   },

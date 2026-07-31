@@ -198,15 +198,15 @@ const processSingleRequestLogic = async (id, { action, rejectionReason, approved
         }
 
         request.status = 'APPROVED';
-        request.processedBy = processedBy;
-        request.processedAt = new Date();
+        request.approvedBy = processedBy;
+        request.approvedAt = new Date();
         await request.save();
         return request;
     } else {
         request.status = 'REJECTED';
         request.rejectionReason = rejectionReason;
-        request.processedBy = processedBy;
-        request.processedAt = new Date();
+        request.approvedBy = processedBy;
+        request.approvedAt = new Date();
         await request.save();
         return request;
     }
