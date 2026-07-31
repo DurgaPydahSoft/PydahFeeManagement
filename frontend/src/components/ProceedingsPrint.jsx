@@ -9,10 +9,10 @@ const ProceedingsPrint = forwardRef(({ data = [], filters = {} }, ref) => {
         <div ref={ref} className="p-8 font-sans text-black bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
             <style type="text/css" media="print">
                 {`
-                    @page { size: A4 landscape; margin: 10mm; }
+                    @page { size: A4 portrait; margin: 10mm; }
                     body { -webkit-print-color-adjust: exact; }
-                    .print-table { width: 100%; border-collapse: collapse; font-size: 9px; border: 2px solid #000; }
-                    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
+                    .print-table { width: 100%; border-collapse: collapse; font-size: 8px; border: 2px solid #000; }
+                    .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 6px; }
                     .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
                     .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
                     .compact-row { line-height: 1.2; }
@@ -48,14 +48,14 @@ const ProceedingsPrint = forwardRef(({ data = [], filters = {} }, ref) => {
             <table className="print-table">
                 <thead>
                     <tr>
-                        <th style={{ textAlign: 'center', width: '4%' }}>S.No</th>
-                        <th style={{ width: '23%' }}>College / Course / Caste</th>
-                        <th style={{ width: '15%' }}>Academic Year</th>
+                        <th style={{ textAlign: 'center', width: '5%' }}>S.No</th>
+                        <th style={{ width: '25%' }}>College / Course / Caste</th>
+                        <th style={{ width: '18%' }}>Academic Year</th>
                         <th style={{ width: '12%' }}>Proceeding No</th>
                         <th style={{ width: '12%' }}>Proceeding Date</th>
-                        <th style={{ textAlign: 'right', width: '11%' }}>Total (₹)</th>
-                        <th style={{ textAlign: 'right', width: '11%' }}>Used (₹)</th>
-                        <th style={{ textAlign: 'right', width: '12%' }}>Remaining (₹)</th>
+                        <th style={{ textAlign: 'right', width: '9%' }}>Total (₹)</th>
+                        <th style={{ textAlign: 'right', width: '9%' }}>Used (₹)</th>
+                        <th style={{ textAlign: 'right', width: '10%' }}>Remaining (₹)</th>
                     </tr>
                 </thead>
                 <tbody>
