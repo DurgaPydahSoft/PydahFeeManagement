@@ -25,6 +25,7 @@ const DailyReportTemplate = require('../../frontend/src/components/DailyReportTe
 const AccountReportTemplate = require('../../frontend/src/components/AccountReportTemplate').default;
 const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
 const OverallConcessionRegisterPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
+const ProceedingsPrint = require('../../frontend/src/components/ProceedingsPrint').default;
 
 const renderTemplate = async (templateName, data) => {
     let renderedMarkup = '';
@@ -177,6 +178,15 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = 'Overall_Concession_Register';
+
+    } else if (templateName === 'proceedings-report') {
+        const { reportData = [], filters = {} } = data;
+        const element = React.createElement(ProceedingsPrint, {
+            data: reportData,
+            filters: filters
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = 'Proceedings_Report';
 
     } else {
         throw new Error(`Unsupported template: ${templateName}`);

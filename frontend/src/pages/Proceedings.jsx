@@ -2,13 +2,25 @@ import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Plus, Search, Trash2, Edit2, Calendar, DollarSign, University, GraduationCap, Users, ChevronDown, ChevronRight, User, CheckCircle } from 'lucide-react';
+import { FileText, Plus, Search, Trash2, Edit2, Calendar, DollarSign, University, GraduationCap, Users, ChevronDown, ChevronRight, User, CheckCircle, Printer } from 'lucide-react';
+import { printHtmlDocument } from '../utils/printService';
 
 const STATUS_BADGE = {
     Pending: 'bg-amber-50 text-amber-700 border-amber-200',
     Active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     Completed: 'bg-slate-100 text-slate-600 border-slate-200',
     Cancelled: 'bg-red-50 text-red-600 border-red-200'
+};
+
+const getAcademicYears = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = -4; i <= 4; i++) {
+        const start = currentYear + i;
+        const end = start + 1;
+        years.push(`${start}-${end}`);
+    }
+    return years;
 };
 
 const Proceedings = () => {
@@ -24,6 +36,8 @@ const Proceedings = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
+    const [collegeFilter, setCollegeFilter] = useState('All');
+    const [courseFilter, setCourseFilter] = useState('All');
     const [expandedRows, setExpandedRows] = useState({}); // { id: { data: [], loading: false } }
 
     const [formData, setFormData] = useState({
@@ -100,6 +114,45 @@ const Proceedings = () => {
         setShowModal(true);
     };
 
+    const handlePrint = async () => {
+        try {
+            Swal.fire({
+                title: 'Preparing Print...',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            const printDataList = await Promise.all(filteredProceedings.map(async (proc) => {
+                const used = expandedRows[proc._id] ? expandedRows[proc._id].totalUsed : (proc.totalUsed || 0);
+                return {
+                    ...proc,
+                    totalUsed: used
+                };
+            }));
+
+            const response = await api.post('/print', {
+                template: 'proceedings-report',
+                data: {
+                    reportData: printDataList,
+                    filters: {
+                        collegeFilter,
+                        courseFilter,
+                        statusFilter,
+                        searchTerm
+                    }
+                }
+            });
+
+            Swal.close();
+            printHtmlDocument(response.data);
+        } catch (error) {
+            console.error('Print failed:', error);
+            Swal.fire('Error', 'Failed to generate print document', 'error');
+        }
+    };
+
     const handleDelete = async (id) => {
         const result = await Swal.fire({
             title: 'Are you sure?',
@@ -166,7 +219,9 @@ const Proceedings = () => {
             p.college?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.course?.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
-        return matchesSearch && matchesStatus;
+        const matchesCollege = collegeFilter === 'All' || p.college === collegeFilter;
+        const matchesCourse = courseFilter === 'All' || p.course === courseFilter;
+        return matchesSearch && matchesStatus && matchesCollege && matchesCourse;
     });
 
     const pendingCount = proceedings.filter(p => p.status === 'Pending').length;
@@ -196,34 +251,110 @@ const Proceedings = () => {
         <div className="flex min-h-screen bg-slate-50 font-sans">
             <Sidebar />
             <div className="flex-1 p-6">
-                <div className="max-w-7xl mx-auto">
+                <div className="w-full">
                     {/* Header */}
                     <div className="mb-8 flex justify-between items-center">
                         <div>
                             <h1 className="text-3xl font-bold text-slate-800">Proceedings Management</h1>
                             <p className="text-slate-500 mt-1">Create proceedings (Pending), then approve to use in RTF collection</p>
                         </div>
-                        <button
-                            onClick={() => { resetForm(); setShowModal(true); }}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
-                        >
-                            <Plus size={20} /> Create Proceeding
-                        </button>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={handlePrint}
+                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 border border-slate-200"
+                            >
+                                <Printer size={20} /> Print Report
+                            </button>
+                            <button
+                                onClick={() => { resetForm(); setShowModal(true); }}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
+                            >
+                                <Plus size={20} /> Create Proceeding
+                            </button>
+                        </div>
                     </div>
 
                     {/* Filters & Search */}
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-wrap items-center gap-4">
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                            <input
-                                type="text"
-                                placeholder="Search by proceeding number, college, or course..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all"
-                            />
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[300px]">
+                            {/* Search Bar */}
+                            <div className="relative min-w-[240px] flex-1">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                <input
+                                    type="text"
+                                    placeholder="Search by proceeding number..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                                />
+                            </div>
+
+                            {/* College Dropdown */}
+                            <div className="relative">
+                                <select
+                                    value={collegeFilter}
+                                    onChange={(e) => {
+                                        setCollegeFilter(e.target.value);
+                                        setCourseFilter('All');
+                                    }}
+                                    className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
+                                >
+                                    <option value="All">All Colleges</option>
+                                    {metadata?.hierarchy && Object.keys(metadata.hierarchy).map(c => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                            </div>
+
+                            {/* Course Dropdown */}
+                            <div className="relative">
+                                <select
+                                    value={courseFilter}
+                                    onChange={(e) => setCourseFilter(e.target.value)}
+                                    className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
+                                >
+                                    <option value="All">All Courses</option>
+                                    {(() => {
+                                        if (collegeFilter !== 'All') {
+                                            return metadata?.hierarchy?.[collegeFilter] && Object.keys(metadata.hierarchy[collegeFilter]).map(c => (
+                                                <option key={c} value={c}>{c}</option>
+                                            ));
+                                        } else {
+                                            if (!metadata?.hierarchy) return null;
+                                            const uniqueCourses = new Set();
+                                            Object.values(metadata.hierarchy).forEach(courseObj => {
+                                                if (courseObj) {
+                                                    Object.keys(courseObj).forEach(c => uniqueCourses.add(c));
+                                                }
+                                            });
+                                            return Array.from(uniqueCourses).map(c => (
+                                                <option key={c} value={c}>{c}</option>
+                                            ));
+                                        }
+                                    })()}
+                                </select>
+                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                            </div>
+
+                            {/* Reset Button */}
+                            {(collegeFilter !== 'All' || courseFilter !== 'All' || searchTerm !== '' || statusFilter !== 'All') && (
+                                <button
+                                    onClick={() => {
+                                        setCollegeFilter('All');
+                                        setCourseFilter('All');
+                                        setSearchTerm('');
+                                        setStatusFilter('All');
+                                    }}
+                                    className="text-xs font-bold text-red-500 hover:text-red-600 transition-colors py-2 px-3 hover:bg-red-50 rounded-xl"
+                                >
+                                    Clear Filters
+                                </button>
+                            )}
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap">
+
+                        {/* Status Filter */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
                             {['All', 'Pending', 'Active', 'Completed', 'Cancelled'].map(s => (
                                 <button
                                     key={s}
@@ -247,10 +378,11 @@ const Proceedings = () => {
                             <thead>
                                 <tr className="bg-slate-50/50 border-b border-slate-100">
                                     <th className="p-4 font-semibold text-slate-600 text-sm w-10"></th>
-                                    <th className="p-4 font-semibold text-slate-600 text-sm">Proceeding No</th>
-                                    <th className="p-4 font-semibold text-slate-600 text-sm">Date</th>
-                                    <th className="p-4 font-semibold text-slate-600 text-sm text-right">Total / Used</th>
                                     <th className="p-4 font-semibold text-slate-600 text-sm">College / Course / Caste</th>
+                                    <th className="p-4 font-semibold text-slate-600 text-sm">Academic Year</th>
+                                    <th className="p-4 font-semibold text-slate-600 text-sm">Proceeding No</th>
+                                    <th className="p-4 font-semibold text-slate-600 text-sm">Proceeding Date</th>
+                                    <th className="p-4 font-semibold text-slate-600 text-sm text-right">Total / Used</th>
                                     <th className="p-4 font-semibold text-slate-600 text-sm">Bank / Credited Date</th>
                                     <th className="p-4 font-semibold text-slate-600 text-sm text-center">Actions</th>
                                 </tr>
@@ -261,6 +393,17 @@ const Proceedings = () => {
                                             <tr className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => toggleRow(proc._id)}>
                                                 <td className="p-4">
                                                     {expandedRows[proc._id] ? <ChevronDown size={18} className="text-blue-600" /> : <ChevronRight size={18} className="text-slate-400" />}
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
+                                                    <div className="text-[10px] text-slate-500 font-medium uppercase">
+                                                        {proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4">
+                                                    <span className="px-2.5 py-1 text-xs bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200">
+                                                        {proc.academicYear || '-'}
+                                                    </span>
                                                 </td>
                                                 <td className="p-4">
                                                     <div className="font-bold text-slate-800">{proc.proceedingNumber}</div>
@@ -292,10 +435,6 @@ const Proceedings = () => {
                                                     })()}
                                                 </td>
                                                 <td className="p-4">
-                                                    <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
-                                                    <div className="text-[10px] text-slate-500 font-medium uppercase">{proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}</div>
-                                                </td>
-                                                <td className="p-4">
                                                     <div className="font-bold text-slate-700 text-xs">{proc.bankAccount}</div>
                                                     <div className="text-[10px] text-slate-500 font-bold">{proc.bankCreditedDate ? new Date(proc.bankCreditedDate).toLocaleDateString() : 'PENDING'}</div>
                                                 </td>
@@ -317,7 +456,7 @@ const Proceedings = () => {
                                             </tr>
                                             {expandedRows[proc._id] && (
                                                 <tr className="bg-slate-50/30">
-                                                    <td colSpan="7" className="p-0">
+                                                    <td colSpan="8" className="p-0">
                                                         <div className="p-6 border-l-4 border-blue-500 bg-white shadow-inner animate-fadeIn">
                                                             <div className="flex justify-between items-center mb-4">
                                                                 <h4 className="font-black text-slate-800 flex items-center gap-2 uppercase text-xs tracking-widest">
@@ -484,15 +623,19 @@ const Proceedings = () => {
                                 <div className="space-y-2">
                                     <label className="text-sm font-bold text-slate-600 ml-1">Academic Year</label>
                                     <div className="relative">
-                                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                        <input
-                                            type="text"
+                                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                                        <select
                                             name="academicYear"
                                             value={formData.academicYear}
                                             onChange={handleInputChange}
-                                            placeholder="2024-2025"
-                                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
-                                        />
+                                            className="w-full pl-10 pr-8 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700 appearance-none cursor-pointer"
+                                        >
+                                            <option value="">Select Academic Year</option>
+                                            {getAcademicYears().map(year => (
+                                                <option key={year} value={year}>{year}</option>
+                                            ))}
+                                        </select>
+                                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                                     </div>
                                 </div>
 
