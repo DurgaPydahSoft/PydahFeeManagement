@@ -28,6 +28,7 @@ const Proceedings = () => {
     const permissions = user?.permissions || [];
     const canApprove = user?.role === 'superadmin' || permissions.includes('proceedings_approve');
     const canEdit = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_edit');
+    const canView = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_view');
 
     const [proceedings, setProceedings] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -333,6 +334,23 @@ const Proceedings = () => {
             setExpandedRows(prev => ({ ...prev, [id]: { loading: false, data: [], totalUsed: 0 } }));
         }
     };
+
+    if (!canView) {
+        return (
+            <div className="flex min-h-screen bg-slate-50 font-sans">
+                <Sidebar />
+                <div className="flex-1 p-6 flex items-center justify-center">
+                    <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm text-center max-w-sm">
+                        <div className="text-red-500 mb-4 flex justify-center">
+                            <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0-6V9m0-6H6.22c-1.12 0-2.02.9-2.02 2.02v13.96C4.2 20.1 5.1 21 6.22 21h11.56c1.12 0 2.02-.9 2.02-2.02V7.02C19.8 5.9 18.9 5 17.78 5H15M12 3v2" /></svg>
+                        </div>
+                        <h3 className="font-bold text-slate-800 text-lg mb-2">Access Denied</h3>
+                        <p className="text-slate-500 text-xs leading-relaxed font-semibold">You do not have view permissions for Proceedings. Please contact the administrator.</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans">
