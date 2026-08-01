@@ -679,8 +679,9 @@ const FeeConfiguration = () => {
                         const rawAmt = config.amounts[amtKey];
                         if (rawAmt !== undefined && rawAmt !== '' && !isNaN(Number(rawAmt)) && Number(rawAmt) > 0) {
                             const termObj = config.terms[amtKey];
+                            const tCount = col.termsCount > 0 ? col.termsCount : 1;
                             
-                            if (termObj) {
+                            if (tCount > 1 && termObj) {
                                 // Divided terms
                                 for (let tIdx = 0; tIdx < termObj.data.length; tIdx++) {
                                     const tNum = tIdx + 1;
@@ -730,8 +731,9 @@ const FeeConfiguration = () => {
                             const amt = Number(rawAmt);
                             const termObj = config.terms[amtKey];
                             const defaultLateHead = feeHeads.find(h => /late\s*fee/i.test(`${h.name || ''} ${h.code || ''}`))?._id || feeHeads[0]?._id;
+                            const tCount = col.termsCount > 0 ? col.termsCount : 1;
                             const termsData = col.isLateFeeApplicable ? (
-                                termObj ? termObj.data.map((t, idx) => {
+                                (tCount > 1 && termObj) ? termObj.data.map((t, idx) => {
                                     const tNum = idx + 1;
                                     const lateAmt = (col.termLateFees && col.termLateFees[tNum] !== undefined)
                                         ? Number(col.termLateFees[tNum])
@@ -2706,7 +2708,7 @@ const FeeConfiguration = () => {
                                                                                                                             onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
                                                                                                                             disabled={!col.feeHeadId}
                                                                                                                         />
-                                                                                                                        {col.isLateFeeApplicable && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
+                                                                                                                        {col.isLateFeeApplicable && col.termsCount > 1 && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
                                                                                                                             <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
                                                                                                                                 {termObj.data.map((t, tidx) => (
                                                                                                                                     <div key={tidx} className="bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap">
@@ -2787,9 +2789,9 @@ const FeeConfiguration = () => {
                                                                             }
 
                                                                             const isGroupWise = !!quotaGroupWise[quotaName];
-                                                                            const uniqueTermCounts = [...new Set(lateCols.map(c => c.termsCount || 0))];
+                                                                            const uniqueTermCounts = [...new Set(lateCols.map(c => (c.termsCount > 0 ? c.termsCount : 1)))];
                                                                             const hasMismatchedTerms = uniqueTermCounts.length > 1;
-                                                                            const groupTerms = uniqueTermCounts[0] || 0;
+                                                                            const groupTerms = uniqueTermCounts[0] || 1;
                                                                             const groupFees = quotaGroupLateFees[quotaName] || {};
 
                                                                             return (
@@ -2946,45 +2948,43 @@ const FeeConfiguration = () => {
                                                                                         <div className="space-y-4">
                                                                                             {lateCols.map(col => {
                                                                                                 const name = feeHeads.find(h => h._id === col.feeHeadId)?.name || 'Unnamed';
-                                                                                                const count = col.termsCount || 0;
+                                                                                                const count = col.termsCount > 0 ? col.termsCount : 1;
                                                                                                 const colTermFees = col.termLateFees || {};
 
                                                                                                 return (
                                                                                                     <div key={col.id} className="bg-gray-50/50 p-4 rounded-xl border border-gray-200 space-y-3">
                                                                                                         <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                                                                                                             <span className="font-bold text-xs text-blue-900">{name}</span>
-                                                                                                            <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-[10px] font-bold">{count > 0 ? `${count} Terms` : 'No Terms'}</span>
+                                                                                                            <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-[10px] font-bold">
+                                                                                                                {count === 1 ? '1 Term' : `${count} Terms`}
+                                                                                                            </span>
                                                                                                         </div>
 
-                                                                                                        {count === 0 ? (
-                                                                                                            <p className="text-[11px] text-gray-400 italic">
-                                                                                                                Please set a terms count (e.g. 2, 3, or 4) for this head in the <span className="font-bold text-blue-600">Actual Fees</span> tab.
-                                                                                                            </p>
-                                                                                                        ) : (
-                                                                                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                                                                                                {Array.from({ length: count }).map((_, idx) => {
-                                                                                                                    const termNum = idx + 1;
-                                                                                                                    const val = colTermFees[termNum] || '';
-                                                                                                                    return (
-                                                                                                                        <div key={termNum} className="bg-white p-3 rounded-lg border border-gray-200">
-                                                                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Term {termNum} Penalty</label>
-                                                                                                                            <div className="relative">
-                                                                                                                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs">₹</span>
-                                                                                                                                <input
-                                                                                                                                    type="number"
-                                                                                                                                    className="w-full border border-gray-200 rounded p-1.5 pl-5 text-xs font-bold text-gray-800 outline-none text-right focus:border-blue-300"
-                                                                                                                                    value={val}
-                                                                                                                                    onChange={e => {
-                                                                                                                                        const updatedTermLate = { ...colTermFees, [termNum]: e.target.value };
-                                                                                                                                        updateColumnInActiveQuota(quotaName, col.id, 'termLateFees', updatedTermLate);
-                                                                                                                                    }}
-                                                                                                                                />
-                                                                                                                            </div>
+                                                                                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                                                                            {Array.from({ length: count }).map((_, idx) => {
+                                                                                                                const termNum = idx + 1;
+                                                                                                                const val = colTermFees[termNum] || '';
+                                                                                                                return (
+                                                                                                                    <div key={termNum} className="bg-white p-3 rounded-lg border border-gray-200">
+                                                                                                                        <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">
+                                                                                                                            {count === 1 ? 'Late Fee Penalty' : `Term ${termNum} Penalty`}
+                                                                                                                        </label>
+                                                                                                                        <div className="relative">
+                                                                                                                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs">₹</span>
+                                                                                                                            <input
+                                                                                                                                type="number"
+                                                                                                                                className="w-full border border-gray-200 rounded p-1.5 pl-5 text-xs font-bold text-gray-800 outline-none text-right focus:border-blue-300"
+                                                                                                                                value={val}
+                                                                                                                                onChange={e => {
+                                                                                                                                    const updatedTermLate = { ...colTermFees, [termNum]: e.target.value };
+                                                                                                                                    updateColumnInActiveQuota(quotaName, col.id, 'termLateFees', updatedTermLate);
+                                                                                                                                }}
+                                                                                                                            />
                                                                                                                         </div>
-                                                                                                                    );
-                                                                                                                })}
-                                                                                                            </div>
-                                                                                                        )}
+                                                                                                                    </div>
+                                                                                                                );
+                                                                                                            })}
+                                                                                                        </div>
                                                                                                     </div>
                                                                                                 );
                                                                                             })}
