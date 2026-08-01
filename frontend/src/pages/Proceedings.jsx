@@ -27,12 +27,15 @@ const Proceedings = () => {
     const user = JSON.parse(localStorage.getItem('user') || 'null');
     const permissions = user?.permissions || [];
     const canApprove = user?.role === 'superadmin' || permissions.includes('proceedings_approve');
+    const canEdit = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_edit');
 
     const [proceedings, setProceedings] = useState([]);
     const [loading, setLoading] = useState(false);
     const [metadata, setMetadata] = useState({ hierarchy: {}, batches: [], categories: [], castes: [] });
     const [paymentConfigs, setPaymentConfigs] = useState([]);
     const [showModal, setShowModal] = useState(false);
+    const [showPrintModal, setShowPrintModal] = useState(false);
+    const [printOptions, setPrintOptions] = useState({ abstract: true, detailed: false });
     const [isEditing, setIsEditing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
@@ -66,7 +69,30 @@ const Proceedings = () => {
                 api.get(`/payment-config`)
             ]);
             setProceedings(procRes.data);
-            setMetadata(metaRes.data);
+            
+            // Filter metadata hierarchy by user courses
+            let finalHierarchy = metaRes.data.hierarchy || {};
+            if (user?.courses && user.courses.length > 0) {
+                const userCourses = user.courses.map(c => c.toUpperCase().trim());
+                const filteredHierarchy = {};
+                Object.entries(finalHierarchy).forEach(([collegeName, courseMap]) => {
+                    const filteredCourses = {};
+                    Object.entries(courseMap).forEach(([courseName, branchObj]) => {
+                        if (userCourses.includes(courseName.toUpperCase().trim())) {
+                            filteredCourses[courseName] = branchObj;
+                        }
+                    });
+                    if (Object.keys(filteredCourses).length > 0) {
+                        filteredHierarchy[collegeName] = filteredCourses;
+                    }
+                });
+                finalHierarchy = filteredHierarchy;
+            }
+            setMetadata({
+                ...metaRes.data,
+                hierarchy: finalHierarchy
+            });
+            
             setPaymentConfigs(configRes.data.filter(c => c.is_active));
         } catch (error) {
             console.error('Error fetching data:', error);
@@ -114,7 +140,12 @@ const Proceedings = () => {
         setShowModal(true);
     };
 
-    const handlePrint = async () => {
+    const handlePrint = () => {
+        setShowPrintModal(true);
+    };
+
+    const executePrint = async () => {
+        setShowPrintModal(false);
         try {
             Swal.fire({
                 title: 'Preparing Print...',
@@ -125,10 +156,21 @@ const Proceedings = () => {
             });
 
             const printDataList = await Promise.all(filteredProceedings.map(async (proc) => {
-                const used = expandedRows[proc._id] ? expandedRows[proc._id].totalUsed : (proc.totalUsed || 0);
+                let studentsList = [];
+                let used = proc.totalUsed || 0;
+                if (printOptions.detailed) {
+                    try {
+                        const res = await api.get(`/proceedings/${proc._id}/summary`);
+                        studentsList = res.data.transactions || [];
+                        used = res.data.totalUsed || 0;
+                    } catch (e) {
+                        console.error("Failed to fetch summary for", proc._id, e);
+                    }
+                }
                 return {
                     ...proc,
-                    totalUsed: used
+                    totalUsed: used,
+                    students: studentsList
                 };
             }));
 
@@ -136,6 +178,8 @@ const Proceedings = () => {
                 template: 'proceedings-report',
                 data: {
                     reportData: printDataList,
+                    includeAbstract: printOptions.abstract,
+                    includeDetailed: printOptions.detailed,
                     filters: {
                         collegeFilter,
                         courseFilter,
@@ -149,6 +193,49 @@ const Proceedings = () => {
             printHtmlDocument(response.data);
         } catch (error) {
             console.error('Print failed:', error);
+            Swal.close();
+            Swal.fire('Error', 'Failed to generate print document', 'error');
+        }
+    };
+
+    const handlePrintSingle = async (proc) => {
+        try {
+            Swal.fire({
+                title: 'Preparing Print...',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            const res = await api.get(`/proceedings/${proc._id}/summary`);
+            const studentsList = res.data.transactions || [];
+            const totalUsed = res.data.totalUsed || 0;
+
+            const response = await api.post('/print', {
+                template: 'proceedings-report',
+                data: {
+                    reportData: [{
+                        ...proc,
+                        totalUsed,
+                        students: studentsList
+                    }],
+                    includeAbstract: false,
+                    includeDetailed: true,
+                    filters: {
+                        collegeFilter: proc.college,
+                        courseFilter: proc.course,
+                        statusFilter: 'All',
+                        searchTerm: ''
+                    }
+                }
+            });
+
+            Swal.close();
+            printHtmlDocument(response.data);
+        } catch (error) {
+            console.error('Print failed:', error);
+            Swal.close();
             Swal.fire('Error', 'Failed to generate print document', 'error');
         }
     };
@@ -265,12 +352,14 @@ const Proceedings = () => {
                             >
                                 <Printer size={20} /> Print Report
                             </button>
-                            <button
-                                onClick={() => { resetForm(); setShowModal(true); }}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
-                            >
-                                <Plus size={20} /> Create Proceeding
-                            </button>
+                            {canEdit && (
+                                <button
+                                    onClick={() => { resetForm(); setShowModal(true); }}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
+                                >
+                                    <Plus size={20} /> Create Proceeding
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -449,8 +538,19 @@ const Proceedings = () => {
                                                                 <CheckCircle size={14} /> Approve
                                                             </button>
                                                         )}
-                                                        <button onClick={(e) => { e.stopPropagation(); handleEdit(proc); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(proc._id); }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handlePrintSingle(proc); }} 
+                                                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" 
+                                                            title="Print Proceeding"
+                                                        >
+                                                            <Printer size={16} />
+                                                        </button>
+                                                        {canEdit && (
+                                                            <>
+                                                                <button onClick={(e) => { e.stopPropagation(); handleEdit(proc); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); handleDelete(proc._id); }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -745,6 +845,82 @@ const Proceedings = () => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Print Selection Modal */}
+            {showPrintModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-6">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                                    <Printer size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-gray-900">
+                                        Print Proceedings Report
+                                    </h3>
+                                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider">
+                                        Configure report printout
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-6">
+                                 {/* Printing Options Checkboxes */}
+                                 <div className="space-y-3">
+                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Print Sections</label>
+                                     
+                                     {/* Summary Option */}
+                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                         <input
+                                             type="checkbox"
+                                             id="printSummaryOpt"
+                                             checked={printOptions.abstract}
+                                             onChange={e => setPrintOptions(prev => ({ ...prev, abstract: e.target.checked }))}
+                                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                         />
+                                         <label htmlFor="printSummaryOpt" className="cursor-pointer flex-1">
+                                             <p className="text-xs font-bold text-gray-800">Summary Abstract</p>
+                                             <p className="text-[9px] text-gray-500 font-medium">Include overall summary table containing all loaded proceedings</p>
+                                         </label>
+                                     </div>
+
+                                     {/* Detailed View Option */}
+                                     <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                         <input
+                                             type="checkbox"
+                                             id="printDetailsOpt"
+                                             checked={printOptions.detailed}
+                                             onChange={e => setPrintOptions(prev => ({ ...prev, detailed: e.target.checked }))}
+                                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                         />
+                                         <label htmlFor="printDetailsOpt" className="cursor-pointer flex-1">
+                                             <p className="text-xs font-bold text-gray-800">Detailed View</p>
+                                             <p className="text-[9px] text-gray-500 font-medium">Include row-by-row lists of covered students for each proceeding</p>
+                                         </label>
+                                     </div>
+                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+                            <button
+                                onClick={() => setShowPrintModal(false)}
+                                className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={executePrint}
+                                disabled={!printOptions.abstract && !printOptions.detailed}
+                                className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${(!printOptions.abstract && !printOptions.detailed) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                            >
+                                <Printer size={16} /> Generate Print
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

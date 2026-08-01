@@ -736,14 +736,14 @@ const UserManagement = () => {
                                                                     let currentPermissions = formData.permissions || [];
                                                                     if (currentPermissions.includes(path)) {
                                                                         currentPermissions = currentPermissions.filter(p => p !== path);
-                                                                        if (path === '/fee-collection') {
+                                                        if (path === '/fee-collection') {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
                                                                         }
                                                                         if (path === '/reports') {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary' && p !== 'reports_account_wise');
                                                                         }
                                                                         if (path === '/proceedings') {
-                                                                            currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve');
+                                                                            currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_edit');
                                                                         }
                                                                     } else {
                                                                         currentPermissions = [...currentPermissions, path];
@@ -852,6 +852,23 @@ const UserManagement = () => {
                                                     {/* Sub-Permissions for Proceedings */}
                                                     {page.path === '/proceedings' && (formData.permissions || []).includes('/proceedings') && (
                                                         <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('proceedings_edit')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('proceedings_edit')) p = p.filter(x => x !== 'proceedings_edit');
+                                                                            else p = [...p, 'proceedings_edit'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Edit/Create</span>
+                                                            </label>
                                                             <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                                 <input
                                                                     type="checkbox"

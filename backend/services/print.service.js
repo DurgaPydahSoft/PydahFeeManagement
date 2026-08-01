@@ -180,10 +180,12 @@ const renderTemplate = async (templateName, data) => {
         pageTitle = 'Overall_Concession_Register';
 
     } else if (templateName === 'proceedings-report') {
-        const { reportData = [], filters = {} } = data;
+        const { reportData = [], filters = {}, includeAbstract = true, includeDetailed = false } = data;
         const element = React.createElement(ProceedingsPrint, {
             data: reportData,
-            filters: filters
+            filters: filters,
+            includeAbstract,
+            includeDetailed
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = 'Proceedings_Report';
