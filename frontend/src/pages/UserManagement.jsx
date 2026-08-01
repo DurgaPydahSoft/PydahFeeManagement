@@ -16,6 +16,9 @@ const UserManagement = () => {
     const [editingUserId, setEditingUserId] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [campusFilter, setCampusFilter] = useState('All');
+    const [collegeFilter, setCollegeFilter] = useState('All');
+    const [roleFilter, setRoleFilter] = useState('All');
 
     const currentUser = JSON.parse(localStorage.getItem('user')) || {};
     const isSuperAdminUser = currentUser.role === 'superadmin';
@@ -374,12 +377,52 @@ const UserManagement = () => {
                 <div className="space-y-4">
                     {/* User List */}
                     <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out">
-                        <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                            <h2 className="font-bold text-gray-800">Existing Users</h2>
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-gray-100 pb-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                <h2 className="font-bold text-gray-800 whitespace-nowrap">Existing Users</h2>
+                                <div className="flex flex-wrap gap-2">
+                                    {/* Campus Filter */}
+                                    <select
+                                        value={campusFilter}
+                                        onChange={(e) => setCampusFilter(e.target.value)}
+                                        className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold"
+                                    >
+                                        <option value="All">All Campuses</option>
+                                        {campusList.map(c => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                        ))}
+                                    </select>
+
+                                    {/* College Filter */}
+                                    <select
+                                        value={collegeFilter}
+                                        onChange={(e) => setCollegeFilter(e.target.value)}
+                                        className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold max-w-[260px]"
+                                    >
+                                        <option value="All">All Colleges</option>
+                                        {colleges.map(col => (
+                                            <option key={col} value={col}>{col}</option>
+                                        ))}
+                                    </select>
+
+                                    {/* Role Filter */}
+                                    <select
+                                        value={roleFilter}
+                                        onChange={(e) => setRoleFilter(e.target.value)}
+                                        className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold"
+                                    >
+                                        <option value="All">All Roles</option>
+                                        <option value="superadmin">Super Admin</option>
+                                        <option value="admin">Admin</option>
+                                        <option value="office_staff">Office Staff</option>
+                                        <option value="cashier">Cashier</option>
+                                    </select>
+                                </div>
+                            </div>
                             {isSuperAdminUser && (
                                 <button
                                     onClick={openCreateModal}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition text-xs whitespace-nowrap self-start md:self-auto"
                                 >
                                     Create New User
                                 </button>
@@ -400,11 +443,33 @@ const UserManagement = () => {
                                     <tbody className="divide-y">
                                         {users
                                             .filter(user => {
-                                                if (!searchTerm.trim()) return true;
-                                                const term = searchTerm.toLowerCase().trim();
-                                                const nameMatch = (user.name || '').toLowerCase().includes(term);
-                                                const usernameMatch = (user.username || '').toLowerCase().includes(term);
-                                                return nameMatch || usernameMatch;
+                                                // Search Term Filter
+                                                if (searchTerm.trim()) {
+                                                    const term = searchTerm.toLowerCase().trim();
+                                                    const nameMatch = (user.name || '').toLowerCase().includes(term);
+                                                    const usernameMatch = (user.username || '').toLowerCase().includes(term);
+                                                    if (!nameMatch && !usernameMatch) return false;
+                                                }
+
+                                                // Campus Filter
+                                                if (campusFilter !== 'All') {
+                                                    const numericCampusId = Number(campusFilter);
+                                                    const userCampuses = (user.campuses || []).map(Number);
+                                                    if (!userCampuses.includes(numericCampusId)) return false;
+                                                }
+
+                                                // College Filter
+                                                if (collegeFilter !== 'All') {
+                                                    const userColleges = user.colleges || [];
+                                                    if (!userColleges.includes(collegeFilter)) return false;
+                                                }
+
+                                                // Role Filter
+                                                if (roleFilter !== 'All') {
+                                                    if (user.role !== roleFilter) return false;
+                                                }
+
+                                                return true;
                                             })
                                             .map(user => (
                                             <tr key={user._id} className="hover:bg-gray-50">
