@@ -58,30 +58,31 @@ const getOverallConcessions = async (req, res) => {
             return res.json([]);
         }
 
-        // 2. Fetch all concessions (revised fees) for these students
+        // 2. Fetch all concessions (revised fees) from MongoDB for these students
         const studentIds = students.map(s => s.admission_number);
-        const [concessions] = await db.query(
-            `SELECT * FROM overall_concessions WHERE admission_number IN (?)`,
-            [studentIds]
-        );
+        const approvedRequests = await OverallConcessionRequest.find({
+            admissionNumber: { $in: studentIds },
+            status: 'APPROVED'
+        }).sort({ updatedAt: -1, createdAt: -1 }).lean();
 
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
         // Map concessions by student admission_number
         const concessionMap = {};
-        concessions.forEach(c => {
-            let fees = [];
-            if (c.revised_fees) {
-                fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : c.revised_fees;
-            }
-            if (Array.isArray(fees)) {
-                concessionMap[c.admission_number] = fees.map((rf, idx) => ({
-                    id: `${c.id}_${idx}`,
+        studentIds.forEach(id => {
+            concessionMap[id] = [];
+        });
+
+        const processedStudents = new Set();
+        approvedRequests.forEach(req => {
+            if (!processedStudents.has(req.admissionNumber)) {
+                processedStudents.add(req.admissionNumber);
+                const fees = req.concessions || [];
+                concessionMap[req.admissionNumber] = fees.map((rf, idx) => ({
+                    id: `${req._id.toString()}_${idx}`,
                     ...mapStoredEntryForResponse(rf, feeHeads, codeMap)
                 }));
-            } else {
-                concessionMap[c.admission_number] = [];
             }
         });
 
@@ -163,16 +164,15 @@ const saveOverallConcession = async (req, res) => {
             }
         }
 
-        // 1. Fetch existing student row
-        const [existing] = await db.query(
-            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNumber]
-        );
+        // 1. Fetch existing approved request from MongoDB
+        let approvedRequest = await OverallConcessionRequest.findOne({
+            admissionNumber,
+            status: 'APPROVED'
+        }).sort({ updatedAt: -1, createdAt: -1 });
 
         let revisedFees = [];
-        if (existing.length > 0) {
-            const rawFees = existing[0].revised_fees;
-            revisedFees = typeof rawFees === 'string' ? JSON.parse(rawFees) : rawFees || [];
+        if (approvedRequest) {
+            revisedFees = approvedRequest.concessions || [];
         }
 
         // 2. Update or insert concession in the array
@@ -188,27 +188,39 @@ const saveOverallConcession = async (req, res) => {
             revisedFees.push(storedEntry);
         }
 
-        // 3. Upsert in MySQL overall_concessions table
-        const revisedFeesJson = JSON.stringify(revisedFees);
-        const insertQuery = `
-            INSERT INTO overall_concessions 
-                (admission_number, pin_no, student_name, batch, course, branch, revised_fees)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE 
-                revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
-        `;
-        const insertParams = [
-            admissionNumber, pinNo || '-', studentName || '', batch || '', course || '', branch || '', revisedFeesJson,
-            revisedFeesJson, pinNo || '-', studentName || '', batch || '', course || '', branch || ''
-        ];
-
-        const [dbResult] = await db.query(insertQuery, insertParams);
-
-        // Fetch ID of row
-        let concessionId = dbResult.insertId;
-        if (!concessionId && existing.length > 0) {
-            concessionId = existing[0].id;
+        // 3. Upsert in MongoDB OverallConcessionRequest table
+        if (approvedRequest) {
+            approvedRequest.concessions = revisedFees;
+            approvedRequest.studentName = studentName || approvedRequest.studentName;
+            approvedRequest.pinNo       = pinNo || approvedRequest.pinNo;
+            approvedRequest.college     = college || approvedRequest.college;
+            approvedRequest.course      = course || approvedRequest.course;
+            approvedRequest.branch      = branch || approvedRequest.branch;
+            approvedRequest.batch       = batch || approvedRequest.batch;
+            approvedRequest.category    = category || approvedRequest.category;
+            approvedRequest.approvedBy  = req.user?.username || approvedRequest.approvedBy || 'system';
+            approvedRequest.approvedByName = req.user?.name || approvedRequest.approvedByName || 'System';
+            await approvedRequest.save();
+        } else {
+            approvedRequest = await OverallConcessionRequest.create({
+                admissionNumber,
+                pinNo:           pinNo || '-',
+                studentName:     studentName || '',
+                college:         college || '',
+                course:          course || '',
+                branch:          branch || '',
+                batch:           batch || '',
+                category:        category || 'Regular',
+                concessions:     revisedFees,
+                status:          'APPROVED',
+                requestedBy:     req.user?.username || 'system',
+                requestedByName: req.user?.name || 'System',
+                approvedBy:      req.user?.username || 'system',
+                approvedByName:  req.user?.name || 'System'
+            });
         }
+
+        const concessionId = approvedRequest._id.toString();
 
         // 4. Propagate to MongoDB StudentFee collection immediately (only if standard fees already exist for this student and batch)
         const standardFeesApplied = await StudentFee.exists({
@@ -293,31 +305,27 @@ const deleteOverallConcession = async (req, res) => {
         const { id } = req.params;
 
         // 1. Fetch details first so we can remove corresponding MongoDB records
-        const [rows] = await db.query(`SELECT * FROM overall_concessions WHERE id = ?`, [id]);
-        if (rows.length === 0) {
+        const request = await OverallConcessionRequest.findById(id);
+        if (!request) {
             return res.status(404).json({ message: 'Concession not found' });
         }
-        const c = rows[0];
 
-        // 2. Delete from MySQL
-        await db.query(`DELETE FROM overall_concessions WHERE id = ?`, [id]);
+        // 2. Delete from MongoDB
+        await OverallConcessionRequest.findByIdAndDelete(id);
 
-        // 3. Parse JSON list of concessions and restore standard fee amounts in MongoDB
-        let fees = [];
-        if (c.revised_fees) {
-            fees = typeof c.revised_fees === 'string' ? JSON.parse(c.revised_fees) : c.revised_fees;
-        }
+        // 3. Parse list of concessions and restore standard fee amounts in MongoDB
+        const fees = request.concessions || [];
 
         await cancelDeclarationConcessionTransactions({
-            admissionNumber: c.admission_number,
+            admissionNumber: request.admissionNumber,
             entries: fees,
             collectedBy: req.user?.username || 'system',
             collectedByName: req.user?.name || 'System'
         });
 
         const standardFeesApplied = await StudentFee.exists({
-            studentId: c.admission_number,
-            academicYear: c.batch,
+            studentId: request.admissionNumber,
+            academicYear: request.batch,
             $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
         });
 
@@ -326,10 +334,10 @@ const deleteOverallConcession = async (req, res) => {
             const [students] = await db.query(
                 `SELECT admission_number, student_name, college, course, branch, batch, current_year, current_semester, stud_type
                  FROM students WHERE admission_number = ?`,
-                [c.admission_number]
+                [request.admissionNumber]
             );
             if (students.length > 0) {
-                syncResult = await syncStandardFees(students[0], c.admission_number);
+                syncResult = await syncStandardFees(students[0], request.admissionNumber);
             }
         }
 
@@ -344,7 +352,7 @@ const deleteOverallConcession = async (req, res) => {
 
 // ── Shared helper: save concessions for ONE student inside a given connection/transaction ──
 const _saveStudentConcessions = async ({
-    connection, admissionNumber, pinNo, studentName, college, course, branch, batch,
+    admissionNumber, pinNo, studentName, college, course, branch, batch,
     category, concessions, feeHeads, codeMap, user
 }) => {
     const normalizeIncomingEntry = (c) => {
@@ -371,30 +379,48 @@ const _saveStudentConcessions = async ({
         return { ok: false, message: validation.message, warnings: validation.warnings };
     }
 
-    const [existingRows] = await connection.query(
-        `SELECT revised_fees FROM overall_concessions WHERE admission_number = ?`,
-        [admissionNumber]
-    );
-    let previousFees = [];
-    if (existingRows.length > 0) {
-        const raw = existingRows[0].revised_fees;
-        previousFees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
-    }
+    let approvedRequest = await OverallConcessionRequest.findOne({
+        admissionNumber,
+        status: 'APPROVED'
+    }).sort({ updatedAt: -1, createdAt: -1 });
+
+    let previousFees = approvedRequest ? approvedRequest.concessions || [] : [];
 
     if (concessions.length === 0) {
-        await connection.query(`DELETE FROM overall_concessions WHERE admission_number = ?`, [admissionNumber]);
+        if (approvedRequest) {
+            await OverallConcessionRequest.findByIdAndDelete(approvedRequest._id);
+        }
     } else {
-        const revisedFeesJson = JSON.stringify(updatedConcessions);
-        await connection.query(`
-            INSERT INTO overall_concessions 
-                (admission_number, pin_no, student_name, batch, course, branch, revised_fees)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE 
-                revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
-        `, [
-            admissionNumber, pinNo || '-', studentName || '', batch || '', course || '', branch || '', revisedFeesJson,
-            revisedFeesJson, pinNo || '-', studentName || '', batch || '', course || '', branch || ''
-        ]);
+        if (approvedRequest) {
+            approvedRequest.concessions = updatedConcessions;
+            approvedRequest.studentName = studentName || approvedRequest.studentName;
+            approvedRequest.pinNo       = pinNo || approvedRequest.pinNo;
+            approvedRequest.college     = college || approvedRequest.college;
+            approvedRequest.course      = course || approvedRequest.course;
+            approvedRequest.branch      = branch || approvedRequest.branch;
+            approvedRequest.batch       = batch || approvedRequest.batch;
+            approvedRequest.category    = category || approvedRequest.category;
+            approvedRequest.approvedBy  = user?.username || approvedRequest.approvedBy || 'system';
+            approvedRequest.approvedByName = user?.name || approvedRequest.approvedByName || 'System';
+            await approvedRequest.save();
+        } else {
+            await OverallConcessionRequest.create({
+                admissionNumber,
+                pinNo:           pinNo || '-',
+                studentName:     studentName || '',
+                college:         college || '',
+                course:          course || '',
+                branch:          branch || '',
+                batch:           batch || '',
+                category:        category || 'Regular',
+                concessions:     updatedConcessions,
+                status:          'APPROVED',
+                requestedBy:     user?.username || 'system',
+                requestedByName: user?.name || 'System',
+                approvedBy:      user?.username || 'system',
+                approvedByName:  user?.name || 'System'
+            });
+        }
     }
 
     const nextKeys = new Set(
@@ -459,33 +485,27 @@ const bulkSaveOverallConcessions = async (req, res) => {
         return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const connection = await db.getConnection();
     try {
-        await connection.beginTransaction();
-
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
         const result = await _saveStudentConcessions({
-            connection, admissionNumber, pinNo, studentName, college, course,
+            admissionNumber, pinNo, studentName, college, course,
             branch, batch, category, concessions, feeHeads, codeMap, user: req.user
         });
 
         if (!result.ok) {
-            await connection.rollback();
             return res.status(400).json({ message: result.message, warnings: result.warnings });
         }
 
-        await connection.commit();
+        const approvedRequest = await OverallConcessionRequest.findOne({
+            admissionNumber,
+            status: 'APPROVED'
+        }).sort({ updatedAt: -1, createdAt: -1 }).lean();
 
-        const [updatedList] = await db.query(
-            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNumber]
-        );
-        const updatedRow = updatedList[0];
-        const responseConcessions = updatedRow 
-            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => ({
-                id: `${updatedRow.id}_${idx}`,
+        const responseConcessions = approvedRequest
+            ? (approvedRequest.concessions || []).map((c, idx) => ({
+                id: `${approvedRequest._id.toString()}_${idx}`,
                 ...mapStoredEntryForResponse(c, feeHeads, codeMap)
             }))
             : [];
@@ -493,11 +513,8 @@ const bulkSaveOverallConcessions = async (req, res) => {
         res.json({ message: 'Revised fees updated successfully', revisedFees: responseConcessions });
 
     } catch (error) {
-        await connection.rollback();
         console.error('Error performing bulk concession update:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });
-    } finally {
-        connection.release();
     }
 };
 
@@ -509,10 +526,7 @@ const bulkSaveMultipleStudents = async (req, res) => {
         return res.status(400).json({ message: 'No students provided' });
     }
 
-    const connection = await db.getConnection();
     try {
-        await connection.beginTransaction();
-
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
@@ -526,7 +540,6 @@ const bulkSaveMultipleStudents = async (req, res) => {
             }
             try {
                 const result = await _saveStudentConcessions({
-                    connection,
                     admissionNumber: s.admissionNumber,
                     pinNo: s.pinNo,
                     studentName: s.studentName,
@@ -548,15 +561,11 @@ const bulkSaveMultipleStudents = async (req, res) => {
             }
         }
 
-        await connection.commit();
         res.json({ message: `Saved ${saved} of ${students.length} students`, saved, total: students.length, errors });
 
     } catch (error) {
-        await connection.rollback();
         console.error('Error performing bulk-multi concession update:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });
-    } finally {
-        connection.release();
     }
 };
 
@@ -771,17 +780,13 @@ const approveConcessionRequest = async (req, res) => {
             return res.status(400).json({ message: validation.message, warnings: validation.warnings });
         }
 
-        // 1. Fetch existing SQL row and merge
-        const [existing] = await db.query(
-            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNumber]
-        );
+        // 1. Fetch existing approved request from MongoDB and merge
+        let approvedRequest = await OverallConcessionRequest.findOne({
+            admissionNumber,
+            status: 'APPROVED'
+        }).sort({ updatedAt: -1, createdAt: -1 });
 
-        let existingFees = [];
-        if (existing.length > 0) {
-            const raw = existing[0].revised_fees;
-            existingFees = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
-        }
+        let existingFees = approvedRequest ? approvedRequest.concessions || [] : [];
 
         // Merge: request entries override matching keys, preserve others
         const mergedMap = {};
@@ -802,21 +807,7 @@ const approveConcessionRequest = async (req, res) => {
         });
         const mergedFees = Object.values(mergedMap);
 
-        // 2. Persist to MySQL
-        const revisedFeesJson = JSON.stringify(mergedFees);
-        const upsertQuery = `
-            INSERT INTO overall_concessions
-                (admission_number, pin_no, student_name, batch, course, branch, revised_fees)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                revised_fees = ?, pin_no = ?, student_name = ?, batch = ?, course = ?, branch = ?
-        `;
-        await db.query(upsertQuery, [
-            admissionNumber, pinNo || '-', studentName || '', effectiveBatch || '', effectiveCourse || '', effectiveBranch || '', revisedFeesJson,
-            revisedFeesJson, pinNo || '-', studentName || '', effectiveBatch || '', effectiveCourse || '', effectiveBranch || ''
-        ]);
-
-        // 3. Re-sync MongoDB StudentFee amounts
+        // 2. Re-sync MongoDB StudentFee amounts
         const standardFeesApplied = await StudentFee.exists({
             studentId: admissionNumber,
             academicYear: effectiveBatch,
@@ -826,7 +817,7 @@ const approveConcessionRequest = async (req, res) => {
             await syncStandardFees(student, admissionNumber);
         }
 
-        // 3b. For REVISED entries: keep structured demand and post difference as CREDIT waiver
+        // 3. For REVISED entries: keep structured demand and post difference as CREDIT waiver
         await applyRevisedConcessionTransactions({
             admissionNumber,
             studentName: student?.student_name || studentName,
@@ -843,6 +834,7 @@ const approveConcessionRequest = async (req, res) => {
         // ---------------------------------------------------------------
 
         // 4. Mark request as APPROVED
+        request.concessions      = mergedFees; // Save the complete merged fees on the approved request
         request.status           = 'APPROVED';
         request.category         = effectiveQuota; // keep quota in sync with student
         request.college          = effectiveCollege || request.college;
@@ -855,17 +847,10 @@ const approveConcessionRequest = async (req, res) => {
         await request.save();
 
         // Return enriched concessions for frontend to refresh
-        const updatedList = await db.query(
-            `SELECT * FROM overall_concessions WHERE admission_number = ?`,
-            [admissionNumber]
-        );
-        const updatedRow = updatedList[0]?.[0];
-        const responseConcessions = updatedRow
-            ? (typeof updatedRow.revised_fees === 'string' ? JSON.parse(updatedRow.revised_fees) : updatedRow.revised_fees || []).map((c, idx) => ({
-                id: `${updatedRow.id}_${idx}`,
-                ...mapStoredEntryForResponse(c, feeHeads, codeMap)
-            }))
-            : [];
+        const responseConcessions = mergedFees.map((c, idx) => ({
+            id: `${request._id.toString()}_${idx}`,
+            ...mapStoredEntryForResponse(c, feeHeads, codeMap)
+        }));
 
         res.json({
             message: 'Concession request approved and fees updated.',

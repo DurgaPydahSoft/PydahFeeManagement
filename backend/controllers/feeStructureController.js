@@ -3,6 +3,7 @@ const FeeStructure = require('../models/FeeStructure');
 const StudentFee = require('../models/StudentFee');
 const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
+const OverallConcessionRequest = require('../models/OverallConcessionRequest');
 const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
 const db = require('../config/sqlDb');
@@ -44,11 +45,24 @@ const applyFeeStructureToBatchInternal = async (structure) => {
 
     if (students.length === 0) return;
 
-    // Fetch revised fees from overall_concessions table
-    const [concessions] = await db.query(
-        `SELECT admission_number, revised_fees FROM overall_concessions WHERE batch = ?`,
-        [structure.batch]
-    );
+    // Fetch revised fees from MongoDB OverallConcessionRequest collection
+    const approvedRequests = await OverallConcessionRequest.find({
+        batch: structure.batch,
+        status: 'APPROVED'
+    }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+
+    // Group by student to get the latest approved request per student
+    const studentLatestRequest = {};
+    approvedRequests.forEach(req => {
+        if (!studentLatestRequest[req.admissionNumber]) {
+            studentLatestRequest[req.admissionNumber] = req;
+        }
+    });
+
+    const concessions = Object.values(studentLatestRequest).map(req => ({
+        admission_number: req.admissionNumber,
+        revised_fees: req.concessions
+    }));
     const feeHeads = await FeeHead.find({}).lean();
     const { codeMap } = buildFeeHeadMaps(feeHeads);
     const revisedFeesMap = {};

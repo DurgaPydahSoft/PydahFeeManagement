@@ -1276,32 +1276,34 @@ const OverallConcession = () => {
                                                                     <table className="w-full text-[11px] border-collapse border border-slate-200 rounded-lg overflow-hidden">
                                                                         <thead>
                                                                             <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
-                                                                                <th className="px-3 py-2 text-left font-bold border border-slate-200 min-w-[140px]">Fee Component</th>
-                                                                                {displayYears.map(yr => (
-                                                                                    <th key={yr} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap min-w-[90px]">
-                                                                                        {getYearSuffix(yr)} Yr
+                                                                                <th className="px-3 py-2 text-left font-bold border border-slate-200 min-w-[100px]">Academic Year</th>
+                                                                                {headEntries.map(([fhId, row]) => (
+                                                                                    <th key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap min-w-[120px]">
+                                                                                        {row.name}
                                                                                     </th>
                                                                                 ))}
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody>
-                                                                            {headEntries.map(([fhId, row]) => (
-                                                                                <tr key={fhId} className="bg-white">
-                                                                                    <td className="px-3 py-2 font-semibold text-slate-800 border border-slate-200 whitespace-nowrap">
-                                                                                        {row.name}
-                                                                                        <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold border ${row.type === 'CONCESSION' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
-                                                                                            {row.type === 'CONCESSION' ? 'Conc.' : 'Revised'}
-                                                                                        </span>
+                                                                            {displayYears.map(yr => (
+                                                                                <tr key={yr} className="bg-white">
+                                                                                    <td className="px-3 py-2 font-semibold text-slate-800 border border-slate-200 whitespace-nowrap text-left">
+                                                                                        {getYearSuffix(yr)} Year
                                                                                     </td>
-                                                                                    {displayYears.map(yr => {
+                                                                                    {headEntries.map(([fhId, row]) => {
                                                                                         const cell = row.years[yr];
                                                                                         return (
-                                                                                            <td key={yr} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap">
-                                                                                                {cell && Number(cell.amount) > 0
-                                                                                                    ? <span className={cell.type === 'CONCESSION' ? 'text-amber-700' : 'text-emerald-700'}>
+                                                                                            <td key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap">
+                                                                                                {cell && Number(cell.amount) > 0 ? (
+                                                                                                    <span className={cell.type === 'CONCESSION' ? 'text-amber-700' : 'text-emerald-700'}>
                                                                                                         {cell.type === 'CONCESSION' ? '-' : ''}₹{Number(cell.amount).toLocaleString('en-IN')}
-                                                                                                      </span>
-                                                                                                    : <span className="text-slate-300 font-normal">—</span>}
+                                                                                                        <span className={`ml-1 px-1 py-0.5 rounded text-[8px] font-bold border ${cell.type === 'CONCESSION' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                                                                                            {cell.type === 'CONCESSION' ? 'Conc.' : 'Rev.'}
+                                                                                                        </span>
+                                                                                                    </span>
+                                                                                                ) : (
+                                                                                                    <span className="text-slate-300 font-normal">—</span>
+                                                                                                )}
                                                                                             </td>
                                                                                         );
                                                                                     })}
