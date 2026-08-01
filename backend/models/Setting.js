@@ -21,6 +21,10 @@ const settingSchema = mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FeeHead',
   }],
+  allowedConcessionFeeHeads: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FeeHead',
+  }],
   maskName: {
     type: String,
     default: 'Processing Fee', // Default name for masked fees

@@ -102,7 +102,7 @@ const createConcessionRequest = async (req, res) => {
 // @route   GET /api/concessions
 // @query   status, college, course, branch, batch
 const getConcessionRequests = async (req, res) => {
-  const { status, college, course, branch, batch, search, studentId, startDate, endDate, concessionGivenBy } = req.query;
+  const { status, college, course, branch, batch, search, studentId, startDate, endDate, concessionGivenBy, requestedBy } = req.query;
   const filter = {};
 
   if (status && status !== 'ALL') filter.status = status;
@@ -113,6 +113,7 @@ const getConcessionRequests = async (req, res) => {
   if (batch) filter.batch = batch;
   if (studentId) filter.studentId = studentId;
   if (concessionGivenBy) filter.concessionGivenBy = concessionGivenBy;
+  if (requestedBy) filter.requestedBy = requestedBy;
 
   if (startDate || endDate) {
     filter.createdAt = {};

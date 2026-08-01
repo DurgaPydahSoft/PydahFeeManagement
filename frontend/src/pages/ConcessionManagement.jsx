@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2, ShieldAlert, Menu, CheckCircle2 } from 'lucide-react';
+import Swal from 'sweetalert2';
+import { Search, Upload, X, Check, Save, Calendar, Filter, Landmark, Users, Printer, Edit2, ShieldAlert, Menu, CheckCircle2, History, RefreshCw } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useReactToPrint } from 'react-to-print';
 import ConcessionReportPrint from '../components/ConcessionReportPrint';
@@ -55,6 +56,12 @@ const ConcessionManagement = () => {
         batch: '',
         search: ''
     });
+
+    // Configurable Fee Heads & User History states
+    const [settings, setSettings] = useState(null);
+    const [selectedAllowedHeads, setSelectedAllowedHeads] = useState([]);
+    const [userRequests, setUserRequests] = useState([]);
+    const [isUserRequestsLoading, setIsUserRequestsLoading] = useState(false);
 
     // Modal State
     const [selectedRequest, setSelectedRequest] = useState(null);
@@ -124,14 +131,70 @@ const ConcessionManagement = () => {
     const role = storedUser.role;
     const hasPermission = role === 'superadmin' || role === 'admin' || permissions.includes('/concessions');
 
+    const fetchSettings = async () => {
+        try {
+            const res = await api.get('/settings');
+            setSettings(res.data);
+            setSelectedAllowedHeads((res.data.allowedConcessionFeeHeads || []).map(id => id?.toString()));
+        } catch (err) {
+            console.error('Failed to load settings:', err);
+        }
+    };
+
+    const fetchUserRequests = async (currentUser = user) => {
+        const u = currentUser || JSON.parse(localStorage.getItem('user'));
+        if (!u) return;
+        setIsUserRequestsLoading(true);
+        try {
+            const userName = u.name || u.username;
+            const res = await api.get(`/concessions`, {
+                params: { requestedBy: userName }
+            });
+            setUserRequests(res.data || []);
+        } catch (e) {
+            console.error('Error fetching user concession requests:', e);
+        }
+        setIsUserRequestsLoading(false);
+    };
+
+    const handleSaveAllowedFeeHeads = async () => {
+        try {
+            const res = await api.put('/settings', {
+                ...settings,
+                allowedConcessionFeeHeads: selectedAllowedHeads
+            });
+            setSettings(res.data);
+            setSelectedAllowedHeads((res.data.allowedConcessionFeeHeads || []).map(id => id?.toString()));
+            Swal.fire({
+                icon: 'success',
+                title: 'Settings Saved',
+                text: 'Allowed Fee Heads configuration updated successfully.',
+                timer: 1500,
+                showConfirmButton: false,
+                customClass: {
+                    popup: 'rounded-2xl border border-gray-100 shadow-xl'
+                }
+            });
+        } catch (err) {
+            console.error(err);
+            Swal.fire({
+                icon: 'error',
+                title: 'Failed to Save',
+                text: 'Could not update Allowed Fee Heads configuration.'
+            });
+        }
+    };
+
     useEffect(() => {
         if (!hasPermission) return;
         const u = JSON.parse(localStorage.getItem('user'));
         setUser(u);
         fetchFeeHeads();
         fetchMetadata();
+        fetchSettings();
         if (activeTab === 'request') {
             fetchActiveApprovers();
+            fetchUserRequests(u);
         }
         if (activeTab === 'approvals') {
             fetchPendingRequests();
@@ -520,6 +583,7 @@ const ConcessionManagement = () => {
                 }
             }
 
+            fetchUserRequests();
         } catch (error) {
             console.error(error);
             alert('Failed to submit request');
@@ -686,7 +750,8 @@ const ConcessionManagement = () => {
 
                 {/* Content Area - Request Tab */}
                 {activeTab === 'request' && (
-                    <div className="p-3 sm:p-6 flex flex-col lg:flex-row items-start gap-4 sm:gap-6 max-w-[1700px] mx-auto w-full">
+                    <div className="p-3 sm:p-6 flex flex-col gap-6 max-w-[1700px] mx-auto w-full">
+                        <div className="flex flex-col lg:flex-row items-start gap-4 sm:gap-6 w-full">
                         {/* LEFT COLUMN: Student Context & Filters */}
                         <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col shrink-0">
                             <div className="p-3 sm:p-4 border-b bg-gray-50 space-y-3">
@@ -828,7 +893,7 @@ const ConcessionManagement = () => {
                                                 <div>
                                                     <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Selected Student</span>
                                                     <h4 className="font-extrabold text-gray-900 text-base mt-1.5">{selectedStudents[0].student_name}</h4>
-                                                    <p className="text-xs text-gray-500 font-mono font-bold">{selectedStudents[0].pin_number || selectedStudents[0].admission_number}</p>
+                                                    <p className="text-xs text-gray-500 font-mono font-bold">{selectedStudents[0].admission_number} | {selectedStudents[0].pin_no}</p>
                                                 </div>
                                                 <button
                                                     type="button"
@@ -988,7 +1053,10 @@ const ConcessionManagement = () => {
                                             required
                                         >
                                             <option value="">Select Fee Component</option>
-                                            {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
+                                             {feeHeads.filter(fh => {
+                                                 if (!settings || !settings.allowedConcessionFeeHeads || settings.allowedConcessionFeeHeads.length === 0) return true;
+                                                 return settings.allowedConcessionFeeHeads.map(id => id?.toString()).includes(fh._id?.toString());
+                                             }).map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
                                         </select>
                                         {selectedStudents.length > 0 && formData.studentYear && (
                                             <p className="text-[10px] text-indigo-600 font-semibold mt-1">
@@ -1079,6 +1147,100 @@ const ConcessionManagement = () => {
                                     <Save size={18} />
                                     {selectionMode === 'single' ? 'Submit Concession' : 'Submit Bulk Concession'}
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* BOTTOM: Raised Concessions by User History */}
+                        <div className="w-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div className="p-3 sm:p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between px-4 sm:px-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                                        <History size={16} strokeWidth={3} />
+                                    </div>
+                                    <h3 className="font-extrabold text-gray-800 text-xs sm:text-sm uppercase tracking-wider">Your Raised Concessions History</h3>
+                                </div>
+                                <button 
+                                    type="button" 
+                                    onClick={() => fetchUserRequests()} 
+                                    className="text-xs text-blue-600 hover:text-blue-800 font-extrabold flex items-center gap-1 bg-white border border-gray-200 px-3 py-1.5 rounded-lg shadow-xs transition"
+                                >
+                                    <RefreshCw size={12} className={isUserRequestsLoading ? 'animate-spin' : ''} /> Refresh History
+                                </button>
+                            </div>
+                            
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-gray-50 border-b border-gray-200 text-[10px] uppercase tracking-widest text-gray-500 font-extrabold">
+                                        <tr>
+                                            <th className="py-3 px-6">Date</th>
+                                            <th className="py-3 px-6">Voucher #</th>
+                                            <th className="py-3 px-6">Student Detail</th>
+                                            <th className="py-3 px-6">Course / Branch</th>
+                                            <th className="py-3 px-6">Fee Component</th>
+                                            <th className="py-3 px-6 text-right">Amount</th>
+                                            <th className="py-3 px-6">Given By</th>
+                                            <th className="py-3 px-6 text-center">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-100">
+                                        {isUserRequestsLoading ? (
+                                            <tr>
+                                                <td colSpan="8" className="py-16 text-center">
+                                                    <div className="flex flex-col items-center justify-center gap-2">
+                                                        <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                                        <p className="text-xs font-extrabold text-blue-600 uppercase tracking-widest animate-pulse">Loading History...</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : userRequests.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="8" className="py-16 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
+                                                    No concessions raised yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            userRequests.map(req => (
+                                                <tr key={req._id} className="hover:bg-gray-50/80 transition-all duration-200 text-xs">
+                                                    <td className="py-3 px-6 font-bold text-gray-600">
+                                                        {new Date(req.createdAt).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                                                    </td>
+                                                    <td className="py-3 px-6">
+                                                        <span className="font-mono text-[10px] font-black bg-gray-100 px-2 py-1 rounded border border-gray-200 text-gray-800">
+                                                            #{req.voucherId || '---'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-6">
+                                                        <div className="font-bold text-gray-800 italic">{req.studentName}</div>
+                                                        <div className="text-[9px] text-gray-400 font-black uppercase tracking-widest">{req.studentPin || req.studentId}</div>
+                                                    </td>
+                                                    <td className="py-3 px-6">
+                                                        <div className="font-bold text-gray-700">{req.course}</div>
+                                                        <div className="text-[10px] text-gray-500 font-semibold">{req.branch} ({req.batch})</div>
+                                                    </td>
+                                                    <td className="py-3 px-6">
+                                                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{req.feeHead?.name}</span>
+                                                    </td>
+                                                    <td className="py-3 px-6 font-black text-gray-900 text-right">
+                                                        ₹{req.amount.toLocaleString('en-IN')}
+                                                    </td>
+                                                    <td className="py-3 px-6 font-semibold text-gray-700">
+                                                        {req.concessionGivenBy || 'Not Specified'}
+                                                    </td>
+                                                    <td className="py-3 px-6 text-center">
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                                            req.status === 'APPROVED' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                            req.status === 'REJECTED' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                            'bg-amber-50 text-amber-700 border-amber-200'
+                                                        }`}>
+                                                            {req.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -1313,10 +1475,43 @@ const ConcessionManagement = () => {
                                             <Save size={16} /> Save Approver
                                         </button>
                                     </form>
-                                    <div className="mt-6 sm:mt-8 p-3 sm:p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/50 text-[10px] text-indigo-700 leading-relaxed font-medium italic">
-                                        <div className="font-bold mb-1 flex items-center gap-1"><Landmark size={12}/> Role Insight:</div>
-                                        These authorities will appear in the "Concession Given By" dropdown on the Fee Collection page.
+                                </div>
+
+                                {/* Allowed Fee Heads Configuration Card */}
+                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6 flex flex-col h-fit">
+                                    <div className="mb-4 sm:mb-6">
+                                        <h3 className="text-sm font-extrabold text-gray-800 uppercase tracking-wider mb-1">Allowed Fee Heads</h3>
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest italic">Concession Component restrictions</p>
                                     </div>
+                                    <div className="space-y-2 max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg p-2.5 bg-gray-50/30">
+                                        {feeHeads.map(fh => {
+                                            const isChecked = selectedAllowedHeads.includes(fh._id);
+                                            return (
+                                                <label key={fh._id} className="flex items-center gap-2.5 text-xs text-gray-700 font-bold cursor-pointer hover:bg-gray-50 p-1.5 rounded transition select-none">
+                                                    <input 
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => {
+                                                            if (isChecked) {
+                                                                setSelectedAllowedHeads(prev => prev.filter(id => id !== fh._id));
+                                                            } else {
+                                                                setSelectedAllowedHeads(prev => [...prev, fh._id]);
+                                                            }
+                                                        }}
+                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                    />
+                                                    <span>{fh.name}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={handleSaveAllowedFeeHeads}
+                                        className="w-full bg-blue-600 text-white font-extrabold py-2.5 rounded-lg hover:bg-blue-700 transition shadow-md text-xs active:scale-95 flex items-center justify-center gap-1.5"
+                                    >
+                                        <Save size={14} /> Save Configuration
+                                    </button>
                                 </div>
                             </div>
 
