@@ -1693,7 +1693,23 @@ const FeeConfiguration = () => {
                             <FeeConfigPrintButton
                                 variant="structures"
                                 data={{
-                                    rows: groupedArray,
+                                    rows: groupedArray.flatMap(group => 
+                                        (group.categories || []).map(cat => {
+                                            const qData = group.quotasMap[cat];
+                                            return {
+                                                college: group.college,
+                                                batch: group.batch,
+                                                course: group.course,
+                                                branch: group.branch,
+                                                category: cat,
+                                                feeHeadsMap: qData?.feeHeadsMap || {},
+                                                matrix: qData?.matrix || {},
+                                                grandTotal: qData?.grandTotal || 0,
+                                                yearTotals: qData?.yearTotals || {},
+                                                feeHeadTotals: qData?.feeHeadTotals || {}
+                                            };
+                                        })
+                                    ),
                                     tableYears,
                                     collegeCodes,
                                     filters: {

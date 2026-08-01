@@ -190,7 +190,7 @@ const ConcessionManagement = () => {
     useEffect(() => {
         if (!hasPermission) return;
         const delayDebounceFn = setTimeout(async () => {
-            if (activeTab === 'request' && searchTerm.length >= 3) {
+            if (activeTab === 'request' && searchTerm.length >= 1) {
                 setIsSearching(true);
                 try {
                     const res = await api.get(`/students/search?q=${searchTerm}`);
@@ -733,7 +733,7 @@ const ConcessionManagement = () => {
                                         ref={searchInputRef}
                                         type="text"
                                         className="pl-10 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"
-                                        placeholder="Search by Name, ID or Pin..."
+                                        placeholder="Search Name, Adm No, Pin, Mobile..."
                                         value={searchTerm}
                                         onChange={e => { setSearchTerm(e.target.value); if (e.target.value === '') setSearchResults([]); }}
                                     />
@@ -760,7 +760,7 @@ const ConcessionManagement = () => {
                                                 >
                                                     <div className="font-bold text-gray-800 text-sm">{s.student_name}</div>
                                                     <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                                        <span>{s.pin_number || s.admission_number}</span>
+                                                        <span>{s.admission_number}{s.pin_no ? ` | Pin: ${s.pin_no}` : ''}</span>
                                                         <span>{s.course} - {s.branch}</span>
                                                     </div>
                                                 </div>

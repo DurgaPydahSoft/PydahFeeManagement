@@ -241,16 +241,31 @@ const getStudentByAdmissionNumber = async (req, res) => {
 const searchStudents = async (req, res) => {
     try {
         const { q, campusId } = req.query;
-        if (!q || q.length < 3) return res.json([]);
+        if (!q || q.length < 1) return res.json([]);
 
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
+        const cleanQ = q.replace(/[^a-zA-Z0-9]/g, '');
         const searchTerm = `%${q}%`;
+        const cleanSearchTerm = `%${cleanQ}%`;
+
         let query = `
-            SELECT admission_number, student_name, pin_no, caste, college, course, branch, batch, current_year, current_semester, student_photo 
+            SELECT admission_number, student_name, pin_no, caste, college, course, branch, batch, current_year, current_semester, student_photo, student_mobile 
             FROM students 
-            WHERE (admission_number LIKE ? OR student_name LIKE ? OR pin_no LIKE ?)
+            WHERE (
+                admission_number LIKE ? 
+                OR student_name LIKE ? 
+                OR pin_no LIKE ? 
+                OR student_mobile LIKE ?
+                ${cleanQ.length > 0 ? `
+                OR REPLACE(REPLACE(REPLACE(admission_number, '-', ''), '/', ''), ' ', '') LIKE ?
+                OR REPLACE(REPLACE(REPLACE(pin_no, '-', ''), '/', ''), ' ', '') LIKE ?
+                ` : ''}
+            )
         `;
-        const params = [searchTerm, searchTerm, searchTerm];
+        const params = [searchTerm, searchTerm, searchTerm, searchTerm];
+        if (cleanQ.length > 0) {
+            params.push(cleanSearchTerm, cleanSearchTerm);
+        }
 
         if (allowedColleges && allowedColleges.length > 0) {
             query += ` AND college IN (${allowedColleges.map(() => '?').join(',')})`;
