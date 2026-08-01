@@ -16,8 +16,11 @@ const validateProceedingAccess = async (proceeding, user) => {
         return false;
     }
     const allowedCourses = user.courses?.length > 0 ? user.courses : null;
-    if (allowedCourses && !allowedCourses.includes(proceeding.course)) {
-        return false;
+    if (allowedCourses) {
+        const matchString = `${proceeding.college}|${proceeding.course}`;
+        if (!allowedCourses.includes(matchString)) {
+            return false;
+        }
     }
     return true;
 };
@@ -53,15 +56,51 @@ const getProceedings = async (req, res) => {
             }
         }
 
-        // Apply user-level course scope
+        // Apply user-level course scope (prefixed as COLLEGE_NAME|COURSE_NAME)
         const allowedCourses = req.user.courses?.length > 0 ? req.user.courses : null;
         if (allowedCourses) {
-            if (query.course) {
-                if (!allowedCourses.includes(query.course)) {
-                    query.course = '__none__';
+            const pairs = allowedCourses.map(ac => {
+                const parts = ac.split('|');
+                if (parts.length === 2) {
+                    return { college: parts[0], course: parts[1] };
                 }
-            } else {
-                query.course = { $in: allowedCourses };
+                return null;
+            }).filter(Boolean);
+            
+            if (pairs.length > 0) {
+                if (query.college && query.course) {
+                    const hasMatch = pairs.some(p => p.college === query.college && p.course === query.course);
+                    if (!hasMatch) {
+                        query.college = '__none__';
+                        query.course = '__none__';
+                    }
+                } else if (query.college) {
+                    if (typeof query.college === 'string') {
+                        const matchingCourses = pairs.filter(p => p.college === query.college).map(p => p.course);
+                        if (matchingCourses.length > 0) {
+                            query.course = { $in: matchingCourses };
+                        } else {
+                            query.course = '__none__';
+                        }
+                    } else if (query.college.$in) {
+                        const validPairs = pairs.filter(p => query.college.$in.includes(p.college));
+                        if (validPairs.length > 0) {
+                            query.$or = validPairs;
+                        } else {
+                            query.college = '__none__';
+                            query.course = '__none__';
+                        }
+                    }
+                } else if (query.course) {
+                    const matchingColleges = pairs.filter(p => p.course === query.course).map(p => p.college);
+                    if (matchingColleges.length > 0) {
+                        query.college = { $in: matchingColleges };
+                    } else {
+                        query.college = '__none__';
+                    }
+                } else {
+                    query.$or = pairs;
+                }
             }
         }
 
@@ -110,8 +149,11 @@ const createProceeding = async (req, res) => {
             return res.status(403).json({ message: `Forbidden: You do not have permission for the college: ${college}` });
         }
         const allowedCourses = req.user.courses?.length > 0 ? req.user.courses : null;
-        if (allowedCourses && !allowedCourses.includes(course)) {
-            return res.status(403).json({ message: `Forbidden: You do not have permission for the course: ${course}` });
+        if (allowedCourses) {
+            const matchString = `${college}|${course}`;
+            if (!allowedCourses.includes(matchString)) {
+                return res.status(403).json({ message: `Forbidden: You do not have permission for the course: ${course}` });
+            }
         }
 
         const proceedingExists = await Proceeding.findOne({ proceedingNumber, course });
@@ -178,30 +220,33 @@ const updateProceeding = async (req, res) => {
         }
 
         // Validate new college/course (if changing)
-        if (req.body.college) {
-            const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
-            if (allowedColleges && !allowedColleges.includes(req.body.college)) {
-                return res.status(403).json({ message: `Forbidden: You do not have permission for the college: ${req.body.college}` });
-            }
+        const nextCollege = req.body.college || proceeding.college;
+        const nextCourse = req.body.course || proceeding.course;
+
+        const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
+        if (allowedColleges && !allowedColleges.includes(nextCollege)) {
+            return res.status(403).json({ message: `Forbidden: You do not have permission for the college: ${nextCollege}` });
         }
-        if (req.body.course) {
-            const allowedCourses = req.user.courses?.length > 0 ? req.user.courses : null;
-            if (allowedCourses && !allowedCourses.includes(req.body.course)) {
-                return res.status(403).json({ message: `Forbidden: You do not have permission for the course: ${req.body.course}` });
+        
+        const allowedCourses = req.user.courses?.length > 0 ? req.user.courses : null;
+        if (allowedCourses) {
+            const matchString = `${nextCollege}|${nextCourse}`;
+            if (!allowedCourses.includes(matchString)) {
+                return res.status(403).json({ message: `Forbidden: You do not have permission for the course: ${nextCourse}` });
             }
         }
 
         const nextProceedingNumber = req.body.proceedingNumber ?? proceeding.proceedingNumber;
-        const nextCourse = req.body.course ?? proceeding.course;
+        const finalCourse = req.body.course ?? proceeding.course;
 
         const duplicate = await Proceeding.findOne({
             proceedingNumber: nextProceedingNumber,
-            course: nextCourse,
+            course: finalCourse,
             _id: { $ne: proceeding._id }
         });
         if (duplicate) {
             return res.status(400).json({
-                message: `Proceeding number '${nextProceedingNumber}' already exists for course '${nextCourse}'`
+                message: `Proceeding number '${nextProceedingNumber}' already exists for course '${finalCourse}'`
             });
         }
 

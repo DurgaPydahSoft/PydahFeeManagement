@@ -73,11 +73,10 @@ const Proceedings = () => {
             
             // Filter metadata hierarchy by user colleges and courses
             let finalHierarchy = metaRes.data.hierarchy || {};
-            const isRestricted = user?.role !== 'superadmin' && user?.role !== 'admin';
+            const userColleges = (user?.colleges || []).map(c => c.toUpperCase().trim());
+            const userCourses = (user?.courses || []).map(c => c.toUpperCase().trim());
             
-            if (isRestricted) {
-                const userColleges = (user?.colleges || []).map(c => c.toUpperCase().trim());
-                const userCourses = (user?.courses || []).map(c => c.toUpperCase().trim());
+            if (user?.role !== 'superadmin' && (userColleges.length > 0 || userCourses.length > 0)) {
                 const filteredHierarchy = {};
                 
                 Object.entries(finalHierarchy).forEach(([collegeName, courseMap]) => {
@@ -88,8 +87,9 @@ const Proceedings = () => {
                     
                     const filteredCourses = {};
                     Object.entries(courseMap).forEach(([courseName, branchObj]) => {
-                        // Filter by allowed courses
-                        if (userCourses.length === 0 || userCourses.includes(courseName.toUpperCase().trim())) {
+                        // Filter by allowed courses (user.courses are prefixed as COLLEGE_NAME|COURSE_NAME)
+                        const matchString = `${collegeName}|${courseName}`.toUpperCase().trim();
+                        if (userCourses.length === 0 || userCourses.includes(matchString)) {
                             filteredCourses[courseName] = branchObj;
                         }
                     });
