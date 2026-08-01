@@ -65,7 +65,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/proceedings',
-    permissions: ['proceedings_view', '/fee-collection'],
+    permissions: ['proceedings_view', '/proceedings', '/fee-collection'],
   },
   {
     prefix: '/api/concessions',

@@ -28,7 +28,7 @@ const Proceedings = () => {
     const permissions = user?.permissions || [];
     const canApprove = user?.role === 'superadmin' || permissions.includes('proceedings_approve');
     const canEdit = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_edit');
-    const canView = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_view');
+    const canView = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_view') || permissions.includes('/proceedings');
 
     const [proceedings, setProceedings] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -71,15 +71,25 @@ const Proceedings = () => {
             ]);
             setProceedings(procRes.data);
             
-            // Filter metadata hierarchy by user courses
+            // Filter metadata hierarchy by user colleges and courses
             let finalHierarchy = metaRes.data.hierarchy || {};
-            if (user?.courses && user.courses.length > 0) {
-                const userCourses = user.courses.map(c => c.toUpperCase().trim());
+            const isRestricted = user?.role !== 'superadmin' && user?.role !== 'admin';
+            
+            if (isRestricted) {
+                const userColleges = (user?.colleges || []).map(c => c.toUpperCase().trim());
+                const userCourses = (user?.courses || []).map(c => c.toUpperCase().trim());
                 const filteredHierarchy = {};
+                
                 Object.entries(finalHierarchy).forEach(([collegeName, courseMap]) => {
+                    // Filter by allowed colleges
+                    if (userColleges.length > 0 && !userColleges.includes(collegeName.toUpperCase().trim())) {
+                        return;
+                    }
+                    
                     const filteredCourses = {};
                     Object.entries(courseMap).forEach(([courseName, branchObj]) => {
-                        if (userCourses.includes(courseName.toUpperCase().trim())) {
+                        // Filter by allowed courses
+                        if (userCourses.length === 0 || userCourses.includes(courseName.toUpperCase().trim())) {
                             filteredCourses[courseName] = branchObj;
                         }
                     });
