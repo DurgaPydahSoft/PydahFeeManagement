@@ -15,6 +15,13 @@ const Login = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
+    // Forgot Password States
+    const [showForgotModal, setShowForgotModal] = useState(false);
+    const [emailInput, setEmailInput] = useState('');
+    const [modalError, setModalError] = useState('');
+    const [modalSuccess, setModalSuccess] = useState('');
+    const [modalLoading, setModalLoading] = useState(false);
+
     const { username, password } = formData;
 
     // Already logged in — skip login screen (unless handling SSO token in URL)
@@ -84,6 +91,27 @@ const Login = () => {
             setLoading(false);
         }
     };
+
+    const handleForgotPasswordSubmit = async (e) => {
+        e.preventDefault();
+        setModalError('');
+        setModalSuccess('');
+        setModalLoading(true);
+        try {
+            const response = await api.post('/auth/forgot-password', { email: emailInput });
+            setModalSuccess(response.data?.message || 'A new password has been sent to your email.');
+            setEmailInput('');
+            setTimeout(() => {
+                setShowForgotModal(false);
+                setModalSuccess('');
+            }, 3500);
+        } catch (err) {
+            setModalError(err.response?.data?.message || 'Failed to send password reset email');
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
     return (
         <div className="min-h-screen flex items-center justify-center p-4 font-sans relative overflow-hidden" style={{ backgroundImage: "url('/background.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}>
             {/* Ambient Background Blobs */}
@@ -213,7 +241,18 @@ const Login = () => {
                             </div>
 
                             <div className="flex justify-end pt-1">
-                                <a href="#" className="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline">Forgot Password?</a>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowForgotModal(true);
+                                        setModalError('');
+                                        setModalSuccess('');
+                                        setOtpSent(false);
+                                    }}
+                                    className="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline focus:outline-none"
+                                >
+                                    Forgot Password?
+                                </button>
                             </div>
 
                             <button
@@ -248,6 +287,87 @@ const Login = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Forgot Password Modal */}
+            {showForgotModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 transform scale-100 transition-all duration-300">
+                        {/* Header */}
+                        <div className="relative bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white">
+                            <h3 className="text-xl font-bold">Reset Password</h3>
+                            <p className="text-blue-100 text-xs mt-1">For Super Admin Accounts Only</p>
+                            <button
+                                type="button"
+                                onClick={() => setShowForgotModal(false)}
+                                className="absolute top-4 right-4 text-white/80 hover:text-white transition-colors focus:outline-none"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6">
+                            {/* Warnings/Admonitions */}
+                            <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-2xl text-amber-800 text-xs leading-relaxed flex gap-2.5 items-start">
+                                <svg className="w-5 h-5 flex-shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <div>
+                                    <span className="font-bold block mb-1">Access Restriction Notice</span>
+                                    Password reset through this portal is strictly enabled for <strong className="font-semibold text-amber-900">Super Admin</strong> accounts. Employees must contact their HRMS system administrators to update credentials.
+                                </div>
+                            </div>
+
+                            {modalError && (
+                                <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-xs font-semibold flex gap-2 items-center animate-fade-in">
+                                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span>{modalError}</span>
+                                </div>
+                            )}
+
+                            {modalSuccess && (
+                                <div className="mb-4 p-3 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl text-xs font-semibold flex gap-2 items-center animate-fade-in">
+                                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span>{modalSuccess}</span>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                                <div className="space-y-1.5">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider pl-1">Super Admin Email</label>
+                                    <div className="relative group">
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-600 transition-colors">
+                                            <User size={16} />
+                                        </div>
+                                        <input
+                                            type="email"
+                                            value={emailInput}
+                                            onChange={(e) => setEmailInput(e.target.value)}
+                                            placeholder="admin@pydahsoft.in"
+                                            className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200/80 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-400 focus:bg-white transition-all text-slate-700 font-medium placeholder-slate-400 text-sm"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={modalLoading}
+                                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:shadow-blue-300 transition-all disabled:opacity-75 flex justify-center items-center gap-2 text-sm"
+                                >
+                                    {modalLoading ? <Loader className="animate-spin" size={16} /> : 'Send New Password'}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

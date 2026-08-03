@@ -32,7 +32,9 @@ const UserManagement = () => {
         colleges: [],
         courses: [],
         permissions: [],
-        employeeId: null
+        employeeId: null,
+        email: '',
+        mobile: ''
     });
 
     const { campuses: campusList } = useCampuses();
@@ -263,7 +265,7 @@ const UserManagement = () => {
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
-            setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null });
+            setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '' });
             setShowCreateEditModal(false);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
@@ -284,20 +286,22 @@ const UserManagement = () => {
             colleges: user.colleges || [],
             courses: user.courses || [],
             employeeId: user.employeeId || null,
-            permissions: user.permissions || []
+            permissions: user.permissions || [],
+            email: user.email || '',
+            mobile: user.mobile || ''
         });
         setEditingUserId(user._id);
         setShowCreateEditModal(true);
     };
 
     const handleCancelEdit = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [] });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [], email: '', mobile: '' });
         setEditingUserId(null);
         setShowCreateEditModal(false);
     };
 
     const openCreateModal = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '' });
         setEditingUserId(null);
         setShowCreateEditModal(true);
     };
@@ -430,12 +434,13 @@ const UserManagement = () => {
                         </div>
                         {loading ? <p>Loading...</p> : (
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-gray-50 border-b">
+                                <table className="w-full text-left text-sm">                                    <thead className="bg-gray-50 border-b">
                                         <tr>
                                             <th className="p-3 font-semibold text-gray-600">Name</th>
                                             <th className="p-3 font-semibold text-gray-600">Username</th>
                                             <th className="p-3 font-semibold text-gray-600">Role</th>
+                                            <th className="p-3 font-semibold text-gray-600">Email</th>
+                                            <th className="p-3 font-semibold text-gray-600">Mobile</th>
                                             <th className="p-3 font-semibold text-gray-600">College Scope</th>
                                             {isSuperAdminUser && <th className="p-3 font-semibold text-right">Action</th>}
                                         </tr>
@@ -478,12 +483,14 @@ const UserManagement = () => {
                                                 <td className="p-3">
                                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
                                                         user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-                                                            user.role === 'cashier' ? 'bg-green-100 text-green-700' :
-                                                                'bg-gray-100 text-gray-700'
-                                                        }`}>
-                                                        {user.role}
-                                                    </span>
+                                                             user.role === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                                 'bg-gray-100 text-gray-700'
+                                                         }`}>
+                                                         {user.role}
+                                                     </span>
                                                 </td>
+                                                <td className="p-3 text-gray-500 text-xs">{user.email || '—'}</td>
+                                                <td className="p-3 text-gray-500 text-xs">{user.mobile || '—'}</td>
                                                 <td className="p-3 text-gray-500">
                                                     {user.campuses && user.campuses.length > 0 && (
                                                         <div className="text-[10px] text-indigo-600 font-bold mb-1">
@@ -493,7 +500,7 @@ const UserManagement = () => {
                                                     {user.colleges && user.colleges.length > 0 ? (
                                                         <div className="space-y-1">
                                                             <div className="font-semibold text-xs text-gray-700">
-                                                                {user.colleges.join(', ')}
+                                                                 {user.colleges.join(', ')}
                                                             </div>
                                                             {user.courses && user.courses.length > 0 && (
                                                                 <div className="text-[10px] text-gray-400 max-w-xs truncate" title={user.courses.map(c => c.split('|')[1]).join(', ')}>
@@ -679,6 +686,30 @@ const UserManagement = () => {
                                             <option value="admin">Admin</option>
                                             <option value="superadmin">Super Admin</option>
                                         </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Email Address</label>
+                                        <input
+                                            type="email"
+                                            name="email"
+                                            value={formData.email || ''}
+                                            onChange={handleChange}
+                                            className="w-full border p-2 rounded mt-1"
+                                            placeholder="e.g. admin@pydahsoft.in"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Mobile Number</label>
+                                        <input
+                                            type="text"
+                                            name="mobile"
+                                            value={formData.mobile || ''}
+                                            onChange={handleChange}
+                                            className="w-full border p-2 rounded mt-1"
+                                            placeholder="e.g. 9876543210"
+                                        />
                                     </div>
 
                                     {/* Campus Selection */}

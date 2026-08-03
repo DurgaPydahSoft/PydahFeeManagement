@@ -42,6 +42,20 @@ const userSchema = mongoose.Schema({
     type: [String], // Array of allowed paths (e.g., ['/dashboard', '/students'])
     default: [],
   },
+  email: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
+  mobile: {
+    type: String,
+  },
+  resetPasswordToken: {
+    type: String,
+  },
+  resetPasswordExpires: {
+    type: Date,
+  },
   sessionId: {
     type: String,
     default: null, // Stores the UUID of the current active session

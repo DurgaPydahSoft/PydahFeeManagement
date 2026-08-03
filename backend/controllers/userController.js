@@ -57,7 +57,7 @@ const updateUserPaymentAccess = async (req, res) => {
 const createUser = async (req, res) => {
   // console.log('\n[USER CREATION DEBUG] -----------------------------------------');
   // console.log('[USER CREATION DEBUG] Received Payload:', req.body);
-  const { name, username, password, role, college, colleges, campuses, courses, employeeId, permissions } = req.body;
+  const { name, username, password, role, college, colleges, campuses, courses, employeeId, permissions, email, mobile } = req.body;
 
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
@@ -104,7 +104,9 @@ const createUser = async (req, res) => {
       campuses: campuses || [],
       courses: courses || [],
       employeeId, // Link to external employee
-      permissions: permissions || [] // Save permissions if provided
+      permissions: permissions || [], // Save permissions if provided
+      email: email || undefined,
+      mobile: mobile || undefined
     });
 
     // console.log(`[USER CREATION DEBUG] User created successfully: ${user._id}`);
@@ -120,7 +122,9 @@ const createUser = async (req, res) => {
         campuses: user.campuses,
         courses: user.courses,
         employeeId: user.employeeId,
-        permissions: user.permissions
+        permissions: user.permissions,
+        email: user.email,
+        mobile: user.mobile
       });
     } else {
       res.status(400).json({ message: 'Invalid user data' });
@@ -179,7 +183,7 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const updateUser = async (req, res) => {
-  const { name, username, password, role, college, colleges, campuses, courses, permissions } = req.body;
+  const { name, username, password, role, college, colleges, campuses, courses, permissions, email, mobile } = req.body;
 
   try {
     const user = await User.findById(req.params.id);
@@ -217,6 +221,14 @@ const updateUser = async (req, res) => {
       user.permissions = permissions;
     }
 
+    if (email !== undefined) {
+      user.email = email === '' ? undefined : email;
+    }
+
+    if (mobile !== undefined) {
+      user.mobile = mobile === '' ? undefined : mobile;
+    }
+
     // Allow changing password for ALL users (including linked ones) 
     // This allows Superadmins (or users themselves, if we add that later) to set a local override password.
     if (password) {
@@ -235,7 +247,9 @@ const updateUser = async (req, res) => {
       colleges: updatedUser.colleges,
       campuses: updatedUser.campuses,
       courses: updatedUser.courses,
-      permissions: updatedUser.permissions
+      permissions: updatedUser.permissions,
+      email: updatedUser.email,
+      mobile: updatedUser.mobile
     });
   } catch (error) {
     console.error(error);

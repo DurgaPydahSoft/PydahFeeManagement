@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const User = require('../models/User');
 const { notifyLogout } = require('../utils/sseManager');
+const sendEmail = require('../utils/sendEmail');
 
 /**
  * Generate a JWT embedding both the user id and the current session UUID.
@@ -379,8 +380,74 @@ const logoutUser = async (req, res) => {
   }
 };
 
+// @desc    Forgot Password for Super Admin (Generates, saves, & sends a new temporary password)
+// @route   POST /api/auth/forgot-password
+// @access  Public
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: 'Email address is required' });
+  }
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ message: 'No account found with this email address' });
+    }
+
+    if (user.role !== 'superadmin') {
+      return res.status(403).json({ 
+        message: 'Password reset is restricted to Super Admins. Employees should contact HRMS administrators.' 
+      });
+    }
+
+    // Generate random 6-digit numeric temporary password
+    const tempPassword = Math.floor(100000 + Math.random() * 900000).toString();
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(tempPassword, salt);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    // Send email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Super Admin Password Reset',
+        message: `Your Super Admin password has been reset. Your new temporary password is: ${tempPassword}\n\nPlease log in using this password.`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #2563eb; margin-bottom: 20px; text-align: center;">Super Admin Password Reset</h2>
+            <p style="text-align: center; font-size: 16px; color: #475569;">Your password has been reset successfully. Here is your new login credential:</p>
+            <div style="text-align: center; margin: 32px 0;">
+              <div style="display: inline-block; background-color: #f1f5f9; padding: 18px 36px; border-radius: 12px; font-size: 32px; font-weight: bold; font-family: monospace; letter-spacing: 4px; color: #1e293b; border: 2px dashed #3b82f6; user-select: all; -webkit-user-select: all; cursor: pointer;">
+                ${tempPassword}
+              </div>
+              <p style="font-size: 12px; color: #64748b; margin-top: 8px;">(Double-click or long-press the code above to select and copy)</p>
+            </div>
+            <p style="font-size: 15px; line-height: 1.5; color: #334155; text-align: center;">Please use the temporary password shown above to log in to the Fee Management dashboard.</p>
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+            <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">If you did not request this password reset, please contact system administration immediately.</p>
+          </div>
+        `
+      });
+    } catch (emailErr) {
+      console.error('Failed to send reset email:', emailErr);
+      return res.status(500).json({ message: 'Failed to send password reset email via Brevo. Please check email settings.' });
+    }
+
+    res.json({ message: 'A new password has been sent to your email.' });
+  } catch (error) {
+    console.error('Forgot Password Error:', error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
 module.exports = {
   loginUser,
   ssoLogin,
   logoutUser,
+  forgotPassword,
 };
