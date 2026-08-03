@@ -1,4 +1,67 @@
 const { getHostelConnection } = require('../config/dbHostel');
+const mongoose = require('mongoose');
+
+// Define dynamic Schemas for Hostel DB connection
+const hostelSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: String,
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+
+const categorySchema = new mongoose.Schema({
+  hostel: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel', required: true },
+  name: { type: String, required: true },
+  description: String,
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+
+const roomSchema = new mongoose.Schema({
+  hostel: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel', required: true },
+  category: { type: mongoose.Schema.Types.ObjectId, ref: 'HostelCategory', required: true },
+  roomNumber: { type: String, required: true },
+  bedCount: { type: Number, default: 1 },
+  meterType: { type: String, enum: ['single', 'dual'], default: 'single' },
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+
+const feeStructureSchema = new mongoose.Schema({
+  academicYear: { type: String, required: true },
+  hostel: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel', required: true },
+  category: { type: mongoose.Schema.Types.ObjectId, ref: 'HostelCategory', required: true },
+  course: { type: String, required: true },
+  studentYear: { type: Number, required: true },
+  amount: { type: Number, required: true },
+  description: String
+}, { timestamps: true });
+
+// Compile models dynamically on the connection to prevent OverwriteModelError
+const getHostelModel = () => {
+  const conn = getHostelConnection();
+  if (!conn) return null;
+  if (conn.models.Hostel) return conn.models.Hostel;
+  return conn.model('Hostel', hostelSchema, 'hostels');
+};
+
+const getHostelCategoryModel = () => {
+  const conn = getHostelConnection();
+  if (!conn) return null;
+  if (conn.models.HostelCategory) return conn.models.HostelCategory;
+  return conn.model('HostelCategory', categorySchema, 'hostelcategories');
+};
+
+const getRoomModel = () => {
+  const conn = getHostelConnection();
+  if (!conn) return null;
+  if (conn.models.Room) return conn.models.Room;
+  return conn.model('Room', roomSchema, 'rooms');
+};
+
+const getHostelFeeStructureModel = () => {
+  const conn = getHostelConnection();
+  if (!conn) return null;
+  if (conn.models.HostelFeeStructure) return conn.models.HostelFeeStructure;
+  return conn.model('HostelFeeStructure', feeStructureSchema, 'feestructures');
+};
 
 const hostelsUnavailable = (res) => {
   return res.status(503).json({ message: 'Hostel database not configured or unavailable. Set MONGO_HOSTEL_URI.' });
@@ -9,7 +72,7 @@ const hostelsUnavailable = (res) => {
 exports.getHostels = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Hostel = require('../models-hostel/Hostel').getModel();
+    const Hostel = getHostelModel();
     const hostels = await Hostel.find().sort({ createdAt: -1 });
     res.json(hostels);
   } catch (error) {
@@ -20,7 +83,7 @@ exports.getHostels = async (req, res) => {
 exports.createHostel = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Hostel = require('../models-hostel/Hostel').getModel();
+    const Hostel = getHostelModel();
     const { name, description, isActive } = req.body;
     const existing = await Hostel.findOne({ name: (name || '').trim() });
     if (existing) return res.status(400).json({ message: 'Hostel name already exists' });
@@ -35,7 +98,7 @@ exports.createHostel = async (req, res) => {
 exports.updateHostel = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Hostel = require('../models-hostel/Hostel').getModel();
+    const Hostel = getHostelModel();
     const { name, description, isActive } = req.body;
     const hostel = await Hostel.findByIdAndUpdate(
       req.params.id,
@@ -52,10 +115,10 @@ exports.updateHostel = async (req, res) => {
 exports.deleteHostel = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Hostel = require('../models-hostel/Hostel').getModel();
-    const HostelCategory = require('../models-hostel/HostelCategory').getModel();
-    const Room = require('../models-hostel/Room').getModel();
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const Hostel = getHostelModel();
+    const HostelCategory = getHostelCategoryModel();
+    const Room = getRoomModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const hostel = await Hostel.findByIdAndDelete(req.params.id);
     if (!hostel) return res.status(404).json({ message: 'Hostel not found' });
     await HostelCategory.deleteMany({ hostel: req.params.id });
@@ -72,7 +135,7 @@ exports.deleteHostel = async (req, res) => {
 exports.getCategories = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelCategory = require('../models-hostel/HostelCategory').getModel();
+    const HostelCategory = getHostelCategoryModel();
     const { hostelId } = req.params;
     const categories = await HostelCategory.find({ hostel: hostelId }).sort({ name: 1 });
     res.json(categories);
@@ -84,7 +147,7 @@ exports.getCategories = async (req, res) => {
 exports.createCategory = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelCategory = require('../models-hostel/HostelCategory').getModel();
+    const HostelCategory = getHostelCategoryModel();
     const { hostelId, name, description, isActive } = req.body;
     const hostel = req.body.hostel || hostelId;
     if (!hostel) return res.status(400).json({ message: 'Hostel is required' });
@@ -106,7 +169,7 @@ exports.createCategory = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelCategory = require('../models-hostel/HostelCategory').getModel();
+    const HostelCategory = getHostelCategoryModel();
     const { name, description, isActive } = req.body;
     const category = await HostelCategory.findByIdAndUpdate(
       req.params.id,
@@ -123,9 +186,9 @@ exports.updateCategory = async (req, res) => {
 exports.deleteCategory = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelCategory = require('../models-hostel/HostelCategory').getModel();
-    const Room = require('../models-hostel/Room').getModel();
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelCategory = getHostelCategoryModel();
+    const Room = getRoomModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const category = await HostelCategory.findByIdAndDelete(req.params.id);
     if (!category) return res.status(404).json({ message: 'Category not found' });
     await Room.deleteMany({ category: req.params.id });
@@ -141,7 +204,7 @@ exports.deleteCategory = async (req, res) => {
 exports.getRooms = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Room = require('../models-hostel/Room').getModel();
+    const Room = getRoomModel();
     const { hostelId, categoryId } = req.query;
     const filter = {};
     if (hostelId) filter.hostel = hostelId;
@@ -159,7 +222,7 @@ exports.getRooms = async (req, res) => {
 exports.createRoom = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Room = require('../models-hostel/Room').getModel();
+    const Room = getRoomModel();
     const { hostel, category, roomNumber, bedCount, meterType, isActive } = req.body;
     if (!hostel || !category || !roomNumber) {
       return res.status(400).json({ message: 'Hostel, category and room number are required' });
@@ -189,7 +252,7 @@ exports.createRoom = async (req, res) => {
 exports.updateRoom = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Room = require('../models-hostel/Room').getModel();
+    const Room = getRoomModel();
     const { roomNumber, bedCount, meterType, isActive } = req.body;
     const update = {};
     if (roomNumber != null) {
@@ -213,7 +276,7 @@ exports.updateRoom = async (req, res) => {
 exports.deleteRoom = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const Room = require('../models-hostel/Room').getModel();
+    const Room = getRoomModel();
     const room = await Room.findByIdAndDelete(req.params.id);
     if (!room) return res.status(404).json({ message: 'Room not found' });
     res.json({ message: 'Room deleted' });
@@ -227,7 +290,7 @@ exports.deleteRoom = async (req, res) => {
 exports.getHostelFeeStructures = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const { hostelId, academicYear, course, studentYear } = req.query;
     const filter = {};
     if (hostelId) filter.hostel = hostelId;
@@ -247,7 +310,7 @@ exports.getHostelFeeStructures = async (req, res) => {
 exports.createHostelFeeStructure = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const { academicYear, hostelId, categoryId, course, studentYear, amount, description } = req.body;
     const hostel = hostelId || req.body.hostel;
     const category = categoryId || req.body.category;
@@ -282,7 +345,7 @@ exports.createHostelFeeStructure = async (req, res) => {
 exports.bulkUpsertHostelFeeStructures = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const { academicYear, hostelId, course, studentYear, categoryAmounts, description } = req.body;
     const hostel = hostelId || req.body.hostel;
     const courseVal = (course || '').trim();
@@ -314,7 +377,7 @@ exports.bulkUpsertHostelFeeStructures = async (req, res) => {
 exports.deleteHostelFeeStructureByRow = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const { academicYear, hostelId, course, studentYear } = req.body;
     const hostel = hostelId || req.body.hostel;
     const courseVal = (course || '').trim();
@@ -334,7 +397,7 @@ exports.deleteHostelFeeStructureByRow = async (req, res) => {
 exports.updateHostelFeeStructure = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const { amount, description } = req.body;
     const update = {};
     if (amount != null && amount !== '') update.amount = Number(amount);
@@ -352,7 +415,7 @@ exports.updateHostelFeeStructure = async (req, res) => {
 exports.deleteHostelFeeStructure = async (req, res) => {
   if (!getHostelConnection()) return hostelsUnavailable(res);
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const structure = await HostelFeeStructure.findByIdAndDelete(req.params.id);
     if (!structure) return res.status(404).json({ message: 'Fee structure not found' });
     res.json({ message: 'Fee structure deleted' });
@@ -374,7 +437,7 @@ exports.applyHostelFee = async (req, res) => {
     return res.status(400).json({ message: 'Either studentIds array or applyToYears array is required' });
   }
   try {
-    const HostelFeeStructure = require('../models-hostel/HostelFeeStructure').getModel();
+    const HostelFeeStructure = getHostelFeeStructureModel();
     const FeeHead = require('../models/FeeHead');
     const StudentFee = require('../models/StudentFee');
     const db = require('../config/sqlDb');
@@ -465,7 +528,7 @@ exports.getCautionDeposit = async (req, res) => {
       return res.status(400).json({ message: 'Academic year is required' });
     }
 
-    const Hostel = require('../models-hostel/Hostel').getModel();
+    const Hostel = getHostelModel();
     const hostels = await Hostel.find().sort({ name: 1 });
 
     const db = getHostelConnection().db;
