@@ -1696,6 +1696,41 @@ const FeeConfiguration = () => {
                                     rows: groupedArray.flatMap(group => 
                                         (group.categories || []).map(cat => {
                                             const qData = group.quotasMap[cat];
+                                            const resolvedMatrix = {};
+                                            if (qData && qData.matrix) {
+                                                Object.keys(qData.matrix).forEach(yr => {
+                                                    resolvedMatrix[yr] = {};
+                                                    Object.keys(qData.matrix[yr] || {}).forEach(fhId => {
+                                                        resolvedMatrix[yr][fhId] = (qData.matrix[yr][fhId] || []).map(item => {
+                                                            let resolvedTerms = [];
+                                                            if (Array.isArray(item.terms) && item.terms.length > 0) {
+                                                                resolvedTerms = item.terms;
+                                                            } else {
+                                                                const structTermsCount = 1;
+                                                                const matchingDefaultConfig = defaultConfigs.find(c => Number(c.termsCount) === structTermsCount);
+                                                                resolvedTerms = (matchingDefaultConfig?.terms || []).map(dt => ({
+                                                                    termNumber: dt.termNumber,
+                                                                    percentage: 100,
+                                                                    amount: item.amount,
+                                                                    lateFeeAmount: 0
+                                                                }));
+                                                                if (resolvedTerms.length === 0) {
+                                                                    resolvedTerms = [{
+                                                                        termNumber: 1,
+                                                                        percentage: 100,
+                                                                        amount: item.amount,
+                                                                        lateFeeAmount: 0
+                                                                    }];
+                                                                }
+                                                            }
+                                                            return {
+                                                                ...item,
+                                                                terms: resolvedTerms
+                                                            };
+                                                        });
+                                                    });
+                                                });
+                                            }
                                             return {
                                                 college: group.college,
                                                 batch: group.batch,
@@ -1703,7 +1738,7 @@ const FeeConfiguration = () => {
                                                 branch: group.branch,
                                                 category: cat,
                                                 feeHeadsMap: qData?.feeHeadsMap || {},
-                                                matrix: qData?.matrix || {},
+                                                matrix: resolvedMatrix,
                                                 grandTotal: qData?.grandTotal || 0,
                                                 yearTotals: qData?.yearTotals || {},
                                                 feeHeadTotals: qData?.feeHeadTotals || {}
@@ -2010,10 +2045,24 @@ const FeeConfiguration = () => {
                                     </select>
                                 </div>
 
-
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Branch</label>
+                                    <select 
+                                        className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" 
+                                        value={tableFilters.branch} 
+                                        onChange={e => setTableFilters({ ...tableFilters, branch: e.target.value })}
+                                        disabled={!tableFilters.course}
+                                    >
+                                        <option value="">All Branches</option>
+                                        {((tableFilters.college && tableFilters.course) 
+                                            ? (metadata[tableFilters.college]?.[tableFilters.course]?.branches || []) 
+                                            : []
+                                         ).map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
+                                </div>
 
                                 <div className="shrink-0">
-                                    {(tableFilters.college || tableFilters.batch || tableFilters.course) ? (
+                                    {(tableFilters.college || tableFilters.batch || tableFilters.course || tableFilters.branch) ? (
                                         <button
                                             type="button"
                                             onClick={() => setTableFilters({ college: '', batch: '', course: '', branch: '', category: '', feeHeadId: '' })}

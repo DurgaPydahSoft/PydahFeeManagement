@@ -44,7 +44,7 @@ const VARIANT_CONFIG = {
         countLabel: 'Total Templates',
         emptyMessage: 'No fee structures match the current filters.',
         footer: 'Fee Structures Report',
-        landscape: true,
+        landscape: false,
     },
 };
 
@@ -103,32 +103,26 @@ const FeeGroupsTable = ({ data }) => (
 const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {rows.map((row, idx) => {
-            const feeHeadsList = Object.values(row.feeHeadsMap || {});
+            const feeHeadsList = Object.values(row.feeHeadsMap || {}).sort((a, b) => 
+                (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+            );
             return (
-                <div key={idx} style={{ pageBreakInside: 'avoid', border: '2px solid #000', padding: '10px', backgroundColor: '#fff', marginBottom: '15px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '2px solid #000', paddingBottom: '6px' }}>
-                        <div>
-                            <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#000' }}>
-                                {(collegeCodes[row.college] || row.college)} ({row.batch})
-                            </span>
-                            <span style={{ margin: '0 8px', color: '#000', fontWeight: 'bold' }}>|</span>
-                            <span style={{ fontSize: '11px', color: '#000' }}>
-                                <strong>Course:</strong> {row.course} - {row.branch} <strong style={{ textTransform: 'uppercase', marginLeft: '4px' }}>{row.category} QUOTA</strong>
-                            </span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#000' }}>
-                                Total: ₹{(row.grandTotal || 0).toLocaleString('en-IN')}
-                            </span>
-                        </div>
-                    </div>
+                <div key={idx} style={{ pageBreakInside: 'avoid', marginBottom: '25px' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>
+                            {(collegeCodes[row.college] || row.college)} ({row.batch}) | {row.course} - {row.branch} [{row.category} QUOTA]
+                        </span>
+                        <span style={{ fontSize: '12px' }}>
+                            Total: ₹{(row.grandTotal || 0).toLocaleString('en-IN')}
+                        </span>
+                    </h3>
 
-                    <table className="print-table" style={{ marginTop: '4px' }}>
+                    <table className="print-table">
                         <thead>
                             <tr>
                                 <th style={{ width: '12%', backgroundColor: '#f0f0f0' }}>Year</th>
                                 {feeHeadsList.map(fh => (
-                                    <th key={fh._id}>
+                                    <th key={fh._id} style={{ textAlign: 'center' }}>
                                         {fh.name}
                                         {fh.code && <span style={{ fontWeight: 'normal', fontSize: '8.5px', color: '#000' }}> ({fh.code})</span>}
                                     </th>
@@ -145,14 +139,23 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                                         {feeHeadsList.map(fh => {
                                             const items = row.matrix?.[y]?.[fh._id] || [];
                                             return (
-                                                <td key={fh._id}>
+                                                <td key={fh._id} style={{ textAlign: 'center' }}>
                                                     {items.length > 0 ? (
                                                         items.map((item, iIdx) => {
                                                             const semLabel = item.semester ? `S${item.semester}: ` : '';
                                                             const amount = `₹${(item.amount || 0).toLocaleString('en-IN')}`;
                                                             return (
-                                                                <div key={iIdx} style={{ fontSize: '9.5px', fontWeight: 'bold', lineHeight: '1.2' }}>
-                                                                    {semLabel}{amount}
+                                                                <div key={iIdx} style={{ fontSize: '9.5px', fontWeight: 'bold', lineHeight: '1.2', display: 'inline-block', textAlign: 'center' }}>
+                                                                    <div>{semLabel}{amount}</div>
+                                                                    {item.terms && (item.terms.length > 1 || item.terms.some(t => Number(t.lateFeeAmount) > 0)) && (
+                                                                        <div style={{ fontSize: '7.5px', fontWeight: 'normal', color: '#333', marginTop: '4px', borderTop: '1px dashed #bbb', paddingTop: '2px' }}>
+                                                                            {item.terms.map(t => (
+                                                                                <div key={t.termNumber} style={{ whiteSpace: 'nowrap', marginTop: '1.5px' }}>
+                                                                                    T{t.termNumber}: ₹{Number(t.amount || 0).toLocaleString('en-IN')} (Lf: ₹{Number(t.lateFeeAmount || 0).toLocaleString('en-IN')})
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })
@@ -173,7 +176,7 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                             <tr style={{ backgroundColor: '#f0f0f0', fontWeight: 'bold' }}>
                                 <td style={{ textTransform: 'uppercase', fontSize: '9px', color: '#000' }}>Total Fee</td>
                                 {feeHeadsList.map(fh => (
-                                    <td key={fh._id} style={{ color: '#000' }}>
+                                    <td key={fh._id} style={{ color: '#000', textAlign: 'center' }}>
                                         ₹{(row.feeHeadTotals?.[fh._id] || 0).toLocaleString('en-IN')}
                                     </td>
                                 ))}
