@@ -322,6 +322,28 @@ const upsertStudentFeeDemand = async ({
       changed = true;
     }
 
+    // Keep student profile strings in sync (for branch/course transfers)
+    if (student.student_name && existingFee.studentName !== student.student_name) {
+      existingFee.studentName = student.student_name;
+      changed = true;
+    }
+    if (student.college && existingFee.college !== student.college) {
+      existingFee.college = student.college;
+      changed = true;
+    }
+    if (student.course && existingFee.course !== student.course) {
+      existingFee.course = student.course;
+      changed = true;
+    }
+    if (student.branch && existingFee.branch !== student.branch) {
+      existingFee.branch = student.branch;
+      changed = true;
+    }
+    if (student.stud_type && existingFee.stud_type !== student.stud_type) {
+      existingFee.stud_type = student.stud_type;
+      changed = true;
+    }
+
     if (remarks && existingFee.remarks !== remarks) {
       existingFee.remarks = remarks;
       changed = true;

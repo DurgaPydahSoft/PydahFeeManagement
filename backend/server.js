@@ -17,7 +17,12 @@ connectEmployeeDB(); // [NEW]
 
 // Test SQL Connection
 sqlPool.query('SELECT 1')
-  .then(() => console.log('MySQL Connected'))
+  .then(() => {
+    console.log('MySQL Connected');
+    // Run startup name sync for MongoDB FeeStructures
+    const { syncFeeStructureNamesWithSql } = require('./services/feeStructureSyncService');
+    syncFeeStructureNamesWithSql().catch(err => console.error('[Startup Name Sync] Failed:', err));
+  })
   .catch(err => console.error('MySQL Connection Failed:', err));
 
 const { verifyS3Connection } = require('./utils/s3Upload');

@@ -179,6 +179,27 @@ const createFeeStructure = async (req, res) => {
       autoLateFeeHead = defaultConfig.lateFeeHead;
     }
 
+    let collegeId = null;
+    let courseId = null;
+    let branchId = null;
+
+    try {
+      const [colRows] = await db.query('SELECT id FROM colleges WHERE name = ?', [college]);
+      if (colRows.length > 0) {
+        collegeId = colRows[0].id;
+        const [crsRows] = await db.query('SELECT id FROM courses WHERE name = ? AND college_id = ?', [course, collegeId]);
+        if (crsRows.length > 0) {
+          courseId = crsRows[0].id;
+          const [brRows] = await db.query('SELECT id FROM course_branches WHERE name = ? AND course_id = ?', [branch, courseId]);
+          if (brRows.length > 0) {
+            branchId = brRows[0].id;
+          }
+        }
+      }
+    } catch (sqlErr) {
+      console.error('Error resolving IDs in createFeeStructure:', sqlErr);
+    }
+
     const results = [];
     const errors = [];
 
@@ -209,7 +230,10 @@ const createFeeStructure = async (req, res) => {
             terms: processedTerms,
             semester: sem, // Explicitly set/update semester in document to match index
             isGroupWiseLateFee: hasConfiguredLateFee ? !!isGroupWiseLateFee : false,
-            lateFeeHead: autoLateFeeHead || null
+            lateFeeHead: autoLateFeeHead || null,
+            collegeId,
+            courseId,
+            branchId
           }
         };
 

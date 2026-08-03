@@ -18,6 +18,15 @@ const feeStructureSchema = mongoose.Schema({
     type: String,
     required: true,
   },
+  collegeId: {
+    type: Number,
+  },
+  courseId: {
+    type: Number,
+  },
+  branchId: {
+    type: Number,
+  },
   batch: {
     type: String, // e.g., "2024", "2023-2027"
     required: true,
