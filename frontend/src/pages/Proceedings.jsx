@@ -42,6 +42,7 @@ const Proceedings = () => {
     const [statusFilter, setStatusFilter] = useState('All');
     const [collegeFilter, setCollegeFilter] = useState('All');
     const [courseFilter, setCourseFilter] = useState('All');
+    const [academicYearFilter, setAcademicYearFilter] = useState('All');
     const [expandedRows, setExpandedRows] = useState({}); // { id: { data: [], loading: false } }
 
     const [formData, setFormData] = useState({
@@ -319,8 +320,20 @@ const Proceedings = () => {
         const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
         const matchesCollege = collegeFilter === 'All' || p.college === collegeFilter;
         const matchesCourse = courseFilter === 'All' || p.course === courseFilter;
-        return matchesSearch && matchesStatus && matchesCollege && matchesCourse;
+        const matchesAcademicYear = academicYearFilter === 'All' || p.academicYear === academicYearFilter;
+        return matchesSearch && matchesStatus && matchesCollege && matchesCourse && matchesAcademicYear;
     });
+
+    // Summary statistics from filtered proceedings
+    const summaryStats = filteredProceedings.reduce((acc, p) => {
+        acc.totalAmount += p.amount || 0;
+        acc.totalUsed += p.totalUsed || 0;
+        acc.totalPending += p.status === 'Pending' ? (p.amount || 0) : 0;
+        acc.totalActive += p.status === 'Active' ? (p.amount || 0) : 0;
+        acc.count += 1;
+        return acc;
+    }, { totalAmount: 0, totalUsed: 0, totalPending: 0, totalActive: 0, count: 0 });
+    summaryStats.totalRemaining = Math.max(0, summaryStats.totalAmount - summaryStats.totalUsed);
 
     const pendingCount = proceedings.filter(p => p.status === 'Pending').length;
 
@@ -391,102 +404,152 @@ const Proceedings = () => {
                         </div>
                     </div>
 
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                            <div className="p-2.5 bg-blue-50 rounded-xl"><DollarSign size={18} className="text-blue-600" /></div>
+                            <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Proceedings</div>
+                                <div className="text-base font-black text-slate-800">₹{summaryStats.totalAmount.toLocaleString('en-IN')}</div>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                            <div className="p-2.5 bg-emerald-50 rounded-xl"><University size={18} className="text-emerald-600" /></div>
+                            <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bank Credited</div>
+                                <div className="text-base font-black text-emerald-700">₹{summaryStats.totalAmount.toLocaleString('en-IN')}</div>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                            <div className="p-2.5 bg-indigo-50 rounded-xl"><FileText size={18} className="text-indigo-600" /></div>
+                            <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Utilized</div>
+                                <div className="text-base font-black text-indigo-700">₹{summaryStats.totalUsed.toLocaleString('en-IN')}</div>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                            <div className="p-2.5 bg-amber-50 rounded-xl"><Calendar size={18} className="text-amber-600" /></div>
+                            <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Remaining</div>
+                                <div className="text-base font-black text-amber-700">₹{summaryStats.totalRemaining.toLocaleString('en-IN')}</div>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                            <div className="p-2.5 bg-slate-100 rounded-xl"><GraduationCap size={18} className="text-slate-600" /></div>
+                            <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Records</div>
+                                <div className="text-base font-black text-slate-800">{summaryStats.count} <span className="text-xs font-semibold text-slate-400">proceedings</span></div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Filters & Search */}
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[300px]">
-                            {/* Search Bar */}
-                            <div className="relative min-w-[240px] flex-1">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                <input
-                                    type="text"
-                                    placeholder="Search by proceeding number..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm"
-                                />
-                            </div>
-
-                            {/* College Dropdown */}
-                            <div className="relative">
-                                <select
-                                    value={collegeFilter}
-                                    onChange={(e) => {
-                                        setCollegeFilter(e.target.value);
-                                        setCourseFilter('All');
-                                    }}
-                                    className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
-                                >
-                                    <option value="All">All Colleges</option>
-                                    {metadata?.hierarchy && Object.keys(metadata.hierarchy).map(c => (
-                                        <option key={c} value={c}>{c}</option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                            </div>
-
-                            {/* Course Dropdown */}
-                            <div className="relative">
-                                <select
-                                    value={courseFilter}
-                                    onChange={(e) => setCourseFilter(e.target.value)}
-                                    className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
-                                >
-                                    <option value="All">All Courses</option>
-                                    {(() => {
-                                        if (collegeFilter !== 'All') {
-                                            return metadata?.hierarchy?.[collegeFilter] && Object.keys(metadata.hierarchy[collegeFilter]).map(c => (
-                                                <option key={c} value={c}>{c}</option>
-                                            ));
-                                        } else {
-                                            if (!metadata?.hierarchy) return null;
-                                            const uniqueCourses = new Set();
-                                            Object.values(metadata.hierarchy).forEach(courseObj => {
-                                                if (courseObj) {
-                                                    Object.keys(courseObj).forEach(c => uniqueCourses.add(c));
-                                                }
-                                            });
-                                            return Array.from(uniqueCourses).map(c => (
-                                                <option key={c} value={c}>{c}</option>
-                                            ));
-                                        }
-                                    })()}
-                                </select>
-                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                            </div>
-
-                            {/* Reset Button */}
-                            {(collegeFilter !== 'All' || courseFilter !== 'All' || searchTerm !== '' || statusFilter !== 'All') && (
-                                <button
-                                    onClick={() => {
-                                        setCollegeFilter('All');
-                                        setCourseFilter('All');
-                                        setSearchTerm('');
-                                        setStatusFilter('All');
-                                    }}
-                                    className="text-xs font-bold text-red-500 hover:text-red-600 transition-colors py-2 px-3 hover:bg-red-50 rounded-xl"
-                                >
-                                    Clear Filters
-                                </button>
-                            )}
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-wrap items-center gap-3">
+                        {/* Search Bar */}
+                        <div className="relative min-w-[200px] flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Search by proceeding number..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                            />
                         </div>
 
-                        {/* Status Filter */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            {['All', 'Pending', 'Active', 'Completed', 'Cancelled'].map(s => (
-                                <button
-                                    key={s}
-                                    type="button"
-                                    onClick={() => setStatusFilter(s)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                        statusFilter === s
-                                            ? 'bg-blue-600 text-white border-blue-600'
-                                            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                                    }`}
-                                >
-                                    {s}{s === 'Pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
-                                </button>
-                            ))}
+                        {/* College Dropdown */}
+                        <div className="relative">
+                            <select
+                                value={collegeFilter}
+                                onChange={(e) => {
+                                    setCollegeFilter(e.target.value);
+                                    setCourseFilter('All');
+                                }}
+                                className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
+                            >
+                                <option value="All">All Colleges</option>
+                                {metadata?.hierarchy && Object.keys(metadata.hierarchy).map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
+                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                         </div>
+
+                        {/* Course Dropdown */}
+                        <div className="relative">
+                            <select
+                                value={courseFilter}
+                                onChange={(e) => setCourseFilter(e.target.value)}
+                                className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
+                            >
+                                <option value="All">All Courses</option>
+                                {(() => {
+                                    if (collegeFilter !== 'All') {
+                                        return metadata?.hierarchy?.[collegeFilter] && Object.keys(metadata.hierarchy[collegeFilter]).map(c => (
+                                            <option key={c} value={c}>{c}</option>
+                                        ));
+                                    } else {
+                                        if (!metadata?.hierarchy) return null;
+                                        const uniqueCourses = new Set();
+                                        Object.values(metadata.hierarchy).forEach(courseObj => {
+                                            if (courseObj) Object.keys(courseObj).forEach(c => uniqueCourses.add(c));
+                                        });
+                                        return Array.from(uniqueCourses).map(c => (
+                                            <option key={c} value={c}>{c}</option>
+                                        ));
+                                    }
+                                })()}
+                            </select>
+                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                        </div>
+
+                        {/* Academic Year Dropdown */}
+                        <div className="relative">
+                            <select
+                                value={academicYearFilter}
+                                onChange={(e) => setAcademicYearFilter(e.target.value)}
+                                className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
+                            >
+                                <option value="All">All Academic Years</option>
+                                {(() => {
+                                    const years = [...new Set(proceedings.map(p => p.academicYear).filter(Boolean))].sort().reverse();
+                                    return years.map(y => <option key={y} value={y}>{y}</option>);
+                                })()}
+                            </select>
+                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                        </div>
+
+                        {/* Status Dropdown */}
+                        <div className="relative">
+                            <select
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="bg-slate-50 hover:bg-slate-100/80 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 transition-all appearance-none cursor-pointer"
+                            >
+                                <option value="All">All Status</option>
+                                <option value="Pending">Pending{pendingCount > 0 ? ` (${pendingCount})` : ''}</option>
+                                <option value="Active">Active</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
+                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                        </div>
+
+                        {/* Reset Button */}
+                        {(collegeFilter !== 'All' || courseFilter !== 'All' || searchTerm !== '' || statusFilter !== 'All' || academicYearFilter !== 'All') && (
+                            <button
+                                onClick={() => {
+                                    setCollegeFilter('All');
+                                    setCourseFilter('All');
+                                    setSearchTerm('');
+                                    setStatusFilter('All');
+                                    setAcademicYearFilter('All');
+                                }}
+                                className="text-xs font-bold text-red-500 hover:text-red-600 transition-colors py-2 px-3 hover:bg-red-50 rounded-xl"
+                            >
+                                Clear Filters
+                            </button>
+                        )}
                     </div>
 
                     {/* Table */}
@@ -749,13 +812,14 @@ const Proceedings = () => {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <label className="text-sm font-bold text-slate-600 ml-1">Academic Year</label>
+                                    <label className="text-sm font-bold text-slate-600 ml-1">Academic Year *</label>
                                     <div className="relative">
                                         <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
                                         <select
                                             name="academicYear"
                                             value={formData.academicYear}
                                             onChange={handleInputChange}
+                                            required
                                             className="w-full pl-10 pr-8 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700 appearance-none cursor-pointer"
                                         >
                                             <option value="">Select Academic Year</option>

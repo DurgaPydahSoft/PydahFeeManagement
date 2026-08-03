@@ -77,6 +77,7 @@ protectedApi.use('/campuses', require('./routes/campusRoutes'));
 protectedApi.use('/fee-structures', require('./routes/feeStructureRoutes'));
 protectedApi.use('/transactions', require('./routes/transactionRoutes'));
 protectedApi.use('/users', require('./routes/userRoutes'));
+protectedApi.use('/roles', require('./routes/roleRoutes'));
 protectedApi.use('/reports', require('./routes/reportRoutes'));
 protectedApi.use('/transport', require('./routes/transportRoutes'));
 protectedApi.use('/hostels', require('./routes/hostelRoutes'));

@@ -7,6 +7,11 @@ import { useCampuses, getCollegeNamesForCampuses } from '../hooks/useCampuses';
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
+    const [roles, setRoles] = useState([]);
+    const [activeTab, setActiveTab] = useState('users'); // 'users' or 'roles'
+    const [showRoleModal, setShowRoleModal] = useState(false);
+    const [editingRoleId, setEditingRoleId] = useState(null);
+    const [roleFormData, setRoleFormData] = useState({ name: '', description: '', permissions: [] });
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
     const [colleges, setColleges] = useState([]);
@@ -106,8 +111,18 @@ const UserManagement = () => {
 
     useEffect(() => {
         fetchUsers();
+        fetchRoles();
         fetchMetadata(); // [NEW]
     }, []);
+
+    const fetchRoles = async () => {
+        try {
+            const res = await api.get(`/roles`);
+            setRoles(res.data);
+        } catch (error) {
+            console.error('Error fetching roles:', error);
+        }
+    };
 
     const fetchMetadata = async () => {
         try {
@@ -132,7 +147,16 @@ const UserManagement = () => {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData({ ...formData, [name]: value });
+        if (name === 'role') {
+            const matchedRole = roles.find(r => r.name === value);
+            setFormData(prev => ({
+                ...prev,
+                role: value,
+                permissions: matchedRole ? matchedRole.permissions : prev.permissions
+            }));
+        } else {
+            setFormData({ ...formData, [name]: value });
+        }
     };
 
     const handleCampusToggle = (campusId) => {
@@ -317,6 +341,111 @@ const UserManagement = () => {
         }
     };
 
+    const handleRolePermissionToggle = (path) => {
+        let currentPermissions = roleFormData.permissions || [];
+        if (currentPermissions.includes(path)) {
+            currentPermissions = currentPermissions.filter(p => p !== path);
+            if (path === '/fee-collection') {
+                currentPermissions = currentPermissions.filter(p => p !== 'fee_collection_pay' && p !== 'fee_collection_concession' && p !== 'fee_collection_edit');
+            }
+            if (path === '/reports') {
+                currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary' && p !== 'reports_account_wise');
+            }
+            if (path === '/proceedings') {
+                currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_edit' && p !== 'proceedings_view');
+            }
+        } else {
+            currentPermissions = [...currentPermissions, path];
+            if (path === '/fee-collection') {
+                if (!currentPermissions.includes('fee_collection_pay')) currentPermissions.push('fee_collection_pay');
+                if (!currentPermissions.includes('fee_collection_concession')) currentPermissions.push('fee_collection_concession');
+            }
+            if (path === '/reports') {
+                if (!currentPermissions.includes('reports_daily_collection')) currentPermissions.push('reports_daily_collection');
+                if (!currentPermissions.includes('reports_cashier_summary')) currentPermissions.push('reports_cashier_summary');
+                if (!currentPermissions.includes('reports_fee_head_summary')) currentPermissions.push('reports_fee_head_summary');
+                if (!currentPermissions.includes('reports_account_wise')) currentPermissions.push('reports_account_wise');
+            }
+            if (path === '/concessions') {
+                if (!currentPermissions.includes('concession_approvals')) currentPermissions.push('concession_approvals');
+                if (!currentPermissions.includes('concession_approvers')) currentPermissions.push('concession_approvers');
+            }
+            if (path === '/proceedings') {
+                if (!currentPermissions.includes('proceedings_view')) currentPermissions.push('proceedings_view');
+            }
+        }
+        setRoleFormData(prev => ({ ...prev, permissions: currentPermissions }));
+    };
+
+    const handleRoleSubPermissionToggle = (permission) => {
+        let currentPermissions = roleFormData.permissions || [];
+        if (currentPermissions.includes(permission)) {
+            currentPermissions = currentPermissions.filter(p => p !== permission);
+        } else {
+            currentPermissions = [...currentPermissions, permission];
+        }
+        setRoleFormData(prev => ({ ...prev, permissions: currentPermissions }));
+    };
+
+    const handleSaveRole = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        setIsSubmitting(true);
+        try {
+            if (editingRoleId) {
+                const res = await api.put(`/roles/${editingRoleId}`, roleFormData);
+                setRoles(roles.map(r => r._id === editingRoleId ? res.data : r));
+                setMessage('Role updated successfully!');
+                setEditingRoleId(null);
+            } else {
+                const res = await api.post(`/roles`, roleFormData);
+                setRoles([...roles, res.data]);
+                setMessage('Role created successfully!');
+            }
+            setRoleFormData({ name: '', description: '', permissions: [] });
+            setShowRoleModal(false);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) {
+            setMessage(error.response?.data?.message || 'Error saving role');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleEditRole = (role) => {
+        setRoleFormData({
+            name: role.name,
+            description: role.description || '',
+            permissions: role.permissions || []
+        });
+        setEditingRoleId(role._id);
+        setShowRoleModal(true);
+    };
+
+    const handleDeleteRole = async (id) => {
+        const role = roles.find(r => r._id === id);
+        if (!role) return;
+        if (['superadmin', 'admin', 'office_staff', 'cashier'].includes(role.name)) {
+            alert(`System default role '${role.name}' cannot be deleted.`);
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to delete custom role '${role.name}'?`)) return;
+        try {
+            await api.delete(`/roles/${id}`);
+            setRoles(roles.filter(r => r._id !== id));
+            setMessage('Role deleted successfully!');
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) {
+            alert(error.response?.data?.message || 'Failed to delete role');
+        }
+    };
+
+    const openRoleCreateModal = () => {
+        setRoleFormData({ name: '', description: '', permissions: [] });
+        setEditingRoleId(null);
+        setShowRoleModal(true);
+    };
+
     // Password Reset Modal State
     const [resetModal, setResetModal] = useState({ show: false, user: null, newPassword: '' });
     // Create/Edit User Modal State
@@ -356,184 +485,295 @@ const UserManagement = () => {
                         <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
                         <p className="text-sm text-gray-500 mt-1">Create and manage access for system users.</p>
                     </div>
-                    <div className="relative w-full md:w-72">
-                        <input
-                            type="text"
-                            placeholder="Search users (name, username)..."
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-semibold"
-                        />
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                        <div className="relative w-full md:w-72">
+                            <input
+                                type="text"
+                                placeholder="Search users (name, username)..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-semibold"
+                            />
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            </div>
+                            {searchTerm && (
+                                <button
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm font-black"
+                                >
+                                    ×
+                                </button>
+                            )}
                         </div>
-                        {searchTerm && (
+                        <div className="flex border border-gray-200 bg-white p-1 rounded-xl shadow-sm gap-1 w-full sm:w-auto">
                             <button
-                                onClick={() => setSearchTerm('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm font-black"
+                                onClick={() => setActiveTab('users')}
+                                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-150'}`}
                             >
-                                ×
+                                Users
                             </button>
-                        )}
+                            <button
+                                onClick={() => setActiveTab('roles')}
+                                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'roles' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-150'}`}
+                            >
+                                Roles
+                            </button>
+                        </div>
                     </div>
                 </header>
 
                 <div className="space-y-4">
                     {/* User List */}
-                    <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-gray-100 pb-3">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                <h2 className="font-bold text-gray-800 whitespace-nowrap">Existing Users</h2>
-                                <div className="flex flex-wrap gap-2">
-                                    {/* Campus Filter */}
-                                    <select
-                                        value={campusFilter}
-                                        onChange={(e) => setCampusFilter(e.target.value)}
-                                        className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold"
-                                    >
-                                        <option value="All">All Campuses</option>
-                                        {campusList.map(c => (
-                                            <option key={c.id} value={c.id}>{c.name}</option>
-                                        ))}
-                                    </select>
+                    {activeTab === 'users' && (
+                        <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-gray-100 pb-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                    <h2 className="font-bold text-gray-800 whitespace-nowrap">Existing Users</h2>
+                                    <div className="flex flex-wrap gap-2">
+                                        {/* Campus Filter */}
+                                        <select
+                                            value={campusFilter}
+                                            onChange={(e) => setCampusFilter(e.target.value)}
+                                            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold"
+                                        >
+                                            <option value="All">All Campuses</option>
+                                            {campusList.map(c => (
+                                                <option key={c.id} value={c.id}>{c.name}</option>
+                                            ))}
+                                        </select>
 
-                                    {/* College Filter */}
-                                    <select
-                                        value={collegeFilter}
-                                        onChange={(e) => setCollegeFilter(e.target.value)}
-                                        className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold max-w-[260px]"
-                                    >
-                                        <option value="All">All Colleges</option>
-                                        {colleges.map(col => (
-                                            <option key={col} value={col}>{col}</option>
-                                        ))}
-                                    </select>
+                                        {/* College Filter */}
+                                        <select
+                                            value={collegeFilter}
+                                            onChange={(e) => setCollegeFilter(e.target.value)}
+                                            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold max-w-[260px]"
+                                        >
+                                            <option value="All">All Colleges</option>
+                                            {colleges.map(col => (
+                                                <option key={col} value={col}>{col}</option>
+                                            ))}
+                                        </select>
 
-                                    {/* Role Filter */}
-                                    <select
-                                        value={roleFilter}
-                                        onChange={(e) => setRoleFilter(e.target.value)}
-                                        className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold"
-                                    >
-                                        <option value="All">All Roles</option>
-                                        <option value="superadmin">Super Admin</option>
-                                        <option value="admin">Admin</option>
-                                        <option value="office_staff">Office Staff</option>
-                                        <option value="cashier">Cashier</option>
-                                    </select>
+                                        {/* Role Filter */}
+                                        <select
+                                            value={roleFilter}
+                                            onChange={(e) => setRoleFilter(e.target.value)}
+                                            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold capitalize"
+                                        >
+                                            <option value="All">All Roles</option>
+                                            {roles.map(r => (
+                                                <option key={r._id} value={r.name}>{r.name.replace(/_/g, ' ')}</option>
+                                            ))}
+                                            {roles.length === 0 && (
+                                                <>
+                                                    <option value="superadmin">Super Admin</option>
+                                                    <option value="admin">Admin</option>
+                                                    <option value="office_staff">Office Staff</option>
+                                                    <option value="cashier">Cashier</option>
+                                                </>
+                                            )}
+                                        </select>
+                                    </div>
                                 </div>
+                                {isSuperAdminUser && (
+                                    <button
+                                        onClick={openCreateModal}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition text-xs whitespace-nowrap self-start md:self-auto"
+                                    >
+                                        Create New User
+                                    </button>
+                                )}
                             </div>
-                            {isSuperAdminUser && (
-                                <button
-                                    onClick={openCreateModal}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition text-xs whitespace-nowrap self-start md:self-auto"
-                                >
-                                    Create New User
-                                </button>
+                            {loading ? <p>Loading...</p> : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">                                    <thead className="bg-gray-50 border-b">
+                                            <tr>
+                                                <th className="p-3 font-semibold text-gray-600">Name</th>
+                                                <th className="p-3 font-semibold text-gray-600">Username</th>
+                                                <th className="p-3 font-semibold text-gray-600">Role</th>
+                                                <th className="p-3 font-semibold text-gray-600">Email</th>
+                                                <th className="p-3 font-semibold text-gray-600">Mobile</th>
+                                                <th className="p-3 font-semibold text-gray-600">College Scope</th>
+                                                {isSuperAdminUser && <th className="p-3 font-semibold text-right">Action</th>}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {users
+                                                .filter(user => {
+                                                    // Search Term Filter
+                                                    if (searchTerm.trim()) {
+                                                        const term = searchTerm.toLowerCase().trim();
+                                                        const nameMatch = (user.name || '').toLowerCase().includes(term);
+                                                        const usernameMatch = (user.username || '').toLowerCase().includes(term);
+                                                        if (!nameMatch && !usernameMatch) return false;
+                                                    }
+
+                                                    // Campus Filter
+                                                    if (campusFilter !== 'All') {
+                                                        const numericCampusId = Number(campusFilter);
+                                                        const userCampuses = (user.campuses || []).map(Number);
+                                                        if (!userCampuses.includes(numericCampusId)) return false;
+                                                    }
+
+                                                    // College Filter
+                                                    if (collegeFilter !== 'All') {
+                                                        const userColleges = user.colleges || [];
+                                                        if (!userColleges.includes(collegeFilter)) return false;
+                                                    }
+
+                                                    // Role Filter
+                                                    if (roleFilter !== 'All') {
+                                                        if (user.role !== roleFilter) return false;
+                                                    }
+
+                                                    return true;
+                                                })
+                                                .map(user => (
+                                                <tr key={user._id} className="hover:bg-gray-50">
+                                                    <td className="p-3 font-medium text-gray-900">{user.name}</td>
+                                                    <td className="p-3 text-gray-500 font-mono">{user.username}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                                            user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                                                                 user.role === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                                     'bg-gray-100 text-gray-700'
+                                                             }`}>
+                                                             {user.role}
+                                                         </span>
+                                                    </td>
+                                                    <td className="p-3 text-gray-500 text-xs">{user.email || '—'}</td>
+                                                    <td className="p-3 text-gray-500 text-xs">{user.mobile || '—'}</td>
+                                                    <td className="p-3 text-gray-500">
+                                                        {user.campuses && user.campuses.length > 0 && (
+                                                            <div className="text-[10px] text-indigo-600 font-bold mb-1">
+                                                                Campuses: {user.campuses.map((id) => campusList.find((c) => c.id === id)?.code || id).join(', ')}
+                                                            </div>
+                                                        )}
+                                                        {user.colleges && user.colleges.length > 0 ? (
+                                                            <div className="space-y-1">
+                                                                <div className="font-semibold text-xs text-gray-700">
+                                                                     {user.colleges.join(', ')}
+                                                                </div>
+                                                                {user.courses && user.courses.length > 0 && (
+                                                                    <div className="text-[10px] text-gray-400 max-w-xs truncate" title={user.courses.map(c => c.split('|')[1]).join(', ')}>
+                                                                        Courses: {user.courses.map(c => c.split('|')[1]).join(', ')}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            user.college || 'All Colleges'
+                                                        )}
+                                                    </td>
+                                                    {isSuperAdminUser && (
+                                                        <td className="p-3 text-right whitespace-nowrap">
+                                                            <button
+                                                                onClick={() => handleEdit(user)}
+                                                                className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded mr-1.5 transition shadow-sm"
+                                                                title="Edit User"
+                                                            >
+                                                                <Edit2 size={14} className="stroke-[2.5]" />
+                                                            </button>
+                                                            {(!user.employeeId || currentUser?.role === 'superadmin') && (
+                                                                <button
+                                                                    onClick={() => openResetModal(user)}
+                                                                    className="inline-flex items-center justify-center text-yellow-600 hover:text-yellow-800 bg-yellow-50 hover:bg-yellow-100 p-1.5 rounded mr-1.5 transition shadow-sm"
+                                                                    title="Reset Password"
+                                                                >
+                                                                    <Key size={14} className="stroke-[2.5]" />
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                onClick={() => handleDelete(user._id)}
+                                                                className="inline-flex items-center justify-center text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition shadow-sm"
+                                                                title="Delete User"
+                                                            >
+                                                                <Trash2 size={14} className="stroke-[2.5]" />
+                                                            </button>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    {users.filter(user => {
+                                        if (!searchTerm.trim()) return true;
+                                        const term = searchTerm.toLowerCase().trim();
+                                        const nameMatch = (user.name || '').toLowerCase().includes(term);
+                                        const usernameMatch = (user.username || '').toLowerCase().includes(term);
+                                        return nameMatch || usernameMatch;
+                                    }).length === 0 && (
+                                        <p className="text-center py-6 text-gray-400 italic">No matching users found.</p>
+                                    )}
+                                </div>
                             )}
                         </div>
-                        {loading ? <p>Loading...</p> : (
+                    )}
+
+                    {/* Role List */}
+                    {activeTab === 'roles' && (
+                        <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 transition-all duration-500 ease-in-out">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-gray-100 pb-3">
+                                <div>
+                                    <h2 className="font-bold text-gray-800">Existing Roles</h2>
+                                    <p className="text-xs text-gray-400">Default and custom system access roles.</p>
+                                </div>
+                                {isSuperAdminUser && (
+                                    <button
+                                        onClick={openRoleCreateModal}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition text-xs whitespace-nowrap"
+                                    >
+                                        Create New Role
+                                    </button>
+                                )}
+                            </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">                                    <thead className="bg-gray-50 border-b">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-gray-50 border-b">
                                         <tr>
-                                            <th className="p-3 font-semibold text-gray-600">Name</th>
-                                            <th className="p-3 font-semibold text-gray-600">Username</th>
-                                            <th className="p-3 font-semibold text-gray-600">Role</th>
-                                            <th className="p-3 font-semibold text-gray-600">Email</th>
-                                            <th className="p-3 font-semibold text-gray-600">Mobile</th>
-                                            <th className="p-3 font-semibold text-gray-600">College Scope</th>
+                                            <th className="p-3 font-semibold text-gray-600">Role Name</th>
+                                            <th className="p-3 font-semibold text-gray-600">Description</th>
+                                            <th className="p-3 font-semibold text-gray-600">Permissions Count</th>
                                             {isSuperAdminUser && <th className="p-3 font-semibold text-right">Action</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                        {users
-                                            .filter(user => {
-                                                // Search Term Filter
-                                                if (searchTerm.trim()) {
-                                                    const term = searchTerm.toLowerCase().trim();
-                                                    const nameMatch = (user.name || '').toLowerCase().includes(term);
-                                                    const usernameMatch = (user.username || '').toLowerCase().includes(term);
-                                                    if (!nameMatch && !usernameMatch) return false;
-                                                }
-
-                                                // Campus Filter
-                                                if (campusFilter !== 'All') {
-                                                    const numericCampusId = Number(campusFilter);
-                                                    const userCampuses = (user.campuses || []).map(Number);
-                                                    if (!userCampuses.includes(numericCampusId)) return false;
-                                                }
-
-                                                // College Filter
-                                                if (collegeFilter !== 'All') {
-                                                    const userColleges = user.colleges || [];
-                                                    if (!userColleges.includes(collegeFilter)) return false;
-                                                }
-
-                                                // Role Filter
-                                                if (roleFilter !== 'All') {
-                                                    if (user.role !== roleFilter) return false;
-                                                }
-
-                                                return true;
-                                            })
-                                            .map(user => (
-                                            <tr key={user._id} className="hover:bg-gray-50">
-                                                <td className="p-3 font-medium text-gray-900">{user.name}</td>
-                                                <td className="p-3 text-gray-500 font-mono">{user.username}</td>
-                                                <td className="p-3">
-                                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
-                                                        user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-                                                             user.role === 'cashier' ? 'bg-green-100 text-green-700' :
-                                                                 'bg-gray-100 text-gray-700'
-                                                         }`}>
-                                                         {user.role}
-                                                     </span>
+                                        {roles.map(role => (
+                                            <tr key={role._id} className="hover:bg-gray-50">
+                                                <td className="p-3 font-medium text-gray-900 capitalize">
+                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                                                        role.name === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                                        role.name === 'admin' ? 'bg-blue-100 text-blue-700' :
+                                                        role.name === 'office_staff' ? 'bg-indigo-100 text-indigo-700' :
+                                                        role.name === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                        'bg-gray-100 text-gray-700'
+                                                    }`}>
+                                                        {role.name}
+                                                    </span>
                                                 </td>
-                                                <td className="p-3 text-gray-500 text-xs">{user.email || '—'}</td>
-                                                <td className="p-3 text-gray-500 text-xs">{user.mobile || '—'}</td>
-                                                <td className="p-3 text-gray-500">
-                                                    {user.campuses && user.campuses.length > 0 && (
-                                                        <div className="text-[10px] text-indigo-600 font-bold mb-1">
-                                                            Campuses: {user.campuses.map((id) => campusList.find((c) => c.id === id)?.code || id).join(', ')}
-                                                        </div>
-                                                    )}
-                                                    {user.colleges && user.colleges.length > 0 ? (
-                                                        <div className="space-y-1">
-                                                            <div className="font-semibold text-xs text-gray-700">
-                                                                 {user.colleges.join(', ')}
-                                                            </div>
-                                                            {user.courses && user.courses.length > 0 && (
-                                                                <div className="text-[10px] text-gray-400 max-w-xs truncate" title={user.courses.map(c => c.split('|')[1]).join(', ')}>
-                                                                    Courses: {user.courses.map(c => c.split('|')[1]).join(', ')}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        user.college || 'All Colleges'
-                                                    )}
+                                                <td className="p-3 text-gray-500 text-xs">{role.description || 'No description provided'}</td>
+                                                <td className="p-3 text-gray-500 text-xs">
+                                                    <span className="bg-slate-100 px-2 py-0.5 rounded-full font-bold text-slate-700">
+                                                        {role.permissions?.length || 0} permissions
+                                                    </span>
                                                 </td>
                                                 {isSuperAdminUser && (
                                                     <td className="p-3 text-right whitespace-nowrap">
                                                         <button
-                                                            onClick={() => handleEdit(user)}
+                                                            onClick={() => handleEditRole(role)}
                                                             className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded mr-1.5 transition shadow-sm"
-                                                            title="Edit User"
+                                                            title="Edit Role"
+                                                            disabled={role.name === 'superadmin'}
+                                                            style={{ opacity: role.name === 'superadmin' ? 0.4 : 1 }}
                                                         >
                                                             <Edit2 size={14} className="stroke-[2.5]" />
                                                         </button>
-                                                        {(!user.employeeId || currentUser?.role === 'superadmin') && (
-                                                            <button
-                                                                onClick={() => openResetModal(user)}
-                                                                className="inline-flex items-center justify-center text-yellow-600 hover:text-yellow-800 bg-yellow-50 hover:bg-yellow-100 p-1.5 rounded mr-1.5 transition shadow-sm"
-                                                                title="Reset Password"
-                                                            >
-                                                                <Key size={14} className="stroke-[2.5]" />
-                                                            </button>
-                                                        )}
                                                         <button
-                                                            onClick={() => handleDelete(user._id)}
+                                                            onClick={() => handleDeleteRole(role._id)}
                                                             className="inline-flex items-center justify-center text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition shadow-sm"
-                                                            title="Delete User"
+                                                            title="Delete Role"
+                                                            disabled={['superadmin', 'admin', 'office_staff', 'cashier'].includes(role.name)}
+                                                            style={{ opacity: ['superadmin', 'admin', 'office_staff', 'cashier'].includes(role.name) ? 0.4 : 1 }}
                                                         >
                                                             <Trash2 size={14} className="stroke-[2.5]" />
                                                         </button>
@@ -543,18 +783,9 @@ const UserManagement = () => {
                                         ))}
                                     </tbody>
                                 </table>
-                                {users.filter(user => {
-                                    if (!searchTerm.trim()) return true;
-                                    const term = searchTerm.toLowerCase().trim();
-                                    const nameMatch = (user.name || '').toLowerCase().includes(term);
-                                    const usernameMatch = (user.username || '').toLowerCase().includes(term);
-                                    return nameMatch || usernameMatch;
-                                }).length === 0 && (
-                                    <p className="text-center py-6 text-gray-400 italic">No matching users found.</p>
-                                )}
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -680,11 +911,18 @@ const UserManagement = () => {
 
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
-                                        <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white">
-                                            <option value="office_staff">Office Staff</option>
-                                            <option value="cashier">Cashier</option>
-                                            <option value="admin">Admin</option>
-                                            <option value="superadmin">Super Admin</option>
+                                        <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white capitalize">
+                                            {roles.map(r => (
+                                                <option key={r._id} value={r.name}>{r.name.replace(/_/g, ' ')}</option>
+                                            ))}
+                                            {roles.length === 0 && (
+                                                <>
+                                                    <option value="office_staff">Office Staff</option>
+                                                    <option value="cashier">Cashier</option>
+                                                    <option value="admin">Admin</option>
+                                                    <option value="superadmin">Super Admin</option>
+                                                </>
+                                            )}
                                         </select>
                                     </div>
 
@@ -1187,6 +1425,163 @@ const UserManagement = () => {
                                     className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition"
                                 >
                                     Save Password
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Create/Edit Role Modal */}
+            {showRoleModal && isSuperAdminUser && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto p-6 transform transition-all scale-100">
+                        <div className="flex justify-between items-center mb-3 border-b pb-2">
+                            <h2 className="font-bold text-gray-800 text-xl">{editingRoleId ? 'Edit Role' : 'Create New Role'}</h2>
+                            <button onClick={() => setShowRoleModal(false)} className="text-gray-500 hover:text-gray-700 text-2xl font-bold">
+                                ×
+                            </button>
+                        </div>
+
+                        {message && (
+                            <div className="bg-blue-50 border-l-4 border-blue-500 p-3 mb-4 rounded text-xs text-blue-700 font-bold">
+                                {message}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSaveRole}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Left Column: Role Details */}
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Role Name</label>
+                                        <input
+                                            name="name"
+                                            value={roleFormData.name}
+                                            onChange={(e) => setRoleFormData({ ...roleFormData, name: e.target.value })}
+                                            className="w-full border p-2 rounded mt-1 bg-white"
+                                            required
+                                            placeholder="e.g. support_staff"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase">Description</label>
+                                        <textarea
+                                            name="description"
+                                            value={roleFormData.description}
+                                            onChange={(e) => setRoleFormData({ ...roleFormData, description: e.target.value })}
+                                            className="w-full border p-2 rounded mt-1 bg-white h-24"
+                                            placeholder="Describe what users with this role can do..."
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Right Column: Granular Page Permissions */}
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-700 mb-3 border-b pb-1">Page and Feature Permissions</h3>
+                                    <div className="max-h-[50vh] overflow-y-auto space-y-3 pr-2">
+                                        {availablePages.map((page) => (
+                                            <div key={page.path} className="border border-gray-100 rounded-lg p-2.5 bg-slate-50 hover:bg-slate-100/50 transition">
+                                                <label className="flex items-center space-x-2.5 cursor-pointer font-bold text-gray-700 text-xs">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={(roleFormData.permissions || []).includes(page.path)}
+                                                        onChange={() => handleRolePermissionToggle(page.path)}
+                                                        className="rounded text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                    <span>{page.name} <span className="text-[10px] text-gray-400 font-mono">({page.path})</span></span>
+                                                </label>
+
+                                                {/* Sub-Permissions for Fee Collection */}
+                                                {page.path === '/fee-collection' && (roleFormData.permissions || []).includes('/fee-collection') && (
+                                                    <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                        {['fee_collection_pay', 'fee_collection_concession', 'fee_collection_edit', 'fee_collection_delete'].map(sub => (
+                                                            <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(roleFormData.permissions || []).includes(sub)}
+                                                                    onChange={() => handleRoleSubPermissionToggle(sub)}
+                                                                    className={`rounded focus:ring-blue-500 ${sub === 'fee_collection_delete' ? 'text-red-600' : 'text-blue-600'}`}
+                                                                />
+                                                                <span className="text-xs text-gray-600 capitalize">{sub.replace(/_/g, ' ').replace('fee collection ', '')}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Sub-Permissions for Proceedings */}
+                                                {page.path === '/proceedings' && (roleFormData.permissions || []).includes('/proceedings') && (
+                                                    <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                        {['proceedings_view', 'proceedings_edit', 'proceedings_approve'].map(sub => (
+                                                            <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(roleFormData.permissions || []).includes(sub)}
+                                                                    onChange={() => handleRoleSubPermissionToggle(sub)}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600 capitalize">{sub.replace(/_/g, ' ').replace('proceedings ', '')}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Sub-Permissions for Concessions */}
+                                                {page.path === '/concessions' && (roleFormData.permissions || []).includes('/concessions') && (
+                                                    <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                        {['concession_approvals', 'concession_approvers'].map(sub => (
+                                                            <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(roleFormData.permissions || []).includes(sub)}
+                                                                    onChange={() => handleRoleSubPermissionToggle(sub)}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600 capitalize">{sub.replace(/_/g, ' ')}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Sub-Permissions for Reports */}
+                                                {page.path === '/reports' && (roleFormData.permissions || []).includes('/reports') && (
+                                                    <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                        {['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary', 'reports_account_wise'].map(sub => (
+                                                            <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(roleFormData.permissions || []).includes(sub)}
+                                                                    onChange={() => handleRoleSubPermissionToggle(sub)}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600 capitalize">{sub.replace(/_/g, ' ').replace('reports ', '')}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-6">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowRoleModal(false)}
+                                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 rounded transition"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className={`flex-1 text-white font-bold py-2 rounded transition flex justify-center items-center gap-2 ${editingRoleId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                >
+                                    {isSubmitting && (
+                                        <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    )}
+                                    {isSubmitting ? 'Saving...' : (editingRoleId ? 'Update Role' : 'Create Role')}
                                 </button>
                             </div>
                         </form>
