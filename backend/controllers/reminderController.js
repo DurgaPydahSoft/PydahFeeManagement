@@ -189,7 +189,7 @@ const sendReminders = async (req, res) => {
 const VALID_SMS_RECIPIENTS = ['student', 'parent', 'guardian'];
 
 const createConfig = async (req, res) => {
-    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients } = req.body;
+    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients, quotas } = req.body;
 
     if (!academicYear || !dueSourceType || !triggerType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
         return res.status(400).json({ message: 'Missing required fields: academicYear, dueSourceType, triggerType, offsets' });
@@ -220,7 +220,8 @@ const createConfig = async (req, res) => {
             offsets: offsets.map(Number).filter((n) => !Number.isNaN(n) && n >= 0),
             smsTemplateId: smsTemplateId || undefined,
             emailTemplateId: emailTemplateId || undefined,
-            smsRecipients: normalizedSmsRecipients
+            smsRecipients: normalizedSmsRecipients,
+            quotas: Array.isArray(quotas) ? quotas.filter(Boolean) : []
         });
         res.status(201).json(newConfig);
     } catch (error) {
@@ -252,7 +253,7 @@ const deleteConfig = async (req, res) => {
 
 const updateConfig = async (req, res) => {
     const { id } = req.params;
-    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients } = req.body;
+    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients, quotas } = req.body;
 
     if (!academicYear || !dueSourceType || !triggerType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
         return res.status(400).json({ message: 'Missing required configuration fields or invalid offsets' });
@@ -278,7 +279,8 @@ const updateConfig = async (req, res) => {
             offsets: offsets.map(Number).filter((n) => !Number.isNaN(n) && n >= 0),
             smsTemplateId: smsTemplateId || null,
             emailTemplateId: emailTemplateId || null,
-            smsRecipients: normalizedSmsRecipients
+            smsRecipients: normalizedSmsRecipients,
+            quotas: Array.isArray(quotas) ? quotas.filter(Boolean) : []
         }, { new: true });
 
         if (!updatedConfig) return res.status(404).json({ message: 'Config not found' });

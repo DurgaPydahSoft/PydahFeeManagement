@@ -46,6 +46,15 @@ const reminderConfigSchema = new mongoose.Schema({
         enum: ['student', 'parent', 'guardian'],
         default: ['student']
     },
+    /**
+     * Student quota codes to target (matches students.stud_type).
+     * Empty array = all quotas (no filter applied).
+     * e.g. ['CONV', 'MANG']
+     */
+    quotas: {
+        type: [String],
+        default: []
+    },
     isActive: {
         type: Boolean,
         default: true

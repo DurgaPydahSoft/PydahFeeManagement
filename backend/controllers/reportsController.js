@@ -15,8 +15,11 @@ const getTransactionReports = async (req, res) => {
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
         const hasCollegeScope = Array.isArray(allowedColleges) && allowedColleges.length > 0;
 
-        // Base matching condition — always exclude cancelled transactions from reports
-        let matchStage = { status: { $ne: 'cancelled' } };
+        // Base matching condition — always exclude cancelled transactions and overall concessions from reports
+        let matchStage = { 
+            status: { $ne: 'cancelled' },
+            remarks: { $ne: 'Concession as per declaration' }
+        };
         matchStage = await collegeScope.applyStudentIdFilter(req.user, campusId, matchStage);
         if (matchStage.studentId?.$in?.[0] === '__none__') {
             return res.json([]);
@@ -286,45 +289,95 @@ const getTransactionReports = async (req, res) => {
             return;
 
         } else if (groupBy === 'feeHead') {
-            // Enhanced Fee Head Report
-            pipeline = [
-                { $match: matchStage },
-                {
-                    $group: {
-                        _id: "$feeHead",
-                        totalAmount: { $sum: "$amount" },
-                        count: { $sum: 1 },
-                        debitAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "DEBIT"] }, "$amount", 0] } },
-                        creditAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "CREDIT"] }, "$amount", 0] } },
-                        cashAmount: { $sum: { $cond: [{ $eq: ["$paymentMode", "Cash"] }, "$amount", 0] } },
-                        bankAmount: { $sum: { $cond: [{ $ne: ["$paymentMode", "Cash"] }, "$amount", 0] } }
-                    }
-                },
-                // Lookup Name
-                {
-                    $lookup: {
-                        from: 'feeheads',
-                        localField: '_id',
-                        foreignField: '_id',
-                        as: 'details'
-                    }
-                },
-                { $unwind: { path: "$details", preserveNullAndEmptyArrays: true } },
-                {
-                    $project: {
-                        _id: 1,
-                        name: "$details.name", // Project name
-                        totalAmount: 1,
-                        count: 1,
-                        debitAmount: 1,
-                        creditAmount: 1,
-                        cashAmount: 1,
-                        bankAmount: 1
-                    }
-                },
-                { $sort: { totalAmount: -1 } }
-            ];
-            // 'mode' groupBy removed as per request
+            // Enhanced Fee Head Report — fetch full transactions for detail view + print
+            const matchStageWithCancelled = { ...matchStage };
+            delete matchStageWithCancelled.status;
+            const transactions = await Transaction.find(matchStageWithCancelled).lean();
+
+            // Resolve fee head names
+            const fhFeeHeadIds = new Set();
+            transactions.forEach(tx => { if (tx.feeHead) fhFeeHeadIds.add(tx.feeHead.toString()); });
+            const fhNameMap = {};
+            try {
+                const fheads = await mongoose.connection.collection('feeheads').find({
+                    _id: { $in: Array.from(fhFeeHeadIds).map(id => new mongoose.Types.ObjectId(id)) }
+                }).toArray();
+                fheads.forEach(fh => fhNameMap[fh._id.toString()] = fh.name);
+            } catch (err) { console.error('Error fetching fee heads for feeHead report:', err); }
+
+            // SQL student enrichment
+            const fhStudentIds = new Set();
+            transactions.forEach(tx => { if (tx.studentId) fhStudentIds.add(String(tx.studentId).trim()); });
+            const fhStudentDataMap = {};
+            if (fhStudentIds.size > 0) {
+                const idList = Array.from(fhStudentIds).map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+                try {
+                    const [students] = await db.query(
+                        `SELECT admission_number, pin_no, college, course, branch, current_year FROM students WHERE admission_number IN (${idList}) OR pin_no IN (${idList})`
+                    );
+                    students.forEach(s => {
+                        const sData = { pin_no: s.pin_no || '-', college: s.college || 'Unknown', course: s.course || 'N/A', branch: s.branch || 'N/A', current_year: s.current_year || 'N/A' };
+                        const adm = String(s.admission_number).trim();
+                        fhStudentDataMap[adm] = sData;
+                        fhStudentDataMap[adm.toLowerCase()] = sData;
+                        if (s.pin_no) {
+                            const pin = String(s.pin_no).trim();
+                            fhStudentDataMap[pin] = sData;
+                            fhStudentDataMap[pin.toLowerCase()] = sData;
+                        }
+                    });
+                } catch (sqlErr) { console.error('SQL Error in feeHead report:', sqlErr); }
+            }
+
+            // Group transactions by fee head
+            const feeHeadGroups = {};
+            transactions.forEach(tx => {
+                const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
+                const fhName = fhNameMap[fhId] || 'Unknown Fee Head';
+                if (!feeHeadGroups[fhId]) {
+                    feeHeadGroups[fhId] = { _id: fhId, name: fhName, totalAmount: 0, count: 0, debitAmount: 0, creditAmount: 0, cashAmount: 0, bankAmount: 0, transactions: [] };
+                }
+                const group = feeHeadGroups[fhId];
+                const amt = tx.amount || 0;
+                const isDebit = tx.transactionType === 'DEBIT';
+                const isCredit = tx.transactionType === 'CREDIT';
+                const isCash = tx.paymentMode === 'Cash';
+                const isCancelled = tx.status === 'cancelled';
+                const sId = String(tx.studentId || '').trim();
+                const sData = fhStudentDataMap[sId] || fhStudentDataMap[sId.toLowerCase()] || {};
+
+                if (!isCancelled) {
+                    group.totalAmount += amt;
+                    group.count++;
+                    if (isDebit) { group.debitAmount += amt; if (isCash) group.cashAmount += amt; else group.bankAmount += amt; }
+                    if (isCredit) group.creditAmount += amt;
+                }
+                group.transactions.push({
+                    _id: tx._id,
+                    receiptNo: tx.receiptNumber || '-',
+                    studentName: tx.studentName || '',
+                    studentId: tx.studentId,
+                    pinNo: sData.pin_no || '-',
+                    college: sData.college || 'Unknown',
+                    course: sData.course || 'N/A',
+                    branch: sData.branch || 'N/A',
+                    studentYear: sData.current_year || tx.studentYear || 'N/A',
+                    amount: tx.amount,
+                    paymentMode: tx.paymentMode,
+                    transactionType: tx.transactionType,
+                    status: tx.status || 'active',
+                    collectedBy: tx.collectedBy || '',
+                    collectedByName: tx.collectedByName || '',
+                    paymentDate: tx.paymentDate || tx.createdAt,
+                    createdAt: tx.createdAt
+                });
+            });
+
+            const fhFinalResults = Object.values(feeHeadGroups).sort((a, b) => b.debitAmount - a.debitAmount);
+            res.json(fhFinalResults);
+            return;
+
+
         } else if (groupBy === 'college') {
             // --- Advanced College Report with Cashier Breakdown (Includes Cancelled) ---
             const matchStageWithCancelled = { ...matchStage };

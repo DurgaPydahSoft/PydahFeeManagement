@@ -23,6 +23,7 @@ import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
 import CollegeReportTemplate from '../components/CollegeReportTemplate';
 import AccountReportTemplate from '../components/AccountReportTemplate';
+import FeeHeadReportTemplate from '../components/FeeHeadReportTemplate';
 import { useCampuses } from '../hooks/useCampuses';
 
 // PrintTriggerComponent was removed
@@ -67,6 +68,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
             } else if (activeTab === 'account') {
                 template = 'account-report';
                 data = { displayData: row, dateRange, options: { mode: 'all' } };
+            } else if (activeTab === 'feeHead') {
+                template = 'feehead-report';
+                data = { displayData: row, dateRange, options: { mode: 'all' } };
             } else if (activeTab === 'daily') {
                 template = 'daily-report';
                 data = { reportData: row };
@@ -81,7 +85,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     };
 
     const isExpanded = expandedRows.includes(idx);
-    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'college' ? Landmark : activeTab === 'account' ? CreditCard : Calendar;
+    const RowIcon = activeTab === 'cashier' ? Users : activeTab === 'college' ? Landmark : activeTab === 'account' ? CreditCard : activeTab === 'feeHead' ? FileText : Calendar;
     const formattedDate = row._id?.day ? `${row._id.day}-${row._id.month}-${row._id.year}` : 'Date';
 
     // Label determination logic
@@ -91,7 +95,9 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
             ? (row._id || 'Unknown College')
             : activeTab === 'account'
                 ? (row.account_name || 'Direct / Unassigned')
-                : (row.name || row._id || 'Unknown');
+                : activeTab === 'feeHead'
+                    ? (row.name || row._id || 'Unknown Fee Head')
+                    : (row.name || row._id || 'Unknown');
 
     // Calculate Net Total (Cash + Bank) - equivalent to debitAmount
     const netTotal = (row.cashAmount || 0) + (row.bankAmount || 0);
@@ -99,7 +105,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     return (
         <React.Fragment>
             <tr
-                onClick={() => (activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && toggleRow(idx)}
+                onClick={() => (activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') && toggleRow(idx)}
                 className={`
                     group border-b border-gray-100 transition-all duration-200 text-xs
                     ${isExpanded ? 'bg-blue-50/60' : 'hover:bg-gray-50 cursor-pointer'}
@@ -132,7 +138,7 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     )}
                                 </div>
                             )}
-                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && (
+                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') && (
                                 <div className="flex items-center gap-1 text-[9px] font-medium text-gray-400 mt-1 group-hover:text-blue-500 transition-colors uppercase tracking-wide">
                                     {isExpanded ? 'Collapse' : 'Click for Details'}
                                 </div>
@@ -173,12 +179,12 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                 </td>
 
                 {/* Actions */}
-                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && (
+                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') && (
                     <td className="py-4 px-6 text-right">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (activeTab === 'cashier' || activeTab === 'college' || activeTab === 'account') {
+                                if (activeTab === 'cashier' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') {
                                     setPrintModalData({ row, dateRange });
                                 } else {
                                     handlePrint();
@@ -197,6 +203,8 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                 <CollegeReportTemplate ref={printRef} data={row} dateRange={dateRange} />
                             ) : activeTab === 'account' ? (
                                 <AccountReportTemplate ref={printRef} data={row} dateRange={dateRange} />
+                            ) : activeTab === 'feeHead' ? (
+                                <FeeHeadReportTemplate ref={printRef} data={row} dateRange={dateRange} />
                             ) : (
                                 <DailyReportTemplate ref={printRef} data={row} />
                             )}
@@ -508,6 +516,65 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                     </td>
                 </tr>
             )}
+
+            {/* EXPANDED CONTENT: Fee Head Transactions List */}
+            {activeTab === 'feeHead' && row.transactions && isExpanded && (
+                <tr className="bg-blue-50/40">
+                    <td colSpan="100%" className="p-0">
+                        <div className="p-4 pl-[4.5rem] pr-6 border-b border-blue-100">
+                            <div className="bg-white rounded-lg border border-blue-100 shadow-sm overflow-hidden">
+                                <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
+                                    <h4 className="flex items-center gap-2 text-[11px] font-bold text-blue-900 uppercase tracking-widest">
+                                        <FileText size={12} /> Transaction Details
+                                    </h4>
+                                    <span className="text-[9px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                        {row.transactions.filter(tx => tx.status !== 'cancelled').length} Records
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto max-h-[400px] scrollbar-thin scrollbar-thumb-gray-200">
+                                    <table className="w-full text-[11px] text-left">
+                                        <thead className="bg-gray-50 text-gray-500 font-semibold sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-4 py-3 whitespace-nowrap">Receipt #</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Student Name</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">PIN</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">College</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Course</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Year</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Mode</th>
+                                                <th className="px-4 py-3 text-right whitespace-nowrap">Amount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {row.transactions.filter(tx => tx.status !== 'cancelled').map((tx, i) => (
+                                                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-4 py-2 font-mono text-gray-500">{tx.receiptNo || '-'}</td>
+                                                    <td className="px-4 py-2 font-bold text-gray-800">{tx.studentName}</td>
+                                                    <td className="px-4 py-2 text-gray-600 font-mono">{tx.pinNo || '-'}</td>
+                                                    <td className="px-4 py-2 text-gray-600 text-[10px]">{tx.college || '-'}</td>
+                                                    <td className="px-4 py-2 text-gray-600">
+                                                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-gray-100 border border-gray-200">{tx.course || '-'}</span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-gray-600">{tx.studentYear || '-'}</td>
+                                                    <td className="px-4 py-2">
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium border ${tx.paymentMode === 'Cash' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
+                                                            {tx.paymentMode === 'Cash' ? <Wallet size={8} /> : <Landmark size={8} />}
+                                                            {tx.paymentMode}
+                                                        </span>
+                                                    </td>
+                                                    <td className={`px-4 py-2 text-right font-bold ${tx.transactionType === 'CREDIT' ? 'text-purple-600' : 'text-gray-900'}`}>
+                                                        {tx.transactionType === 'CREDIT' ? '-' : ''}{Number(tx.amount).toLocaleString('en-IN')}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            )}
         </React.Fragment>
     );
 };
@@ -766,7 +833,7 @@ const Reports = () => {
     const handleModalPrint = async () => {
         if (!printModalData) return;
         try {
-            const template = activeTab === 'college' ? 'college-report' : activeTab === 'account' ? 'account-report' : 'cashier-report';
+            const template = activeTab === 'college' ? 'college-report' : activeTab === 'account' ? 'account-report' : activeTab === 'feeHead' ? 'feehead-report' : 'cashier-report';
             const options = buildPrintOptions();
             if (options.mode === 'none') {
                 alert('Select at least Cash or Bank/Online to generate the report.');
@@ -843,6 +910,7 @@ const Reports = () => {
             else if (activeTab === 'cashier') groupBy = 'cashier';
             else if (activeTab === 'college') groupBy = 'college';
             else if (activeTab === 'account') groupBy = 'account';
+            else if (activeTab === 'feeHead') groupBy = 'feeHead';
 
             const res = await api.get(`/reports/transactions`, {
                 params: {
@@ -888,6 +956,7 @@ const Reports = () => {
         { id: 'cashier', label: 'Cashiers', permission: 'reports_cashier_summary' },
         { id: 'college', label: 'College-wise', permission: 'reports_fee_head_summary' },
         { id: 'account', label: 'Account-wise', permission: 'reports_account_wise' },
+        { id: 'feeHead', label: 'Fee Head-wise', permission: 'reports_fee_head_summary' },
     ];
 
     const reportSubPermissions = ['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary', 'reports_account_wise'];
@@ -994,13 +1063,13 @@ const Reports = () => {
                                         <div>
                                             <h3 className="text-base font-bold text-gray-900">
                                                 {printModalData.isAll 
-                                                    ? (activeTab === 'cashier' ? 'Print All Cashier Reports' : activeTab === 'college' ? 'Print All College Reports' : 'Print All Account Reports') 
-                                                    : (activeTab === 'cashier' ? 'Print Cashier Report' : activeTab === 'college' ? 'Print College Report' : 'Print Account Report')}
+                                                    ? (activeTab === 'cashier' ? 'Print All Cashier Reports' : activeTab === 'college' ? 'Print All College Reports' : activeTab === 'feeHead' ? 'Print All Fee Head Reports' : 'Print All Account Reports') 
+                                                    : (activeTab === 'cashier' ? 'Print Cashier Report' : activeTab === 'college' ? 'Print College Report' : activeTab === 'feeHead' ? 'Print Fee Head Report' : 'Print Account Report')}
                                             </h3>
                                             <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider">
                                                 {printModalData.isAll 
-                                                    ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : activeTab === 'college' ? 'Combined College Summaries' : 'Combined Account Summaries') 
-                                                    : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : activeTab === 'college' ? `College: ${printModalData.row?._id || 'N/A'}` : `Account: ${printModalData.row?.account_name || 'N/A'}`)}
+                                                    ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : activeTab === 'college' ? 'Combined College Summaries' : activeTab === 'feeHead' ? 'Combined Fee Head Summaries' : 'Combined Account Summaries') 
+                                                    : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : activeTab === 'college' ? `College: ${printModalData.row?._id || 'N/A'}` : activeTab === 'feeHead' ? `Fee Head: ${printModalData.row?.name || 'N/A'}` : `Account: ${printModalData.row?.account_name || 'N/A'}`)}
                                             </p>
                                         </div>
                                     </div>
@@ -1084,11 +1153,11 @@ const Reports = () => {
                                      >
                                          Cancel
                                      </button>
-                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+                                     <div className="flex gap-2 w-full">
                                          {activeTab === 'account' && (
                                              <button
                                                  onClick={() => downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange)}
-                                                 className="w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                                                 className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
                                              >
                                                  <span className="inline-flex items-center gap-2">
                                                      <span className="text-sm">📄</span> Excel Download
@@ -1098,7 +1167,7 @@ const Reports = () => {
                                          <button
                                              onClick={handleModalPrint}
                                              disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
-                                             className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                             className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
                                          >
                                              <Printer size={16} /> Generate Print
                                          </button>
@@ -1121,6 +1190,13 @@ const Reports = () => {
                                 />
                             ) : activeTab === 'account' ? (
                                 <AccountReportTemplate
+                                    ref={modalPrintRef}
+                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    options={buildPrintOptions()}
+                                    dateRange={printModalData.dateRange}
+                                />
+                            ) : activeTab === 'feeHead' ? (
+                                <FeeHeadReportTemplate
                                     ref={modalPrintRef}
                                     data={printModalData.isAll ? printModalData.rows : printModalData.row}
                                     options={buildPrintOptions()}
@@ -1244,12 +1320,12 @@ const Reports = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {(activeTab === 'cashier' || activeTab === 'college' || activeTab === 'account') && data.length > 0 && (
+                                    {(activeTab === 'cashier' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') && data.length > 0 && (
                                         <button
                                             onClick={() => setPrintModalData({ isAll: true, rows: data, dateRange: { start: startDate, end: endDate } })}
                                             className="flex items-center gap-2 px-4 py-2 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
                                         >
-                                            <Printer size={12} /> {activeTab === 'cashier' ? 'Print All Cashiers' : activeTab === 'college' ? 'Print All Colleges' : 'Print All Accounts'}
+                                            <Printer size={12} /> {activeTab === 'cashier' ? 'Print All Cashiers' : activeTab === 'college' ? 'Print All Colleges' : activeTab === 'feeHead' ? 'Print All Fee Heads' : 'Print All Accounts'}
                                         </button>
                                     )}
                                     <button
@@ -1277,7 +1353,7 @@ const Reports = () => {
                                             <th className="py-4 px-6 text-right text-purple-600">Concession</th>
                                             <th className="py-4 px-6 text-right text-black font-extrabold">Net Total</th>
 
-                                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && <th className="py-4 px-6 text-right">Actions</th>}
+                                            {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') && <th className="py-4 px-6 text-right">Actions</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white">
@@ -1341,7 +1417,7 @@ const Reports = () => {
                                                     {Number(summary.totalConfirm).toLocaleString('en-IN')}
                                                 </td>
 
-                                                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account') && <td></td>}
+                                                {(activeTab === 'cashier' || activeTab === 'daily' || activeTab === 'college' || activeTab === 'account' || activeTab === 'feeHead') && <td></td>}
                                             </tr>
                                         </tfoot>
                                     )}

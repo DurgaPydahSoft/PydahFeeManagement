@@ -19,7 +19,8 @@ const EMPTY_CONFIG_FORM = {
     emailTemplateId: '',
     enableSMS: true,
     enableEmail: false,
-    smsRecipients: ['student']
+    smsRecipients: ['student'],
+    quotas: []
 };
 
 const EMPTY_TEMPLATE_FORM = {
@@ -191,6 +192,7 @@ const ReminderConfiguration = () => {
     const [configs, setConfigs] = useState([]);
     const [isScheduling, setIsScheduling] = useState(false);
     const [configForm, setConfigForm] = useState({ ...EMPTY_CONFIG_FORM });
+    const [quotaOptions, setQuotaOptions] = useState([]); // from student_quotas table
 
     // Filters for Active Rules List
     const [ruleFilters, setRuleFilters] = useState({
@@ -271,6 +273,7 @@ const ReminderConfiguration = () => {
             setMetadata(meta);
             setBatches(batchList);
             setColleges(Object.keys(meta));
+            setQuotaOptions(response.data.categories || []);
         } catch (error) {
             console.error('Error fetching metadata', error);
         }
@@ -594,7 +597,7 @@ const ReminderConfiguration = () => {
     };
 
     const handleConfigSubmit = async () => {
-        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients } = configForm;
+        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas } = configForm;
 
         if (!academicYear || !dueSourceType || offsets.length === 0) {
             return alert("Academic Year, Due Source Type, and at least ONE Offset are required.");
@@ -617,7 +620,8 @@ const ReminderConfiguration = () => {
                 offsets,
                 smsTemplateId: enableSMS ? smsTemplateId : null,
                 emailTemplateId: enableEmail ? emailTemplateId : null,
-                smsRecipients: enableSMS ? smsRecipients : []
+                smsRecipients: enableSMS ? smsRecipients : [],
+                quotas: quotas || [] // empty = all quotas
             };
 
             if (editingConfigId) {
@@ -662,7 +666,8 @@ const ReminderConfiguration = () => {
             emailTemplateId: cfg.emailTemplateId?._id || cfg.emailTemplateId || '',
             enableSMS: !!cfg.smsTemplateId,
             enableEmail: !!cfg.emailTemplateId,
-            smsRecipients: cfg.smsRecipients?.length ? cfg.smsRecipients : ['student']
+            smsRecipients: cfg.smsRecipients?.length ? cfg.smsRecipients : ['student'],
+            quotas: cfg.quotas || []
         });
     };
 
@@ -1087,6 +1092,49 @@ const ReminderConfiguration = () => {
                                                 </select>
                                             </div>
                                         </div>
+                                        {quotaOptions.length > 0 && (
+                                            <div className="mt-3 pt-3 border-t border-gray-200">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase">
+                                                        Quotas
+                                                    </label>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {configForm.quotas.length === 0 ? 'All quotas' : `${configForm.quotas.length} selected`}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {quotaOptions.map(q => {
+                                                        const checked = configForm.quotas.includes(q);
+                                                        return (
+                                                            <label
+                                                                key={q}
+                                                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer text-[11px] font-bold transition select-none
+                                                                    ${checked
+                                                                        ? 'bg-blue-600 border-blue-600 text-white'
+                                                                        : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                                                                    }`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="sr-only"
+                                                                    checked={checked}
+                                                                    onChange={e => {
+                                                                        const next = e.target.checked
+                                                                            ? [...configForm.quotas, q]
+                                                                            : configForm.quotas.filter(x => x !== q);
+                                                                        setConfigForm({ ...configForm, quotas: next });
+                                                                    }}
+                                                                />
+                                                                {q}
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {configForm.quotas.length === 0 && (
+                                                    <p className="text-[10px] text-gray-400 mt-1 italic">No quota selected — rule applies to all quotas.</p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="space-y-4">
@@ -1249,6 +1297,16 @@ const ReminderConfiguration = () => {
                                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
                                                             <div><span className="font-bold text-gray-400">AY:</span> {cfg.academicYear}</div>
                                                             <div><span className="font-bold text-gray-400">Audience:</span> Unpaid only</div>
+                                                            {cfg.quotas?.length > 0 && (
+                                                                <div className="col-span-2">
+                                                                    <span className="font-bold text-gray-400">Quotas: </span>
+                                                                    <span className="flex flex-wrap gap-1 mt-0.5">
+                                                                        {cfg.quotas.map(q => (
+                                                                            <span key={q} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">{q}</span>
+                                                                        ))}
+                                                                    </span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-1 flex flex-col gap-0.5 border-t border-gray-50 pt-1">
                                                             {cfg.smsTemplateId && (

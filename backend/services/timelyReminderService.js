@@ -280,10 +280,16 @@ const toRecipient = (student, computed, offsetDays) => ({
 
 /**
  * Collect unpaid recipients for an academic rule whose due date matches today±offset.
+ * If config.quotas is non-empty, only structures whose category is in that list are processed.
  */
 const collectAcademicRecipients = async (config, today, matchedOffset) => {
   const recipients = [];
   const seen = new Set();
+
+  // Quota filter — empty array means "all quotas"
+  const quotaFilter = Array.isArray(config.quotas) && config.quotas.length > 0
+    ? new Set(config.quotas.map(q => String(q).trim()))
+    : null;
 
   const structures = await FeeStructure.find({})
     .populate('feeHead', 'name code')
@@ -314,6 +320,12 @@ const collectAcademicRecipients = async (config, today, matchedOffset) => {
     }
 
     const firstStruct = groupStructs[0];
+
+    // Skip this structure if its quota isn't in the allowed list
+    if (quotaFilter && !quotaFilter.has(String(firstStruct.category || '').trim())) {
+      continue;
+    }
+
     const effectiveTerms = resolveEffectiveTerms(firstStruct.terms, firstStruct.amount || 0);
     const structTermsCount = effectiveTerms.length || 1;
     const defCfg = defaultConfigs.find((c) => Number(c.termsCount) === Number(structTermsCount));
@@ -404,6 +416,11 @@ const collectServiceRecipients = async (config, today, matchedOffset) => {
   const seen = new Set();
   const type = config.dueSourceType; // HOSTEL | TRANSPORT
 
+  // Quota filter — empty array means "all quotas"
+  const quotaFilter = Array.isArray(config.quotas) && config.quotas.length > 0
+    ? new Set(config.quotas.map(q => String(q).trim()))
+    : null;
+
   const serviceConfigs = await ServiceLateFeeConfig.find({
     type,
     academicYear: config.academicYear,
@@ -483,6 +500,11 @@ const collectServiceRecipients = async (config, today, matchedOffset) => {
 
     for (const group of Object.values(byStudent)) {
       if (group.amount <= 0) continue;
+
+      // Skip this student if their quota isn't in the allowed list
+      if (quotaFilter && !quotaFilter.has(String(group.stud_type || '').trim())) {
+        continue;
+      }
 
       const student = (await fetchStudentRow(group.studentId)) || {
         admission_number: group.studentId,

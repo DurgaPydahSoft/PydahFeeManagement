@@ -23,6 +23,7 @@ const CashierReportTemplate = require('../../frontend/src/components/CashierRepo
 const CollegeReportTemplate = require('../../frontend/src/components/CollegeReportTemplate').default;
 const DailyReportTemplate = require('../../frontend/src/components/DailyReportTemplate').default;
 const AccountReportTemplate = require('../../frontend/src/components/AccountReportTemplate').default;
+const FeeHeadReportTemplate = require('../../frontend/src/components/FeeHeadReportTemplate').default;
 const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
 const OverallConcessionRegisterPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
 const ProceedingsPrint = require('../../frontend/src/components/ProceedingsPrint').default;
@@ -129,6 +130,17 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = 'Account_Report';
+
+    } else if (templateName === 'feehead-report') {
+        const { displayData, dateRange, options, hideGeneratedInfo } = data;
+        const element = React.createElement(FeeHeadReportTemplate, {
+            data: displayData,
+            dateRange: dateRange,
+            options: options,
+            hideGeneratedInfo: hideGeneratedInfo
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = 'FeeHead_Report';
 
     } else if (templateName === 'daily-report') {
         const { reportData } = data;
