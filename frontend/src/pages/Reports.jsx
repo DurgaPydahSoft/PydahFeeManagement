@@ -3,7 +3,7 @@ import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
 import { printHtmlDocument } from '../utils/printService';
-// Removed XLSX import since Export was removed
+import * as XLSX from 'xlsx';
 import {
     Calendar,
     Printer,
@@ -566,6 +566,195 @@ const Reports = () => {
             return next;
         });
     };
+
+    const formatCurrency = (value) => {
+        return Number(value || 0).toLocaleString('en-IN');
+    };
+
+    const sanitizeSheetName = (name) => {
+        const cleaned = String(name || 'Sheet').replace(/[\[\]\*\/\\\?\:]/g, ' ').slice(0, 31).trim();
+        return cleaned || 'Sheet';
+    };
+
+    const downloadAccountExcel = (accountRow, options, dateRange) => {
+        const mode = options.mode || 'all';
+        const includeCash = options.includeCash !== undefined ? options.includeCash : mode === 'all' || mode === 'Cash';
+        const includeBank = options.includeBank !== undefined ? options.includeBank : mode === 'all' || mode === 'Online';
+        const showSummary = options.showSummary !== false;
+        const showDetails = options.showDetails !== false;
+
+        const activeTransactions = (accountRow.transactions || []).filter(tx => tx.status !== 'cancelled');
+        const filteredTransactions = activeTransactions.filter(tx => {
+            if (mode === 'none') return false;
+            if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+            if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+            return true;
+        });
+
+        const totalReceipts = filteredTransactions.length;
+        const cashAmount = filteredTransactions.filter(tx => tx.paymentMode === 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const bankAmount = filteredTransactions.filter(tx => tx.paymentMode !== 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const concessionAmount = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const debitTotal = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+
+        const feeHeadMap = {};
+        filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').forEach(tx => {
+            const head = tx.feeHead || 'Unknown';
+            if (!feeHeadMap[head]) feeHeadMap[head] = { name: head, cash: 0, bank: 0, total: 0 };
+            const entry = feeHeadMap[head];
+            const amount = tx.amount || 0;
+            entry.total += amount;
+            if (tx.paymentMode === 'Cash') entry.cash += amount;
+            else entry.bank += amount;
+        });
+        const sortedFeeHeads = Object.values(feeHeadMap).sort((a, b) => b.total - a.total);
+
+        const courseSummary = {};
+        const userSummary = {};
+        const courseGroups = {};
+
+        filteredTransactions.forEach(tx => {
+            const courseName = tx.course || 'Unknown Course';
+            if (!courseGroups[courseName]) courseGroups[courseName] = [];
+            courseGroups[courseName].push(tx);
+
+            if (!courseSummary[courseName]) courseSummary[courseName] = { receipts: 0, total: 0 };
+            courseSummary[courseName].receipts += 1;
+            courseSummary[courseName].total += tx.amount || 0;
+
+            const userKey = (tx.collectedBy || tx.collectedByName || 'Unknown').trim();
+            if (!userSummary[userKey]) userSummary[userKey] = { userId: tx.collectedBy || '', name: tx.collectedByName || tx.collectedBy || 'Unknown', receipts: 0, total: 0 };
+            userSummary[userKey].receipts += 1;
+            userSummary[userKey].total += tx.amount || 0;
+        });
+
+        const workbook = XLSX.utils.book_new();
+        const fileName = `${(accountRow.account_name || 'AccountReport').replace(/\s+/g, '_')}_${dateRange.start}_${dateRange.end}`.replace(/[^ -]/g, '');
+
+        if (showSummary) {
+            const scopeValue = accountRow.is_global ? 'Global Account' : `${accountRow.college || 'N/A'} / ${accountRow.course || 'All Courses'}`;
+            const summaryRows = [
+                ['ACCOUNT COLLECTION SUMMARY'],
+                [String(accountRow.account_name || '').toUpperCase() || ''],
+                [`BANK: ${accountRow.bank_name || ''} | AC NO: ${accountRow.account_number || ''} | SCOPE: ${scopeValue} | DATE RANGE: ${dateRange.start} to ${dateRange.end}`],
+                [],
+                ['SUMMARY METRIC', 'VALUE'],
+                ['TOTAL RECEIPTS', totalReceipts],
+            ];
+            if (includeCash) summaryRows.push(['Cash Collection', cashAmount]);
+            if (includeBank) summaryRows.push(['Bank / Online Collection', bankAmount]);
+            summaryRows.push(['Concession / Credit', concessionAmount]);
+            summaryRows.push(['Net Total (Debit)', debitTotal]);
+
+            summaryRows.push([], ['COURSE-WISE CONSOLIDATED COLLECTIONS'], ['S.NO', 'COURSE', 'RECEIPTS', 'COLLECTION']);
+            Object.entries(courseSummary).sort(([, a], [, b]) => b.total - a.total).forEach(([course, stats], idx) => {
+                summaryRows.push([idx + 1, course, stats.receipts, stats.total]);
+            });
+
+            summaryRows.push([], ['USER-WISE CONSOLIDATED COLLECTIONS'], ['S.NO', 'USER ID', 'CASHIER NAME', 'RECEIPTS', 'COLLECTION']);
+            Object.values(userSummary).sort((a, b) => b.total - a.total).forEach((user, idx) => {
+                summaryRows.push([idx + 1, user.userId, user.name, user.receipts, user.total]);
+            });
+
+            const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+            summarySheet['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
+                { s: { r: 2, c: 0 }, e: { r: 2, c: 4 } }
+            ];
+            summarySheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+            // Center and bold the top title rows so the heading appears in the middle,
+            // and bold any detected table header rows.
+            try {
+                // Bold and center title rows A1..A3
+                ['A1', 'A2', 'A3'].forEach((cell) => {
+                    if (summarySheet[cell]) {
+                        summarySheet[cell].s = summarySheet[cell].s || {};
+                        summarySheet[cell].s.font = Object.assign({}, summarySheet[cell].s.font, { bold: true, sz: 14 });
+                        summarySheet[cell].s.alignment = Object.assign({}, summarySheet[cell].s.alignment, { horizontal: 'center', vertical: 'center' });
+                    }
+                });
+
+                // Detect header rows in the original aoa and bold them across present columns
+                const headerMarkers = ['Summary Metric', 'S.No', 'User-wise Consolidated Collections', 'Course-wise Consolidated Collections', 'S.No', 'User ID', 'Receipt No', 'Date', 'Course', 'Receipts', 'Collection', 'Cashier Name'];
+                const maxCol = Math.max(...summaryRows.map(r => (Array.isArray(r) ? r.length : 0)));
+                summaryRows.forEach((r, ri) => {
+                    if (Array.isArray(r) && r.length > 0) {
+                        const first = String(r[0] || '').trim();
+                        const hasHeaderKeyword = headerMarkers.some(h => first === h || r.includes(h));
+                        if (hasHeaderKeyword) {
+                            for (let c = 0; c < maxCol; c++) {
+                                const cellAddr = XLSX.utils.encode_cell({ r: ri, c });
+                                if (summarySheet[cellAddr]) {
+                                    summarySheet[cellAddr].s = summarySheet[cellAddr].s || {};
+                                    summarySheet[cellAddr].s.font = Object.assign({}, summarySheet[cellAddr].s.font, { bold: true });
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                // If styling isn't supported in the installed xlsx version, ignore.
+            }
+            XLSX.utils.book_append_sheet(workbook, summarySheet, sanitizeSheetName('Summary Abstract'));
+        }
+
+        if (showDetails) {
+            Object.entries(courseGroups).sort(([, a], [, b]) => b.length - a.length).forEach(([courseName, courseTxs]) => {
+                const courseRows = [['ACCOUNT COLLECTION SUMMARY'], [String(courseName || '').toUpperCase()], ['RECEIPT NO', 'DATE', 'STUDENT NAME', 'PIN NO', 'COLLEGE', 'COURSE', 'YEAR', 'PAYMENT MODE', 'FEE HEAD', 'AMOUNT']];
+                courseTxs.forEach(tx => {
+                    courseRows.push([
+                        tx.receiptNo || tx.receiptNumber || '',
+                        tx.transactionDate ? String(tx.transactionDate).split('T')[0] : (tx.date || ''),
+                        tx.studentName || tx.name || '',
+                        tx.pinNo || tx.pin || '',
+                        tx.college || '',
+                        tx.course || '',
+                        tx.year || tx.studentYear || '',
+                        tx.paymentMode || '',
+                        tx.feeHead || '',
+                        tx.amount || 0,
+                    ]);
+                });
+                // Append totals row for this course
+                const totalReceipts = courseTxs.length;
+                const totalCollection = courseTxs.reduce((s, t) => s + (t.amount || 0), 0);
+                courseRows.push([]);
+                courseRows.push(['', 'Totals', `Receipts: ${totalReceipts}`, '', '', '', '', '', 'Collection', totalCollection]);
+
+                const courseSheet = XLSX.utils.aoa_to_sheet(courseRows);
+                courseSheet['!merges'] = [
+                    { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
+                    { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }
+                ];
+                // Bold header row (row index 2) and the totals row (last row)
+                try {
+                    const headerRowIndex = 2;
+                    const maxCol = Math.max(...courseRows.map(r => (Array.isArray(r) ? r.length : 0)));
+                    for (let c = 0; c < maxCol; c++) {
+                        const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c });
+                        if (courseSheet[addr]) {
+                            courseSheet[addr].s = courseSheet[addr].s || {};
+                            courseSheet[addr].s.font = Object.assign({}, courseSheet[addr].s.font, { bold: true });
+                        }
+                    }
+                    const totalsRowIndex = courseRows.length - 1;
+                    for (let c = 0; c < maxCol; c++) {
+                        const addr = XLSX.utils.encode_cell({ r: totalsRowIndex, c });
+                        if (courseSheet[addr]) {
+                            courseSheet[addr].s = courseSheet[addr].s || {};
+                            courseSheet[addr].s.font = Object.assign({}, courseSheet[addr].s.font, { bold: true });
+                        }
+                    }
+                } catch (e) {}
+
+                courseSheet['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 26 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 14 }, { wch: 26 }, { wch: 14 }];
+                XLSX.utils.book_append_sheet(workbook, courseSheet, sanitizeSheetName(courseName));
+            });
+        }
+
+        XLSX.writeFile(workbook, `${fileName}.xlsx`);
+    };
     const [selectedCampusId, setSelectedCampusId] = useState(() => {
         const u = JSON.parse(localStorage.getItem('user') || '{}');
         if (u.campuses?.length === 1) return String(u.campuses[0]);
@@ -888,20 +1077,32 @@ const Reports = () => {
                                      </div>
                                  </div>
 
-                                 <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+                                 <div className="p-4 bg-gray-50 border-t border-gray-100 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                      <button
                                          onClick={() => setPrintModalData(null)}
-                                         className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
+                                         className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
                                      >
                                          Cancel
                                      </button>
-                                     <button
-                                         onClick={handleModalPrint}
-                                         disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
-                                         className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
-                                     >
-                                         <Printer size={16} /> Generate Print
-                                     </button>
+                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+                                         {activeTab === 'account' && (
+                                             <button
+                                                 onClick={() => downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange)}
+                                                 className="w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                                             >
+                                                 <span className="inline-flex items-center gap-2">
+                                                     <span className="text-sm">📄</span> Excel Download
+                                                 </span>
+                                             </button>
+                                         )}
+                                         <button
+                                             onClick={handleModalPrint}
+                                             disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
+                                             className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                         >
+                                             <Printer size={16} /> Generate Print
+                                         </button>
+                                     </div>
                                  </div>
                             </div>
                         </div>
