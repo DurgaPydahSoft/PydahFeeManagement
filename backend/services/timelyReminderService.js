@@ -236,7 +236,8 @@ const buildServiceTermAllocation = async ({
 const fetchStudentRow = async (admissionNumber) => {
   const [rows] = await db.query(
     `SELECT admission_number, student_name, father_name, pin_no, college, course, branch, batch,
-            student_mobile, email, current_year, current_semester, stud_type, student_status
+            student_mobile, parent_mobile1, parent_mobile2,
+            email, current_year, current_semester, stud_type, student_status
      FROM students WHERE admission_number = ? LIMIT 1`,
     [admissionNumber]
   );
@@ -258,6 +259,8 @@ const toRecipient = (student, computed, offsetDays) => ({
     branch: student.branch,
     batch: student.batch,
     student_mobile: student.student_mobile,
+    parent_mobile1: student.parent_mobile1 || null,
+    parent_mobile2: student.parent_mobile2 || null,
     email: student.email,
     current_year: student.current_year,
     current_semester: student.current_semester,
@@ -340,7 +343,8 @@ const collectAcademicRecipients = async (config, today, matchedOffset) => {
 
       const [students] = await db.query(
         `SELECT admission_number, student_name, father_name, pin_no, college, course, branch, batch,
-                student_mobile, email, current_year, current_semester, stud_type
+                student_mobile, parent_mobile1, parent_mobile2,
+                email, current_year, current_semester, stud_type
          FROM students
          WHERE college = ? AND course = ? AND branch = ? AND batch = ?
            AND current_year = ? AND stud_type = ?
@@ -539,11 +543,41 @@ const collectServiceRecipients = async (config, today, matchedOffset) => {
   return recipients;
 };
 
+/**
+ * Expand a single recipient into one entry per selected SMS recipient type.
+ * Each expanded entry overrides `phone` with the correct mobile field.
+ * Entries with no valid mobile number are silently dropped.
+ */
+const expandSmsRecipients = (recipients, smsRecipients = ['student']) => {
+  const MOBILE_FIELD = {
+    student: 'student_mobile',
+    parent: 'parent_mobile1',
+    guardian: 'parent_mobile2'
+  };
+
+  const expanded = [];
+  for (const r of recipients) {
+    for (const type of smsRecipients) {
+      const field = MOBILE_FIELD[type];
+      if (!field) continue;
+      const mobile = r.student?.[field] || r[field];
+      if (!mobile || String(mobile).trim().length < 10) continue;
+      expanded.push({ ...r, phone: String(mobile).trim() });
+    }
+  }
+  return expanded;
+};
+
 const sendForConfigOffset = async (config, recipients) => {
   if (!recipients.length) return 0;
   const { processRemindersBatch } = require('../controllers/reminderController');
+
   if (config.smsTemplateId) {
-    await processRemindersBatch(config.smsTemplateId, recipients);
+    const smsRecipients = config.smsRecipients?.length ? config.smsRecipients : ['student'];
+    const expanded = expandSmsRecipients(recipients, smsRecipients);
+    if (expanded.length) {
+      await processRemindersBatch(config.smsTemplateId, expanded);
+    }
   }
   if (config.emailTemplateId) {
     await processRemindersBatch(config.emailTemplateId, recipients);

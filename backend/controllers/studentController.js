@@ -25,8 +25,8 @@ const getStudents = async (req, res) => {
     let query = `
       SELECT 
         id, admission_number, student_name, father_name, caste, 
-        college, course, branch, student_mobile, student_status,
-        current_year, current_semester, pin_no, stud_type, batch, email
+        college, course, branch, student_mobile, parent_mobile1, parent_mobile2,
+        student_status, current_year, current_semester, pin_no, stud_type, batch, email
       FROM students
     `;
 

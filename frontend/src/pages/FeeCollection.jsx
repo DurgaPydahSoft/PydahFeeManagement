@@ -1512,7 +1512,7 @@ const FeeCollection = () => {
                                                                     </td>
                                                                     <td className="py-1.5 px-3 text-xs font-medium text-gray-700">
                                                                         <div className="flex items-center gap-1.5">
-                                                                            <span>{fee.feeHeadName}</span>
+                                                                            <span title={fee.feeHeadCode ? `Code: ${fee.feeHeadCode}` : undefined} className="cursor-default">{fee.feeHeadName}</span>
                                                                             {hasDetails && (
                                                                                 <button
                                                                                     type="button"

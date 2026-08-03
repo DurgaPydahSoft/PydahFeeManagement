@@ -39,7 +39,8 @@ const UserManagement = () => {
         permissions: [],
         employeeId: null,
         email: '',
-        mobile: ''
+        mobile: '',
+        isActive: true
     });
 
     const { campuses: campusList } = useCampuses();
@@ -289,7 +290,7 @@ const UserManagement = () => {
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
-            setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '' });
+            setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '', isActive: true });
             setShowCreateEditModal(false);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
@@ -312,20 +313,21 @@ const UserManagement = () => {
             employeeId: user.employeeId || null,
             permissions: user.permissions || [],
             email: user.email || '',
-            mobile: user.mobile || ''
+            mobile: user.mobile || '',
+            isActive: user.isActive !== undefined ? user.isActive : true
         });
         setEditingUserId(user._id);
         setShowCreateEditModal(true);
     };
 
     const handleCancelEdit = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [], email: '', mobile: '' });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [], email: '', mobile: '', isActive: true });
         setEditingUserId(null);
         setShowCreateEditModal(false);
     };
 
     const openCreateModal = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '' });
+        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '', isActive: true });
         setEditingUserId(null);
         setShowCreateEditModal(true);
     };
@@ -587,13 +589,14 @@ const UserManagement = () => {
                             </div>
                             {loading ? <p>Loading...</p> : (
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm">                                    <thead className="bg-gray-50 border-b">
+                                    <table className="w-full text-left text-xs">                                    <thead className="bg-gray-50 border-b">
                                             <tr>
                                                 <th className="p-3 font-semibold text-gray-600">Name</th>
                                                 <th className="p-3 font-semibold text-gray-600">Username</th>
                                                 <th className="p-3 font-semibold text-gray-600">Role</th>
                                                 <th className="p-3 font-semibold text-gray-600">Email</th>
                                                 <th className="p-3 font-semibold text-gray-600">Mobile</th>
+                                                <th className="p-3 font-semibold text-gray-600">Status</th>
                                                 <th className="p-3 font-semibold text-gray-600">College Scope</th>
                                                 {isSuperAdminUser && <th className="p-3 font-semibold text-right">Action</th>}
                                             </tr>
@@ -634,7 +637,7 @@ const UserManagement = () => {
                                                     <td className="p-3 font-medium text-gray-900">{user.name}</td>
                                                     <td className="p-3 text-gray-500 font-mono">{user.username}</td>
                                                     <td className="p-3">
-                                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
                                                             user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
                                                                  user.role === 'cashier' ? 'bg-green-100 text-green-700' :
                                                                      'bg-gray-100 text-gray-700'
@@ -644,6 +647,21 @@ const UserManagement = () => {
                                                     </td>
                                                     <td className="p-3 text-gray-500 text-xs">{user.email || '—'}</td>
                                                     <td className="p-3 text-gray-500 text-xs">{user.mobile || '—'}</td>
+                                                    <td className="p-3">
+                                                        {user.isActive === false ? (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
+                                                                Deactivated (Manual)
+                                                            </span>
+                                                        ) : user.employeeId && user.hrmsActive === false ? (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200" title="Deactivated in external HRMS database">
+                                                                Deactivated (HRMS)
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">
+                                                                Active
+                                                            </span>
+                                                        )}
+                                                    </td>
                                                     <td className="p-3 text-gray-500">
                                                         {user.campuses && user.campuses.length > 0 && (
                                                             <div className="text-[10px] text-indigo-600 font-bold mb-1">
@@ -728,7 +746,7 @@ const UserManagement = () => {
                                 )}
                             </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">
+                                <table className="w-full text-left text-xs">
                                     <thead className="bg-gray-50 border-b">
                                         <tr>
                                             <th className="p-3 font-semibold text-gray-600">Role Name</th>
@@ -741,7 +759,7 @@ const UserManagement = () => {
                                         {roles.map(role => (
                                             <tr key={role._id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-medium text-gray-900 capitalize">
-                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                                                         role.name === 'superadmin' ? 'bg-purple-100 text-purple-700' :
                                                         role.name === 'admin' ? 'bg-blue-100 text-blue-700' :
                                                         role.name === 'office_staff' ? 'bg-indigo-100 text-indigo-700' :
@@ -751,9 +769,9 @@ const UserManagement = () => {
                                                         {role.name}
                                                     </span>
                                                 </td>
-                                                <td className="p-3 text-gray-500 text-xs">{role.description || 'No description provided'}</td>
-                                                <td className="p-3 text-gray-500 text-xs">
-                                                    <span className="bg-slate-100 px-2 py-0.5 rounded-full font-bold text-slate-700">
+                                                <td className="p-3 text-gray-500 text-[11px]">{role.description || 'No description provided'}</td>
+                                                <td className="p-3 text-gray-500 text-[11px]">
+                                                    <span className="bg-slate-100 px-2 py-0.5 rounded-full font-bold text-slate-700 text-[10px]">
                                                         {role.permissions?.length || 0} permissions
                                                     </span>
                                                 </td>
@@ -948,6 +966,19 @@ const UserManagement = () => {
                                             className="w-full border p-2 rounded mt-1"
                                             placeholder="e.g. 9876543210"
                                         />
+                                    </div>
+
+                                    {/* Active Status Toggle */}
+                                    <div className="flex items-center gap-2 mt-2 bg-slate-50 border p-2.5 rounded-lg shadow-sm">
+                                        <input
+                                            type="checkbox"
+                                            name="isActive"
+                                            id="user-is-active"
+                                            checked={formData.isActive}
+                                            onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                                            className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                                        />
+                                        <label htmlFor="user-is-active" className="text-xs font-bold text-gray-700 uppercase cursor-pointer select-none">Active Account</label>
                                     </div>
 
                                     {/* Campus Selection */}

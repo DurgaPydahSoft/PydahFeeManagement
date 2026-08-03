@@ -6,7 +6,41 @@ const bcrypt = require('bcryptjs');
 // @access  Admin
 const getUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    const users = await User.find().select('-password').lean().sort({ createdAt: -1 });
+
+    try {
+      const getEmployeeModel = require('../models/Employee');
+      const Employee = getEmployeeModel();
+      if (Employee) {
+        const empIds = users.filter(u => u.employeeId).map(u => u.employeeId);
+        if (empIds.length > 0) {
+          const employees = await Employee.find({ _id: { $in: empIds } }).select('is_active email phone_number dynamicFields');
+          const empMap = employees.reduce((acc, emp) => {
+            acc[emp._id.toString()] = emp;
+            return acc;
+          }, {});
+
+          users.forEach(u => {
+            if (u.employeeId && empMap[u.employeeId.toString()]) {
+              const emp = empMap[u.employeeId.toString()];
+              u.hrmsActive = emp.is_active;
+
+              // Fallback for Email
+              if (!u.email) {
+                u.email = emp.email || (emp.dynamicFields && emp.dynamicFields.email) || '';
+              }
+              // Fallback for Mobile
+              if (!u.mobile) {
+                u.mobile = emp.phone_number || (emp.dynamicFields && (emp.dynamicFields.phone_number || emp.dynamicFields.mobile || emp.dynamicFields.phone)) || '';
+              }
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to populate HRMS status in getUsers:', err);
+    }
+
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -18,8 +52,33 @@ const getUsers = async (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findById(req.user.id).select('-password').lean();
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.employeeId) {
+      try {
+        const getEmployeeModel = require('../models/Employee');
+        const Employee = getEmployeeModel();
+        if (Employee) {
+          const emp = await Employee.findById(user.employeeId).select('is_active email phone_number dynamicFields');
+          if (emp) {
+            user.hrmsActive = emp.is_active;
+
+            // Fallback for Email
+            if (!user.email) {
+              user.email = emp.email || (emp.dynamicFields && emp.dynamicFields.email) || '';
+            }
+            // Fallback for Mobile
+            if (!user.mobile) {
+              user.mobile = emp.phone_number || (emp.dynamicFields && (emp.dynamicFields.phone_number || emp.dynamicFields.mobile || emp.dynamicFields.phone)) || '';
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to populate HRMS details in getMe:', err);
+      }
+    }
+
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });
@@ -57,7 +116,7 @@ const updateUserPaymentAccess = async (req, res) => {
 const createUser = async (req, res) => {
   // console.log('\n[USER CREATION DEBUG] -----------------------------------------');
   // console.log('[USER CREATION DEBUG] Received Payload:', req.body);
-  const { name, username, password, role, college, colleges, campuses, courses, employeeId, permissions, email, mobile } = req.body;
+  const { name, username, password, role, college, colleges, campuses, courses, employeeId, permissions, email, mobile, isActive } = req.body;
 
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
@@ -106,7 +165,8 @@ const createUser = async (req, res) => {
       employeeId, // Link to external employee
       permissions: permissions || [], // Save permissions if provided
       email: email || undefined,
-      mobile: mobile || undefined
+      mobile: mobile || undefined,
+      isActive: isActive !== undefined ? isActive : true
     });
 
     // console.log(`[USER CREATION DEBUG] User created successfully: ${user._id}`);
@@ -124,7 +184,8 @@ const createUser = async (req, res) => {
         employeeId: user.employeeId,
         permissions: user.permissions,
         email: user.email,
-        mobile: user.mobile
+        mobile: user.mobile,
+        isActive: user.isActive
       });
     } else {
       res.status(400).json({ message: 'Invalid user data' });
@@ -183,7 +244,7 @@ const updateUserPermissions = async (req, res) => {
 };
 
 const updateUser = async (req, res) => {
-  const { name, username, password, role, college, colleges, campuses, courses, permissions, email, mobile } = req.body;
+  const { name, username, password, role, college, colleges, campuses, courses, permissions, email, mobile, isActive } = req.body;
 
   try {
     const user = await User.findById(req.params.id);
@@ -229,6 +290,21 @@ const updateUser = async (req, res) => {
       user.mobile = mobile === '' ? undefined : mobile;
     }
 
+    if (isActive !== undefined) {
+      if (isActive === false && user.isActive !== false) {
+        if (user.sessionId) {
+          try {
+            const { notifyLogout } = require('../utils/sseManager');
+            notifyLogout(user.sessionId);
+          } catch (err) {
+            console.error('SSE displacement logout failed during deactivation:', err);
+          }
+          user.sessionId = null;
+        }
+      }
+      user.isActive = isActive;
+    }
+
     // Allow changing password for ALL users (including linked ones) 
     // This allows Superadmins (or users themselves, if we add that later) to set a local override password.
     if (password) {
@@ -249,7 +325,8 @@ const updateUser = async (req, res) => {
       courses: updatedUser.courses,
       permissions: updatedUser.permissions,
       email: updatedUser.email,
-      mobile: updatedUser.mobile
+      mobile: updatedUser.mobile,
+      isActive: updatedUser.isActive
     });
   } catch (error) {
     console.error(error);

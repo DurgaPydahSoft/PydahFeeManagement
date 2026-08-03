@@ -13,7 +13,34 @@ const {
 // CORE LOGIC (Helper)
 // ==========================================
 
-const processRemindersBatch = async (templateId, recipients) => {
+const MOBILE_FIELD_MAP = {
+    student: 'student_mobile',
+    parent: 'parent_mobile1',
+    guardian: 'parent_mobile2'
+};
+
+/**
+ * Expand recipients per smsRecipients setting.
+ * Each entry overrides `phone` with the right mobile field.
+ * Recipients with no valid number for a given type are skipped.
+ */
+const expandBySmsRecipients = (recipients, smsRecipients) => {
+    if (!smsRecipients || smsRecipients.length === 0) return recipients;
+    const expanded = [];
+    for (const r of recipients) {
+        for (const type of smsRecipients) {
+            const field = MOBILE_FIELD_MAP[type];
+            if (!field) continue;
+            // check student sub-object first, then top-level
+            const mobile = r.student?.[field] || r[field];
+            if (!mobile || String(mobile).trim().length < 10) continue;
+            expanded.push({ ...r, phone: String(mobile).trim() });
+        }
+    }
+    return expanded;
+};
+
+const processRemindersBatch = async (templateId, recipients, { smsRecipients } = {}) => {
     if (!templateId || !recipients || recipients.length === 0) {
         throw new Error('Template ID and recipients are required');
     }
@@ -55,7 +82,12 @@ const processRemindersBatch = async (templateId, recipients) => {
         results.push(...(await Promise.all(emailPromises)));
 
     } else if (template.type === 'SMS') {
-        const smsPromises = recipients.map(async (recipient) => {
+        // Expand to student/parent/guardian mobiles if smsRecipients specified
+        const targets = smsRecipients?.length
+            ? expandBySmsRecipients(recipients, smsRecipients)
+            : recipients;
+
+        const smsPromises = targets.map(async (recipient) => {
             const mobile = recipient.phone || recipient.student_mobile || recipient.student?.student_mobile || recipient.mobile_number;
 
             if (!mobile || String(mobile).length < 10) {
@@ -142,9 +174,11 @@ const deleteTemplate = async (req, res) => {
 };
 
 const sendReminders = async (req, res) => {
-    const { templateId, recipients } = req.body;
+    const { templateId, recipients, smsRecipients } = req.body;
     try {
-        const results = await processRemindersBatch(templateId, recipients);
+        const results = await processRemindersBatch(templateId, recipients, {
+            smsRecipients: Array.isArray(smsRecipients) ? smsRecipients : undefined
+        });
         res.json({ message: 'Reminders processed', results });
     } catch (error) {
         console.error('Error sending reminders:', error);
@@ -152,8 +186,10 @@ const sendReminders = async (req, res) => {
     }
 };
 
+const VALID_SMS_RECIPIENTS = ['student', 'parent', 'guardian'];
+
 const createConfig = async (req, res) => {
-    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets } = req.body;
+    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients } = req.body;
 
     if (!academicYear || !dueSourceType || !triggerType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
         return res.status(400).json({ message: 'Missing required fields: academicYear, dueSourceType, triggerType, offsets' });
@@ -167,6 +203,15 @@ const createConfig = async (req, res) => {
         return res.status(400).json({ message: 'At least one template (SMS or Email) must be selected.' });
     }
 
+    // Validate smsRecipients if SMS is enabled
+    const normalizedSmsRecipients = Array.isArray(smsRecipients)
+        ? smsRecipients.filter(r => VALID_SMS_RECIPIENTS.includes(r))
+        : ['student'];
+
+    if (smsTemplateId && normalizedSmsRecipients.length === 0) {
+        return res.status(400).json({ message: 'At least one SMS recipient (Student, Parent, or Guardian) must be selected.' });
+    }
+
     try {
         const newConfig = await ReminderConfig.create({
             academicYear: String(academicYear).trim(),
@@ -174,7 +219,8 @@ const createConfig = async (req, res) => {
             triggerType,
             offsets: offsets.map(Number).filter((n) => !Number.isNaN(n) && n >= 0),
             smsTemplateId: smsTemplateId || undefined,
-            emailTemplateId: emailTemplateId || undefined
+            emailTemplateId: emailTemplateId || undefined,
+            smsRecipients: normalizedSmsRecipients
         });
         res.status(201).json(newConfig);
     } catch (error) {
@@ -206,7 +252,7 @@ const deleteConfig = async (req, res) => {
 
 const updateConfig = async (req, res) => {
     const { id } = req.params;
-    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets } = req.body;
+    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients } = req.body;
 
     if (!academicYear || !dueSourceType || !triggerType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
         return res.status(400).json({ message: 'Missing required configuration fields or invalid offsets' });
@@ -216,6 +262,14 @@ const updateConfig = async (req, res) => {
         return res.status(400).json({ message: 'At least one template (SMS or Email) must be selected.' });
     }
 
+    const normalizedSmsRecipients = Array.isArray(smsRecipients)
+        ? smsRecipients.filter(r => VALID_SMS_RECIPIENTS.includes(r))
+        : ['student'];
+
+    if (smsTemplateId && normalizedSmsRecipients.length === 0) {
+        return res.status(400).json({ message: 'At least one SMS recipient (Student, Parent, or Guardian) must be selected.' });
+    }
+
     try {
         const updatedConfig = await ReminderConfig.findByIdAndUpdate(id, {
             academicYear: String(academicYear).trim(),
@@ -223,7 +277,8 @@ const updateConfig = async (req, res) => {
             triggerType,
             offsets: offsets.map(Number).filter((n) => !Number.isNaN(n) && n >= 0),
             smsTemplateId: smsTemplateId || null,
-            emailTemplateId: emailTemplateId || null
+            emailTemplateId: emailTemplateId || null,
+            smsRecipients: normalizedSmsRecipients
         }, { new: true });
 
         if (!updatedConfig) return res.status(404).json({ message: 'Config not found' });

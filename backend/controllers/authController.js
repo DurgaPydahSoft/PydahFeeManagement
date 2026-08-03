@@ -176,6 +176,30 @@ const loginUser = async (req, res) => {
       // 2. If the user already had an active session, notify that SSE client
       //    so the old device is logged out instantly.
       const dbUser = await User.findById(authUser._id);
+      if (dbUser) {
+        if (dbUser.isActive === false) {
+          console.log(`[AUTH LOG] FAILURE: Account is manually deactivated for user ${username}`);
+          return res.status(403).json({ message: 'Your account has been deactivated. Please contact your system administrator.' });
+        }
+
+        // Check if deactivated via HRMS
+        if (dbUser.employeeId) {
+          try {
+            const getEmployeeModel = require('../models/Employee');
+            const Employee = getEmployeeModel();
+            if (Employee) {
+              const employee = await Employee.findById(dbUser.employeeId).select('is_active');
+              if (employee && employee.is_active === false) {
+                console.log(`[AUTH LOG] FAILURE: Account is HRMS deactivated for user ${username}`);
+                return res.status(403).json({ message: 'Your account has been deactivated via HRMS. Please contact HR.' });
+              }
+            }
+          } catch (err) {
+            console.error('HRMS deactivation check failed during login:', err);
+          }
+        }
+      }
+
       if (dbUser && dbUser.sessionId) {
         notifyLogout(dbUser.sessionId);
       }
@@ -330,6 +354,30 @@ const ssoLogin = async (req, res) => {
       // --- Single Active Device Login (SSO path) ---
       const newSessionId = crypto.randomUUID();
       const dbUser = await User.findById(authUser._id);
+      if (dbUser) {
+        if (dbUser.isActive === false) {
+          console.log(`[AUTH LOG] SSO FAILURE: Account is manually deactivated for user ${dbUser.username}`);
+          return res.status(403).json({ message: 'Your account has been deactivated. Please contact your system administrator.' });
+        }
+
+        // Check if deactivated via HRMS
+        if (dbUser.employeeId) {
+          try {
+            const getEmployeeModel = require('../models/Employee');
+            const Employee = getEmployeeModel();
+            if (Employee) {
+              const employee = await Employee.findById(dbUser.employeeId).select('is_active');
+              if (employee && employee.is_active === false) {
+                console.log(`[AUTH LOG] SSO FAILURE: Account is HRMS deactivated for user ${dbUser.username}`);
+                return res.status(403).json({ message: 'Your account has been deactivated via HRMS. Please contact HR.' });
+              }
+            }
+          } catch (err) {
+            console.error('HRMS deactivation check failed during SSO login:', err);
+          }
+        }
+      }
+
       if (dbUser && dbUser.sessionId) {
         notifyLogout(dbUser.sessionId);
       }

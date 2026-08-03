@@ -6,7 +6,8 @@ const concessionEntrySchema = new mongoose.Schema({
     studentYear:    { type: Number, required: true },
     semester:       { type: Number, default: null },
     amount:         { type: Number, required: true },
-    concessionType: { type: String, enum: ['CONCESSION', 'REVISED'], default: 'CONCESSION' }
+    concessionType: { type: String, enum: ['CONCESSION', 'REVISED'], default: 'CONCESSION' },
+    remarks:        { type: String, default: '' }
 }, { _id: false });
 
 const overallConcessionRequestSchema = new mongoose.Schema({

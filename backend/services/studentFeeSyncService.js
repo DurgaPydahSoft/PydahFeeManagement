@@ -739,6 +739,14 @@ const syncStandardFees = async (student, admissionNo) => {
   for (const fs of applicableStructures) {
     if (serviceHeadIds.has(String(fs.feeHead))) continue;
 
+    const fsKey = buildConcessionLookupKey(
+      fs.feeHead.toString(),
+      fs.studentYear,
+      fs.semester
+    );
+    const revisedConcession = revisedFeesMap[fsKey];
+    const targetRemarks = revisedConcession ? revisedConcession.remarks : '';
+
     const targetAmount = resolveTargetAmount(fs.amount, revisedFeesMap, fs);
     const result = await upsertStudentFeeDemand({
       admissionNo,
@@ -748,6 +756,7 @@ const syncStandardFees = async (student, admissionNo) => {
       studentYear: fs.studentYear,
       semester: fs.semester || null,
       amount: targetAmount,
+      remarks: targetRemarks || undefined,
       extraFields: {
         structureId: fs._id,
         stud_type: fs.category,

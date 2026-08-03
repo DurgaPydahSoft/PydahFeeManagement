@@ -125,7 +125,8 @@ const saveOverallConcession = async (req, res) => {
         semester, 
         amount,
         revisedAmount,
-        concessionType
+        concessionType,
+        remarks
     } = req.body;
 
     const concessionAmount = amount ?? revisedAmount;
@@ -147,7 +148,8 @@ const saveOverallConcession = async (req, res) => {
             studentYear: sYear,
             semester: sem,
             amount: numericAmount,
-            concessionType
+            concessionType,
+            remarks
         });
 
         if (normalizeConcessionType(storedEntry.concessionType) === 'REVISED') {
@@ -250,8 +252,7 @@ const saveOverallConcession = async (req, res) => {
                     feeHead: feeHeadId,
                     academicYear: batch,
                     studentYear: sYear,
-                    semester: sem,
-                    $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
+                    semester: sem
                 },
                 {
                     $set: {
@@ -264,7 +265,8 @@ const saveOverallConcession = async (req, res) => {
                         batch: batch,
                         stud_type: category || 'Regular',
                         isScholarshipApplicable: false,
-                        isTermsDivided: isTermsDivided || false
+                        isTermsDivided: isTermsDivided || false,
+                        remarks: storedEntry.remarks || undefined
                     }
                 },
                 { upsert: true, new: true }
@@ -365,7 +367,8 @@ const _saveStudentConcessions = async ({
             studentYear: Number(c.studentYear),
             semester: sem,
             amount: getConcessionAmount(c),
-            concessionType: c.concessionType
+            concessionType: c.concessionType,
+            remarks: c.remarks
         });
     };
 
@@ -620,7 +623,8 @@ const submitConcessionRequest = async (req, res) => {
                 studentYear:    Number(c.studentYear),
                 semester:       sem,
                 amount:         getConcessionAmount(c),
-                concessionType: String(c.concessionType || 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION'
+                concessionType: String(c.concessionType || 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION',
+                remarks:        c.remarks || ''
             };
         });
 
@@ -802,7 +806,8 @@ const approveConcessionRequest = async (req, res) => {
                 studentYear:    Number(c.studentYear),
                 semester:       normalizeSemester(c.semester),
                 amount:         c.amount,
-                concessionType: c.concessionType
+                concessionType: c.concessionType,
+                remarks:        c.remarks
             });
         });
         const mergedFees = Object.values(mergedMap);

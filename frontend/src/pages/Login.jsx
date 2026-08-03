@@ -64,7 +64,12 @@ const Login = () => {
                 completeLogin(response.data, { isSSO: true });
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'SSO Login failed');
+            const errMsg = err.response?.data?.message || 'SSO Login failed';
+            if (errMsg.toLowerCase().includes('deactivated')) {
+                setError('Your account has been deactivated.');
+            } else {
+                setError(errMsg);
+            }
             setLoading(false);
             navigate('/login', { replace: true });
         }
@@ -87,7 +92,12 @@ const Login = () => {
                 completeLogin(response.data);
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'Login failed');
+            const errMsg = err.response?.data?.message || 'Login failed';
+            if (errMsg.toLowerCase().includes('deactivated')) {
+                setError('Your account has been deactivated.');
+            } else {
+                setError(errMsg);
+            }
             setLoading(false);
         }
     };

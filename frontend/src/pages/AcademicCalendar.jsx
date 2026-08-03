@@ -33,12 +33,22 @@ const toDateInputValue = (value) => {
     return `${parts.y}-${String(parts.m).padStart(2, '0')}-${String(parts.d).padStart(2, '0')}`;
 };
 
+/** Derive current academic year string, e.g. "2025-2026" */
+const getCurrentAcademicYear = () => {
+    const now = new Date();
+    const month = now.getMonth() + 1; // 1-based
+    const year = now.getFullYear();
+    // Academic year starts in June (month 6)
+    const startYear = month >= 6 ? year : year - 1;
+    return `${startYear}-${startYear + 1}`;
+};
+
 const AcademicCalendar = () => {
     const [academicYears, setAcademicYears] = useState([]);
     const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
     const [calendarFilters, setCalendarFilters] = useState({
         college: '',
-        batch: '',
+        academicYear: getCurrentAcademicYear(),
         course: '',
         branch: ''
     });
@@ -113,7 +123,7 @@ const AcademicCalendar = () => {
         try {
             const params = new URLSearchParams();
             if (filters.college) params.append('college', filters.college);
-            if (filters.batch) params.append('batch', filters.batch);
+            if (filters.academicYear) params.append('batch', filters.academicYear);
             if (filters.course) params.append('course', filters.course);
             const res = await api.get(`/academic-calendar/academic-years?${params.toString()}`);
             setAcademicYears(res.data);
@@ -218,11 +228,14 @@ const AcademicCalendar = () => {
         return Object.keys(studentsMetadata);
     }, [studentsMetadata]);
 
-    const batchOptions = React.useMemo(() => {
-        const fromYears = academicYears.map(item => item.batch || item.year_label).filter(Boolean);
-        const combined = Array.from(new Set([...batches, ...fromYears]));
-        return combined.sort().reverse();
-    }, [batches, academicYears]);
+    const academicYearOptions = React.useMemo(() => {
+        // Primary source: metadata.years from the calendar DB (academic_years table)
+        const fromMeta = metadata.years.map(y => y.year_label).filter(Boolean);
+        // Secondary: any year_labels already present in fetched data
+        const fromData = academicYears.map(item => item.year_label).filter(Boolean);
+        const combined = Array.from(new Set([...fromMeta, ...fromData])).sort().reverse();
+        return combined;
+    }, [metadata.years, academicYears]);
 
     const courseOptions = React.useMemo(() => {
         if (calendarFilters.college && studentsMetadata[calendarFilters.college]) {
@@ -241,19 +254,14 @@ const AcademicCalendar = () => {
     }, [calendarFilters.college, calendarFilters.course, studentsMetadata]);
 
     const filteredCalendarData = React.useMemo(() => {
-        const normalizeBatch = (b) => String(b || '').split('-')[0].trim();
         const collegeCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
             ? Object.keys(studentsMetadata[calendarFilters.college])
             : null;
 
-        return academicYears.filter(item => {
-            const itemBatch = item.batch || item.year_label;
-            if (calendarFilters.batch) {
-                const filterBatch = normalizeBatch(calendarFilters.batch);
-                const rowBatch = normalizeBatch(itemBatch);
-                if (rowBatch !== filterBatch && String(itemBatch) !== String(calendarFilters.batch)) {
-                    return false;
-                }
+        // Filter actual DB rows
+        const dbRows = academicYears.filter(item => {
+            if (calendarFilters.academicYear) {
+                if (item.year_label !== calendarFilters.academicYear) return false;
             }
             if (calendarFilters.course) {
                 if (item.course_name !== calendarFilters.course) return false;
@@ -267,6 +275,38 @@ const AcademicCalendar = () => {
             if (hideEmptyDates && !item.start_date && !item.end_date) return false;
             return true;
         });
+
+        // When an academic year is selected, synthesize placeholder rows for every
+        // course in studentsMetadata that has no calendar entry yet (so all courses are visible).
+        if (calendarFilters.academicYear && !hideEmptyDates) {
+            const allCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
+                ? Object.keys(studentsMetadata[calendarFilters.college])
+                : Object.values(studentsMetadata).flatMap(c => Object.keys(c));
+            const uniqueCourses = [...new Set(allCourses)];
+
+            const coveredCourses = new Set(dbRows.map(r => r.course_name));
+
+            const filteredForCourse = calendarFilters.course ? [calendarFilters.course] : uniqueCourses;
+
+            filteredForCourse.forEach(courseName => {
+                if (!coveredCourses.has(courseName)) {
+                    dbRows.push({
+                        id: `placeholder-${courseName}`,
+                        college_name: calendarFilters.college || null,
+                        course_name: courseName,
+                        batch: null,
+                        year_label: calendarFilters.academicYear,
+                        year_of_study: null,
+                        semester_number: null,
+                        start_date: null,
+                        end_date: null,
+                        _isPlaceholder: true
+                    });
+                }
+            });
+        }
+
+        return dbRows;
     }, [academicYears, calendarFilters, studentsMetadata, hideEmptyDates]);
 
     return (
@@ -306,14 +346,14 @@ const AcademicCalendar = () => {
                         </div>
 
                         <div>
-                            <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Batch</label>
+                            <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Academic Year</label>
                             <select 
                                 className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
-                                value={calendarFilters.batch} 
-                                onChange={e => setCalendarFilters({ ...calendarFilters, batch: e.target.value })}
+                                value={calendarFilters.academicYear} 
+                                onChange={e => setCalendarFilters({ ...calendarFilters, academicYear: e.target.value })}
                             >
-                                <option value="">All Batches</option>
-                                {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                                <option value="">All Academic Years</option>
+                                {academicYearOptions.map(y => <option key={y} value={y}>{y}</option>)}
                             </select>
                         </div>
 
@@ -354,10 +394,10 @@ const AcademicCalendar = () => {
                         </label>
 
                         <div className="shrink-0">
-                            {(calendarFilters.college || calendarFilters.batch || calendarFilters.course || calendarFilters.branch) ? (
+                            {(calendarFilters.college || calendarFilters.academicYear !== getCurrentAcademicYear() || calendarFilters.course || calendarFilters.branch) ? (
                                 <button
                                     type="button"
-                                    onClick={() => setCalendarFilters({ college: '', batch: '', course: '', branch: '' })}
+                                    onClick={() => setCalendarFilters({ college: '', academicYear: getCurrentAcademicYear(), course: '', branch: '' })}
                                     className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold rounded-lg transition text-center shrink-0 w-auto"
                                 >
                                    Clear
@@ -403,7 +443,7 @@ const AcademicCalendar = () => {
                                         ) : filteredCalendarData.length > 0 ? (
                                             filteredCalendarData.map((item) => {
                                                 return (
-                                                    <tr key={item.id} className="hover:bg-gray-50/80 transition-colors group text-xs">
+                                                    <tr key={item.id} className={`hover:bg-gray-50/80 transition-colors group text-xs ${item._isPlaceholder ? 'opacity-60 bg-gray-50/40' : ''}`}>
                                                         <td className="px-4 py-3.5 text-gray-700 font-medium">
                                                             {item.college_name || <span className="text-gray-400 italic">No college</span>}
                                                         </td>
@@ -417,34 +457,48 @@ const AcademicCalendar = () => {
                                                             {item.year_label || '—'}
                                                         </td>
                                                         <td className="px-4 py-3.5 text-center">
-                                                            <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {item.year_of_study}</span>
+                                                            {item.year_of_study != null
+                                                                ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {item.year_of_study}</span>
+                                                                : <span className="text-gray-300 italic text-[11px]">—</span>
+                                                            }
                                                         </td>
                                                         <td className="px-4 py-3.5 text-center">
-                                                            <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-md font-bold text-[11px]">Sem {item.semester_number}</span>
+                                                            {item.semester_number != null
+                                                                ? <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-md font-bold text-[11px]">Sem {item.semester_number}</span>
+                                                                : <span className="text-gray-300 italic text-[11px]">—</span>
+                                                            }
                                                         </td>
                                                         <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">
-                                                            {formatSqlDate(item.start_date)}
+                                                            {item._isPlaceholder
+                                                                ? <span className="text-gray-300 italic text-[11px]">Not configured</span>
+                                                                : formatSqlDate(item.start_date)
+                                                            }
                                                         </td>
                                                         <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">
-                                                            {formatSqlDate(item.end_date)}
+                                                            {item._isPlaceholder
+                                                                ? <span className="text-gray-300 italic text-[11px]">Not configured</span>
+                                                                : formatSqlDate(item.end_date)
+                                                            }
                                                         </td>
                                                         <td className="px-4 py-3.5 text-right">
-                                                            <div className="flex justify-end gap-2">
-                                                                <button 
-                                                                    onClick={() => handleOpenModal(item)}
-                                                                    className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
-                                                                    title="Edit"
-                                                                >
-                                                                    <Pencil size={15} />
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => handleDelete(item.id)}
-                                                                    className="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
-                                                                    title="Delete"
-                                                                >
-                                                                    <Trash2 size={15} />
-                                                                </button>
-                                                            </div>
+                                                            {!item._isPlaceholder && (
+                                                                <div className="flex justify-end gap-2">
+                                                                    <button 
+                                                                        onClick={() => handleOpenModal(item)}
+                                                                        className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                                                                        title="Edit"
+                                                                    >
+                                                                        <Pencil size={15} />
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => handleDelete(item.id)}
+                                                                        className="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <Trash2 size={15} />
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 );

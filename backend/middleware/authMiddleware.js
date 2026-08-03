@@ -40,6 +40,27 @@ const protect = async (req, res, next) => {
                 return res.status(401).json({ message: 'Not authorized, user not found in Fee Management' });
             }
 
+            // Check if user is deactivated locally
+            if (user.isActive === false) {
+                return res.status(401).json({ message: 'Not authorized, your account has been deactivated.' });
+            }
+
+            // Check if user is deactivated via HRMS
+            if (user.employeeId) {
+                try {
+                    const getEmployeeModel = require('../models/Employee');
+                    const Employee = getEmployeeModel();
+                    if (Employee) {
+                        const employee = await Employee.findById(user.employeeId).select('is_active');
+                        if (employee && employee.is_active === false) {
+                            return res.status(401).json({ message: 'Not authorized, your account has been deactivated via HRMS.' });
+                        }
+                    }
+                } catch (err) {
+                    console.error('HRMS deactivation check failed:', err);
+                }
+            }
+
             // --- Single Active Device Login Check ---
             // Compare the sessionId embedded in the JWT against the one
             // currently stored in the database. A mismatch means another device

@@ -15,13 +15,14 @@ const normalizeConcessionType = (type) => {
   return normalized === 'REVISED' ? 'REVISED' : 'CONCESSION';
 };
 
-const formatConcessionEntry = ({ feeHeadId, feeHeadCode, studentYear, semester, amount, concessionType }) => ({
+const formatConcessionEntry = ({ feeHeadId, feeHeadCode, studentYear, semester, amount, concessionType, remarks }) => ({
   semester: normalizeSemester(semester),
   feeHeadId: String(feeHeadId),
   feeHeadCode: feeHeadCode || '',
   studentYear: Number(studentYear),
   concessionType: normalizeConcessionType(concessionType),
-  amount: Number(amount)
+  amount: Number(amount),
+  remarks: remarks || ''
 });
 
 const resolveFeeHeadId = (entry, codeMap = {}) => {
@@ -67,7 +68,8 @@ const buildRevisedFeesMap = (feesArray, codeMap = {}) => {
 
     revisedFeesMap[key] = {
       amount: getConcessionAmount(entry),
-      concessionType: normalizeConcessionType(entry.concessionType)
+      concessionType: normalizeConcessionType(entry.concessionType),
+      remarks: entry.remarks || ''
     };
   });
 
@@ -84,7 +86,8 @@ const mapStoredEntryForResponse = (entry, feeHeads = [], codeMap = {}) => {
     studentYear: Number(entry.studentYear),
     semester: normalizeSemester(entry.semester),
     concessionType: normalizeConcessionType(entry.concessionType),
-    amount: getConcessionAmount(entry)
+    amount: getConcessionAmount(entry),
+    remarks: entry.remarks || ''
   };
 };
 

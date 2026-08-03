@@ -36,6 +36,16 @@ const reminderConfigSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'NotificationTemplate'
     },
+    /**
+     * Which mobile numbers to send SMS to.
+     * Possible values: 'student' | 'parent' | 'guardian'
+     * Defaults to student only for backward compat.
+     */
+    smsRecipients: {
+        type: [String],
+        enum: ['student', 'parent', 'guardian'],
+        default: ['student']
+    },
     isActive: {
         type: Boolean,
         default: true

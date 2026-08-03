@@ -3,6 +3,12 @@ import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { Mail, MessageSquare, Bell, Plus, Trash2, Save, Edit, Edit2, Send, Users, CheckSquare, Square, X, Loader2, Calendar, Clock, Activity, Search, BookOpen, Layers, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
 
+const SMS_RECIPIENT_OPTIONS = [
+    { value: 'student', label: 'Student Mobile' },
+    { value: 'parent', label: 'Parent Mobile' },
+    { value: 'guardian', label: 'Guardian Mobile' }
+];
+
 const EMPTY_CONFIG_FORM = {
     academicYear: '',
     dueSourceType: 'ACADEMIC',
@@ -12,7 +18,8 @@ const EMPTY_CONFIG_FORM = {
     smsTemplateId: '',
     emailTemplateId: '',
     enableSMS: true,
-    enableEmail: false
+    enableEmail: false,
+    smsRecipients: ['student']
 };
 
 const EMPTY_TEMPLATE_FORM = {
@@ -530,6 +537,8 @@ const ReminderConfiguration = () => {
                         branch: r.branch,
                         batch: r.batch,
                         student_mobile: r.student_mobile,
+                        parent_mobile1: r.parent_mobile1 || null,
+                        parent_mobile2: r.parent_mobile2 || null,
                         email: r.student_email || r.email,
                         stud_type: r.stud_type
                     },
@@ -542,7 +551,8 @@ const ReminderConfiguration = () => {
 
             const res = await api.post(`/reminders/send`, {
                 templateId: sendTemplateId,
-                recipients: enriched
+                recipients: enriched,
+                smsRecipients: ['student']
             });
 
             const results = res.data?.results || [];
@@ -584,7 +594,7 @@ const ReminderConfiguration = () => {
     };
 
     const handleConfigSubmit = async () => {
-        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType } = configForm;
+        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients } = configForm;
 
         if (!academicYear || !dueSourceType || offsets.length === 0) {
             return alert("Academic Year, Due Source Type, and at least ONE Offset are required.");
@@ -594,6 +604,9 @@ const ReminderConfiguration = () => {
         }
         if (enableSMS && !smsTemplateId) return alert("Please select an SMS Template.");
         if (enableEmail && !emailTemplateId) return alert("Please select an Email Template.");
+        if (enableSMS && (!smsRecipients || smsRecipients.length === 0)) {
+            return alert("Please select at least one SMS recipient (Student, Parent, or Guardian).");
+        }
 
         setIsScheduling(true);
         try {
@@ -603,7 +616,8 @@ const ReminderConfiguration = () => {
                 triggerType,
                 offsets,
                 smsTemplateId: enableSMS ? smsTemplateId : null,
-                emailTemplateId: enableEmail ? emailTemplateId : null
+                emailTemplateId: enableEmail ? emailTemplateId : null,
+                smsRecipients: enableSMS ? smsRecipients : []
             };
 
             if (editingConfigId) {
@@ -647,7 +661,8 @@ const ReminderConfiguration = () => {
             smsTemplateId: cfg.smsTemplateId?._id || cfg.smsTemplateId || '',
             emailTemplateId: cfg.emailTemplateId?._id || cfg.emailTemplateId || '',
             enableSMS: !!cfg.smsTemplateId,
-            enableEmail: !!cfg.emailTemplateId
+            enableEmail: !!cfg.emailTemplateId,
+            smsRecipients: cfg.smsRecipients?.length ? cfg.smsRecipients : ['student']
         });
     };
 
@@ -1046,31 +1061,31 @@ const ReminderConfiguration = () => {
                                     <Clock className="text-blue-600" size={20} /> Global Reminder Rule
                                 </h2>
                                 <div className="space-y-5 flex-1 min-h-0 overflow-y-auto px-6 pb-2">
-                                    <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                        <h4 className="text-xs font-black uppercase text-gray-400">Scope</h4>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Academic Year</label>
-                                            <select
-                                                className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                value={configForm.academicYear}
-                                                onChange={e => setConfigForm({ ...configForm, academicYear: e.target.value })}
-                                            >
-                                                <option value="">Select AY</option>
-                                                {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Due Source Type</label>
-                                            <select
-                                                className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
-                                                value={configForm.dueSourceType}
-                                                onChange={e => setConfigForm({ ...configForm, dueSourceType: e.target.value })}
-                                            >
-                                                <option value="ACADEMIC">Academic Fees</option>
-                                                <option value="HOSTEL">Hostel Fees</option>
-                                                <option value="TRANSPORT">Transport Fees</option>
-                                            </select>
-                                            <p className="text-[10px] text-gray-400 mt-1">Uses the same due dates as Late Fee configs for this type.</p>
+                                    <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                        <div className="flex gap-3">
+                                            <div className="flex-1">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Academic Year</label>
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                    value={configForm.academicYear}
+                                                    onChange={e => setConfigForm({ ...configForm, academicYear: e.target.value })}
+                                                >
+                                                    <option value="">Select AY</option>
+                                                    {uniqueAcademicYears.map(ay => <option key={ay} value={ay}>{ay}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="flex-1">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Due Source Type</label>
+                                                <select
+                                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                                                    value={configForm.dueSourceType}
+                                                    onChange={e => setConfigForm({ ...configForm, dueSourceType: e.target.value })}
+                                                >
+                                                    <option value="ACADEMIC">Academic Fees</option>
+                                                    <option value="HOSTEL">Hostel Fees</option>
+                                                    <option value="TRANSPORT">Transport Fees</option>
+                                                </select>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1137,6 +1152,30 @@ const ReminderConfiguration = () => {
                                                     <option value="">Select SMS Template</option>
                                                     {smsTemplates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
                                                 </select>
+                                                <div className="mt-2">
+                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1.5">Send SMS To</label>
+                                                    <div className="flex flex-col gap-1.5">
+                                                        {SMS_RECIPIENT_OPTIONS.map(opt => (
+                                                            <label key={opt.value} className="flex items-center gap-2 cursor-pointer group">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                                                                    checked={configForm.smsRecipients.includes(opt.value)}
+                                                                    onChange={e => {
+                                                                        const next = e.target.checked
+                                                                            ? [...configForm.smsRecipients, opt.value]
+                                                                            : configForm.smsRecipients.filter(r => r !== opt.value);
+                                                                        setConfigForm({ ...configForm, smsRecipients: next });
+                                                                    }}
+                                                                />
+                                                                <span className="text-xs text-gray-700 group-hover:text-gray-900">{opt.label}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                    {configForm.smsRecipients.length === 0 && (
+                                                        <p className="text-[10px] text-red-500 mt-1">Select at least one recipient.</p>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                         {configForm.enableEmail && (
@@ -1212,7 +1251,16 @@ const ReminderConfiguration = () => {
                                                             <div><span className="font-bold text-gray-400">Audience:</span> Unpaid only</div>
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-1 flex flex-col gap-0.5 border-t border-gray-50 pt-1">
-                                                            {cfg.smsTemplateId && <div>SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name || 'Template'}</span></div>}
+                                                            {cfg.smsTemplateId && (
+                                                                <div>
+                                                                    SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name || 'Template'}</span>
+                                                                    {cfg.smsRecipients?.length > 0 && (
+                                                                        <span className="ml-1.5 text-gray-400">
+                                                                            → {cfg.smsRecipients.map(r => ({ student: 'Student', parent: 'Parent', guardian: 'Guardian' }[r] || r)).join(', ')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                             {cfg.emailTemplateId && <div>Email: <span className="font-medium text-gray-700">{cfg.emailTemplateId?.name || 'Template'}</span></div>}
                                                         </div>
                                                     </div>

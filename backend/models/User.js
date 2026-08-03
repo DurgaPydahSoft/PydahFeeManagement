@@ -49,6 +49,10 @@ const userSchema = mongoose.Schema({
   mobile: {
     type: String,
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
   resetPasswordToken: {
     type: String,
   },

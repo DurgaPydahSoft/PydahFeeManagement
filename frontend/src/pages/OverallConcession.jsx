@@ -46,12 +46,25 @@ const OverallConcession = () => {
     const [activeEditHeads,  setActiveEditHeads]  = useState([]);
     const [draftAmounts,     setDraftAmounts]     = useState({});
     const [concessionTypes,  setConcessionTypes]  = useState({});
+    const [yearRemarks,      setYearRemarks]      = useState({});
     const [selectedNewHead,  setSelectedNewHead]  = useState('');
     const [isSaving,         setIsSaving]         = useState(false);
+
+    // ── sorting states ────────────────────────────────────────────────────
+    const [viewSortField, setViewSortField] = useState(''); // 'student_name' | 'admission_number' | 'pin_no'
+    const [viewSortDir, setViewSortDir] = useState('asc'); // 'asc' | 'desc'
+    const [bulkSortField, setBulkSortField] = useState(''); // 'student_name' | 'admission_number' | 'pin_no'
+    const [bulkSortDir, setBulkSortDir] = useState('asc'); // 'asc' | 'desc'
+
+    // ── bulk load options ─────────────────────────────────────────────────
+    const [bulkApplyMode, setBulkApplyMode] = useState({}); // { [fhId]: 'single' | 'year' | 'all' }
+    const [bulkRemarks, setBulkRemarks] = useState({}); // { [admissionNumber_yr]: string }
+
     const [successMessage,   setSuccessMessage]   = useState('');
     const [errorMessage,     setErrorMessage]     = useState('');
     const [isFormDirty,      setIsFormDirty]      = useState(false);
     const formDirtyRef = useRef(false);
+    const bulkHeadDropRef = useRef(null);
 
     // ── tabs ─────────────────────────────────────────────────────────────
     const [activeTab, setActiveTab] = useState('add'); // 'add' | 'view' | 'requests'
@@ -154,7 +167,7 @@ const OverallConcession = () => {
     const applyStudentConcessionsToForm = useCallback((student) => {
         if (!student) return;
         const revisedFees = student.revisedFees || [];
-        const headIds = []; const initialDrafts = {}; const initialTypes = {};
+        const headIds = []; const initialDrafts = {}; const initialTypes = {}; const initialRemarks = {};
         revisedFees.forEach(rf => {
             const fhId = resolveRevisedFeeHeadId(rf);
             if (!fhId) return;
@@ -162,10 +175,12 @@ const OverallConcession = () => {
             initialTypes[fhId] = normalizeConcessionType(rf.concessionType);
             const amountStr = getConcessionDisplayAmount(rf);
             if (amountStr !== '') initialDrafts[buildDraftKey(fhId, rf.studentYear)] = amountStr;
+            if (rf.remarks) initialRemarks[rf.studentYear] = rf.remarks;
         });
         setActiveEditHeads(headIds);
         setDraftAmounts(initialDrafts);
         setConcessionTypes(initialTypes);
+        setYearRemarks(initialRemarks);
         markFormClean();
     }, [resolveRevisedFeeHeadId]);
 
@@ -190,6 +205,16 @@ const OverallConcession = () => {
         if (!selectedStudent || formDirtyRef.current) return;
         applyStudentConcessionsToForm(selectedStudent);
     }, [selectedStudent?.admission_number, selectedStudent?.revisedFees, feeHeads.length, applyStudentConcessionsToForm]);
+
+    useEffect(() => {
+        const handleOutsideClick = (e) => {
+            if (bulkHeadDropRef.current && !bulkHeadDropRef.current.contains(e.target)) {
+                setBulkHeadDropOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => document.removeEventListener('mousedown', handleOutsideClick);
+    }, []);
 
     // ── fetch requests (for requests tab) ────────────────────────────────
     const fetchRequests = useCallback(async () => {
@@ -604,6 +629,7 @@ const OverallConcession = () => {
 
             const amounts = {};
             const types = {};
+            const remarks = {};
             const selectedIds = new Set(bulkSelectedHeads);
             loadedStudents.forEach(s => {
                 (s.revisedFees || []).forEach(rf => {
@@ -611,18 +637,45 @@ const OverallConcession = () => {
                         const key = `${s.admission_number}_${rf.studentYear}_${rf.feeHeadId}`;
                         amounts[key] = String(rf.amount ?? rf.revisedAmount ?? '');
                         types[`${s.admission_number}_${rf.feeHeadId}`] = rf.concessionType || 'REVISED';
+                        if (rf.remarks) {
+                            remarks[`${s.admission_number}_${rf.studentYear}`] = rf.remarks;
+                        }
                     }
                 });
             });
             setBulkAmounts(amounts);
             setBulkConcTypes(types);
+            setBulkRemarks(remarks);
             setBulkLoaded(true);
         } catch { setBulkError('Failed to load students.'); }
         finally { setLoading(false); }
     };
 
     const handleBulkAmountChange = (admNo, yr, fhId, value) => {
-        setBulkAmounts(prev => ({ ...prev, [`${admNo}_${yr}_${fhId}`]: value }));
+        setBulkAmounts(prev => {
+            const next = { ...prev };
+            const mode = bulkApplyMode[fhId] || 'single';
+            const numYears = courseYears[filters.course] || 4;
+
+            if (mode === 'year') {
+                bulkStudents.forEach(s => {
+                    next[`${s.admission_number}_${yr}_${fhId}`] = value;
+                });
+            } else if (mode === 'all') {
+                bulkStudents.forEach(s => {
+                    for (let y = 1; y <= numYears; y++) {
+                        next[`${s.admission_number}_${y}_${fhId}`] = value;
+                    }
+                });
+            } else if (mode === 'student') {
+                for (let y = 1; y <= numYears; y++) {
+                    next[`${admNo}_${y}_${fhId}`] = value;
+                }
+            } else {
+                next[`${admNo}_${yr}_${fhId}`] = value;
+            }
+            return next;
+        });
     };
 
     const handleBulkSaveAll = async () => {
@@ -644,7 +697,8 @@ const OverallConcession = () => {
                                 studentYear: yr,
                                 semester: null,
                                 amount: num,
-                                concessionType: bulkConcTypes[`${s.admission_number}_${fhId}`] || 'REVISED'
+                                concessionType: bulkConcTypes[`${s.admission_number}_${fhId}`] || 'REVISED',
+                                remarks: bulkRemarks[`${s.admission_number}_${yr}`] || ''
                             });
                         }
                     });
@@ -718,7 +772,15 @@ const OverallConcession = () => {
             yearsArray.forEach(yr => {
                 const val = drafts[buildDraftKey(fhId, yr)];
                 if (val !== undefined && val !== null && String(val).trim() !== '') {
-                    payload.push({ feeHeadId: fhId, feeHeadCode: fhCode, studentYear: yr, semester: null, amount: Number(val), concessionType: cType });
+                    payload.push({
+                        feeHeadId: fhId,
+                        feeHeadCode: fhCode,
+                        studentYear: yr,
+                        semester: null,
+                        amount: Number(val),
+                        concessionType: cType,
+                        remarks: yearRemarks[yr] || ''
+                    });
                 }
             });
         });
@@ -1126,6 +1188,32 @@ const OverallConcession = () => {
                                                 )}
                                             </div>
 
+                                            {/* Year-wise Remarks */}
+                                            {activeEditHeads.length > 0 && (
+                                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mt-4 mb-4 space-y-3">
+                                                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Year-wise Remarks</h4>
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                        {yearsArray.map(yr => (
+                                                            <div key={yr}>
+                                                                <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                                                                    {getYearSuffix(yr)} Year Remarks
+                                                                </label>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="e.g. Sports concession"
+                                                                    value={yearRemarks[yr] || ''}
+                                                                    onChange={e => {
+                                                                        markFormDirty();
+                                                                        setYearRemarks({ ...yearRemarks, [yr]: e.target.value });
+                                                                    }}
+                                                                    className="w-full border border-slate-300 rounded-lg p-2 text-xs text-slate-800 bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             {/* Submit for Approval button */}
                                             {(activeEditHeads.length > 0 || isFormDirty) && (
                                                 <div className="flex justify-end pt-4 border-t border-slate-100">
@@ -1161,6 +1249,16 @@ const OverallConcession = () => {
                         const viewStudents = viewListMode === 'revised'
                             ? students.filter(s => (s.revisedFees || []).length > 0)
                             : students;
+
+                        const sortedViewStudents = [...viewStudents].sort((a, b) => {
+                            if (!viewSortField) return 0;
+                            let valA = a[viewSortField] || '';
+                            let valB = b[viewSortField] || '';
+                            if (typeof valA === 'string') {
+                                return viewSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                            }
+                            return viewSortDir === 'asc' ? (valA > valB ? 1 : -1) : (valB > valA ? 1 : -1);
+                        });
 
                         return (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-fadeIn">
@@ -1215,7 +1313,43 @@ const OverallConcession = () => {
                                 <table className="w-full text-xs text-left border-collapse min-w-[800px]">
                                     <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-semibold text-[10px] uppercase">
                                         <tr>
-                                            <th className="p-4 w-3/12">Student Info</th>
+                                            <th className="p-4 w-3/12 select-none">
+                                                <div className="flex flex-col gap-1">
+                                                    <span>Student Info</span>
+                                                    <div className="flex items-center gap-2 text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+                                                        <span>Sort:</span>
+                                                        <button type="button"
+                                                            onClick={() => {
+                                                                const dir = (viewSortField === 'student_name' && viewSortDir === 'asc') ? 'desc' : 'asc';
+                                                                setViewSortField('student_name');
+                                                                setViewSortDir(dir);
+                                                            }}
+                                                            className={`hover:text-blue-600 transition flex items-center gap-0.5 cursor-pointer ${viewSortField === 'student_name' ? 'text-blue-600 font-black' : ''}`}>
+                                                            Name {viewSortField === 'student_name' ? (viewSortDir === 'asc' ? '▲' : '▼') : ''}
+                                                        </button>
+                                                        <span>·</span>
+                                                        <button type="button"
+                                                            onClick={() => {
+                                                                const dir = (viewSortField === 'admission_number' && viewSortDir === 'asc') ? 'desc' : 'asc';
+                                                                setViewSortField('admission_number');
+                                                                setViewSortDir(dir);
+                                                            }}
+                                                            className={`hover:text-blue-600 transition flex items-center gap-0.5 cursor-pointer ${viewSortField === 'admission_number' ? 'text-blue-600 font-black' : ''}`}>
+                                                            Adm {viewSortField === 'admission_number' ? (viewSortDir === 'asc' ? '▲' : '▼') : ''}
+                                                        </button>
+                                                        <span>·</span>
+                                                        <button type="button"
+                                                            onClick={() => {
+                                                                const dir = (viewSortField === 'pin_no' && viewSortDir === 'asc') ? 'desc' : 'asc';
+                                                                setViewSortField('pin_no');
+                                                                setViewSortDir(dir);
+                                                            }}
+                                                            className={`hover:text-blue-600 transition flex items-center gap-0.5 cursor-pointer ${viewSortField === 'pin_no' ? 'text-blue-600 font-black' : ''}`}>
+                                                            PIN {viewSortField === 'pin_no' ? (viewSortDir === 'asc' ? '▲' : '▼') : ''}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </th>
                                             <th className="p-4 w-9/12">Revised Fees</th>
                                         </tr>
                                     </thead>
@@ -1226,12 +1360,12 @@ const OverallConcession = () => {
                                             <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
                                                 {hasSearched ? 'No active regular students found matching criteria.' : 'Select filters and click Load Students.'}
                                             </td></tr>
-                                        ) : viewStudents.length === 0 ? (
+                                        ) : sortedViewStudents.length === 0 ? (
                                             <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
                                                 No students with revised fees in the current list.
                                             </td></tr>
                                         ) : (
-                                            viewStudents.map(s => {
+                                            sortedViewStudents.map(s => {
                                                 const byHead = {};
                                                 const yearsSet = new Set();
                                                 (s.revisedFees || []).forEach(rf => {
@@ -2128,7 +2262,7 @@ const OverallConcession = () => {
                                 <h3 className="text-sm font-bold text-slate-700">Configure Bulk Load</h3>
 
                                 {/* Filters row */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
                                         <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
@@ -2171,37 +2305,54 @@ const OverallConcession = () => {
                                             {branches.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
                                     </div>
-                                </div>
-
-                                {/* Fee head picker */}
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Fee Head Columns</label>
-                                    <div className="relative">
-                                        <button type="button" onClick={() => setBulkHeadDropOpen(v => !v)}
-                                            className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg p-2.5 text-left flex justify-between items-center cursor-pointer">
-                                            <span>{bulkSelectedHeads.length ? `${bulkSelectedHeads.length} fee head(s) selected` : 'Select fee heads...'}</span>
-                                            <ChevronDown size={14} className={`transition ${bulkHeadDropOpen ? 'rotate-180' : ''}`} />
-                                        </button>
-                                        {bulkHeadDropOpen && (
-                                            <div className="mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                                                {feeHeads.map(fh => (
-                                                    <label key={fh._id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer text-xs">
-                                                        <input type="checkbox"
-                                                            checked={bulkSelectedHeads.includes(fh._id)}
-                                                            onChange={e => {
-                                                                if (e.target.checked) setBulkSelectedHeads(prev => [...prev, fh._id]);
-                                                                else setBulkSelectedHeads(prev => prev.filter(id => id !== fh._id));
-                                                            }}
-                                                            className="rounded border-slate-300"
-                                                        />
-                                                        <span className="font-semibold">{fh.name}</span>
-                                                        {fh.code && <span className="text-slate-400">({fh.code})</span>}
-                                                    </label>
-                                                ))}
-                                            </div>
-                                        )}
+                                    {/* Fee head picker */}
+                                    <div ref={bulkHeadDropRef}>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Fee Head Columns</label>
+                                        <div className="relative">
+                                            <button type="button" onClick={() => setBulkHeadDropOpen(v => !v)}
+                                                className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg p-2.5 text-left flex justify-between items-center cursor-pointer">
+                                                <span>{bulkSelectedHeads.length ? `${bulkSelectedHeads.length} selected` : 'Select fee heads...'}</span>
+                                                <ChevronDown size={14} className={`transition ${bulkHeadDropOpen ? 'rotate-180' : ''}`} />
+                                            </button>
+                                            {bulkHeadDropOpen && (
+                                                <div className="absolute left-0 right-0 z-20 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                                    {feeHeads.map(fh => (
+                                                        <label key={fh._id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer text-xs">
+                                                            <input type="checkbox"
+                                                                checked={bulkSelectedHeads.includes(fh._id)}
+                                                                onChange={e => {
+                                                                    if (e.target.checked) setBulkSelectedHeads(prev => [...prev, fh._id]);
+                                                                    else setBulkSelectedHeads(prev => prev.filter(id => id !== fh._id));
+                                                                }}
+                                                                className="rounded border-slate-300"
+                                                            />
+                                                            <span className="font-semibold">{fh.name}</span>
+                                                            {fh.code && <span className="text-slate-400">({fh.code})</span>}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
+
+                                {bulkSelectedHeads.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                        {bulkSelectedHeads.map(fhId => {
+                                            const fh = feeHeads.find(h => h._id === fhId);
+                                            if (!fh) return null;
+                                            return (
+                                                <span key={fhId} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-[10px] font-bold">
+                                                    <span>{fh.name}</span>
+                                                    <button type="button" onClick={() => setBulkSelectedHeads(prev => prev.filter(id => id !== fhId))}
+                                                        className="hover:text-blue-950 hover:bg-blue-100 p-0.5 rounded cursor-pointer transition">
+                                                        <X size={10} />
+                                                    </button>
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                )}
 
                                 {/* Load button */}
                                 <div className="flex items-center gap-3">
@@ -2227,6 +2378,16 @@ const OverallConcession = () => {
                                 const numYears = courseYears[filters.course] || 4;
                                 const selectedFeeHeadObjs = bulkSelectedHeads.map(id => feeHeads.find(fh => fh._id === id)).filter(Boolean);
 
+                                const sortedBulkStudents = [...bulkStudents].sort((a, b) => {
+                                    if (!bulkSortField) return 0;
+                                    let valA = a[bulkSortField] || '';
+                                    let valB = b[bulkSortField] || '';
+                                    if (typeof valA === 'string') {
+                                        return bulkSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                                    }
+                                    return bulkSortDir === 'asc' ? (valA > valB ? 1 : -1) : (valB > valA ? 1 : -1);
+                                });
+
                                 return (
                                     <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
                                         <div className="p-4 border-b border-slate-200 flex justify-between items-center">
@@ -2237,32 +2398,90 @@ const OverallConcession = () => {
                                                 <thead className="sticky top-0 z-10">
                                                     <tr className="bg-slate-100">
                                                         <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap">S.No</th>
-                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[160px]">Student Name</th>
-                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap">Adm No</th>
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[160px] cursor-pointer hover:bg-slate-200 select-none"
+                                                            onClick={() => {
+                                                                const dir = (bulkSortField === 'student_name' && bulkSortDir === 'asc') ? 'desc' : 'asc';
+                                                                setBulkSortField('student_name');
+                                                                setBulkSortDir(dir);
+                                                            }}>
+                                                            <div className="flex items-center gap-1">
+                                                                <span>Student Name</span>
+                                                                {bulkSortField === 'student_name' ? (
+                                                                    bulkSortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                                                                ) : (
+                                                                    <span className="text-slate-300">↕</span>
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap cursor-pointer hover:bg-slate-200 select-none"
+                                                            onClick={() => {
+                                                                const dir = (bulkSortField === 'admission_number' && bulkSortDir === 'asc') ? 'desc' : 'asc';
+                                                                setBulkSortField('admission_number');
+                                                                setBulkSortDir(dir);
+                                                            }}>
+                                                            <div className="flex items-center gap-1">
+                                                                <span>Adm No</span>
+                                                                {bulkSortField === 'admission_number' ? (
+                                                                    bulkSortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                                                                ) : (
+                                                                    <span className="text-slate-300">↕</span>
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap cursor-pointer hover:bg-slate-200 select-none"
+                                                            onClick={() => {
+                                                                const dir = (bulkSortField === 'pin_no' && bulkSortDir === 'asc') ? 'desc' : 'asc';
+                                                                setBulkSortField('pin_no');
+                                                                setBulkSortDir(dir);
+                                                            }}>
+                                                            <div className="flex items-center gap-1">
+                                                                <span>PIN</span>
+                                                                {bulkSortField === 'pin_no' ? (
+                                                                    bulkSortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                                                                ) : (
+                                                                    <span className="text-slate-300">↕</span>
+                                                                )}
+                                                            </div>
+                                                        </th>
                                                         <th className="px-3 py-2 text-center font-bold text-slate-600 border border-slate-300 whitespace-nowrap">Year</th>
+                                                        <th className="px-3 py-2 text-left font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[150px]">Year Remarks</th>
                                                         {selectedFeeHeadObjs.map(fh => (
-                                                            <th key={fh._id} className="px-3 py-2 text-center font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[120px]">
+                                                            <th key={fh._id} className="px-3 py-2 text-center font-bold text-slate-600 border border-slate-300 whitespace-nowrap min-w-[220px]">
                                                                 <div>{fh.name}</div>
-                                                                <select
-                                                                    className="mt-1 text-[10px] bg-slate-50 border border-slate-300 rounded px-1 py-0.5 cursor-pointer"
-                                                                    value={bulkConcTypes[`_global_${fh._id}`] || 'REVISED'}
-                                                                    onChange={e => {
-                                                                        const type = e.target.value;
-                                                                        setBulkConcTypes(prev => {
-                                                                            const next = { ...prev, [`_global_${fh._id}`]: type };
-                                                                            bulkStudents.forEach(s => { next[`${s.admission_number}_${fh._id}`] = type; });
-                                                                            return next;
-                                                                        });
-                                                                    }}>
-                                                                    <option value="REVISED">Revised</option>
-                                                                    <option value="CONCESSION">Concession</option>
-                                                                </select>
+                                                                <div className="mt-1 flex flex-row gap-1 justify-center items-center">
+                                                                    <select
+                                                                        className="text-[9px] bg-slate-50 border border-slate-300 rounded px-1 py-0.5 cursor-pointer font-medium w-full max-w-[110px]"
+                                                                        value={bulkConcTypes[`_global_${fh._id}`] || 'REVISED'}
+                                                                        onChange={e => {
+                                                                            const type = e.target.value;
+                                                                            setBulkConcTypes(prev => {
+                                                                                const next = { ...prev, [`_global_${fh._id}`]: type };
+                                                                                bulkStudents.forEach(s => { next[`${s.admission_number}_${fh._id}`] = type; });
+                                                                                return next;
+                                                                            });
+                                                                        }}>
+                                                                        <option value="REVISED">Revised</option>
+                                                                        <option value="CONCESSION">Concession</option>
+                                                                    </select>
+                                                                    <select
+                                                                        className="text-[9px] bg-slate-50 border border-slate-300 rounded px-1 py-0.5 cursor-pointer font-medium w-full max-w-[110px]"
+                                                                        value={bulkApplyMode[fh._id] || 'single'}
+                                                                        onChange={e => {
+                                                                            const mode = e.target.value;
+                                                                            setBulkApplyMode(prev => ({ ...prev, [fh._id]: mode }));
+                                                                        }}>
+                                                                        <option value="single">Cell Only</option>
+                                                                        <option value="student">Apply to Student (All Years)</option>
+                                                                        <option value="year">Apply to Year (All)</option>
+                                                                        <option value="all">Apply to All Years (All)</option>
+                                                                    </select>
+                                                                </div>
                                                             </th>
                                                         ))}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {bulkStudents.map((s, sIdx) => (
+                                                    {sortedBulkStudents.map((s, sIdx) => (
                                                         Array.from({ length: numYears }, (_, yrIdx) => {
                                                             const yr = yrIdx + 1;
                                                             return (
@@ -2272,9 +2491,25 @@ const OverallConcession = () => {
                                                                             <td className="px-3 py-2 border border-slate-200 text-center font-bold text-slate-500" rowSpan={numYears}>{sIdx + 1}</td>
                                                                             <td className="px-3 py-2 border border-slate-200 font-semibold text-slate-800" rowSpan={numYears}>{s.student_name}</td>
                                                                             <td className="px-3 py-2 border border-slate-200 text-slate-600 font-mono" rowSpan={numYears}>{s.admission_number}</td>
+                                                                            <td className="px-3 py-2 border border-slate-200 text-slate-600 font-mono" rowSpan={numYears}>{s.pin_no || '-'}</td>
                                                                         </>
                                                                     )}
                                                                     <td className="px-3 py-2 border border-slate-200 text-center font-bold text-slate-600">{yr === 1 ? '1st' : yr === 2 ? '2nd' : yr === 3 ? '3rd' : `${yr}th`} Yr</td>
+                                                                    <td className="px-1 py-1 border border-slate-200">
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="Remarks"
+                                                                            className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-blue-400 focus:border-blue-400 outline-none"
+                                                                            value={bulkRemarks[`${s.admission_number}_${yr}`] || ''}
+                                                                            onChange={e => {
+                                                                                const val = e.target.value;
+                                                                                setBulkRemarks(prev => ({
+                                                                                    ...prev,
+                                                                                    [`${s.admission_number}_${yr}`]: val
+                                                                                }));
+                                                                            }}
+                                                                        />
+                                                                    </td>
                                                                     {selectedFeeHeadObjs.map(fh => {
                                                                         const cellKey = `${s.admission_number}_${yr}_${fh._id}`;
                                                                         return (
