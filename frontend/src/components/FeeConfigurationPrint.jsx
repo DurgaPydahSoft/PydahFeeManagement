@@ -100,31 +100,55 @@ const FeeGroupsTable = ({ data }) => (
     </table>
 );
 
-const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {rows.map((row, idx) => {
-            const feeHeadsList = Object.values(row.feeHeadsMap || {}).sort((a, b) => 
-                (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
-            );
-            return (
-                <div key={idx} style={{ pageBreakInside: 'avoid', marginBottom: '25px' }}>
-                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>
-                            {(collegeCodes[row.college] || row.college)} ({row.batch}) | {row.course} - {row.branch} [{row.category} QUOTA]
-                        </span>
-                        <span style={{ fontSize: '12px' }}>
-                            Total: ₹{(row.grandTotal || 0).toLocaleString('en-IN')}
-                        </span>
-                    </h3>
+const FeeStructuresTable = ({ rows, tableYears, collegeCodes, filters = {} }) => {
+    const isBranchSelected = !!filters?.branch;
+    const titleAlign = isBranchSelected ? 'center' : 'left';
+    let lastBranch = null;
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {rows.map((row, idx) => {
+                const feeHeadsList = Object.values(row.feeHeadsMap || {}).sort((a, b) => 
+                    (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+                );
+
+                const showBranchHeader = row.branch !== lastBranch;
+                if (showBranchHeader) {
+                    lastBranch = row.branch;
+                }
+
+                return (
+                    <div key={idx} style={{ pageBreakInside: 'avoid', marginBottom: '25px' }}>
+                        {showBranchHeader && (
+                            <h3 style={{ 
+                                fontSize: '11px', 
+                                fontWeight: 'bold', 
+                                marginBottom: '8px', 
+                                textTransform: 'uppercase', 
+                                textAlign: titleAlign, 
+                                paddingBottom: '4px',
+                                borderLeft: titleAlign === 'left' ? '4px solid #000' : 'none',
+                                paddingLeft: titleAlign === 'left' ? '8px' : '0'
+                            }}>
+                                {row.branch}
+                            </h3>
+                        )}
 
                     <table className="print-table">
                         <thead>
                             <tr>
-                                <th style={{ width: '12%', backgroundColor: '#f0f0f0' }}>Year</th>
+                                <th style={{ width: '12%', backgroundColor: '#f0f0f0', textAlign: 'center', textTransform: 'uppercase' }}>{row.category}</th>
                                 {feeHeadsList.map(fh => (
-                                    <th key={fh._id} style={{ textAlign: 'center' }}>
-                                        {fh.name}
-                                        {fh.code && <span style={{ fontWeight: 'normal', fontSize: '8.5px', color: '#000' }}> ({fh.code})</span>}
+                                    <th key={fh._id} style={{ textAlign: 'center', verticalAlign: 'top' }}>
+                                        <div style={{ fontWeight: 'bold' }}>{fh.name}</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'center', marginTop: '3px' }}>
+                                            {fh.code && <span style={{ fontWeight: 'normal', fontSize: '8px', color: '#555' }}>({fh.code})</span>}
+                                            {fh.isScholarshipApplicable && (
+                                                <span style={{ display: 'inline-block', backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', fontSize: '7.5px', fontWeight: 'bold', padding: '1px 4px', borderRadius: '3px', marginTop: '2px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                                                    Scholarship
+                                                </span>
+                                            )}
+                                        </div>
                                     </th>
                                 ))}
                                 <th style={{ width: '15%', textAlign: 'right', backgroundColor: '#f0f0f0' }}>Total Year Fee</th>
@@ -135,7 +159,7 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                                 const yearTotal = row.yearTotals?.[y] || 0;
                                 return (
                                     <tr key={y}>
-                                        <td style={{ fontWeight: 'bold', backgroundColor: '#f0f0f0' }}>Yr {y}</td>
+                                        <td style={{ fontWeight: 'bold', backgroundColor: '#f0f0f0', textAlign: 'center' }}>Yr {y}</td>
                                         {feeHeadsList.map(fh => {
                                             const items = row.matrix?.[y]?.[fh._id] || [];
                                             return (
@@ -188,9 +212,10 @@ const FeeStructuresTable = ({ rows, tableYears, collegeCodes }) => (
                     </table>
                 </div>
             );
-        })}
-    </div>
-);
+            })}
+        </div>
+    );
+};
 
 const FeeConfigurationPrint = forwardRef(({
     variant = 'heads',
@@ -250,7 +275,7 @@ const FeeConfigurationPrint = forwardRef(({
                     {variant === 'heads' && <FeeHeadsTable data={reportData} />}
                     {variant === 'groups' && <FeeGroupsTable data={reportData} />}
                     {variant === 'structures' && (
-                        <FeeStructuresTable rows={rows} tableYears={tableYears} collegeCodes={collegeCodes} />
+                        <FeeStructuresTable rows={rows} tableYears={tableYears} collegeCodes={collegeCodes} filters={filters} />
                     )}
                 </div>
             )}

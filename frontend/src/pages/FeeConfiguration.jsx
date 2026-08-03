@@ -1756,11 +1756,22 @@ const FeeConfiguration = () => {
                                         feeHeadName: feeHeads.find(h => h._id === tableFilters.feeHeadId)?.name || '',
                                     }
                                 }}
-                                label="Print"
-                                disabled={groupedArray.length === 0}
-                            />
-                        </div>
-                    )}
+                                 label="Print"
+                                 disabled={
+                                     groupedArray.length === 0 ||
+                                     [
+                                         tableFilters.college,
+                                         tableFilters.batch,
+                                         tableFilters.course,
+                                         tableFilters.branch,
+                                         tableFilters.category,
+                                         tableFilters.feeHeadId
+                                     ].filter(Boolean).length < 3
+                                 }
+                             />
+
+                         </div>
+                     )}
                 </div>
 
                 {message && <div className="p-3 bg-green-50 text-green-700 rounded mb-4 border border-green-200">{message}</div>}
