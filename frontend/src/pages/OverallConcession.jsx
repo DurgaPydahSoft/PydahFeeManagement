@@ -2515,7 +2515,20 @@ const OverallConcession = () => {
                                                                     {yrIdx === 0 && (
                                                                         <>
                                                                             <td className="px-3 py-2 border border-slate-200 text-center font-bold text-slate-500" rowSpan={numYears}>{sIdx + 1}</td>
-                                                                            <td className="px-3 py-2 border border-slate-200 font-semibold text-slate-800" rowSpan={numYears}>{s.student_name}</td>
+                                                                            <td className="px-3 py-2 border border-slate-200 font-semibold text-slate-800" rowSpan={numYears}>
+                                                                                <div>{s.student_name}</div>
+                                                                                {s.student_status && (
+                                                                                    <div className="mt-1">
+                                                                                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                                                                            ['active', 'regular'].includes(String(s.student_status).toLowerCase())
+                                                                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                                                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                                                                        }`}>
+                                                                                            {s.student_status}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                )}
+                                                                            </td>
                                                                             <td className="px-3 py-2 border border-slate-200 text-slate-600 font-mono" rowSpan={numYears}>{s.admission_number}</td>
                                                                             <td className="px-3 py-2 border border-slate-200 text-slate-600 font-mono" rowSpan={numYears}>{s.pin_no || '-'}</td>
                                                                         </>

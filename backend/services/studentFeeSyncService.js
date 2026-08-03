@@ -16,7 +16,7 @@ const { applyRevisedConcessionTransactions, cancelAllDeclarationConcessionTransa
 
 const STUDENT_SELECT = `
   SELECT id, admission_number, student_name, current_year, batch, current_semester,
-         college, course, branch, stud_type
+         college, course, branch, stud_type, college_id, course_id, branch_id
   FROM students
   WHERE admission_number = ?
 `;
@@ -814,9 +814,55 @@ const syncStandardFees = async (student, admissionNo) => {
   return { created, updated, structuresMatched: applicableStructures.length };
 };
 
+const resolveStudentMetadata = async (student) => {
+  if (!student) return student;
+
+  // Resolve college if missing but college_id exists
+  if ((!student.college || String(student.college).trim() === '') && student.college_id) {
+    try {
+      const [rows] = await db.query('SELECT name FROM colleges WHERE id = ?', [student.college_id]);
+      if (rows && rows.length > 0) {
+        student.college = rows[0].name;
+      }
+    } catch (err) {
+      console.error('[SyncService] Error resolving college name from ID:', err);
+    }
+  }
+
+  // Resolve course if missing but course_id exists
+  if ((!student.course || String(student.course).trim() === '') && student.course_id) {
+    try {
+      const [rows] = await db.query('SELECT name FROM courses WHERE id = ?', [student.course_id]);
+      if (rows && rows.length > 0) {
+        student.course = rows[0].name;
+      }
+    } catch (err) {
+      console.error('[SyncService] Error resolving course name from ID:', err);
+    }
+  }
+
+  // Resolve branch if missing but branch_id exists
+  if ((!student.branch || String(student.branch).trim() === '') && student.branch_id) {
+    try {
+      const [rows] = await db.query('SELECT name FROM course_branches WHERE id = ?', [student.branch_id]);
+      if (rows && rows.length > 0) {
+        student.branch = rows[0].name;
+      }
+    } catch (err) {
+      console.error('[SyncService] Error resolving branch name from ID:', err);
+    }
+  }
+
+  return student;
+};
+
 const fetchStudentByAdmissionNumber = async (admissionNo) => {
   const [students] = await db.query(STUDENT_SELECT, [admissionNo]);
-  return students[0] || null;
+  const student = students[0] || null;
+  if (student) {
+    await resolveStudentMetadata(student);
+  }
+  return student;
 };
 
 const syncStudentFeesByAdmissionNumber = async (admissionNo, options = {}) => {

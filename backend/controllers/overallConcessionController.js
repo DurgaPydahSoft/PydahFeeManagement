@@ -27,7 +27,7 @@ const getOverallConcessions = async (req, res) => {
         const { college, course, branch, batch, search } = req.query;
 
         // 1. Query students matching filters
-        let sqlQuery = `SELECT admission_number, pin_no, student_name, college, course, branch, batch, current_year, current_semester, stud_type FROM students WHERE LOWER(student_status) = 'regular'`;
+        let sqlQuery = `SELECT admission_number, pin_no, student_name, college, course, branch, batch, current_year, current_semester, stud_type, student_status FROM students WHERE LOWER(student_status) = 'regular'`;
         const params = [];
 
         if (college) {
@@ -98,6 +98,7 @@ const getOverallConcessions = async (req, res) => {
             current_year: s.current_year,
             current_semester: s.current_semester,
             stud_type: s.stud_type || 'Regular',
+            student_status: s.student_status,
             revisedFees: concessionMap[s.admission_number] || []
         }));
 

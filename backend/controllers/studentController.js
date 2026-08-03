@@ -26,7 +26,8 @@ const getStudents = async (req, res) => {
       SELECT 
         id, admission_number, student_name, father_name, caste, 
         college, course, branch, student_mobile, parent_mobile1, parent_mobile2,
-        student_status, current_year, current_semester, pin_no, stud_type, batch, email
+        student_status, current_year, current_semester, pin_no, stud_type, batch, email,
+        college_id, course_id, branch_id, category_id
       FROM students
     `;
 
@@ -215,7 +216,8 @@ const getStudentByAdmissionNumber = async (req, res) => {
       : `SELECT id, admission_number, pin_no, student_name, student_mobile, father_name,
                 email, gender, caste, college, course, branch, batch, stud_type, scholar_status,
                 current_year, current_semester, student_status, fee_status, registration_status,
-                parent_mobile1, parent_mobile2, student_address, dob, adhar_no
+                parent_mobile1, parent_mobile2, student_address, dob, adhar_no,
+                college_id, course_id, branch_id, category_id
          FROM students WHERE admission_number = ?`;
 
     const [rows] = await db.query(sql, [id]);
@@ -249,7 +251,8 @@ const searchStudents = async (req, res) => {
         const cleanSearchTerm = `%${cleanQ}%`;
 
         let query = `
-            SELECT admission_number, student_name, pin_no, caste, college, course, branch, batch, current_year, current_semester, student_photo, student_mobile 
+            SELECT admission_number, student_name, pin_no, caste, college, course, branch, batch, current_year, current_semester, student_photo, student_mobile,
+                   college_id, course_id, branch_id, category_id
             FROM students 
             WHERE (
                 admission_number LIKE ? 
