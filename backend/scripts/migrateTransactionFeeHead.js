@@ -15,18 +15,19 @@ const askQuestion = (query) => new Promise((resolve) => rl.question(query, resol
 
 const runMigration = async () => {
     try {
-        console.log("Fetching active fee heads from database...");
-        const feeHeads = await FeeHead.find({ isActive: true }).sort({ name: 1 }).lean();
+        console.log("Fetching all fee heads from database...");
+        const feeHeads = await FeeHead.find({}).sort({ name: 1 }).lean();
 
         if (feeHeads.length === 0) {
-            console.error("No active fee heads found in database. Cannot proceed.");
+            console.error("No fee heads found in database. Cannot proceed.");
             rl.close();
             process.exit(1);
         }
 
         console.log("\n================ AVAILABLE FEE HEADS ================");
         feeHeads.forEach((fh, index) => {
-            console.log(`[${index + 1}] ${fh.name} (${fh.code || 'No Code'}) - ID: ${fh._id}`);
+            const activeStatus = fh.isActive === false ? ' [INACTIVE]' : '';
+            console.log(`[${index + 1}] ${fh.name} (${fh.code || 'No Code'})${activeStatus} - ID: ${fh._id}`);
         });
         console.log("====================================================\n");
 
@@ -62,7 +63,12 @@ const runMigration = async () => {
         const destFeeHead = feeHeads[destIndex];
         console.log(`Selected Destination: ${destFeeHead.name}\n`);
 
-        // 3. Confirm count
+        // 3. Dry Run Prompt
+        const dryRunAnswer = await askQuestion("Do you want to run a DRY RUN first (preview matches without updating)? (yes/no): ");
+        const isDryRun = dryRunAnswer.trim().toLowerCase() === 'yes';
+        console.log(isDryRun ? "Running in DRY RUN mode...\n" : "Running in LIVE update mode...\n");
+
+        // 4. Confirm count
         console.log(`Checking matching transactions for "${sourceFeeHead.name}"...`);
         const matchCount = await Transaction.countDocuments({ feeHead: sourceFeeHead._id });
 
@@ -73,8 +79,36 @@ const runMigration = async () => {
         }
 
         console.log(`Found ${matchCount} transaction(s) under "${sourceFeeHead.name}".`);
+
+        if (isDryRun) {
+            // Dry Run: Fetch a preview of up to 5 transactions
+            const previewLimit = 5;
+            console.log(`\n--- PREVIEW OF UP TO ${previewLimit} TRANSACTIONS ---`);
+            const previews = await Transaction.find({ feeHead: sourceFeeHead._id })
+                .limit(previewLimit)
+                .lean();
+
+            previews.forEach((tx, idx) => {
+                console.log(`[Preview ${idx + 1}]`);
+                console.log(`  Receipt No : ${tx.receiptNumber || '-'}`);
+                console.log(`  Student ID : ${tx.studentId || '-'}`);
+                console.log(`  Student    : ${tx.studentName || '-'}`);
+                console.log(`  Amount     : Rs. ${Number(tx.amount || 0).toLocaleString('en-IN')}`);
+                console.log(`  Mode       : ${tx.paymentMode || '-'}`);
+                console.log(`  Type       : ${tx.transactionType || '-'}`);
+                console.log(`  Date       : ${tx.paymentDate || tx.createdAt || '-'}`);
+                console.log("------------------------------------------");
+            });
+
+            console.log("\n================ DRY RUN SUMMARY ================");
+            console.log(`Total transactions matched: ${matchCount}`);
+            console.log(`[Dry Run] No database changes were made.`);
+            console.log("=================================================");
+            rl.close();
+            process.exit(0);
+        }
         
-        // 4. Double confirmation prompt
+        // 5. Double confirmation prompt (only for LIVE update)
         const confirm = await askQuestion(`Are you sure you want to change the fee head of these ${matchCount} transaction(s) to "${destFeeHead.name}"? (yes/no): `);
         
         if (confirm.trim().toLowerCase() !== 'yes') {
