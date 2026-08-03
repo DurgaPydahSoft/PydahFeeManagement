@@ -254,12 +254,27 @@ const applyRevisedConcessionTransactions = async ({
       semester
     });
 
-    if (!structure) {
-      skipped += 1;
-      continue;
+    let structureAmount = 0;
+    let liveDemand = null;
+
+    if (structure) {
+      structureAmount = Number(structure.amount) || 0;
+    } else {
+      // Fallback for heads without fixed structures (e.g. transport, hostel)
+      liveDemand = await StudentFee.findOne({
+        studentId: admissionNumber,
+        feeHead: feeHeadId,
+        studentYear: String(studentYear)
+      }).lean();
+
+      if (liveDemand) {
+        structureAmount = Number(liveDemand.amount) || 0;
+      } else {
+        skipped += 1;
+        continue;
+      }
     }
 
-    const structureAmount = Number(structure.amount) || 0;
     if (revisedAmount > structureAmount) {
       skipped += 1;
       continue;
@@ -268,14 +283,14 @@ const applyRevisedConcessionTransactions = async ({
     // Align txn semester with the live StudentFee demand so it groups with the due row
     let effectiveSemester = semester;
     if (effectiveSemester === null || effectiveSemester === undefined || effectiveSemester === '') {
-      const demand = await StudentFee.findOne({
+      const demand = liveDemand || await StudentFee.findOne({
         studentId: admissionNumber,
         feeHead: feeHeadId,
         studentYear: String(studentYear)
       }).select('semester').lean();
       if (demand && demand.semester !== undefined && demand.semester !== null && demand.semester !== '') {
         effectiveSemester = demand.semester;
-      } else if (structure.semester !== undefined && structure.semester !== null) {
+      } else if (structure && structure.semester !== undefined && structure.semester !== null) {
         effectiveSemester = structure.semester;
       }
     }

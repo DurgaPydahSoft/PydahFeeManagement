@@ -357,22 +357,46 @@ const _saveStudentConcessions = async ({
     admissionNumber, pinNo, studentName, college, course, branch, batch,
     category, concessions, feeHeads, codeMap, user
 }) => {
-    const normalizeIncomingEntry = (c) => {
+    // Normalize one entry; async because zero-value REVISED entries need a structure lookup.
+    const normalizeIncomingEntry = async (c) => {
         const sem = normalizeSemester(c.semester);
         const resolvedId = resolveFeeHeadId(c, codeMap);
         const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+        const cType = normalizeConcessionType(c.concessionType);
+        let amount = getConcessionAmount(c);
+
+        // Zero value + REVISED → treat the full structure demand as the concession amount
+        // (student pays ₹0, i.e., complete waiver for that fee head / year).
+        if (amount === 0 && cType === 'REVISED') {
+            const structure = await FeeStructure.findOne({
+                feeHead: resolvedId,
+                college: college || '',
+                course:  course  || '',
+                branch:  branch  || '',
+                batch:   batch   || '',
+                category: category || 'Regular',
+                studentYear: Number(c.studentYear),
+                ...(sem !== null ? { semester: sem } : {
+                    $or: [{ semester: null }, { semester: { $exists: false } }]
+                })
+            }).lean();
+            if (structure && Number(structure.amount) > 0) {
+                amount = Number(structure.amount);
+            }
+        }
+
         return formatConcessionEntry({
             feeHeadId: resolvedId,
             feeHeadCode: resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
             studentYear: Number(c.studentYear),
             semester: sem,
-            amount: getConcessionAmount(c),
+            amount,
             concessionType: c.concessionType,
             remarks: c.remarks
         });
     };
 
-    const updatedConcessions = concessions.map(normalizeIncomingEntry);
+    const updatedConcessions = await Promise.all(concessions.map(normalizeIncomingEntry));
 
     const validation = await validateRevisedEntriesAgainstStructures({
         entries: updatedConcessions, college, course, branch, batch,
@@ -612,21 +636,43 @@ const submitConcessionRequest = async (req, res) => {
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
-        // Normalize incoming entries
-        const normalizedEntries = concessions.map(c => {
+        // Normalize incoming entries; zero-value REVISED → resolve full structure amount
+        const normalizedEntries = await Promise.all(concessions.map(async c => {
             const sem = normalizeSemester(c.semester);
             const resolvedId = resolveFeeHeadId(c, codeMap);
             const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+            const cType = String(c.concessionType || 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION';
+            let amount = getConcessionAmount(c);
+
+            // Zero + REVISED → use full fee structure demand as the concession amount
+            if (amount === 0 && cType === 'REVISED') {
+                const structure = await FeeStructure.findOne({
+                    feeHead: resolvedId,
+                    college: snapCollege,
+                    course:  snapCourse,
+                    branch:  snapBranch,
+                    batch:   snapBatch,
+                    category: studentQuota,
+                    studentYear: Number(c.studentYear),
+                    ...(sem !== null ? { semester: sem } : {
+                        $or: [{ semester: null }, { semester: { $exists: false } }]
+                    })
+                }).lean();
+                if (structure && Number(structure.amount) > 0) {
+                    amount = Number(structure.amount);
+                }
+            }
+
             return {
                 feeHeadId:      resolvedId,
                 feeHeadCode:    resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
                 studentYear:    Number(c.studentYear),
                 semester:       sem,
-                amount:         getConcessionAmount(c),
-                concessionType: String(c.concessionType || 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION',
+                amount,
+                concessionType: cType,
                 remarks:        c.remarks || ''
             };
-        });
+        }));
 
         // Find existing PENDING request for this student
         let existingRequest = await OverallConcessionRequest.findOne({

@@ -59,6 +59,8 @@ const OverallConcession = () => {
     // ── bulk load options ─────────────────────────────────────────────────
     const [bulkApplyMode, setBulkApplyMode] = useState({}); // { [fhId]: 'single' | 'year' | 'all' }
     const [bulkRemarks, setBulkRemarks] = useState({}); // { [admissionNumber_yr]: string }
+    const [bulkQuotaFilter, setBulkQuotaFilter] = useState(''); // stud_type filter for bulk load
+    const [quotaOptions,   setQuotaOptions]   = useState([]); // distinct quota codes from student_quotas table
 
     const [successMessage,   setSuccessMessage]   = useState('');
     const [errorMessage,     setErrorMessage]     = useState('');
@@ -196,7 +198,8 @@ const OverallConcession = () => {
                 setColleges(Object.keys(meta));
                 setBatches(metaRes.data.batches || []);
                 setFeeHeads(headsRes.data || []);
-                setCourseYears(metaRes.data.courseYears || {});            } catch (err) { console.error('Error fetching initial data', err); }
+                setCourseYears(metaRes.data.courseYears || {});
+                setQuotaOptions(metaRes.data.categories || []);} catch (err) { console.error('Error fetching initial data', err); }
         };
         fetchInitialData();
     }, [hasPermission, isAdminRole]);
@@ -624,7 +627,11 @@ const OverallConcession = () => {
         setLoading(true);
         try {
             const res = await api.get('/overall-concessions', { params: { ...filters } });
-            const loadedStudents = res.data || [];
+            // Apply quota filter client-side (stud_type match, case-insensitive)
+            const allStudents = res.data || [];
+            const loadedStudents = bulkQuotaFilter
+                ? allStudents.filter(s => String(s.stud_type || '').trim().toUpperCase() === bulkQuotaFilter.trim().toUpperCase())
+                : allStudents;
             setBulkStudents(loadedStudents);
 
             const amounts = {};
@@ -688,19 +695,28 @@ const OverallConcession = () => {
                     bulkSelectedHeads.forEach(fhId => {
                         const key = `${s.admission_number}_${yr}_${fhId}`;
                         const val = bulkAmounts[key];
+                        const concType = bulkConcTypes[`${s.admission_number}_${fhId}`] || 'REVISED';
+
+                        // Null/blank → skip (preserve existing, don't modify)
+                        if (val === undefined || val === null || String(val).trim() === '') return;
+
                         const num = Number(val);
-                        if (val !== undefined && val !== '' && Number.isFinite(num) && num > 0) {
-                            const fh = feeHeads.find(h => h._id === fhId);
-                            concessions.push({
-                                feeHeadId: fhId,
-                                feeHeadCode: fh?.code || '',
-                                studentYear: yr,
-                                semester: null,
-                                amount: num,
-                                concessionType: bulkConcTypes[`${s.admission_number}_${fhId}`] || 'REVISED',
-                                remarks: bulkRemarks[`${s.admission_number}_${yr}`] || ''
-                            });
-                        }
+                        if (!Number.isFinite(num)) return;
+
+                        // Zero + REVISED → include with amount=0 so backend resolves full demand as concession
+                        // Zero + CONCESSION → skip (0 concession means no change)
+                        if (num === 0 && concType !== 'REVISED') return;
+
+                        const fh = feeHeads.find(h => h._id === fhId);
+                        concessions.push({
+                            feeHeadId: fhId,
+                            feeHeadCode: fh?.code || '',
+                            studentYear: yr,
+                            semester: null,
+                            amount: num,
+                            concessionType: concType,
+                            remarks: bulkRemarks[`${s.admission_number}_${yr}`] || ''
+                        });
                     });
                 }
                 return {
@@ -2262,7 +2278,7 @@ const OverallConcession = () => {
                                 <h3 className="text-sm font-bold text-slate-700">Configure Bulk Load</h3>
 
                                 {/* Filters row */}
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
                                         <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
@@ -2303,6 +2319,17 @@ const OverallConcession = () => {
                                             value={filters.branch} onChange={e => setFilters(f => ({ ...f, branch: e.target.value }))} disabled={!filters.course}>
                                             <option value="">Select Branch</option>
                                             {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Quota</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={bulkQuotaFilter} onChange={e => setBulkQuotaFilter(e.target.value)}>
+                                            <option value="">All Quotas</option>
+                                            {(bulkLoaded
+                                                ? [...new Set(bulkStudents.map(s => s.stud_type).filter(Boolean))].sort()
+                                                : quotaOptions
+                                            ).map(q => <option key={q} value={q}>{q}</option>)}
                                         </select>
                                     </div>
                                     {/* Fee head picker */}
@@ -2362,7 +2389,7 @@ const OverallConcession = () => {
                                         {loading ? <><span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> Loading...</> : <><Search size={14} /> Load Students</>}
                                     </button>
                                     {bulkSelectedHeads.length > 0 && (
-                                        <button onClick={() => { setBulkSelectedHeads([]); setBulkStudents([]); setBulkAmounts({}); setBulkConcTypes({}); setBulkLoaded(false); setBulkSuccess(''); setBulkError(''); }}
+                                        <button onClick={() => { setBulkSelectedHeads([]); setBulkStudents([]); setBulkAmounts({}); setBulkConcTypes({}); setBulkLoaded(false); setBulkSuccess(''); setBulkError(''); setBulkQuotaFilter(''); }}
                                             className="px-3 py-2.5 text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
                                             Clear All
                                         </button>
@@ -2387,11 +2414,10 @@ const OverallConcession = () => {
                                     }
                                     return bulkSortDir === 'asc' ? (valA > valB ? 1 : -1) : (valB > valA ? 1 : -1);
                                 });
-
                                 return (
                                     <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
                                         <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-                                            <h3 className="text-sm font-bold text-slate-700">{bulkStudents.length} Students × {numYears} Years × {selectedFeeHeadObjs.length} Fee Heads</h3>
+                                            <h3 className="text-sm font-bold text-slate-700">{sortedBulkStudents.length} Students × {numYears} Years × {selectedFeeHeadObjs.length} Fee Heads{bulkQuotaFilter ? <span className="ml-2 text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 rounded px-2 py-0.5 uppercase">{bulkQuotaFilter} Quota</span> : null}</h3>
                                         </div>
                                         <div className="overflow-auto max-h-[70vh]">
                                             <table className="w-full text-xs border-collapse">
@@ -2535,10 +2561,10 @@ const OverallConcession = () => {
 
                                         {/* Save bar */}
                                         <div className="p-4 border-t border-slate-200 flex items-center justify-between sticky bottom-0 bg-white rounded-b-xl">
-                                            <span className="text-xs text-slate-500">{bulkStudents.length} students loaded</span>
+                                            <span className="text-xs text-slate-500">{sortedBulkStudents.length} students{bulkQuotaFilter ? ` (${bulkQuotaFilter} quota)` : ''}</span>
                                             <button onClick={handleBulkSaveAll} disabled={bulkSaving}
                                                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2">
-                                                {bulkSaving ? <><span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> Saving...</> : <><Save size={14} /> Save All ({bulkStudents.length} students)</>}
+                                                {bulkSaving ? <><span className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span> Saving...</> : <><Save size={14} /> Save All ({sortedBulkStudents.length} students)</>}
                                             </button>
                                         </div>
                                     </div>
