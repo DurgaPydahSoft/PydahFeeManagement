@@ -272,42 +272,96 @@ const AcademicCalendar = () => {
                     return false;
                 }
             }
-            if (hideEmptyDates && !item.start_date && !item.end_date) return false;
             return true;
         });
 
-        // When an academic year is selected, synthesize placeholder rows for every
-        // course in studentsMetadata that has no calendar entry yet (so all courses are visible).
-        if (calendarFilters.academicYear && !hideEmptyDates) {
+        // Always synthesize placeholder rows for missing courses AND missing semesters
+        if (calendarFilters.academicYear) {
             const allCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
                 ? Object.keys(studentsMetadata[calendarFilters.college])
                 : Object.values(studentsMetadata).flatMap(c => Object.keys(c));
             const uniqueCourses = [...new Set(allCourses)];
 
-            const coveredCourses = new Set(dbRows.map(r => r.course_name));
-
             const filteredForCourse = calendarFilters.course ? [calendarFilters.course] : uniqueCourses;
 
+            // For each course, determine what years and semesters should exist
             filteredForCourse.forEach(courseName => {
-                if (!coveredCourses.has(courseName)) {
-                    dbRows.push({
-                        id: `placeholder-${courseName}`,
-                        college_name: calendarFilters.college || null,
-                        course_name: courseName,
-                        batch: null,
-                        year_label: calendarFilters.academicYear,
-                        year_of_study: null,
-                        semester_number: null,
-                        start_date: null,
-                        end_date: null,
-                        _isPlaceholder: true
+                // Get all years for this course in the current academic year
+                const courseEntriesInYear = dbRows.filter(r => 
+                    r.course_name === courseName && 
+                    r.year_label === calendarFilters.academicYear
+                );
+
+                // Get all year_of_study values for this course
+                const yearsInCourse = new Set(courseEntriesInYear.map(r => r.year_of_study).filter(y => y != null));
+
+                // If we have years configured, create placeholders for missing semesters
+                if (yearsInCourse.size > 0) {
+                    yearsInCourse.forEach(yearNum => {
+                        // Find max semester configured for this year
+                        const semestersForYear = courseEntriesInYear
+                            .filter(r => r.year_of_study === yearNum)
+                            .map(r => r.semester_number)
+                            .filter(s => s != null);
+                        
+                        const maxSemester = semestersForYear.length > 0 ? Math.max(...semestersForYear) : 0;
+
+                        // Generate semesters up to max semester + 1 (or at least 2 semesters)
+                        const semestersToCreate = Math.max(maxSemester + 1, 2);
+                        
+                        for (let semNum = 1; semNum <= semestersToCreate; semNum++) {
+                            const exists = courseEntriesInYear.some(r => 
+                                r.year_of_study === yearNum && 
+                                r.semester_number === semNum
+                            );
+
+                            if (!exists) {
+                                // Check for existing placeholder to avoid duplicates
+                                const placeholderId = `placeholder-${courseName}-${yearNum}-${semNum}`;
+                                const alreadyExists = dbRows.some(r => r.id === placeholderId);
+
+                                if (!alreadyExists) {
+                                    dbRows.push({
+                                        id: placeholderId,
+                                        college_name: calendarFilters.college || null,
+                                        course_name: courseName,
+                                        batch: null,
+                                        year_label: calendarFilters.academicYear,
+                                        year_of_study: yearNum,
+                                        semester_number: semNum,
+                                        start_date: null,
+                                        end_date: null,
+                                        _isPlaceholder: true
+                                    });
+                                }
+                            }
+                        }
                     });
+                } else {
+                    // Course has no entries at all, create a placeholder
+                    const placeholderId = `placeholder-${courseName}`;
+                    const alreadyExists = dbRows.some(r => r.id === placeholderId);
+                    
+                    if (!alreadyExists) {
+                        dbRows.push({
+                            id: placeholderId,
+                            college_name: calendarFilters.college || null,
+                            course_name: courseName,
+                            batch: null,
+                            year_label: calendarFilters.academicYear,
+                            year_of_study: null,
+                            semester_number: null,
+                            start_date: null,
+                            end_date: null,
+                            _isPlaceholder: true
+                        });
+                    }
                 }
             });
         }
 
         return dbRows;
-    }, [academicYears, calendarFilters, studentsMetadata, hideEmptyDates]);
+    }, [academicYears, calendarFilters, studentsMetadata]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
