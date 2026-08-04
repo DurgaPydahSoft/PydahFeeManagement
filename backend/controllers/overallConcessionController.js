@@ -465,17 +465,10 @@ const _saveStudentConcessions = async ({
             [admissionNumber]
         );
         if (students.length > 0) {
-            await syncStandardFees(students[0], admissionNumber);
-        }
-
-        if (updatedConcessions.length > 0) {
-            await applyRevisedConcessionTransactions({
-                admissionNumber, studentName, college, course, branch, batch,
-                category: category || 'Regular', entries: updatedConcessions,
-                collectedBy: user?.username || 'system',
-                collectedByName: user?.name || 'System',
-                codeMap
-            });
+            // Pass pre-loaded feeHeads to avoid re-fetching inside syncStandardFees.
+            // syncStandardFees internally calls applyRevisedConcessionTransactions,
+            // so no separate call needed here.
+            await syncStandardFees(students[0], admissionNumber, feeHeads);
         }
     }
 
@@ -542,31 +535,44 @@ const bulkSaveMultipleStudents = async (req, res) => {
         const errors = [];
         let saved = 0;
 
-        for (const s of students) {
-            if (!s.admissionNumber || !Array.isArray(s.concessions)) {
-                errors.push({ admissionNumber: s.admissionNumber || '?', message: 'Missing required fields' });
-                continue;
-            }
-            try {
-                const result = await _saveStudentConcessions({
-                    admissionNumber: s.admissionNumber,
-                    pinNo: s.pinNo,
-                    studentName: s.studentName,
-                    college: s.college,
-                    course: s.course,
-                    branch: s.branch,
-                    batch: s.batch,
-                    category: s.category,
-                    concessions: s.concessions,
-                    feeHeads, codeMap, user: req.user
-                });
-                if (!result.ok) {
-                    errors.push({ admissionNumber: s.admissionNumber, message: result.message });
+        // Process in parallel batches of 5 to avoid overwhelming the DB
+        // while still being much faster than pure serial execution.
+        const CONCURRENCY = 5;
+        for (let i = 0; i < students.length; i += CONCURRENCY) {
+            const batch = students.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(
+                batch.map(async (s) => {
+                    if (!s.admissionNumber || !Array.isArray(s.concessions)) {
+                        return { ok: false, admissionNumber: s.admissionNumber || '?', message: 'Missing required fields' };
+                    }
+                    const result = await _saveStudentConcessions({
+                        admissionNumber: s.admissionNumber,
+                        pinNo: s.pinNo,
+                        studentName: s.studentName,
+                        college: s.college,
+                        course: s.course,
+                        branch: s.branch,
+                        batch: s.batch,
+                        category: s.category,
+                        concessions: s.concessions,
+                        feeHeads, codeMap, user: req.user
+                    });
+                    return { ...result, admissionNumber: s.admissionNumber };
+                })
+            );
+
+            for (const outcome of results) {
+                if (outcome.status === 'rejected') {
+                    const err = outcome.reason;
+                    errors.push({ admissionNumber: '?', message: err?.message || String(err) });
                 } else {
-                    saved++;
+                    const r = outcome.value;
+                    if (!r.ok) {
+                        errors.push({ admissionNumber: r.admissionNumber, message: r.message });
+                    } else {
+                        saved++;
+                    }
                 }
-            } catch (err) {
-                errors.push({ admissionNumber: s.admissionNumber, message: err.message });
             }
         }
 

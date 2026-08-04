@@ -39,11 +39,11 @@ const loadApprovedOverallConcessionEntries = async (admissionNo) => {
   return approved.concessions;
 };
 
-const loadRevisedFeesMapForStudent = async (admissionNo) => {
+const loadRevisedFeesMapForStudent = async (admissionNo, preloadedFeeHeads = null) => {
   const fees = await loadApprovedOverallConcessionEntries(admissionNo);
   if (fees.length === 0) return {};
 
-  const feeHeads = await FeeHead.find({}).lean();
+  const feeHeads = preloadedFeeHeads || await FeeHead.find({}).lean();
   const { codeMap } = buildFeeHeadMaps(feeHeads);
   return buildRevisedFeesMap(fees, codeMap);
 };
@@ -732,7 +732,7 @@ const syncHostelFees = async (student, admissionNo) => {
   };
 };
 
-const syncStandardFees = async (student, admissionNo) => {
+const syncStandardFees = async (student, admissionNo, preloadedFeeHeads = null) => {
   let created = 0;
   let updated = 0;
 
@@ -756,7 +756,7 @@ const syncStandardFees = async (student, admissionNo) => {
   if (transportHead?._id) serviceHeadIds.add(String(transportHead._id));
   if (hostelHead?._id) serviceHeadIds.add(String(hostelHead._id));
 
-  const revisedFeesMap = await loadRevisedFeesMapForStudent(admissionNo);
+  const revisedFeesMap = await loadRevisedFeesMapForStudent(admissionNo, preloadedFeeHeads);
 
   for (const fs of applicableStructures) {
     if (serviceHeadIds.has(String(fs.feeHead))) continue;

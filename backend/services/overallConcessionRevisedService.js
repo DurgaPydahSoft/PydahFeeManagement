@@ -62,6 +62,39 @@ const validateRevisedEntriesAgainstStructures = async ({
     (e) => normalizeConcessionType(e.concessionType) === 'REVISED'
   );
 
+  if (revisedEntries.length === 0) {
+    return { ok: true, warnings: [], message: '' };
+  }
+
+  // Batch-fetch all relevant structures in one query instead of one per entry.
+  const feeHeadIds = [...new Set(
+    revisedEntries.map(e => resolveFeeHeadId(e, codeMap) || String(e.feeHeadId || '')).filter(Boolean)
+  )];
+  const studentYears = [...new Set(revisedEntries.map(e => Number(e.studentYear)).filter(Boolean))];
+
+  const structures = await FeeStructure.find({
+    feeHead: { $in: feeHeadIds },
+    college,
+    course,
+    branch,
+    batch,
+    category: category || 'Regular',
+    studentYear: { $in: studentYears }
+  }).lean();
+
+  // Build a lookup map: feeHeadId_year_sem → structure
+  const structureMap = {};
+  for (const s of structures) {
+    const sem = normalizeSemester(s.semester);
+    const key = `${s.feeHead}_${s.studentYear}_${sem ?? 'null'}`;
+    structureMap[key] = s;
+    // Also index with null semester as fallback
+    if (sem !== null) {
+      const nullKey = `${s.feeHead}_${s.studentYear}_null`;
+      if (!structureMap[nullKey]) structureMap[nullKey] = s;
+    }
+  }
+
   for (const entry of revisedEntries) {
     const feeHeadId = resolveFeeHeadId(entry, codeMap) || String(entry.feeHeadId || '');
     const studentYear = Number(entry.studentYear);
@@ -74,19 +107,9 @@ const validateRevisedEntriesAgainstStructures = async ({
       continue;
     }
 
-    const structure = await findMatchingFeeStructure({
-      feeHeadId,
-      college,
-      course,
-      branch,
-      batch,
-      category,
-      studentYear,
-      semester
-    });
+    const key = `${feeHeadId}_${studentYear}_${semester ?? 'null'}`;
+    const structure = structureMap[key];
 
-    // No structure for this head/year is not a hard failure (e.g. transport/other).
-    // Only block when a structure exists and revised fee is higher than it.
     if (!structure) continue;
 
     const structureAmount = Number(structure.amount) || 0;
@@ -204,6 +227,67 @@ const upsertDeclarationConcessionTransaction = async ({
   return { cancelled: 0, created: 1, updated: 0 };
 };
 
+// Variant that accepts an already-fetched Mongoose doc to avoid an extra findOne per entry.
+const upsertDeclarationConcessionTransactionWithExisting = async ({
+  admissionNumber,
+  studentName,
+  feeHeadId,
+  studentYear,
+  semester,
+  amount,
+  collectedBy,
+  collectedByName,
+  existingDoc // Mongoose document or null
+}) => {
+  const existing = existingDoc;
+
+  if (amount <= 0) {
+    if (existing) {
+      existing.status = 'cancelled';
+      existing.cancellationReason = 'Revised fee no longer requires concession';
+      existing.cancelledAt = new Date();
+      existing.cancelledBy = collectedBy || 'system';
+      existing.cancelledByName = collectedByName || 'System';
+      await existing.save();
+      return { cancelled: 1, created: 0, updated: 0 };
+    }
+    return { cancelled: 0, created: 0, updated: 0 };
+  }
+
+  const sem = normalizeSemester(semester);
+  const semValue = sem === null ? null : String(sem);
+
+  if (existing) {
+    let changed = false;
+    if (Number(existing.amount) !== Number(amount)) { existing.amount = amount; changed = true; }
+    if (existing.paymentMode !== 'Credit') { existing.paymentMode = 'Credit'; changed = true; }
+    if (normalizeSemester(existing.semester) !== sem) { existing.semester = semValue; changed = true; }
+    if (collectedBy && existing.collectedBy !== collectedBy) { existing.collectedBy = collectedBy; changed = true; }
+    if (collectedByName && existing.collectedByName !== collectedByName) { existing.collectedByName = collectedByName; changed = true; }
+    if (changed) await existing.save();
+    return { cancelled: 0, created: 0, updated: changed ? 1 : 0 };
+  }
+
+  const timestamp = Date.now().toString().slice(-6);
+  const random = Math.floor(100 + Math.random() * 900).toString();
+  await Transaction.create({
+    studentId: admissionNumber,
+    studentName: studentName || '',
+    feeHead: feeHeadId,
+    amount,
+    transactionType: 'CREDIT',
+    paymentMode: 'Credit',
+    receiptNumber: `DECL${timestamp}${random}`,
+    paymentDate: new Date(),
+    remarks: DECLARATION_CONCESSION_REMARKS,
+    studentYear: String(studentYear),
+    semester: semValue,
+    collectedBy: collectedBy || 'system',
+    collectedByName: collectedByName || 'System'
+  });
+  return { cancelled: 0, created: 1, updated: 0 };
+};
+
 const applyRevisedConcessionTransactions = async ({
   admissionNumber,
   studentName,
@@ -227,6 +311,62 @@ const applyRevisedConcessionTransactions = async ({
     (e) => normalizeConcessionType(e.concessionType) === 'REVISED'
   );
 
+  if (revisedEntries.length === 0) return { created: 0, updated: 0, cancelled: 0, skipped: 0 };
+
+  // ── Batch-fetch all needed fee structures in one query ──
+  const feeHeadIds = [...new Set(
+    revisedEntries.map(e => resolveFeeHeadId(e, maps) || String(e.feeHeadId || '')).filter(Boolean)
+  )];
+  const studentYears = [...new Set(revisedEntries.map(e => Number(e.studentYear)).filter(Boolean))];
+
+  const allStructures = await FeeStructure.find({
+    feeHead: { $in: feeHeadIds },
+    college,
+    course,
+    branch,
+    batch,
+    category: category || 'Regular',
+    studentYear: { $in: studentYears }
+  }).lean();
+
+  const structureMap = {};
+  for (const s of allStructures) {
+    const sem = normalizeSemester(s.semester);
+    const key = `${s.feeHead}_${s.studentYear}_${sem ?? 'null'}`;
+    if (!structureMap[key]) structureMap[key] = s;
+    if (sem !== null && !structureMap[`${s.feeHead}_${s.studentYear}_null`]) {
+      structureMap[`${s.feeHead}_${s.studentYear}_null`] = s;
+    }
+  }
+
+  // ── Batch-fetch all existing DECL transactions for this student ──
+  const existingTxns = await Transaction.find({
+    studentId: admissionNumber,
+    feeHead: { $in: feeHeadIds },
+    transactionType: 'CREDIT',
+    remarks: DECLARATION_CONCESSION_REMARKS,
+    status: { $ne: 'cancelled' }
+  }).lean();
+
+  const txnMap = {};
+  for (const t of existingTxns) {
+    const key = `${t.feeHead}_${t.studentYear}`;
+    txnMap[key] = t;
+  }
+
+  // ── Batch-fetch StudentFee demands for fallback (no structure case) ──
+  const existingDemands = await StudentFee.find({
+    studentId: admissionNumber,
+    feeHead: { $in: feeHeadIds },
+    studentYear: { $in: studentYears.map(String) }
+  }).lean();
+
+  const demandMap = {};
+  for (const d of existingDemands) {
+    const key = `${d.feeHead}_${d.studentYear}`;
+    demandMap[key] = d;
+  }
+
   let created = 0;
   let updated = 0;
   let cancelled = 0;
@@ -243,36 +383,18 @@ const applyRevisedConcessionTransactions = async ({
       continue;
     }
 
-    const structure = await findMatchingFeeStructure({
-      feeHeadId,
-      college,
-      course,
-      branch,
-      batch,
-      category,
-      studentYear,
-      semester
-    });
+    const structKey = `${feeHeadId}_${studentYear}_${semester ?? 'null'}`;
+    const structure = structureMap[structKey];
+    const liveDemand = demandMap[`${feeHeadId}_${studentYear}`] || demandMap[`${feeHeadId}_${String(studentYear)}`];
 
     let structureAmount = 0;
-    let liveDemand = null;
-
     if (structure) {
       structureAmount = Number(structure.amount) || 0;
+    } else if (liveDemand) {
+      structureAmount = Number(liveDemand.amount) || 0;
     } else {
-      // Fallback for heads without fixed structures (e.g. transport, hostel)
-      liveDemand = await StudentFee.findOne({
-        studentId: admissionNumber,
-        feeHead: feeHeadId,
-        studentYear: String(studentYear)
-      }).lean();
-
-      if (liveDemand) {
-        structureAmount = Number(liveDemand.amount) || 0;
-      } else {
-        skipped += 1;
-        continue;
-      }
+      skipped += 1;
+      continue;
     }
 
     if (revisedAmount > structureAmount) {
@@ -280,23 +402,21 @@ const applyRevisedConcessionTransactions = async ({
       continue;
     }
 
-    // Align txn semester with the live StudentFee demand so it groups with the due row
+    // Align txn semester with the live StudentFee demand
     let effectiveSemester = semester;
     if (effectiveSemester === null || effectiveSemester === undefined || effectiveSemester === '') {
-      const demand = liveDemand || await StudentFee.findOne({
-        studentId: admissionNumber,
-        feeHead: feeHeadId,
-        studentYear: String(studentYear)
-      }).select('semester').lean();
-      if (demand && demand.semester !== undefined && demand.semester !== null && demand.semester !== '') {
-        effectiveSemester = demand.semester;
+      if (liveDemand && liveDemand.semester !== undefined && liveDemand.semester !== null && liveDemand.semester !== '') {
+        effectiveSemester = liveDemand.semester;
       } else if (structure && structure.semester !== undefined && structure.semester !== null) {
         effectiveSemester = structure.semester;
       }
     }
 
     const concessionAmount = Math.max(0, structureAmount - revisedAmount);
-    const result = await upsertDeclarationConcessionTransaction({
+
+    // Use in-memory txn map instead of a DB query per entry
+    const existingTxn = txnMap[`${feeHeadId}_${String(studentYear)}`];
+    const result = await upsertDeclarationConcessionTransactionWithExisting({
       admissionNumber,
       studentName,
       feeHeadId,
@@ -304,7 +424,8 @@ const applyRevisedConcessionTransactions = async ({
       semester: effectiveSemester,
       amount: concessionAmount,
       collectedBy,
-      collectedByName
+      collectedByName,
+      existingDoc: existingTxn ? await Transaction.findById(existingTxn._id) : null
     });
 
     created += result.created;
