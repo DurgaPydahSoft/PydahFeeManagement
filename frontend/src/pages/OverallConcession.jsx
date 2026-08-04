@@ -143,7 +143,9 @@ const OverallConcession = () => {
         const code = (rf.feeHeadCode || '').trim().toUpperCase();
         if (!code) return '';
         const byCode = feeHeads.find(h => (h.code || '').trim().toUpperCase() === code);
-        return byCode ? normalizeFeeHeadId(byCode._id) : '';
+        // Fall back to the raw feeHeadId even if we can't match by code — never return ''
+        // when we have a valid stored id, otherwise zero-amount entries get silently skipped.
+        return byCode ? normalizeFeeHeadId(byCode._id) : directId;
     }, [feeHeads]);
 
     const buildDraftKey = (feeHeadId, studentYear) =>
@@ -191,7 +193,7 @@ const OverallConcession = () => {
         if (!hasPermission) return;
         const fetchInitialData = async () => {
             try {
-                const calls = [api.get('/students/metadata'), api.get('/fee-heads')];
+                const calls = [api.get('/students/metadata'), api.get('/fee-heads?all=true')];
                 const [metaRes, headsRes] = await Promise.all(calls);
                 const meta = metaRes.data.hierarchy || metaRes.data;
                 setMetadata(meta);
@@ -1445,7 +1447,7 @@ const OverallConcession = () => {
                                                                                         const cell = row.years[yr];
                                                                                         return (
                                                                                             <td key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap">
-                                                                                                {cell && Number(cell.amount) > 0 ? (
+                                                                                                {cell ? (
                                                                                                     <span className={cell.type === 'CONCESSION' ? 'text-amber-700' : 'text-emerald-700'}>
                                                                                                         {cell.type === 'CONCESSION' ? '-' : ''}₹{Number(cell.amount).toLocaleString('en-IN')}
                                                                                                         <span className={`ml-1 px-1 py-0.5 rounded text-[8px] font-bold border ${cell.type === 'CONCESSION' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
