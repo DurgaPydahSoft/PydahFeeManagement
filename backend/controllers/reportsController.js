@@ -10,7 +10,7 @@ const { buildReportDateFilter, applyReportDateToMatch, buildIstDayBounds, buildC
 // @access  Public (should be Protected)
 const getTransactionReports = async (req, res) => {
     try {
-        const { startDate, endDate, groupBy, college, feeGroupId, campusId } = req.query;
+        const { startDate, endDate, groupBy, college: collegeFilter, feeGroupId, campusId } = req.query;
 
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
         const hasCollegeScope = Array.isArray(allowedColleges) && allowedColleges.length > 0;
@@ -44,19 +44,8 @@ const getTransactionReports = async (req, res) => {
         // Date Filter (IST-aligned) — paymentDate (collection date), fallback createdAt
         applyReportDateToMatch(matchStage, startDate, endDate);
 
-        // College Filter (Note: Transaction doesn't have college directly, it's on Student... 
-        // We might need to join or assume filtering handles this upstream? 
-        // But wait, the transaction DOESN'T have college. 
-        // Ideally we should store college in Transaction. 
-        // For now, let's skip college filter or fetch students first. 
-        // Optimization: Let's assume for now we report on ALL transactions or rely on 'collectedBy' context if needed.
-        // But the user might want college-wise. 
-        // Transaction schema: studentId, ... 
-        // We'd have to $lookup or add 'college' to Transaction. 
-        // For existing data, we can't filter easily. Let's proceed without college filter for MVP or assume global.)
-
-        // Actually, let's check Transaction schema again. Not there.
-        // We'll proceed with basic filtering.
+        // College Filter will be applied in-memory after SQL enrichment, since college is not directly stored on Transaction
+        // The college query param will be used to filter student data after fetching from SQL
 
         let groupId;
         let pipeline;
@@ -165,6 +154,11 @@ const getTransactionReports = async (req, res) => {
                 const college = collegeData ? collegeData.college : 'Unknown';
 
                 if (hasCollegeScope && !collegeScope.isCollegeAllowed(college, allowedColleges)) {
+                    return;
+                }
+
+                // Apply college query filter if specified (compare against the extracted college name)
+                if (collegeFilter && collegeFilter !== college) {
                     return;
                 }
                 const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
@@ -345,6 +339,12 @@ const getTransactionReports = async (req, res) => {
                 const isCancelled = tx.status === 'cancelled';
                 const sId = String(tx.studentId || '').trim();
                 const sData = fhStudentDataMap[sId] || fhStudentDataMap[sId.toLowerCase()] || {};
+                const studentCollege = sData.college || 'Unknown';
+
+                // Apply college query filter if specified
+                if (collegeFilter && collegeFilter !== studentCollege) {
+                    return;
+                }
 
                 if (!isCancelled) {
                     group.totalAmount += amt;
@@ -358,7 +358,7 @@ const getTransactionReports = async (req, res) => {
                     studentName: tx.studentName || '',
                     studentId: tx.studentId,
                     pinNo: sData.pin_no || '-',
-                    college: sData.college || 'Unknown',
+                    college: studentCollege,
                     course: sData.course || 'N/A',
                     branch: sData.branch || 'N/A',
                     studentYear: sData.current_year || tx.studentYear || 'N/A',
@@ -478,6 +478,11 @@ const getTransactionReports = async (req, res) => {
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
                 const collegeName = collegeData ? collegeData.college : 'Unknown';
+
+                // Apply college query filter if specified
+                if (collegeFilter && collegeFilter !== collegeName) {
+                    return;
+                }
 
                 if (hasCollegeScope && !collegeScope.isCollegeAllowed(collegeName, allowedColleges)) {
                     return;
@@ -778,6 +783,11 @@ const getTransactionReports = async (req, res) => {
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
                 const studentCollege = collegeData ? collegeData.college : 'Unknown';
 
+                // Apply college query filter if specified
+                if (collegeFilter && collegeFilter !== studentCollege) {
+                    return;
+                }
+
                 const configId = tx.paymentConfigId ? tx.paymentConfigId.toString() : null;
                 let group;
 
@@ -932,8 +942,8 @@ const getTransactionReports = async (req, res) => {
 
             if (admissionNumbers.size > 0) {
                 const ids = Array.from(admissionNumbers).map(id => `'${id}'`).join(',');
-                // Query SQL for Course, Branch, Pin No
-                const sqlQuery = `SELECT admission_number, pin_no, course, branch, current_year FROM students WHERE admission_number IN (${ids})`;
+                // Query SQL for Course, Branch, Pin No, College
+                const sqlQuery = `SELECT admission_number, pin_no, course, branch, current_year, college FROM students WHERE admission_number IN (${ids})`;
 
                 // Fix: Use await directly for Promise-based pool
                 try {
@@ -950,10 +960,10 @@ const getTransactionReports = async (req, res) => {
                         });
                     }
 
-                    // Attach to transactions
+                    // Attach to transactions and filter by college if specified
                     dailyStats.forEach(day => {
                         if (day.transactions) {
-                            day.transactions.forEach(tx => {
+                            day.transactions = day.transactions.filter(tx => {
                                 const validId = String(tx.studentId).trim();
                                 const details = studentMap[validId] || studentMap[validId.toLowerCase()];
                                 if (details) {
@@ -961,21 +971,43 @@ const getTransactionReports = async (req, res) => {
                                     tx.course = details.course;
                                     tx.branch = details.branch;
                                     tx.studentYear = details.current_year;
+                                    tx.college = details.college || 'Unknown';
+
+                                    // Apply college query filter if specified
+                                    if (collegeFilter && collegeFilter !== tx.college) {
+                                        return false;
+                                    }
+                                    return true;
                                 } else {
                                     tx.pinNo = '-';
+                                    tx.college = 'Unknown';
+                                    // Filter out if college is specified and doesn't match
+                                    if (collegeFilter) {
+                                        return false;
+                                    }
+                                    return true;
                                 }
                             });
                         }
                     });
 
+                    // Remove empty days after filtering
+                    const filteredStats = dailyStats.filter(day => day.transactions && day.transactions.length > 0);
+                    
+                    // Return filtered stats instead of dailyStats
+                    res.json(filteredStats);
+
                 } catch (sqlErr) {
                     console.error("SQL Enrichment Error:", sqlErr);
                     // Proceed without enrichment if SQL fails, or handle appropriately
+                    res.json(dailyStats);
                 }
+            } else {
+                res.json(dailyStats);
             }
             // --- SQL Enrichment End ---
 
-            res.json(dailyStats);
+            return; // Return here as we handled response
             return; // Return here as we handled response
         }
 

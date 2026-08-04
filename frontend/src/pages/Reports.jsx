@@ -829,6 +829,8 @@ const Reports = () => {
         if (u.campuses?.length === 1) return String(u.campuses[0]);
         return 'all';
     });
+    const [colleges, setColleges] = useState([]);
+    const [selectedCollege, setSelectedCollege] = useState('');
     const { campuses } = useCampuses();
 
     const modalPrintRef = useRef(null);
@@ -920,6 +922,7 @@ const Reports = () => {
                     endDate,
                     groupBy: groupBy === 'daily' ? 'day' : groupBy,
                     ...(selectedCampusId !== 'all' ? { campusId: selectedCampusId } : {}),
+                    ...(selectedCollege ? { college: selectedCollege } : {}),
                 }
             });
             setData(res.data);
@@ -971,17 +974,22 @@ const Reports = () => {
             (permissions.includes('/reports') && !hasGranularReportPerms)
         );
 
-    // Fetch fee groups on mount
+    // Fetch fee groups and colleges on mount
     useEffect(() => {
-        const fetchFeeGroups = async () => {
+        const fetchInitialData = async () => {
             try {
-                const res = await api.get('/fee-groups');
-                setFeeGroups(res.data);
+                const [feeGroupsRes, metaRes] = await Promise.all([
+                    api.get('/fee-groups'),
+                    api.get('/students/metadata')
+                ]);
+                setFeeGroups(feeGroupsRes.data);
+                const meta = metaRes.data.hierarchy || metaRes.data;
+                setColleges(Object.keys(meta) || []);
             } catch (err) {
-                console.error("Error fetching fee groups in reports page", err);
+                console.error("Error fetching initial data in reports page", err);
             }
         };
-        fetchFeeGroups();
+        fetchInitialData();
     }, []);
 
     useEffect(() => {
@@ -996,7 +1004,7 @@ const Reports = () => {
         if (tabs.length > 0 && tabs.find(t => t.id === activeTab)) {
             fetchReport();
         }
-    }, [activeTab, startDate, endDate, selectedCampusId]);
+    }, [activeTab, startDate, endDate, selectedCampusId, selectedCollege]);
 
     useEffect(() => {
         if (printModalData && activeTab === 'account') {
@@ -1267,8 +1275,7 @@ const Reports = () => {
                                         {[
                                             { id: 'today', label: 'Today' },
                                             { id: 'yesterday', label: 'Yesterday' },
-                                            { id: 'week', label: 'Last 7 Days' },
-                                            { id: 'month', label: 'This Month' }
+                                            { id: 'week', label: 'Last 7 Days' }
                                         ].map((preset) => (
                                             <button
                                                 key={preset.id}
@@ -1286,7 +1293,6 @@ const Reports = () => {
                                     </div>
 
                                     <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
-                                        <span className="text-[9px] font-bold text-gray-500 uppercase">Campus</span>
                                         <select
                                             value={selectedCampusId}
                                             onChange={(e) => setSelectedCampusId(e.target.value)}
@@ -1299,6 +1305,19 @@ const Reports = () => {
                                             )}
                                             {campuses.map((campus) => (
                                                 <option key={campus.id} value={campus.id}>{campus.name} ({campus.code})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                        <select
+                                            value={selectedCollege}
+                                            onChange={(e) => setSelectedCollege(e.target.value)}
+                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer"
+                                        >
+                                            <option value="">All Colleges</option>
+                                            {colleges.map((college) => (
+                                                <option key={college} value={college}>{college}</option>
                                             ))}
                                         </select>
                                     </div>
