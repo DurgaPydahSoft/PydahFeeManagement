@@ -5,7 +5,9 @@ const FeeHead = require('../models/FeeHead');
 // @access  Public (for now)
 const getFeeHeads = async (req, res) => {
   try {
-    const feeHeads = await FeeHead.find().sort({ name: 1 });
+    // By default return only active fee heads. Pass ?all=true to get all (e.g. admin settings page).
+    const filter = req.query.all === 'true' ? {} : { isActive: { $ne: false } };
+    const feeHeads = await FeeHead.find(filter).sort({ name: 1 });
     res.json(feeHeads);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });

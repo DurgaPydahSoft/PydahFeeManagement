@@ -1802,7 +1802,7 @@ const FeeCollection = () => {
                                                         // 1. All configured fees for the student (displayedFees)
                                                         // 2. Any global fee heads NOT already covered by configured fees
                                                         const configuredFeeHeadIds = new Set(feeDetails.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
-                                                        const extraGlobalHeads = globalFeeHeads.filter(h => !configuredFeeHeadIds.has(h._id));
+                                                        const extraGlobalHeads = globalFeeHeads.filter(h => h.isActive !== false && !configuredFeeHeadIds.has(h._id));
 
                                                         return (
                                                             <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">

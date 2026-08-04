@@ -1184,6 +1184,7 @@ const OverallConcession = () => {
                                                                                             <input type="number" placeholder={rowType === 'CONCESSION' ? 'Deduction' : 'Revised fee'}
                                                                                                 value={draftAmounts[buildDraftKey(fhId, yr)] || ''}
                                                                                                 onChange={e => handleAmountChange(fhId, yr, e.target.value)}
+                                                                                                onWheel={e => e.target.blur()}
                                                                                                 className="w-full border border-slate-300 pl-6 pr-2 py-1.5 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-500 text-xs font-semibold" />
                                                                                         </div>
                                                                                     </td>
@@ -1802,6 +1803,7 @@ const OverallConcession = () => {
                                                                                         <td key={yr} className="px-2 py-2 text-right">
                                                                                             <input type="number" min="0" value={val}
                                                                                                 onChange={e => updateEditAmount(row.key, yr, e.target.value)}
+                                                                                                onWheel={e => e.target.blur()}
                                                                                                 placeholder="—"
                                                                                                 className={`w-24 border rounded-lg px-2 py-1.5 text-xs text-right bg-white ${exceeds ? 'border-rose-400 text-rose-600' : 'border-slate-300'}`} />
                                                                                             {structAmt !== undefined && (
@@ -2560,6 +2562,7 @@ const OverallConcession = () => {
                                                                                     placeholder="—"
                                                                                     value={bulkAmounts[cellKey] ?? ''}
                                                                                     onChange={e => handleBulkAmountChange(s.admission_number, yr, fh._id, e.target.value)}
+                                                                                    onWheel={e => e.target.blur()}
                                                                                 />
                                                                             </td>
                                                                         );
