@@ -92,12 +92,12 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     const rowLabel = activeTab === 'daily'
         ? <span className="font-mono text-gray-700 tracking-tight font-bold">{formattedDate}</span>
         : activeTab === 'college'
-            ? (row._id || 'Unknown College')
+            ? (typeof row._id === 'object' ? JSON.stringify(row._id) : (row._id || 'Unknown College'))
             : activeTab === 'account'
                 ? (row.account_name || 'Direct / Unassigned')
                 : activeTab === 'feeHead'
-                    ? (row.name || row._id || 'Unknown Fee Head')
-                    : (row.name || row._id || 'Unknown');
+                    ? (row.name || (typeof row._id === 'object' ? '' : row._id) || 'Unknown Fee Head')
+                    : (row.name || (typeof row._id === 'object' ? '' : row._id) || 'Unknown');
 
     // Calculate Net Total (Cash + Bank) - equivalent to debitAmount
     const netTotal = (row.cashAmount || 0) + (row.bankAmount || 0);
@@ -535,11 +535,12 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     <table className="w-full text-[11px] text-left">
                                         <thead className="bg-gray-50 text-gray-500 font-semibold sticky top-0 z-10 shadow-sm">
                                             <tr>
+                                                <th className="px-4 py-3 whitespace-nowrap">Date</th>
                                                 <th className="px-4 py-3 whitespace-nowrap">Receipt #</th>
                                                 <th className="px-4 py-3 whitespace-nowrap">Student Name</th>
                                                 <th className="px-4 py-3 whitespace-nowrap">PIN</th>
-                                                <th className="px-4 py-3 whitespace-nowrap">College</th>
                                                 <th className="px-4 py-3 whitespace-nowrap">Course</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">Branch</th>
                                                 <th className="px-4 py-3 whitespace-nowrap">Year</th>
                                                 <th className="px-4 py-3 whitespace-nowrap">Mode</th>
                                                 <th className="px-4 py-3 text-right whitespace-nowrap">Amount</th>
@@ -548,13 +549,14 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                         <tbody className="divide-y divide-gray-100">
                                             {row.transactions.filter(tx => tx.status !== 'cancelled').map((tx, i) => (
                                                 <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-4 py-2 text-gray-500 text-[10px] whitespace-nowrap">{(() => { try { const d = tx.paymentDate || tx.createdAt; return d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'; } catch { return '-'; } })()}</td>
                                                     <td className="px-4 py-2 font-mono text-gray-500">{tx.receiptNo || '-'}</td>
                                                     <td className="px-4 py-2 font-bold text-gray-800">{tx.studentName}</td>
                                                     <td className="px-4 py-2 text-gray-600 font-mono">{tx.pinNo || '-'}</td>
-                                                    <td className="px-4 py-2 text-gray-600 text-[10px]">{tx.college || '-'}</td>
                                                     <td className="px-4 py-2 text-gray-600">
                                                         <span className="px-1.5 py-0.5 rounded text-[9px] bg-gray-100 border border-gray-200">{tx.course || '-'}</span>
                                                     </td>
+                                                    <td className="px-4 py-2 text-gray-600 text-[10px]">{tx.branch || '-'}</td>
                                                     <td className="px-4 py-2 text-gray-600">{tx.studentYear || '-'}</td>
                                                     <td className="px-4 py-2">
                                                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium border ${tx.paymentMode === 'Cash' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
