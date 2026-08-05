@@ -1028,15 +1028,18 @@ const UserManagement = () => {
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
                                         <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white capitalize">
-                                            {roles.map(r => (
-                                                <option key={r._id} value={r.name}>{r.name.replace(/_/g, ' ')}</option>
-                                            ))}
+                                            {roles
+                                                .filter(r => r.name !== 'superadmin' || currentUser.role === 'superadmin')
+                                                .map(r => (
+                                                    <option key={r._id} value={r.name}>{r.name.replace(/_/g, ' ')}</option>
+                                                ))
+                                            }
                                             {roles.length === 0 && (
                                                 <>
                                                     <option value="office_staff">Office Staff</option>
                                                     <option value="cashier">Cashier</option>
                                                     <option value="admin">Admin</option>
-                                                    <option value="superadmin">Super Admin</option>
+                                                    {currentUser.role === 'superadmin' && <option value="superadmin">Super Admin</option>}
                                                 </>
                                             )}
                                         </select>

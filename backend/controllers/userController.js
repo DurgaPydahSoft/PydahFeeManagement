@@ -123,6 +123,11 @@ const createUser = async (req, res) => {
   // console.log('[USER CREATION DEBUG] Received Payload:', req.body);
   const { name, username, password, role, college, colleges, campuses, courses, employeeId, permissions, email, mobile, isActive } = req.body;
 
+  // Only superadmins can create a superadmin
+  if (role === 'superadmin' && req.user.role !== 'superadmin') {
+    return res.status(403).json({ message: 'Forbidden: Only Super Administrators can create Super Administrator accounts' });
+  }
+
   // Validation: Password is required only if NOT linked to an employee
   if (!name || !username || !role) {
     // console.log('[USER CREATION DEBUG] Validation Failed: Missing required fields');
@@ -212,6 +217,11 @@ const deleteUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Only superadmins can delete a superadmin account
+    if (user.role === 'superadmin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({ message: 'Forbidden: Only Super Administrators can delete Super Administrator accounts' });
+    }
+
     await user.deleteOne();
     res.json({ message: 'User removed' });
   } catch (error) {
@@ -228,6 +238,11 @@ const updateUserPermissions = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Only superadmins can modify a superadmin's permissions
+    if (user.role === 'superadmin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({ message: 'Forbidden: Only Super Administrators can modify Super Administrator permissions' });
     }
 
     user.permissions = req.body.permissions || [];
@@ -256,6 +271,16 @@ const updateUser = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Only superadmins can modify a superadmin account
+    if (user.role === 'superadmin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({ message: 'Forbidden: Only Super Administrators can modify Super Administrator accounts' });
+    }
+
+    // Only superadmins can elevate another account to superadmin
+    if (role === 'superadmin' && user.role !== 'superadmin' && req.user.role !== 'superadmin') {
+      return res.status(403).json({ message: 'Forbidden: Only Super Administrators can grant Super Administrator access' });
     }
 
     user.name = name || user.name;
