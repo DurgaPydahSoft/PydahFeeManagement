@@ -24,6 +24,7 @@ const UserManagement = () => {
     const [campusFilter, setCampusFilter] = useState('All');
     const [collegeFilter, setCollegeFilter] = useState('All');
     const [roleFilter, setRoleFilter] = useState('All');
+    const [viewPermissionsModal, setViewPermissionsModal] = useState({ show: false, user: null });
 
     const currentUser = JSON.parse(localStorage.getItem('user')) || {};
     const isSuperAdminUser = currentUser.role === 'superadmin';
@@ -466,6 +467,16 @@ const UserManagement = () => {
         setResetModal({ show: false, user: null, newPassword: '' });
     };
 
+    const openViewPermissionsModal = (user) => {
+        console.log('Opening permissions modal for user:', user);
+        console.log('User permissions:', user.permissions);
+        setViewPermissionsModal({ show: true, user });
+    };
+
+    const closeViewPermissionsModal = () => {
+        setViewPermissionsModal({ show: false, user: null });
+    };
+
     const handleSavePassword = async (e) => {
         e.preventDefault();
         try {
@@ -634,7 +645,15 @@ const UserManagement = () => {
                                                 })
                                                 .map(user => (
                                                 <tr key={user._id} className="hover:bg-gray-50">
-                                                    <td className="p-3 font-medium text-gray-900">{user.name}</td>
+                                                    <td className="p-3 font-medium text-gray-900">
+                                                        <button
+                                                            onClick={() => openViewPermissionsModal(user)}
+                                                            className="text-blue-600 hover:text-blue-800 hover:underline font-bold cursor-pointer"
+                                                            title="Click to view permissions"
+                                                        >
+                                                            {user.name}
+                                                        </button>
+                                                    </td>
                                                     <td className="p-3 text-gray-500 font-mono">{user.username}</td>
                                                     <td className="p-3">
                                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
@@ -759,15 +778,21 @@ const UserManagement = () => {
                                         {roles.map(role => (
                                             <tr key={role._id} className="hover:bg-gray-50">
                                                 <td className="p-3 font-medium text-gray-900 capitalize">
-                                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                                        role.name === 'superadmin' ? 'bg-purple-100 text-purple-700' :
-                                                        role.name === 'admin' ? 'bg-blue-100 text-blue-700' :
-                                                        role.name === 'office_staff' ? 'bg-indigo-100 text-indigo-700' :
-                                                        role.name === 'cashier' ? 'bg-green-100 text-green-700' :
-                                                        'bg-gray-100 text-gray-700'
-                                                    }`}>
-                                                        {role.name}
-                                                    </span>
+                                                    <button
+                                                        onClick={() => openViewPermissionsModal(role)}
+                                                        className="text-blue-600 hover:text-blue-800 hover:underline font-bold cursor-pointer"
+                                                        title="Click to view permissions"
+                                                    >
+                                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                                            role.name === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                                            role.name === 'admin' ? 'bg-blue-100 text-blue-700' :
+                                                            role.name === 'office_staff' ? 'bg-indigo-100 text-indigo-700' :
+                                                            role.name === 'cashier' ? 'bg-green-100 text-green-700' :
+                                                            'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                            {role.name}
+                                                        </span>
+                                                    </button>
                                                 </td>
                                                 <td className="p-3 text-gray-500 text-[11px]">{role.description || 'No description provided'}</td>
                                                 <td className="p-3 text-gray-500 text-[11px]">
@@ -1616,6 +1641,220 @@ const UserManagement = () => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+            {/* View User/Role Permissions Modal */}
+            {viewPermissionsModal.show && viewPermissionsModal.user && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 transform transition-all scale-100">
+                        <div className="flex justify-between items-center mb-4 border-b pb-3">
+                            <div>
+                                <h2 className="font-bold text-gray-800 text-xl">
+                                    {viewPermissionsModal.user.role && !viewPermissionsModal.user.username ? 'Role Permissions' : 'User Permissions'}
+                                </h2>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Viewing permissions for: <span className="font-semibold text-gray-800">
+                                        {viewPermissionsModal.user.name || viewPermissionsModal.user.role}
+                                    </span>
+                                </p>
+                            </div>
+                            <button 
+                                onClick={closeViewPermissionsModal} 
+                                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Details Section */}
+                            <div className="space-y-4 border-r md:pr-6">
+                                {/* Show user details only if it's a user */}
+                                {viewPermissionsModal.user.username && (
+                                    <>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Full Name</label>
+                                            <p className="text-sm font-medium text-gray-800 p-2 bg-gray-50 rounded">{viewPermissionsModal.user.name}</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Username</label>
+                                            <p className="text-sm font-mono text-gray-600 p-2 bg-gray-50 rounded">{viewPermissionsModal.user.username}</p>
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Role badge */}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                                        {viewPermissionsModal.user.username ? 'Role' : 'Role Name'}
+                                    </label>
+                                    <p className="text-sm">
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                            viewPermissionsModal.user.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                                            viewPermissionsModal.user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                                            viewPermissionsModal.user.role === 'cashier' ? 'bg-green-100 text-green-700' :
+                                            viewPermissionsModal.user.role === 'office_staff' ? 'bg-indigo-100 text-indigo-700' :
+                                            'bg-gray-100 text-gray-700'
+                                        }`}>
+                                            {viewPermissionsModal.user.role}
+                                        </span>
+                                    </p>
+                                </div>
+
+                                {/* User-specific details */}
+                                {viewPermissionsModal.user.email && (
+                                    <>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
+                                            <p className="text-sm text-gray-600 p-2 bg-gray-50 rounded">{viewPermissionsModal.user.email || '—'}</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Mobile</label>
+                                            <p className="text-sm text-gray-600 p-2 bg-gray-50 rounded">{viewPermissionsModal.user.mobile || '—'}</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Status</label>
+                                            <p className="text-sm">
+                                                {viewPermissionsModal.user.isActive === false ? (
+                                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 inline-block">
+                                                        Deactivated (Manual)
+                                                    </span>
+                                                ) : viewPermissionsModal.user.employeeId && viewPermissionsModal.user.hrmsActive === false ? (
+                                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 inline-block">
+                                                        Deactivated (HRMS)
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200 inline-block">
+                                                        Active
+                                                    </span>
+                                                )}
+                                            </p>
+                                        </div>
+                                        {viewPermissionsModal.user.campuses && viewPermissionsModal.user.campuses.length > 0 && (
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Campuses</label>
+                                                <div className="text-sm text-gray-600 p-2 bg-gray-50 rounded">
+                                                    {viewPermissionsModal.user.campuses.map((id) => campusList.find((c) => c.id === id)?.name || id).join(', ')}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {viewPermissionsModal.user.colleges && viewPermissionsModal.user.colleges.length > 0 && (
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Colleges</label>
+                                                <div className="text-sm text-gray-600 p-2 bg-gray-50 rounded">
+                                                    {viewPermissionsModal.user.colleges.join(', ')}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Role-specific details */}
+                                {viewPermissionsModal.user.description && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Description</label>
+                                        <p className="text-sm text-gray-600 p-2 bg-gray-50 rounded">{viewPermissionsModal.user.description}</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Permissions Section */}
+                            <div className="space-y-4 md:pl-6">
+                                <div>
+                                    <h3 className="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2">
+                                        <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 3.062v6.218c0 1.265-.882 2.373-2.074 2.884-.308.143-.643.215-.973.215h-.023c.529 2.107.714 2.497.762 2.813H7.929c.048-.316.233-.706.762-2.813h-.023a1.97 1.97 0 01-.973-.215 2.066 2.066 0 01-2.074-2.884v-6.218a3.066 3.066 0 013.62-3.062zm9.01-1.134a1.933 1.933 0 00-1.099-.215 1.933 1.933 0 00-1.099.215l-.455.242a1.933 1.933 0 01-1.099.215 1.933 1.933 0 01-1.099-.215l-.454-.242a1.933 1.933 0 00-1.099-.215 1.933 1.933 0 00-1.099.215l-.455.242a1.933 1.933 0 01-1.099.215H2.26a1.933 1.933 0 01-1.099-.215l-.454-.242A1.933 1.933 0 000 3.25v6.218c0 1.265.882 2.373 2.074 2.884.308.143.643.215.973.215h.023c-.529 2.107-.714 2.497-.762 2.813h8.142c-.048-.316-.233-.706-.762-2.813h.023c.33 0 .665-.072.973-.215 1.192-.511 2.074-1.619 2.074-2.884V3.25a1.933 1.933 0 00-1.6-1.909z" clipRule="evenodd" />
+                                        </svg>
+                                        Assigned Permissions
+                                    </h3>
+                                    <div className="max-h-[50vh] overflow-y-auto space-y-2 border p-3 rounded bg-gray-50">
+                                        {!viewPermissionsModal.user.permissions || (viewPermissionsModal.user.permissions || []).length === 0 ? (
+                                            <p className="text-xs text-gray-500 italic">No permissions assigned to this {viewPermissionsModal.user.username ? 'user' : 'role'}.</p>
+                                        ) : (
+                                            availablePages.map((page) => {
+                                                const isPermitted = (viewPermissionsModal.user.permissions || []).includes(page.path);
+                                                if (!isPermitted) return null;
+
+                                                return (
+                                                    <div key={page.path} className="p-2 bg-white rounded border border-green-200 flex items-start gap-2">
+                                                        <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                        </svg>
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-semibold text-gray-800">{page.name}</p>
+                                                            <p className="text-[10px] text-gray-500 font-mono">{page.path}</p>
+
+                                                            {/* Sub-Permissions Display */}
+                                                            {page.path === '/fee-collection' && (
+                                                                <div className="mt-1.5 ml-2 space-y-1">
+                                                                    {['fee_collection_pay', 'fee_collection_concession', 'fee_collection_edit', 'fee_collection_delete'].map(sub => (
+                                                                        (viewPermissionsModal.user.permissions || []).includes(sub) && (
+                                                                            <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                                                                                <span className="text-green-600">✓</span>
+                                                                                <span className="capitalize">{sub.replace(/_/g, ' ').replace('fee collection ', '')}</span>
+                                                                            </div>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            {page.path === '/proceedings' && (
+                                                                <div className="mt-1.5 ml-2 space-y-1">
+                                                                    {['proceedings_view', 'proceedings_edit', 'proceedings_approve'].map(sub => (
+                                                                        (viewPermissionsModal.user.permissions || []).includes(sub) && (
+                                                                            <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                                                                                <span className="text-green-600">✓</span>
+                                                                                <span className="capitalize">{sub.replace(/_/g, ' ').replace('proceedings ', '')}</span>
+                                                                            </div>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            {page.path === '/concessions' && (
+                                                                <div className="mt-1.5 ml-2 space-y-1">
+                                                                    {['concession_approvals', 'concession_approvers'].map(sub => (
+                                                                        (viewPermissionsModal.user.permissions || []).includes(sub) && (
+                                                                            <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                                                                                <span className="text-green-600">✓</span>
+                                                                                <span className="capitalize">{sub.replace(/_/g, ' ')}</span>
+                                                                            </div>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            {page.path === '/reports' && (
+                                                                <div className="mt-1.5 ml-2 space-y-1">
+                                                                    {['reports_daily_collection', 'reports_cashier_summary', 'reports_fee_head_summary', 'reports_account_wise'].map(sub => (
+                                                                        (viewPermissionsModal.user.permissions || []).includes(sub) && (
+                                                                            <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                                                                                <span className="text-green-600">✓</span>
+                                                                                <span className="capitalize">{sub.replace(/_/g, ' ').replace('reports ', '')}</span>
+                                                                            </div>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2 mt-6 border-t pt-4">
+                            <button
+                                onClick={closeViewPermissionsModal}
+                                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 rounded transition"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
