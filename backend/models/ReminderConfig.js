@@ -55,6 +55,14 @@ const reminderConfigSchema = new mongoose.Schema({
         type: [String],
         default: []
     },
+    colleges: {
+        type: [String],
+        default: []
+    },
+    courses: {
+        type: [String],
+        default: []
+    },
     isActive: {
         type: Boolean,
         default: true

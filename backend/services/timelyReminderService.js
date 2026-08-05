@@ -291,6 +291,16 @@ const collectAcademicRecipients = async (config, today, matchedOffset) => {
     ? new Set(config.quotas.map(q => String(q).trim()))
     : null;
 
+  // College filter — empty array means "all colleges"
+  const collegeFilter = Array.isArray(config.colleges) && config.colleges.length > 0
+    ? new Set(config.colleges.map(c => String(c).trim()))
+    : null;
+
+  // Course filter — empty array means "all courses"
+  const courseFilter = Array.isArray(config.courses) && config.courses.length > 0
+    ? new Set(config.courses.map(c => String(c).trim()))
+    : null;
+
   const structures = await FeeStructure.find({})
     .populate('feeHead', 'name code')
     .lean();
@@ -323,6 +333,14 @@ const collectAcademicRecipients = async (config, today, matchedOffset) => {
 
     // Skip this structure if its quota isn't in the allowed list
     if (quotaFilter && !quotaFilter.has(String(firstStruct.category || '').trim())) {
+      continue;
+    }
+    // Skip this structure if its college isn't in the allowed list
+    if (collegeFilter && !collegeFilter.has(String(firstStruct.college || '').trim())) {
+      continue;
+    }
+    // Skip this structure if its course isn't in the allowed list
+    if (courseFilter && !courseFilter.has(String(firstStruct.course || '').trim())) {
       continue;
     }
 
@@ -421,6 +439,16 @@ const collectServiceRecipients = async (config, today, matchedOffset) => {
     ? new Set(config.quotas.map(q => String(q).trim()))
     : null;
 
+  // College filter — empty array means "all colleges"
+  const collegeFilter = Array.isArray(config.colleges) && config.colleges.length > 0
+    ? new Set(config.colleges.map(c => String(c).trim()))
+    : null;
+
+  // Course filter — empty array means "all courses"
+  const courseFilter = Array.isArray(config.courses) && config.courses.length > 0
+    ? new Set(config.courses.map(c => String(c).trim()))
+    : null;
+
   const serviceConfigs = await ServiceLateFeeConfig.find({
     type,
     academicYear: config.academicYear,
@@ -503,6 +531,14 @@ const collectServiceRecipients = async (config, today, matchedOffset) => {
 
       // Skip this student if their quota isn't in the allowed list
       if (quotaFilter && !quotaFilter.has(String(group.stud_type || '').trim())) {
+        continue;
+      }
+      // Skip this student if their college isn't in the allowed list
+      if (collegeFilter && !collegeFilter.has(String(group.college || '').trim())) {
+        continue;
+      }
+      // Skip this student if their course isn't in the allowed list
+      if (courseFilter && !courseFilter.has(String(group.course || '').trim())) {
         continue;
       }
 

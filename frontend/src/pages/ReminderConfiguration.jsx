@@ -20,7 +20,9 @@ const EMPTY_CONFIG_FORM = {
     enableSMS: true,
     enableEmail: false,
     smsRecipients: ['student'],
-    quotas: []
+    quotas: [],
+    colleges: [],
+    courses: []
 };
 
 const EMPTY_TEMPLATE_FORM = {
@@ -201,6 +203,7 @@ const ReminderConfiguration = () => {
     });
 
     const [editingConfigId, setEditingConfigId] = useState(null); // Track which rule is being edited
+    const [ruleScope, setRuleScope] = useState('COLLEGE'); // 'COLLEGE' | 'COURSE' | 'QUOTA'
 
     const filteredCalendarData = React.useMemo(() => {
         return academicYears.filter(item =>
@@ -597,11 +600,23 @@ const ReminderConfiguration = () => {
     };
 
     const handleConfigSubmit = async () => {
-        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas } = configForm;
+        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas, colleges: selectedColleges, courses: selectedCourses } = configForm;
 
         if (!academicYear || !dueSourceType || offsets.length === 0) {
             return alert("Academic Year, Due Source Type, and at least ONE Offset are required.");
         }
+
+        // Scope validations
+        if (ruleScope === 'COLLEGE') {
+            if (!selectedColleges || selectedColleges.length === 0) {
+                return alert("Please select at least one College.");
+            }
+        } else if (ruleScope === 'COURSE') {
+            if (!selectedColleges || selectedColleges.length === 0) {
+                return alert("Please select at least one College.");
+            }
+        }
+
         if (!enableSMS && !enableEmail) {
             return alert("Please select at least one channel (SMS or Email).");
         }
@@ -621,7 +636,9 @@ const ReminderConfiguration = () => {
                 smsTemplateId: enableSMS ? smsTemplateId : null,
                 emailTemplateId: enableEmail ? emailTemplateId : null,
                 smsRecipients: enableSMS ? smsRecipients : [],
-                quotas: quotas || [] // empty = all quotas
+                quotas: quotas || [], 
+                colleges: selectedColleges || [],
+                courses: ruleScope === 'COURSE' ? (selectedCourses || []) : []
             };
 
             if (editingConfigId) {
@@ -634,6 +651,7 @@ const ReminderConfiguration = () => {
             }
 
             setConfigForm({ ...EMPTY_CONFIG_FORM });
+            setRuleScope('COLLEGE');
             fetchConfigs();
         } catch (error) {
             console.error(error);
@@ -656,6 +674,8 @@ const ReminderConfiguration = () => {
 
     const handleEditConfig = (cfg) => {
         setEditingConfigId(cfg._id);
+        const scope = cfg.courses?.length > 0 ? 'COURSE' : 'COLLEGE';
+        setRuleScope(scope);
         setConfigForm({
             academicYear: cfg.academicYear || '',
             dueSourceType: cfg.dueSourceType || 'ACADEMIC',
@@ -667,14 +687,53 @@ const ReminderConfiguration = () => {
             enableSMS: !!cfg.smsTemplateId,
             enableEmail: !!cfg.emailTemplateId,
             smsRecipients: cfg.smsRecipients?.length ? cfg.smsRecipients : ['student'],
-            quotas: cfg.quotas || []
+            quotas: cfg.quotas || [],
+            colleges: cfg.colleges || [],
+            courses: cfg.courses || []
         });
     };
 
     const cancelEdit = () => {
         setEditingConfigId(null);
         setConfigForm({ ...EMPTY_CONFIG_FORM });
+        setRuleScope('COLLEGE');
     };
+
+    const allCoursesList = React.useMemo(() => {
+        if (!metadata) return [];
+        const unique = new Set();
+        const selectedColleges = configForm.colleges || [];
+        const targetColleges = selectedColleges.length > 0 ? selectedColleges : Object.keys(metadata);
+
+        targetColleges.forEach(coll => {
+            if (metadata[coll]) {
+                Object.keys(metadata[coll]).forEach(course => {
+                    unique.add(course);
+                });
+            }
+        });
+        return [...unique].sort();
+    }, [metadata, configForm.colleges]);
+
+    useEffect(() => {
+        if (!metadata) return;
+        const unique = new Set();
+        const selectedColleges = configForm.colleges || [];
+        const targetColleges = selectedColleges.length > 0 ? selectedColleges : Object.keys(metadata);
+
+        targetColleges.forEach(coll => {
+            if (metadata[coll]) {
+                Object.keys(metadata[coll]).forEach(course => {
+                    unique.add(course);
+                });
+            }
+        });
+
+        const filtered = (configForm.courses || []).filter(c => unique.has(c));
+        if (JSON.stringify(filtered) !== JSON.stringify(configForm.courses)) {
+            setConfigForm(prev => ({ ...prev, courses: filtered }));
+        }
+    }, [configForm.colleges, metadata]);
 
     // Extract Unique Academic Years for Dropdown
     const uniqueAcademicYears = [...new Set(academicYears.map(ay => ay.year_label))];
@@ -849,7 +908,7 @@ const ReminderConfiguration = () => {
                             onClick={() => setMode('TIMELY')}
                             className={`px-4 py-2 rounded-md text-xs font-bold transition ${mode === 'TIMELY' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'}`}
                         >
-                            Timely Reminders
+                            Reminder Rules
                         </button>
                         <button
                             onClick={() => setMode('SETUP')}
@@ -1063,7 +1122,7 @@ const ReminderConfiguration = () => {
                         <div className="w-full h-full flex gap-6 min-h-0">
                             <div className="w-1/3 bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
                                 <h2 className="text-lg font-bold text-gray-800 px-6 pt-6 pb-4 flex items-center gap-2 shrink-0">
-                                    <Clock className="text-blue-600" size={20} /> Global Reminder Rule
+                                    <Clock className="text-blue-600" size={20} /> Reminder Rule
                                 </h2>
                                 <div className="space-y-5 flex-1 min-h-0 overflow-y-auto px-6 pb-2">
                                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
@@ -1092,6 +1151,123 @@ const ReminderConfiguration = () => {
                                                 </select>
                                             </div>
                                         </div>
+                                        {/* Rule Scope Tab Selector */}
+                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1.5">Rule Scoping</label>
+                                            <div className="bg-white p-0.5 rounded-lg border border-gray-200 flex gap-1 w-full">
+                                                {['COLLEGE', 'COURSE'].map(sc => (
+                                                    <button
+                                                        key={sc}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setRuleScope(sc);
+                                                            if (sc === 'COLLEGE') {
+                                                                setConfigForm(prev => ({ ...prev, courses: [] }));
+                                                            }
+                                                        }}
+                                                        className={`flex-1 py-1.5 text-[10px] font-bold rounded transition text-center
+                                                            ${ruleScope === sc
+                                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                                                            }`}
+                                                    >
+                                                        {sc === 'COLLEGE' ? 'College Wise' : 'Course Wise'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* 1. Colleges Checklist (always visible) */}
+                                        {colleges.length > 0 && (
+                                            <div className="mt-3 pt-3 border-t border-gray-200">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase">
+                                                        Colleges
+                                                    </label>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {(!configForm.colleges || configForm.colleges.length === 0) ? 'All colleges' : `${configForm.colleges.length} selected`}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {colleges.map(c => {
+                                                        const checked = configForm.colleges?.includes(c) || false;
+                                                        return (
+                                                            <label
+                                                                key={c}
+                                                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer text-[11px] font-bold transition select-none
+                                                                    ${checked
+                                                                        ? 'bg-blue-600 border-blue-600 text-white'
+                                                                        : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                                                                    }`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="sr-only"
+                                                                    checked={checked}
+                                                                    onChange={e => {
+                                                                        const next = e.target.checked
+                                                                            ? [...(configForm.colleges || []), c]
+                                                                            : (configForm.colleges || []).filter(x => x !== c);
+                                                                        setConfigForm({ ...configForm, colleges: next });
+                                                                    }}
+                                                                />
+                                                                {c}
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {(!configForm.colleges || configForm.colleges.length === 0) && (
+                                                    <p className="text-[10px] text-gray-400 mt-1 italic">No college selected — rule applies to all colleges.</p>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* 2. Courses Checklist (visible for COURSE) */}
+                                        {ruleScope === 'COURSE' && allCoursesList.length > 0 && (
+                                            <div className="mt-3 pt-3 border-t border-gray-200">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="block text-[10px] font-bold text-gray-500 uppercase">
+                                                        Courses
+                                                    </label>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {(!configForm.courses || configForm.courses.length === 0) ? 'All courses' : `${configForm.courses.length} selected`}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allCoursesList.map(c => {
+                                                        const checked = configForm.courses?.includes(c) || false;
+                                                        return (
+                                                            <label
+                                                                key={c}
+                                                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer text-[11px] font-bold transition select-none
+                                                                    ${checked
+                                                                        ? 'bg-blue-600 border-blue-600 text-white'
+                                                                        : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                                                                    }`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="sr-only"
+                                                                    checked={checked}
+                                                                    onChange={e => {
+                                                                        const next = e.target.checked
+                                                                            ? [...(configForm.courses || []), c]
+                                                                            : (configForm.courses || []).filter(x => x !== c);
+                                                                        setConfigForm({ ...configForm, courses: next });
+                                                                    }}
+                                                                />
+                                                                {c}
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {(!configForm.courses || configForm.courses.length === 0) && (
+                                                    <p className="text-[10px] text-gray-400 mt-1 italic">No course selected — rule applies to all courses.</p>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* 3. Quotas Checklist (always visible) */}
                                         {quotaOptions.length > 0 && (
                                             <div className="mt-3 pt-3 border-t border-gray-200">
                                                 <div className="flex items-center justify-between mb-1.5">
@@ -1252,7 +1428,7 @@ const ReminderConfiguration = () => {
                             <div className="flex-1 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div className="p-4 border-b border-gray-100 bg-gray-50/50 space-y-3">
                                     <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        <Activity className="text-blue-600" size={18} /> Active Global Rules
+                                        <Activity className="text-blue-600" size={18} /> Active Rules
                                     </h3>
                                     <div className="flex gap-2">
                                         <select className="flex-1 bg-white border border-gray-200 rounded px-2 py-1 text-[10px]" value={ruleFilters.dueSourceType} onChange={e => setRuleFilters({ ...ruleFilters, dueSourceType: e.target.value })}>
@@ -1274,7 +1450,7 @@ const ReminderConfiguration = () => {
                                         .length === 0 ? (
                                         <div className="text-center text-gray-400 mt-20">
                                             <Activity size={48} className="mx-auto mb-4 opacity-20" />
-                                            <p className="text-sm">No global rules yet. Create one for an academic year + fee type.</p>
+                                            <p className="text-sm">No rules yet. Create one for an academic year + fee type.</p>
                                         </div>
                                     ) : (
                                         configs
@@ -1303,6 +1479,26 @@ const ReminderConfiguration = () => {
                                                                     <span className="flex flex-wrap gap-1 mt-0.5">
                                                                         {cfg.quotas.map(q => (
                                                                             <span key={q} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">{q}</span>
+                                                                        ))}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                            {cfg.colleges?.length > 0 && (
+                                                                <div className="col-span-2">
+                                                                    <span className="font-bold text-gray-400">Colleges: </span>
+                                                                    <span className="flex flex-wrap gap-1 mt-0.5">
+                                                                        {cfg.colleges.map(c => (
+                                                                            <span key={c} className="px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded text-[10px] font-bold">{c}</span>
+                                                                        ))}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                            {cfg.courses?.length > 0 && (
+                                                                <div className="col-span-2">
+                                                                    <span className="font-bold text-gray-400">Courses: </span>
+                                                                    <span className="flex flex-wrap gap-1 mt-0.5">
+                                                                        {cfg.courses.map(c => (
+                                                                            <span key={c} className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">{c}</span>
                                                                         ))}
                                                                     </span>
                                                                 </div>
@@ -1341,7 +1537,7 @@ const ReminderConfiguration = () => {
                                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg mb-2">
                                     <BookOpen size={14} /> Reminder System Guide
                                 </div>
-                                <h2 className="text-xl font-bold text-gray-800">How Timely Reminders Work</h2>
+                                <h2 className="text-xl font-bold text-gray-800">How Reminder Rules Work</h2>
                                 <p className="text-xs text-gray-500 mt-1 max-w-3xl">
                                     Templates hold the message and variable mapping. Global rules pick academic year, fee type (Academic / Hostel / Transport), and when to send relative to due dates from Late Fee configuration. The nightly job (3 AM IST) sends only to students with unpaid balance through that term.
                                 </p>
@@ -1365,8 +1561,8 @@ const ReminderConfiguration = () => {
                                         </div>
                                         <div className="relative">
                                             <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">3</div>
-                                            <h4 className="text-xs font-bold text-gray-800">Save a global Timely rule</h4>
-                                            <p className="text-xs text-gray-500 mt-1">Pick Academic Year + type (Academic / Hostel / Transport), add offsets (e.g. 3 days BEFORE due), and attach templates. No college filter — all colleges covered for that AY and type.</p>
+                                            <h4 className="text-xs font-bold text-gray-800">Save a global Reminder rule</h4>
+                                            <p className="text-xs text-gray-500 mt-1">Pick Academic Year + type (Academic / Hostel / Transport), add offsets (e.g. 3 days BEFORE due), and attach templates. Filter by quotas, colleges, or courses as needed.</p>
                                         </div>
                                         <div className="relative">
                                             <div className="absolute -left-[33px] top-0.5 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold">4</div>
