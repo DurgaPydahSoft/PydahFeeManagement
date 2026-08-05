@@ -1022,7 +1022,7 @@ const getTransactionReports = async (req, res) => {
 
 const getDueReports = async (req, res) => {
     try {
-        const { college, course, branch, batch, search, campusId } = req.query;
+        const { college, course, branch, batch, search, campusId, year } = req.query;
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
 
         // 1. Build SQL Query for Students
@@ -1047,10 +1047,43 @@ const getDueReports = async (req, res) => {
             sqlQuery += ` AND branch = ?`;
             params.push(branch);
         }
-        // Filter by Batch instead of Year
+        // Parse Academic Year start year from batch query param (e.g. "2024-2025" -> 2024)
+        let ayStartYear = null;
+        let yearNumber = null;
         if (batch) {
-            sqlQuery += ` AND batch = ?`;
-            params.push(batch);
+            if (batch.includes('-')) {
+                const ayStartMatch = batch.match(/^(\d{4})/);
+                if (ayStartMatch) {
+                    ayStartYear = parseInt(ayStartMatch[1], 10);
+                }
+            } else {
+                // Direct batch filter (no hyphen, e.g. "2024")
+                sqlQuery += ` AND batch = ?`;
+                params.push(batch);
+            }
+        }
+
+        // Filter by Year/Semester (current_year)
+        if (year) {
+            const yearMatch = year.match(/^(\d+)/);
+            if (yearMatch) {
+                yearNumber = parseInt(yearMatch[1], 10);
+                if (ayStartYear !== null) {
+                    // Both Academic Year and Student Year are specified:
+                    // Student batch = (ayStartYear - yearNumber + 1)
+                    const targetBatch = String(ayStartYear - yearNumber + 1);
+                    sqlQuery += ` AND batch = ? AND current_year = ?`;
+                    params.push(targetBatch, yearNumber);
+                } else {
+                    sqlQuery += ` AND current_year = ?`;
+                    params.push(yearNumber);
+                }
+            }
+        } else if (ayStartYear !== null) {
+            // Only Academic Year is specified (All student years):
+            // (batch + current_year - 1) = ayStartYear
+            sqlQuery += ` AND (CAST(batch AS SIGNED) + current_year - 1) = ?`;
+            params.push(ayStartYear);
         }
 
         // Search Filter (Global or Refined)
@@ -1097,8 +1130,44 @@ const getDueReports = async (req, res) => {
             }
         });
 
-        // 2. Aggregate Total Fee (Demand) - Grouped by FeeHead
-        const feeMatch = { studentId: { $in: allIdentifiers } };
+        // 2. Aggregate Total Fee (Demand) and Paid specific to the student year / academic year
+        let feeMatch = { studentId: { $in: allIdentifiers } };
+        let txMatch = { studentId: { $in: allIdentifiers }, status: { $ne: 'cancelled' } };
+
+        if (yearNumber !== null) {
+            // Filter by specific student year
+            feeMatch.studentYear = yearNumber;
+            txMatch.studentYear = String(yearNumber);
+        } else if (ayStartYear !== null) {
+            // Filter by target student year for each student based on Academic Year
+            const feeOrConditions = [];
+            const txOrConditions = [];
+            students.forEach(student => {
+                const studentBatch = parseInt(student.batch, 10);
+                if (!isNaN(studentBatch)) {
+                    const targetYear = ayStartYear - studentBatch + 1;
+                    const identifiers = [student.admission_number, student.pin_no].filter(Boolean);
+                    if (identifiers.length > 0) {
+                        feeOrConditions.push({
+                            studentId: { $in: identifiers },
+                            studentYear: targetYear
+                        });
+                        txOrConditions.push({
+                            studentId: { $in: identifiers },
+                            studentYear: String(targetYear)
+                        });
+                    }
+                }
+            });
+
+            if (feeOrConditions.length > 0) {
+                feeMatch = { $or: feeOrConditions };
+            }
+            if (txOrConditions.length > 0) {
+                txMatch = { $or: txOrConditions, status: { $ne: 'cancelled' } };
+            }
+        }
+
         const feeDemands = await StudentFee.aggregate([
             { $match: feeMatch },
             {
@@ -1124,7 +1193,6 @@ const getDueReports = async (req, res) => {
         });
 
         // 3. Aggregate Total Paid - Grouped by FeeHead (exclude cancelled)
-        const txMatch = { studentId: { $in: allIdentifiers }, status: { $ne: 'cancelled' } };
         const payments = await Transaction.aggregate([
             { $match: txMatch },
             {
