@@ -648,7 +648,8 @@ const UserManagement = () => {
                             </div>
                             {loading ? <p>Loading...</p> : (
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-xs">                                    <thead className="bg-gray-50 border-b">
+                                    <table className="w-full text-left text-xs">
+                                        <thead className="bg-gray-50 border-b">
                                             <tr>
                                                 <th className="p-3 font-semibold text-gray-600">Name</th>
                                                 <th className="p-3 font-semibold text-gray-600">Username</th>

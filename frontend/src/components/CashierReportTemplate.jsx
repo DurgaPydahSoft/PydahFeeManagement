@@ -324,10 +324,25 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 );
             })()}
 
-            {/* 4. Individual Transactions Table — Cash first, then Bank */}
+            {/* 4. Individual Transactions Table — Grouped by College -> Course -> Cash / Bank */}
             {showDetails && activeTransactions.length > 0 && (() => {
-                const cashTxs = activeTransactions.filter(tx => tx.paymentMode === 'Cash');
-                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash');
+                const grouped = {};
+                activeTransactions.forEach(tx => {
+                    const col = tx.college || 'Unknown College';
+                    const course = tx.course || 'Unknown Course';
+                    if (!grouped[col]) grouped[col] = {};
+                    if (!grouped[col][course]) {
+                        grouped[col][course] = { cash: [], bank: [] };
+                    }
+                    if (tx.paymentMode === 'Cash') {
+                        grouped[col][course].cash.push(tx);
+                    } else {
+                        grouped[col][course].bank.push(tx);
+                    }
+                });
+
+                const sortedColleges = Object.keys(grouped).sort();
+
                 const txTableHead = (
                     <thead>
                         <tr>
@@ -342,6 +357,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         </tr>
                     </thead>
                 );
+
                 const txRow = (tx, idx) => (
                     <tr key={idx} className="compact-row">
                         <td style={{ textAlign: 'center' }}>{idx + 1}</td>
@@ -356,30 +372,65 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         </td>
                     </tr>
                 );
+
                 return (
                     <div style={{ marginTop: '20px' }}>
-                        {showCash && cashTxs.length > 0 && (
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                                    Cash Transactions ({cashTxs.length}) — ₹{cashTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
-                                </h3>
-                                <table className="print-table" style={{ fontSize: '7.5px' }}>
-                                    {txTableHead}
-                                    <tbody>{cashTxs.map(txRow)}</tbody>
-                                </table>
-                            </div>
-                        )}
-                        {showBank && bankTxs.length > 0 && (
-                            <div style={{ marginBottom: '16px' }}>
-                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
-                                    Bank / Online Transactions ({bankTxs.length}) — ₹{bankTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
-                                </h3>
-                                <table className="print-table" style={{ fontSize: '7.5px' }}>
-                                    {txTableHead}
-                                    <tbody>{bankTxs.map(txRow)}</tbody>
-                                </table>
-                            </div>
-                        )}
+                        {sortedColleges.map((collegeName) => {
+                            const courses = grouped[collegeName];
+                            const sortedCourses = Object.keys(courses).sort();
+
+                            return (
+                                <div key={collegeName} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
+                                    {/* College Header */}
+                                    <div style={{ backgroundColor: '#f0f0f0', padding: '4px 8px', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px', borderLeft: '4px solid #000' }}>
+                                        COLLEGE: {collegeName}
+                                    </div>
+                                    
+                                    {sortedCourses.map((courseName) => {
+                                        const { cash, bank } = courses[courseName];
+                                        const hasCash = showCash && cash.length > 0;
+                                        const hasBank = showBank && bank.length > 0;
+
+                                        if (!hasCash && !hasBank) return null;
+
+                                        return (
+                                            <div key={courseName} style={{ paddingLeft: '12px', marginBottom: '12px' }}>
+                                                {/* Course Header */}
+                                                <div style={{ fontWeight: 'bold', fontSize: '10px', textTransform: 'uppercase', marginBottom: '6px', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>
+                                                    — Course: {courseName}
+                                                </div>
+
+                                                {/* Cash Subtable */}
+                                                {hasCash && (
+                                                    <div style={{ marginBottom: '8px', paddingLeft: '8px' }}>
+                                                        <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#000', marginBottom: '4px', textTransform: 'uppercase' }}>
+                                                            * Cash Transactions ({cash.length}) — Subtotal: ₹{cash.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
+                                                        </div>
+                                                        <table className="print-table" style={{ fontSize: '7.5px' }}>
+                                                            {txTableHead}
+                                                            <tbody>{cash.map(txRow)}</tbody>
+                                                        </table>
+                                                    </div>
+                                                )}
+
+                                                {/* Bank Subtable */}
+                                                {hasBank && (
+                                                    <div style={{ marginBottom: '8px', paddingLeft: '8px' }}>
+                                                        <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#000', marginBottom: '4px', textTransform: 'uppercase' }}>
+                                                            * Bank / Online Transactions ({bank.length}) — Subtotal: ₹{bank.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
+                                                        </div>
+                                                        <table className="print-table" style={{ fontSize: '7.5px' }}>
+                                                            {txTableHead}
+                                                            <tbody>{bank.map(txRow)}</tbody>
+                                                        </table>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
                     </div>
                 );
             })()}

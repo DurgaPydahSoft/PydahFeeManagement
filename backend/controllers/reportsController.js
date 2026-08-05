@@ -44,6 +44,20 @@ const getTransactionReports = async (req, res) => {
         // Date Filter (IST-aligned) — paymentDate (collection date), fallback createdAt
         applyReportDateToMatch(matchStage, startDate, endDate);
 
+        const User = require('../models/User');
+        const usersListForMapping = await User.find({}).lean();
+        const userIdMap = {};
+        const userIdNameMap = {};
+        usersListForMapping.forEach(u => {
+            const uidStr = String(u._id);
+            if (u.username) {
+                userIdMap[uidStr] = u.username;
+            }
+            if (u.name) {
+                userIdNameMap[uidStr] = u.name;
+            }
+        });
+
         // College Filter will be applied in-memory after SQL enrichment, since college is not directly stored on Transaction
         // The college query param will be used to filter student data after fetching from SQL
 
@@ -55,6 +69,13 @@ const getTransactionReports = async (req, res) => {
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            transactions.forEach(tx => {
+                const cbStr = String(tx.collectedBy || '');
+                if (userIdMap[cbStr]) {
+                    tx.collectedBy = userIdMap[cbStr];
+                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                }
+            });
 
             if (!transactions.length) {
                 return res.json([]);
@@ -287,6 +308,13 @@ const getTransactionReports = async (req, res) => {
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            transactions.forEach(tx => {
+                const cbStr = String(tx.collectedBy || '');
+                if (userIdMap[cbStr]) {
+                    tx.collectedBy = userIdMap[cbStr];
+                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                }
+            });
 
             // Resolve fee head names
             const fhFeeHeadIds = new Set();
@@ -383,6 +411,13 @@ const getTransactionReports = async (req, res) => {
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            transactions.forEach(tx => {
+                const cbStr = String(tx.collectedBy || '');
+                if (userIdMap[cbStr]) {
+                    tx.collectedBy = userIdMap[cbStr];
+                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                }
+            });
 
             if (!transactions.length) {
                 return res.json([]);
@@ -647,6 +682,13 @@ const getTransactionReports = async (req, res) => {
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            transactions.forEach(tx => {
+                const cbStr = String(tx.collectedBy || '');
+                if (userIdMap[cbStr]) {
+                    tx.collectedBy = userIdMap[cbStr];
+                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                }
+            });
 
             const PaymentConfig = require('../models/PaymentConfig');
             const configs = await PaymentConfig.find({}).lean();

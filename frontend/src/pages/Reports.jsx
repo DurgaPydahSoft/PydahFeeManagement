@@ -3,7 +3,7 @@ import Sidebar from './Sidebar';
 import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
 import { printHtmlDocument } from '../utils/printService';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import {
     Calendar,
     Printer,
@@ -745,12 +745,12 @@ const Reports = () => {
                 });
 
                 // Detect header rows in the original aoa and bold them across present columns
-                const headerMarkers = ['Summary Metric', 'S.No', 'User-wise Consolidated Collections', 'Course-wise Consolidated Collections', 'S.No', 'User ID', 'Receipt No', 'Date', 'Course', 'Receipts', 'Collection', 'Cashier Name'];
+                const headerMarkers = ['summary metric', 's.no', 'user-wise consolidated collections', 'course-wise consolidated collections', 'receipt no', 'date', 'course', 'receipts', 'collection', 'cashier name', 'user id'];
                 const maxCol = Math.max(...summaryRows.map(r => (Array.isArray(r) ? r.length : 0)));
                 summaryRows.forEach((r, ri) => {
                     if (Array.isArray(r) && r.length > 0) {
-                        const first = String(r[0] || '').trim();
-                        const hasHeaderKeyword = headerMarkers.some(h => first === h || r.includes(h));
+                        const first = String(r[0] || '').trim().toLowerCase();
+                        const hasHeaderKeyword = headerMarkers.some(h => first === h || r.some(cell => String(cell || '').trim().toLowerCase() === h));
                         if (hasHeaderKeyword) {
                             for (let c = 0; c < maxCol; c++) {
                                 const cellAddr = XLSX.utils.encode_cell({ r: ri, c });
@@ -824,6 +824,408 @@ const Reports = () => {
 
         XLSX.writeFile(workbook, `${fileName}.xlsx`);
     };
+
+    const buildCashierDetailedSheet = (transactionsList, cashierName, cashierUsername, empNo, options) => {
+        const mode = options.mode || 'all';
+        const includeCash = options.includeCash !== undefined ? options.includeCash : mode === 'all' || mode === 'Cash';
+        const includeBank = options.includeBank !== undefined ? options.includeBank : mode === 'all' || mode === 'Online';
+
+        const filteredTxs = transactionsList.filter(tx => {
+            if (tx.status === 'cancelled') return false;
+            if (mode === 'none') return false;
+            if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+            if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+            return true;
+        });
+
+        // Group by College, then Course
+        const grouped = {};
+        filteredTxs.forEach(tx => {
+            const col = tx.college || 'Unknown College';
+            const course = tx.course || 'Unknown Course';
+            if (!grouped[col]) grouped[col] = {};
+            if (!grouped[col][course]) {
+                grouped[col][course] = { cash: [], bank: [] };
+            }
+            if (tx.paymentMode === 'Cash') {
+                grouped[col][course].cash.push(tx);
+            } else {
+                grouped[col][course].bank.push(tx);
+            }
+        });
+
+        const sheetRows = [
+            ['CASHIER COLLECTION DETAIL'],
+            [`CASHIER: ${String(cashierName).toUpperCase()} | EMP NO: ${empNo || ''}`],
+        ];
+
+        const merges = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
+            { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }
+        ];
+
+        const collegeHeaderRowIndexes = [];
+        const courseHeaderRowIndexes = [];
+        const sectionHeaderRowIndexes = [];
+        const tableHeaderRowIndexes = [];
+        const subTotalRowIndexes = [];
+        const courseTotalRowIndexes = [];
+
+        const sortedColleges = Object.keys(grouped).sort();
+
+        sortedColleges.forEach(college => {
+            sheetRows.push([]); // blank row
+            const colRowIdx = sheetRows.length;
+            collegeHeaderRowIndexes.push(colRowIdx);
+            sheetRows.push([`COLLEGE: ${String(college).toUpperCase()}`]);
+            merges.push({ s: { r: colRowIdx, c: 0 }, e: { r: colRowIdx, c: 9 } });
+
+            const courses = grouped[college];
+            const sortedCourses = Object.keys(courses).sort();
+
+            sortedCourses.forEach(course => {
+                const crsRowIdx = sheetRows.length;
+                courseHeaderRowIndexes.push(crsRowIdx);
+                sheetRows.push([`  Course: ${String(course).toUpperCase()}`]);
+                merges.push({ s: { r: crsRowIdx, c: 0 }, e: { r: crsRowIdx, c: 9 } });
+
+                const { cash, bank } = courses[course];
+                const hasCash = includeCash && cash.length > 0;
+                const hasBank = includeBank && bank.length > 0;
+
+                const tableHeaders = ['S.NO', 'RECEIPT NO', 'DATE', 'STUDENT NAME', 'PIN NO', 'YEAR', 'PAYMENT MODE', 'FEE HEAD', 'AMOUNT'];
+
+                if (hasCash) {
+                    const secRowIdx = sheetRows.length;
+                    sectionHeaderRowIndexes.push(secRowIdx);
+                    sheetRows.push([`    Cash Transactions (${cash.length})`]);
+                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 9 } });
+
+                    const tblRowIdx = sheetRows.length;
+                    tableHeaderRowIndexes.push(tblRowIdx);
+                    sheetRows.push(tableHeaders);
+
+                    cash.forEach((tx, idx) => {
+                        sheetRows.push([
+                            idx + 1,
+                            tx.receiptNo || tx.receiptNumber || '',
+                            tx.transactionDate ? String(tx.transactionDate).split('T')[0] : (tx.date || tx.createdAt ? String(tx.createdAt).split('T')[0] : ''),
+                            tx.studentName || tx.name || '',
+                            (!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo,
+                            tx.year || tx.studentYear || '',
+                            tx.paymentMode || '',
+                            tx.feeHead || '',
+                            tx.amount || 0
+                        ]);
+                    });
+
+                    const cashSub = cash.reduce((sum, t) => sum + (t.amount || 0), 0);
+                    const subIdx = sheetRows.length;
+                    subTotalRowIndexes.push(subIdx);
+                    sheetRows.push(['', '', '', '', '', '', '', 'Cash Sub-Total', cashSub]);
+                }
+
+                if (hasBank) {
+                    const secRowIdx = sheetRows.length;
+                    sectionHeaderRowIndexes.push(secRowIdx);
+                    sheetRows.push([`    Bank / Online Transactions (${bank.length})`]);
+                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 9 } });
+
+                    const tblRowIdx = sheetRows.length;
+                    tableHeaderRowIndexes.push(tblRowIdx);
+                    sheetRows.push(tableHeaders);
+
+                    bank.forEach((tx, idx) => {
+                        sheetRows.push([
+                            idx + 1,
+                            tx.receiptNo || tx.receiptNumber || '',
+                            tx.transactionDate ? String(tx.transactionDate).split('T')[0] : (tx.date || tx.createdAt ? String(tx.createdAt).split('T')[0] : ''),
+                            tx.studentName || tx.name || '',
+                            (!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo,
+                            tx.year || tx.studentYear || '',
+                            tx.paymentMode || '',
+                            tx.feeHead || '',
+                            tx.amount || 0
+                        ]);
+                    });
+
+                    const bankSub = bank.reduce((sum, t) => sum + (t.amount || 0), 0);
+                    const subIdx = sheetRows.length;
+                    subTotalRowIndexes.push(subIdx);
+                    sheetRows.push(['', '', '', '', '', '', '', 'Bank Sub-Total', bankSub]);
+                }
+
+                const courseTotal = [...cash, ...bank].reduce((sum, t) => sum + (t.amount || 0), 0);
+                const totIdx = sheetRows.length;
+                courseTotalRowIndexes.push(totIdx);
+                sheetRows.push(['', '', '', '', '', '', '', 'Course Total', courseTotal]);
+            });
+        });
+
+        sheetRows.push([]);
+        const grandTotal = filteredTxs.reduce((sum, t) => sum + (t.amount || 0), 0);
+        const grandIdx = sheetRows.length;
+        sheetRows.push(['', '', `Total Receipts: ${filteredTxs.length}`, '', '', '', '', '', 'GRAND TOTAL', grandTotal]);
+
+        const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
+        sheet['!merges'] = merges;
+        sheet['!cols'] = [{ wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 26 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 14 }];
+
+        try {
+            ['A1', 'A2'].forEach(cell => {
+                if (sheet[cell]) {
+                    sheet[cell].s = {
+                        font: { bold: true, sz: 12 },
+                        alignment: { horizontal: 'center' }
+                    };
+                }
+            });
+
+            collegeHeaderRowIndexes.forEach(ri => {
+                const cellAddr = XLSX.utils.encode_cell({ r: ri, c: 0 });
+                if (sheet[cellAddr]) {
+                    sheet[cellAddr].s = {
+                        font: { bold: true, sz: 11, color: { rgb: "000000" } },
+                        fill: { fgColor: { rgb: "F2F2F2" } }
+                    };
+                }
+            });
+
+            courseHeaderRowIndexes.forEach(ri => {
+                const cellAddr = XLSX.utils.encode_cell({ r: ri, c: 0 });
+                if (sheet[cellAddr]) {
+                    sheet[cellAddr].s = {
+                        font: { bold: true, sz: 10 }
+                    };
+                }
+            });
+
+            sectionHeaderRowIndexes.forEach(ri => {
+                const cellAddr = XLSX.utils.encode_cell({ r: ri, c: 0 });
+                if (sheet[cellAddr]) {
+                    sheet[cellAddr].s = {
+                        font: { bold: true, italic: true, sz: 9 }
+                    };
+                }
+            });
+
+            tableHeaderRowIndexes.forEach(ri => {
+                for (let c = 0; c < 9; c++) {
+                    const cellAddr = XLSX.utils.encode_cell({ r: ri, c });
+                    if (sheet[cellAddr]) {
+                        sheet[cellAddr].s = {
+                            font: { bold: true, sz: 9 },
+                            fill: { fgColor: { rgb: "F2F2F2" } }
+                        };
+                    }
+                }
+            });
+
+            subTotalRowIndexes.forEach(ri => {
+                ['H', 'I'].forEach(colName => {
+                    const cellAddr = colName + (ri + 1);
+                    if (sheet[cellAddr]) {
+                        sheet[cellAddr].s = { font: { bold: true } };
+                    }
+                });
+            });
+
+            courseTotalRowIndexes.forEach(ri => {
+                ['H', 'I'].forEach(colName => {
+                    const cellAddr = colName + (ri + 1);
+                    if (sheet[cellAddr]) {
+                        sheet[cellAddr].s = {
+                            font: { bold: true }
+                        };
+                    }
+                });
+            });
+
+            const grandAddr1 = 'I' + (grandIdx + 1);
+            const grandAddr2 = 'J' + (grandIdx + 1);
+            if (sheet[grandAddr1]) sheet[grandAddr1].s = { font: { bold: true, sz: 11 } };
+            if (sheet[grandAddr2]) sheet[grandAddr2].s = { font: { bold: true, sz: 11 }, fill: { fgColor: { rgb: "F2F2F2" } } };
+
+        } catch (e) {
+            console.error('Error styling Cashier detailed sheet:', e);
+        }
+
+        return sheet;
+    };
+
+    const downloadCashierExcel = (printData, options, dateRange) => {
+        const isAll = printData.isAll === true;
+        const cashierRows = (isAll ? (printData.rows || []) : [printData.row]).filter(Boolean);
+        
+        if (!cashierRows.length) return;
+
+        const mode = options.mode || 'all';
+        const includeCash = options.includeCash !== undefined ? options.includeCash : mode === 'all' || mode === 'Cash';
+        const includeBank = options.includeBank !== undefined ? options.includeBank : mode === 'all' || mode === 'Online';
+        const showSummary = options.showSummary !== false;
+        const showDetails = options.showDetails !== false;
+
+        let totalReceipts = 0;
+        let cashAmount = 0;
+        let bankAmount = 0;
+        let concessionAmount = 0;
+        let debitTotal = 0;
+
+        const collegeSummary = {};
+        const courseSummary = {};
+        const cashierSummary = [];
+
+        cashierRows.forEach(c => {
+            const activeTransactions = (c.transactions || []).filter(tx => tx.status !== 'cancelled');
+            const filteredTransactions = activeTransactions.filter(tx => {
+                if (mode === 'none') return false;
+                if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
+                if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+                return true;
+            });
+
+            const cReceipts = filteredTransactions.length;
+            const cCash = filteredTransactions.filter(tx => tx.paymentMode === 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+            const cBank = filteredTransactions.filter(tx => tx.paymentMode !== 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+            const cConcession = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+            const cDebit = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+
+            totalReceipts += cReceipts;
+            cashAmount += cCash;
+            bankAmount += cBank;
+            concessionAmount += cConcession;
+            debitTotal += cDebit;
+
+            const cUsername = c.transactions?.[0]?.collectedBy || c.username || '';
+            const cName = c._id || '';
+
+            cashierSummary.push({
+                username: cUsername,
+                name: cName,
+                empNo: c.empNo || '',
+                receipts: cReceipts,
+                total: cDebit
+            });
+
+            filteredTransactions.forEach(tx => {
+                const collegeName = tx.college || 'Unknown College';
+                const courseName = tx.course || 'Unknown Course';
+
+                if (!collegeSummary[collegeName]) collegeSummary[collegeName] = { receipts: 0, total: 0 };
+                collegeSummary[collegeName].receipts += 1;
+                collegeSummary[collegeName].total += tx.amount || 0;
+
+                if (!courseSummary[courseName]) courseSummary[courseName] = { receipts: 0, total: 0 };
+                courseSummary[courseName].receipts += 1;
+                courseSummary[courseName].total += tx.amount || 0;
+            });
+        });
+
+        const workbook = XLSX.utils.book_new();
+        const singleCashierName = cashierRows[0]._id || 'Cashier';
+        const singleCashierUsername = cashierRows[0].transactions?.[0]?.collectedBy || cashierRows[0].username || '';
+        
+        const fileName = isAll 
+            ? `Consolidated_Cashier_Report_${dateRange.start}_${dateRange.end}`.replace(/[^a-zA-Z0-9_-]/g, '')
+            : `${singleCashierName.replace(/\s+/g, '_')}_${dateRange.start}_${dateRange.end}`.replace(/[^a-zA-Z0-9_-]/g, '');
+
+        if (showSummary) {
+            const titleText = isAll ? 'CONSOLIDATED CASHIERS COLLECTION SUMMARY' : 'CASHIER COLLECTION SUMMARY';
+            const subtitleText = isAll 
+                ? `DATE RANGE: ${dateRange.start} to ${dateRange.end}`
+                : `EMP NO: ${cashierRows[0].empNo || ''} | DATE RANGE: ${dateRange.start} to ${dateRange.end}`;
+            
+            const summaryRows = [
+                [titleText],
+                [isAll ? 'ALL SELECTED CASHIERS' : String(singleCashierName).toUpperCase()],
+                [subtitleText],
+                [],
+                ['SUMMARY METRIC', 'VALUE'],
+                ['TOTAL RECEIPTS', totalReceipts],
+            ];
+            if (includeCash) summaryRows.push(['Cash Collection', cashAmount]);
+            if (includeBank) summaryRows.push(['Bank / Online Collection', bankAmount]);
+            summaryRows.push(['Concession / Credit', concessionAmount]);
+            summaryRows.push(['Net Total (Debit)', debitTotal]);
+
+            if (isAll) {
+                summaryRows.push([], ['CASHIER-WISE CONSOLIDATED COLLECTIONS'], ['S.NO', 'EMP NO', 'CASHIER NAME', 'RECEIPTS', 'COLLECTION']);
+                cashierSummary.sort((a, b) => b.total - a.total).forEach((c, idx) => {
+                    summaryRows.push([idx + 1, c.empNo || '', c.name, c.receipts, c.total]);
+                });
+            }
+
+            summaryRows.push([], ['COLLEGE-WISE CONSOLIDATED COLLECTIONS'], ['S.NO', 'COLLEGE', 'RECEIPTS', 'COLLECTION']);
+            Object.entries(collegeSummary).sort(([, a], [, b]) => b.total - a.total).forEach(([college, stats], idx) => {
+                summaryRows.push([idx + 1, college, stats.receipts, stats.total]);
+            });
+
+            summaryRows.push([], ['COURSE-WISE CONSOLIDATED COLLECTIONS'], ['S.NO', 'COURSE', 'RECEIPTS', 'COLLECTION']);
+            Object.entries(courseSummary).sort(([, a], [, b]) => b.total - a.total).forEach(([course, stats], idx) => {
+                summaryRows.push([idx + 1, course, stats.receipts, stats.total]);
+            });
+
+            const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+            summarySheet['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
+                { s: { r: 2, c: 0 }, e: { r: 2, c: 4 } }
+            ];
+            summarySheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+
+            try {
+                // Bold A1..A3
+                ['A1', 'A2', 'A3'].forEach((cell) => {
+                    if (summarySheet[cell]) {
+                        summarySheet[cell].s = summarySheet[cell].s || {};
+                        summarySheet[cell].s.font = Object.assign({}, summarySheet[cell].s.font, { bold: true, sz: 14 });
+                        summarySheet[cell].s.alignment = Object.assign({}, summarySheet[cell].s.alignment, { horizontal: 'center', vertical: 'center' });
+                    }
+                });
+
+                const headerMarkers = ['summary metric', 's.no', 'cashier-wise consolidated collections', 'college-wise consolidated collections', 'course-wise consolidated collections', 'receipt no', 'date', 'course', 'receipts', 'collection', 'cashier name', 'user id'];
+                const maxCol = Math.max(...summaryRows.map(r => (Array.isArray(r) ? r.length : 0)));
+                summaryRows.forEach((r, ri) => {
+                    if (Array.isArray(r) && r.length > 0) {
+                        const first = String(r[0] || '').trim().toLowerCase();
+                        const hasHeaderKeyword = headerMarkers.some(h => first === h || r.some(cell => String(cell || '').trim().toLowerCase() === h));
+                        if (hasHeaderKeyword) {
+                            for (let c = 0; c < maxCol; c++) {
+                                const cellAddr = XLSX.utils.encode_cell({ r: ri, c });
+                                if (summarySheet[cellAddr]) {
+                                    summarySheet[cellAddr].s = summarySheet[cellAddr].s || {};
+                                    summarySheet[cellAddr].s.font = Object.assign({}, summarySheet[cellAddr].s.font, { bold: true });
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {}
+
+            XLSX.utils.book_append_sheet(workbook, summarySheet, sanitizeSheetName('Summary Abstract'));
+        }
+
+        if (showDetails) {
+            if (isAll) {
+                cashierRows.forEach(c => {
+                    const cashierName = c._id || 'Cashier';
+                    const cashierUsername = c.transactions?.[0]?.collectedBy || c.username || '';
+                    const cashierSheet = buildCashierDetailedSheet(c.transactions || [], cashierName, cashierUsername, c.empNo, options);
+                    const sheetName = sanitizeSheetName(`${cashierName} (${c.empNo || cashierUsername})`);
+                    XLSX.utils.book_append_sheet(workbook, cashierSheet, sheetName);
+                });
+            } else {
+                const singleCashier = cashierRows[0];
+                const cashierName = singleCashier._id || 'Cashier';
+                const cashierUsername = singleCashier.transactions?.[0]?.collectedBy || singleCashier.username || '';
+                const cashierSheet = buildCashierDetailedSheet(singleCashier.transactions || [], cashierName, cashierUsername, singleCashier.empNo, options);
+                XLSX.utils.book_append_sheet(workbook, cashierSheet, sanitizeSheetName("Detailed Transactions"));
+            }
+        }
+
+        XLSX.writeFile(workbook, `${fileName}.xlsx`);
+    };
+
     const [selectedCampusId, setSelectedCampusId] = useState(() => {
         const u = JSON.parse(localStorage.getItem('user') || '{}');
         if (u.campuses?.length === 1) return String(u.campuses[0]);
@@ -1164,9 +1566,15 @@ const Reports = () => {
                                          Cancel
                                      </button>
                                      <div className="flex gap-2 w-full">
-                                         {activeTab === 'account' && (
+                                         {(activeTab === 'account' || activeTab === 'cashier') && (
                                              <button
-                                                 onClick={() => downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange)}
+                                                 onClick={() => {
+                                                     if (activeTab === 'account') {
+                                                         downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange);
+                                                     } else {
+                                                         downloadCashierExcel(printModalData, buildPrintOptions(), printModalData.dateRange);
+                                                     }
+                                                 }}
                                                  className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
                                              >
                                                  <span className="inline-flex items-center gap-2">
