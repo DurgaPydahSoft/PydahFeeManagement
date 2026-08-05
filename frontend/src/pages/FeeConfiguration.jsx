@@ -799,7 +799,7 @@ const FeeConfiguration = () => {
                                 studentYear: row.year,
                                 semester: row.semester,
                                 amount: amt,
-                                isScholarshipApplicable: currentConfig.scholarships?.[`${row.rowKey}_${col.id}`] || false,
+                                isScholarshipApplicable: config.scholarships?.[`${row.rowKey}_${col.id}`] || false,
                                 isTermsDivided: col.isLateFeeApplicable || false,
                                 lateFeeHead: col.isLateFeeApplicable ? defaultLateHead : null,
                                 terms: col.isLateFeeApplicable ? termsData : [],
