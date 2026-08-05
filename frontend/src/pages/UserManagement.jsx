@@ -28,7 +28,7 @@ const UserManagement = () => {
     const [viewPermissionsModal, setViewPermissionsModal] = useState({ show: false, user: null });
 
     const currentUser = JSON.parse(localStorage.getItem('user')) || {};
-    const isSuperAdminUser = currentUser.role === 'superadmin';
+    const isSuperAdminUser = currentUser.role === 'superadmin' || currentUser.role === 'admin' || (currentUser.permissions || []).includes('/user-management');
 
     const [formData, setFormData] = useState({
         name: '',
