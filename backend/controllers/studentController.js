@@ -231,6 +231,16 @@ const getStudentByAdmissionNumber = async (req, res) => {
       return res.status(403).json({ message: 'Access denied for this student' });
     }
 
+    // Fetch scholarship records for this student
+    const [scholarships] = await db.query(
+      `SELECT student_year, student_semester, eligible, sanctioned_amount, released_amount, application_id, proceeding 
+       FROM student_scholarship 
+       WHERE student_id = ? 
+       ORDER BY student_year ASC, student_semester ASC`,
+      [rows[0].id]
+    );
+    rows[0].scholarships = scholarships || [];
+
     res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching student details:', error);

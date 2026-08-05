@@ -438,8 +438,43 @@ const FeeConfiguration = () => {
         return {
             columns: [],
             amounts: {},
+            scholarships: {},
             terms: {}
         };
+    };
+
+    const updateScholarshipInActiveQuota = (quotaName, rowKey, colId, isChecked) => {
+        const currentConfig = getQuotaConfig(quotaName);
+        const key = `${rowKey}_${colId}`;
+        setQuotaConfigs(prev => ({
+            ...prev,
+            [quotaName]: {
+                ...currentConfig,
+                scholarships: {
+                    ...(currentConfig.scholarships || {}),
+                    [key]: isChecked
+                }
+            }
+        }));
+    };
+
+    const toggleColumnScholarshipAllYears = (quotaName, colId, checked, matrixRows) => {
+        setQuotaConfigs(prev => {
+            const currentConfig = prev[quotaName] || { columns: [], amounts: {}, scholarships: {}, terms: {} };
+            const newScholarships = { ...(currentConfig.scholarships || {}) };
+            matrixRows.forEach(row => {
+                const key = `${row.rowKey}_${colId}`;
+                newScholarships[key] = checked;
+            });
+            return {
+                ...prev,
+                [quotaName]: {
+                    ...currentConfig,
+                    columns: currentConfig.columns.map(c => c.id === colId ? { ...c, isScholarshipApplicable: checked } : c),
+                    scholarships: newScholarships
+                }
+            };
+        });
     };
 
     // Column Manipulation Actions
@@ -764,7 +799,7 @@ const FeeConfiguration = () => {
                                 studentYear: row.year,
                                 semester: row.semester,
                                 amount: amt,
-                                isScholarshipApplicable: col.isScholarshipApplicable || false,
+                                isScholarshipApplicable: currentConfig.scholarships?.[`${row.rowKey}_${col.id}`] || false,
                                 isTermsDivided: col.isLateFeeApplicable || false,
                                 lateFeeHead: col.isLateFeeApplicable ? defaultLateHead : null,
                                 terms: col.isLateFeeApplicable ? termsData : [],
@@ -1313,6 +1348,7 @@ const FeeConfiguration = () => {
                 }
 
                 const amounts = {};
+                const scholarships = {};
                 const terms = {};
 
                 if (qData.matrix) {
@@ -1324,6 +1360,7 @@ const FeeConfiguration = () => {
                                 const rowKey = item.semester ? `${yr}-S${item.semester}` : `${yr}-Y`;
                                 const amtKey = `${rowKey}_${colId}`;
                                 amounts[amtKey] = item.amount;
+                                scholarships[amtKey] = item.isScholarshipApplicable || false;
 
                                 if (item.isTermsDivided && item.terms && item.terms.length > 0) {
                                     terms[amtKey] = {
@@ -1339,6 +1376,7 @@ const FeeConfiguration = () => {
                 newQuotaConfigs[catName] = {
                     columns,
                     amounts,
+                    scholarships,
                     terms
                 };
                 newSavedQuotas[catName] = true;
@@ -2760,10 +2798,10 @@ const FeeConfiguration = () => {
                                                                                                                                 <input
                                                                                                                                     type="checkbox"
                                                                                                                                     checked={col.isScholarshipApplicable || false}
-                                                                                                                                    onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'isScholarshipApplicable', e.target.checked)}
+                                                                                                                                    onChange={e => toggleColumnScholarshipAllYears(quotaName, col.id, e.target.checked, matrixRows)}
                                                                                                                                     className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
                                                                                                                                 />
-                                                                                                                                <span className="font-semibold text-gray-800">Scholarship</span>
+                                                                                                                                <span className="font-semibold text-gray-800">Scholarship (All Years)</span>
                                                                                                                             </label>
                                                                                                                         </div>
                                                                                                                     </div>
@@ -2784,6 +2822,18 @@ const FeeConfiguration = () => {
                                                                                                                             onChange={e => updateAmountInActiveQuota(quotaName, row.rowKey, col.id, e.target.value)}
                                                                                                                             disabled={!col.feeHeadId}
                                                                                                                         />
+                                                                                                                        {col.isScholarshipApplicable && (
+                                                                                                                            <label className="flex items-center justify-center gap-1 mt-1.5 cursor-pointer select-none text-[10px] text-gray-600">
+                                                                                                                                <input
+                                                                                                                                    type="checkbox"
+                                                                                                                                    checked={currentConfig.scholarships?.[amtKey] || false}
+                                                                                                                                    onChange={e => updateScholarshipInActiveQuota(quotaName, row.rowKey, col.id, e.target.checked)}
+                                                                                                                                    disabled={!col.feeHeadId}
+                                                                                                                                    className="rounded text-blue-600 focus:ring-blue-500 h-3 w-3"
+                                                                                                                                />
+                                                                                                                                <span>Scholarship</span>
+                                                                                                                            </label>
+                                                                                                                        )}
                                                                                                                         {col.isLateFeeApplicable && col.termsCount > 1 && nVal > 0 && termObj && termObj.data && termObj.data.length > 0 && (
                                                                                                                             <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
                                                                                                                                 {termObj.data.map((t, tidx) => (

@@ -345,6 +345,35 @@ const getStudentFeeDetails = async (req, res) => {
     // 1. Fetch Student Info (to get current batch and year)
     const [students] = await db.query('SELECT id, student_name, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
+
+    // Fetch scholarship records for semester-wise lookup
+    let scholarshipRows = [];
+    if (student) {
+        [scholarshipRows] = await db.query(
+            `SELECT student_year, student_semester, eligible 
+             FROM student_scholarship 
+             WHERE student_id = ?`,
+            [student.id]
+        );
+    }
+
+    const getScholarshipStatus = (year, semester) => {
+        if (!student) return null;
+        const yr = Number(year);
+        if (semester) {
+            const sem = Number(semester);
+            const match = scholarshipRows.find(s => 
+                Number(s.student_year) === yr && 
+                Number(s.student_semester) === sem
+            );
+            return match ? match.eligible : null;
+        } else {
+            const eligibleMatches = scholarshipRows.filter(s => Number(s.student_year) === yr);
+            if (eligibleMatches.length === 0) return null;
+            const hasEligible = eligibleMatches.some(s => String(s.eligible).toLowerCase() === 'eligible');
+            return hasEligible ? 'eligible' : eligibleMatches[0].eligible;
+        }
+    };
     const currentYear = (student && student.current_year) ? Number(student.current_year) : (Number(queryYear) || 1);
     const batch = student ? student.batch : '';
     const college = student ? student.college : '';
@@ -480,7 +509,7 @@ const getStudentFeeDetails = async (req, res) => {
           isTermsDivided: serviceTerms
             ? serviceTerms.length > 1
             : (fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)),
-          studentScholarStatus: student ? student.scholar_status : null,
+          studentScholarStatus: getScholarshipStatus(year, fee.semester) || 'not_eligible',
           // Non-divided structures still expose Term 1 (100%) for dues + late-fee display
           terms: resolveEffectiveTerms(
             effectiveTerms,
@@ -522,6 +551,7 @@ const getStudentFeeDetails = async (req, res) => {
           dueAmount: 0,
           isActive: true,
           isScholarshipApplicable: fs.isScholarshipApplicable || false,
+          studentScholarStatus: getScholarshipStatus(fs.studentYear, fs.semester) || 'not_eligible',
           isTermsDivided: fs.isTermsDivided || false,
           terms: resolveEffectiveTerms(fs.terms, fs.amount || 0)
         };
@@ -558,6 +588,8 @@ const getStudentFeeDetails = async (req, res) => {
             paidAmount: 0,
             dueAmount: 0,
             isActive: true,
+            isScholarshipApplicable: matchedStructure?.isScholarshipApplicable || false,
+            studentScholarStatus: getScholarshipStatus(year, t.semester) || 'not_eligible',
             terms: resolveEffectiveTerms(
               matchedStructure?.terms,
               matchedStructure?.amount || 0

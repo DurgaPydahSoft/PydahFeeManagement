@@ -403,7 +403,7 @@ const processLateFees = async (req, res) => {
         // Fetch Students matching the context
         log(`[DEBUG] Querying students for term ${term.termNumber} with params: college="${firstStruct.college}", course="${firstStruct.course}", branch="${firstStruct.branch}", batch="${firstStruct.batch}", current_year=${firstStruct.studentYear}, category="${firstStruct.category}"`);
         const studentQuery = `
-          SELECT admission_number, student_name, college, course, branch, batch, stud_type
+          SELECT id, admission_number, student_name, college, course, branch, batch, stud_type
           FROM students
           WHERE college = ? AND course = ? AND branch = ? AND batch = ? 
           AND current_year = ?
@@ -415,6 +415,51 @@ const processLateFees = async (req, res) => {
           firstStruct.studentYear, firstStruct.category
         ]);
         log(`[DEBUG] Found ${students.length} students matching batch/category query`);
+
+        // Load scholarship eligibility for these students
+        const studentIds = students.map(s => s.id);
+        const [scholarships] = studentIds.length > 0 ? await db.query(`
+          SELECT student_id, student_year, student_semester, eligible 
+          FROM student_scholarship 
+          WHERE student_id IN (?) AND student_year = ?
+        `, [studentIds, firstStruct.studentYear]) : [[]];
+
+        // Map to quickly check if a student is eligible
+        const scholarshipMap = {};
+        (scholarships || []).forEach(row => {
+          const semKey = row.student_semester ? String(row.student_semester) : 'yearly';
+          const key = `${row.student_id}_${semKey}`;
+          if (String(row.eligible).toLowerCase() === 'eligible') {
+            scholarshipMap[key] = true;
+          }
+        });
+
+        const isScholarshipEligible = (studentId, semester) => {
+          if (semester) {
+            return !!scholarshipMap[`${studentId}_${semester}`];
+          } else {
+            const yearlyKey = `${studentId}_yearly`;
+            const sem1Key = `${studentId}_1`;
+            const sem2Key = `${studentId}_2`;
+            return !!(scholarshipMap[yearlyKey] || scholarshipMap[sem1Key] || scholarshipMap[sem2Key]);
+          }
+        };
+
+        const getTermSemester = (tObj, parentStruct, totalTerms = 2) => {
+          if (parentStruct.semester) {
+            return parentStruct.semester;
+          }
+          const tNum = Number(tObj.termNumber);
+          if (totalTerms <= 2) {
+            if (tNum === 1) return 1;
+            if (tNum === 2) return 2;
+          } else {
+            // For 3 terms: Term 1 & 2 belong to Semester 1, Term 3 belongs to Semester 2
+            if (tNum === 1 || tNum === 2) return 1;
+            if (tNum === 3) return 2;
+          }
+          return tObj.referenceSemester || 1;
+        };
 
         // Check target student directly
         const [direct] = await db.query(`
@@ -433,6 +478,11 @@ const processLateFees = async (req, res) => {
           if (isGroupWise) {
             let anyUnderpaid = false;
             for (const struct of groupStructs) {
+              const targetSem = getTermSemester(term, struct, activeTerms.length);
+              if (struct.isScholarshipApplicable && isScholarshipEligible(student.id, targetSem)) {
+                log(`[SCHOLARSHIP] Skipping underpayment check for group structure ${struct.feeHead?.name || 'Group Head'} (Year ${struct.studentYear}, Sem ${targetSem || 'Yearly'}, Term ${term.termNumber}) for student ${student.admission_number} due to scholarship eligibility`);
+                continue;
+              }
               const allocation = await buildStudentTermAllocation(student.admission_number, struct);
               if (isUnderpaidThroughTerm(allocation, term.termNumber)) {
                 anyUnderpaid = true;
@@ -443,8 +493,19 @@ const processLateFees = async (req, res) => {
             const headNames = groupStructs.map(s => s.feeHead.name).join(', ');
             remarksBase = `Group Late Fee (${headNames}) - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
           } else {
-            const allocation = await buildStudentTermAllocation(student.admission_number, firstStruct);
-            isUnderpaid = isUnderpaidThroughTerm(allocation, term.termNumber);
+            let skipDueToCheck = false;
+            const targetSem = getTermSemester(term, firstStruct, activeTerms.length);
+            if (firstStruct.isScholarshipApplicable && isScholarshipEligible(student.id, targetSem)) {
+              log(`[SCHOLARSHIP] Skipping underpayment check for structure ${firstStruct.feeHead?.name || 'Head'} (Year ${firstStruct.studentYear}, Sem ${targetSem || 'Yearly'}, Term ${term.termNumber}) for student ${student.admission_number} due to scholarship eligibility`);
+              skipDueToCheck = true;
+            }
+
+            if (skipDueToCheck) {
+              isUnderpaid = false;
+            } else {
+              const allocation = await buildStudentTermAllocation(student.admission_number, firstStruct);
+              isUnderpaid = isUnderpaidThroughTerm(allocation, term.termNumber);
+            }
             remarksBase = `${firstStruct.feeHead.name} - ${term.dueDescription || `Term ${term.termNumber}`} - ₹${term.lateFeeAmount}`;
           }
           remarks = buildLateFeeRemarks(remarksBase, dueDate);

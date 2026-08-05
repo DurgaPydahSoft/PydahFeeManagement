@@ -1325,14 +1325,28 @@ const FeeCollection = () => {
                                                     <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Quota:</span>
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
-                                                {student.scholar_status && (
-                                                    <div className={`px-1.5 py-0.5 rounded flex items-center ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-blue-700'}`}>
-                                                        <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Scholar:</span>
-                                                        <span className={`font-bold uppercase ${['eligible', 'yes', 'true'].includes(String(student.scholar_status).toLowerCase()) ? 'text-yellow-400' : 'text-white'}`}>
-                                                            {student.scholar_status}
-                                                        </span>
-                                                    </div>
-                                                )}
+                                                {student && (() => {
+                                                    let scholarText = 'not_eligible';
+                                                    let isEligibleClass = false;
+
+                                                    const yearFilter = viewFilterYear !== 'ALL' ? Number(viewFilterYear) : Number(student.current_year);
+                                                    if (student.scholarships && student.scholarships.length > 0) {
+                                                        const yearRecords = student.scholarships.filter(s => Number(s.student_year) === yearFilter);
+                                                        if (yearRecords.length > 0) {
+                                                            scholarText = yearRecords.map(r => `S${r.student_semester || 'Y'}: ${r.eligible}`).join(' | ');
+                                                            isEligibleClass = yearRecords.some(r => String(r.eligible).toLowerCase() === 'eligible');
+                                                        }
+                                                    }
+
+                                                    return (
+                                                        <div className={`px-1.5 py-0.5 rounded flex items-center ${isEligibleClass ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-blue-700'}`}>
+                                                            <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Scholar:</span>
+                                                            <span className={`font-bold uppercase ${isEligibleClass ? 'text-yellow-400' : 'text-white'}`}>
+                                                                {scholarText}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
                                                 {student.caste && (
                                                     <div className="bg-blue-700 px-1.5 py-0.5 rounded flex items-center">
                                                         <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Caste:</span>
