@@ -12,12 +12,14 @@ import {
     CreditCard,
     TrendingUp,
     FileText,
+    FileSpreadsheet,
     Users,
     Filter,
     Search,
     ChevronDown,
     ChevronUp,
-    Clock
+    Clock,
+    X
 } from 'lucide-react';
 import CashierReportTemplate from '../components/CashierReportTemplate';
 import DailyReportTemplate from '../components/DailyReportTemplate';
@@ -31,23 +33,44 @@ import { useCampuses } from '../hooks/useCampuses';
 // --- Components ---
 
 const StatCard = ({ title, value, color, icon: Icon, note }) => {
-    // Cleaner, more professional card style without excessive gradients/blobs
-    const colorStyles = {
-        blue: "text-blue-600 bg-blue-50 border-blue-100",
-        green: "text-emerald-600 bg-emerald-50 border-emerald-100",
-        indigo: "text-indigo-600 bg-indigo-50 border-indigo-100",
-        purple: "text-purple-600 bg-purple-50 border-purple-100",
+    const cardStyles = {
+        blue: {
+            wrapper: "bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-100 text-blue-900",
+            title: "text-blue-600/90",
+            value: "text-blue-950",
+            iconBg: "bg-blue-100 text-blue-600"
+        },
+        green: {
+            wrapper: "bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-100 text-emerald-900",
+            title: "text-emerald-700/90",
+            value: "text-emerald-950",
+            iconBg: "bg-emerald-100 text-emerald-600"
+        },
+        indigo: {
+            wrapper: "bg-gradient-to-br from-indigo-50 to-indigo-100/30 border-indigo-100 text-indigo-900",
+            title: "text-indigo-700/90",
+            value: "text-indigo-950",
+            iconBg: "bg-indigo-100 text-indigo-600"
+        },
+        purple: {
+            wrapper: "bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-100 text-purple-900",
+            title: "text-purple-700/90",
+            value: "text-purple-950",
+            iconBg: "bg-purple-100 text-purple-600"
+        }
     };
 
+    const style = cardStyles[color] || cardStyles.blue;
+
     return (
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-start justify-between hover:shadow-md transition-shadow">
+        <div className={`p-5 rounded-xl border shadow-sm flex items-start justify-between hover:shadow-md transition-all duration-300 ${style.wrapper}`}>
             <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-1">{title}</p>
-                <h3 className="text-xl font-bold text-gray-800 tracking-tight">{value}</h3>
-                {note && <p className="text-[10px] mt-1.5 text-gray-400 font-medium">{note}</p>}
+                <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${style.title}`}>{title}</p>
+                <h3 className={`text-xl font-extrabold tracking-tight ${style.value}`}>{value}</h3>
+                {note && <p className="text-[10px] mt-1.5 text-gray-500 font-medium">{note}</p>}
             </div>
-            <div className={`p-3 rounded-lg ${colorStyles[color]} bg-opacity-50`}>
-                <Icon size={18} strokeWidth={2} />
+            <div className={`p-2.5 rounded-lg ${style.iconBg} bg-opacity-70`}>
+                <Icon size={18} strokeWidth={2.5} />
             </div>
         </div>
     );
@@ -1466,7 +1489,14 @@ const Reports = () => {
 
                         return (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200 relative">
+                                <button 
+                                    onClick={() => setPrintModalData(null)}
+                                    className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors active:scale-95 z-10"
+                                    aria-label="Close modal"
+                                >
+                                    <X size={18} />
+                                </button>
                                 <div className="p-6">
                                     <div className="flex items-center gap-3 mb-6">
                                         <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
@@ -1558,38 +1588,28 @@ const Reports = () => {
                                      </div>
                                  </div>
 
-                                 <div className="p-4 bg-gray-50 border-t border-gray-100 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                     <button
-                                         onClick={() => setPrintModalData(null)}
-                                         className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-white border border-gray-200 transition-all active:scale-95"
-                                     >
-                                         Cancel
-                                     </button>
-                                     <div className="flex gap-2 w-full">
-                                         {(activeTab === 'account' || activeTab === 'cashier') && (
-                                             <button
-                                                 onClick={() => {
-                                                     if (activeTab === 'account') {
-                                                         downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange);
-                                                     } else {
-                                                         downloadCashierExcel(printModalData, buildPrintOptions(), printModalData.dateRange);
-                                                     }
-                                                 }}
-                                                 className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
-                                             >
-                                                 <span className="inline-flex items-center gap-2">
-                                                     <span className="text-sm">📄</span> Excel Download
-                                                 </span>
-                                             </button>
-                                         )}
+                                 <div className="p-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row gap-3 w-full">
+                                     {(activeTab === 'account' || activeTab === 'cashier') && (
                                          <button
-                                             onClick={handleModalPrint}
-                                             disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
-                                             className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                             onClick={() => {
+                                                 if (activeTab === 'account') {
+                                                     downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange);
+                                                 } else {
+                                                     downloadCashierExcel(printModalData, buildPrintOptions(), printModalData.dateRange);
+                                                 }
+                                             }}
+                                             className="flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
                                          >
-                                             <Printer size={16} /> Generate Print
+                                             <FileSpreadsheet size={16} /> Excel Download
                                          </button>
-                                     </div>
+                                     )}
+                                     <button
+                                         onClick={handleModalPrint}
+                                         disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
+                                         className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                     >
+                                         <Printer size={16} /> Generate Print
+                                     </button>
                                  </div>
                             </div>
                         </div>
@@ -1700,11 +1720,11 @@ const Reports = () => {
                                         ))}
                                     </div>
 
-                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                    <div className="flex items-center gap-2 bg-gray-50 px-2 py-1.5 rounded-lg border border-gray-200 w-36">
                                         <select
                                             value={selectedCampusId}
                                             onChange={(e) => setSelectedCampusId(e.target.value)}
-                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer"
+                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-full truncate"
                                         >
                                             {!isScopedUser ? (
                                                 <option value="all">All Campuses</option>
@@ -1717,11 +1737,11 @@ const Reports = () => {
                                         </select>
                                     </div>
 
-                                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                    <div className="flex items-center gap-2 bg-gray-50 px-2 py-1.5 rounded-lg border border-gray-200 w-36">
                                         <select
                                             value={selectedCollege}
                                             onChange={(e) => setSelectedCollege(e.target.value)}
-                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer"
+                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-full truncate"
                                         >
                                             <option value="">All Colleges</option>
                                             {colleges.map((college) => (
@@ -1734,14 +1754,14 @@ const Reports = () => {
                                         <Calendar size={12} className="text-gray-400" />
                                         <input
                                             type="date"
-                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-32"
+                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-24"
                                             value={startDate}
                                             onChange={e => handleDateChange('start', e.target.value)}
                                         />
                                         <span className="text-gray-300 mx-1">to</span>
                                         <input
                                             type="date"
-                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-32"
+                                            className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-24"
                                             value={endDate}
                                             onChange={e => handleDateChange('end', e.target.value)}
                                         />

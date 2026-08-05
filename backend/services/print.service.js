@@ -27,6 +27,7 @@ const FeeHeadReportTemplate = require('../../frontend/src/components/FeeHeadRepo
 const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigurationPrint').default;
 const OverallConcessionRegisterPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
 const ProceedingsPrint = require('../../frontend/src/components/ProceedingsPrint').default;
+const StudentStatementTemplate = require('../../frontend/src/components/StudentStatementTemplate').default;
 
 const renderTemplate = async (templateName, data) => {
     let renderedMarkup = '';
@@ -201,6 +202,16 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = 'Proceedings_Report';
+
+    } else if (templateName === 'student-statement') {
+        const { student, feeDetails, transactions } = data;
+        const element = React.createElement(StudentStatementTemplate, {
+            student,
+            feeDetails,
+            transactions
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = `Fee_Statement_${student?.admission_number || 'Student'}`;
 
     } else {
         throw new Error(`Unsupported template: ${templateName}`);

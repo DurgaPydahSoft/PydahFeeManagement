@@ -71,6 +71,7 @@ const FeeCollection = () => {
     const [transactions, setTransactions] = useState([]);
     const [recentTransactions, setRecentTransactions] = useState([]);
     const [toast, setToast] = useState(null);
+    const [isPrintingStatement, setIsPrintingStatement] = useState(false);
 
     const showToastMessage = (message, type = 'success') => {
         setToast({ message, type });
@@ -304,6 +305,27 @@ const FeeCollection = () => {
         } catch (err) {
             console.error('Print failed:', err);
             alert('Failed to generate print document');
+        }
+    };
+
+    const handlePrintStatement = async () => {
+        if (!student) return;
+        setIsPrintingStatement(true);
+        try {
+            const response = await api.post('/print', {
+                template: 'student-statement',
+                data: {
+                    student,
+                    feeDetails,
+                    transactions
+                }
+            });
+            printHtmlDocument(response.data);
+        } catch (err) {
+            console.error('Failed to print statement:', err);
+            showToastMessage('Failed to print statement', 'error');
+        } finally {
+            setIsPrintingStatement(false);
         }
     };
 
@@ -1476,6 +1498,16 @@ const FeeCollection = () => {
                                                 <option value="ALL">All Years</option>
                                                 {uniqueStudentYears.map(y => <option key={y} value={y}>Year {y}</option>)}
                                             </select>
+                                            <button
+                                                type="button"
+                                                onClick={handlePrintStatement}
+                                                disabled={isPrintingStatement || isDashLoading}
+                                                className="flex items-center gap-1.5 px-3 py-1 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95 cursor-pointer ml-1"
+                                                title="Print Student Fee Ledger / Statement"
+                                            >
+                                                <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                                                {isPrintingStatement ? 'Generating...' : 'Print Statement'}
+                                            </button>
                                         </div>
                                     </div>
                                     <div className="overflow-x-auto">
