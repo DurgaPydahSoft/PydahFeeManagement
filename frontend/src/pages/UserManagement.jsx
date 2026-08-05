@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
-import { Edit2, Trash2, Key } from 'lucide-react';
+import { Edit2, Trash2, Key, UserX, UserCheck } from 'lucide-react';
 import { useCampuses, getCollegeNamesForCampuses } from '../hooks/useCampuses';
 
 
@@ -24,6 +24,7 @@ const UserManagement = () => {
     const [campusFilter, setCampusFilter] = useState('All');
     const [collegeFilter, setCollegeFilter] = useState('All');
     const [roleFilter, setRoleFilter] = useState('All');
+    const [statusFilter, setStatusFilter] = useState('All'); // New: 'All', 'Active', 'Inactive'
     const [viewPermissionsModal, setViewPermissionsModal] = useState({ show: false, user: null });
 
     const currentUser = JSON.parse(localStorage.getItem('user')) || {};
@@ -453,6 +454,8 @@ const UserManagement = () => {
     const [resetModal, setResetModal] = useState({ show: false, user: null, newPassword: '' });
     // Create/Edit User Modal State
     const [showCreateEditModal, setShowCreateEditModal] = useState(false);
+    // Deactivate User Modal State
+    const [deactivateModal, setDeactivateModal] = useState({ show: false, user: null });
 
     const openResetModal = (user) => {
         const currentUser = JSON.parse(localStorage.getItem('user'));
@@ -465,6 +468,40 @@ const UserManagement = () => {
 
     const closeResetModal = () => {
         setResetModal({ show: false, user: null, newPassword: '' });
+    };
+
+    const openDeactivateModal = (user) => {
+        setDeactivateModal({ show: true, user });
+    };
+
+    const closeDeactivateModal = () => {
+        setDeactivateModal({ show: false, user: null });
+    };
+
+    const handleDeactivateUser = async () => {
+        if (!deactivateModal.user) return;
+        try {
+            await api.put(`/users/${deactivateModal.user._id}`, { isActive: false });
+            setUsers(users.map(u => u._id === deactivateModal.user._id ? { ...u, isActive: false } : u));
+            setMessage('User deactivated successfully!');
+            closeDeactivateModal();
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) {
+            alert('Failed to deactivate user');
+            console.error(error);
+        }
+    };
+
+    const handleReactivateUser = async (userId) => {
+        try {
+            await api.put(`/users/${userId}`, { isActive: true });
+            setUsers(users.map(u => u._id === userId ? { ...u, isActive: true } : u));
+            setMessage('User reactivated successfully!');
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error) {
+            alert('Failed to reactivate user');
+            console.error(error);
+        }
     };
 
     const openViewPermissionsModal = (user) => {
@@ -544,6 +581,17 @@ const UserManagement = () => {
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                                     <h2 className="font-bold text-gray-800 whitespace-nowrap">Existing Users</h2>
                                     <div className="flex flex-wrap gap-2">
+                                        {/* Status Filter */}
+                                        <select
+                                            value={statusFilter}
+                                            onChange={(e) => setStatusFilter(e.target.value)}
+                                            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 font-bold"
+                                        >
+                                            <option value="All">All Status</option>
+                                            <option value="Active">Active</option>
+                                            <option value="Inactive">Inactive</option>
+                                        </select>
+
                                         {/* Campus Filter */}
                                         <select
                                             value={campusFilter}
@@ -623,6 +671,13 @@ const UserManagement = () => {
                                                         if (!nameMatch && !usernameMatch) return false;
                                                     }
 
+                                                    // Status Filter
+                                                    if (statusFilter !== 'All') {
+                                                        const isUserActive = user.isActive !== false && !(user.employeeId && user.hrmsActive === false);
+                                                        if (statusFilter === 'Active' && !isUserActive) return false;
+                                                        if (statusFilter === 'Inactive' && isUserActive) return false;
+                                                    }
+
                                                     // Campus Filter
                                                     if (campusFilter !== 'All') {
                                                         const numericCampusId = Number(campusFilter);
@@ -641,6 +696,7 @@ const UserManagement = () => {
                                                         if (user.role !== roleFilter) return false;
                                                     }
 
+                                                    // Display both active and inactive users
                                                     return true;
                                                 })
                                                 .map(user => (
@@ -718,6 +774,23 @@ const UserManagement = () => {
                                                                     title="Reset Password"
                                                                 >
                                                                     <Key size={14} className="stroke-[2.5]" />
+                                                                </button>
+                                                            )}
+                                                            {user.isActive !== false && !(user.employeeId && user.hrmsActive === false) ? (
+                                                                <button
+                                                                    onClick={() => openDeactivateModal(user)}
+                                                                    className="inline-flex items-center justify-center text-orange-600 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 p-1.5 rounded mr-1.5 transition shadow-sm"
+                                                                    title="Deactivate User"
+                                                                >
+                                                                    <UserX size={14} className="stroke-[2.5]" />
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleReactivateUser(user._id)}
+                                                                    className="inline-flex items-center justify-center text-green-600 hover:text-green-800 bg-green-50 hover:bg-green-100 p-1.5 rounded mr-1.5 transition shadow-sm"
+                                                                    title="Reactivate User"
+                                                                >
+                                                                    <UserCheck size={14} className="stroke-[2.5]" />
                                                                 </button>
                                                             )}
                                                             <button
@@ -1644,6 +1717,39 @@ const UserManagement = () => {
                     </div>
                 </div>
             )}
+
+            {/* Deactivate User Modal */}
+            {deactivateModal.show && deactivateModal.user && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all scale-100">
+                        <div className="flex items-center justify-center w-12 h-12 mx-auto bg-orange-100 rounded-full mb-4">
+                            <UserX className="w-6 h-6 text-orange-600" size={24} />
+                        </div>
+                        <h2 className="text-xl font-bold text-gray-800 text-center mb-2">Deactivate User?</h2>
+                        <p className="text-sm text-gray-600 text-center mb-6">
+                            Are you sure you want to deactivate <span className="font-bold text-gray-800">{deactivateModal.user?.name}</span>?
+                        </p>
+                        <p className="text-xs text-gray-500 text-center mb-6 bg-gray-50 p-3 rounded border border-gray-200">
+                            The user will no longer be able to log in to the system. You can reactivate them anytime from the users list.
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={closeDeactivateModal}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDeactivateUser}
+                                className="px-4 py-2 text-sm font-bold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition"
+                            >
+                                Deactivate User
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* View User/Role Permissions Modal */}
             {viewPermissionsModal.show && viewPermissionsModal.user && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300">
