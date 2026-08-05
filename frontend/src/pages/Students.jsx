@@ -29,6 +29,8 @@ const Students = () => {
     const [newStudent, setNewStudent] = useState(initialStudentState);
     const [isSaving, setIsSaving] = useState(false);
     const [toast, setToast] = useState(null);
+    const [customCourse, setCustomCourse] = useState('');
+    const [customBranch, setCustomBranch] = useState('');
 
     const showToastMessage = (message, type = 'success') => {
         setToast({ message, type });
@@ -91,7 +93,10 @@ const Students = () => {
     const handleAddStudent = async (e) => {
         e.preventDefault();
         
-        if (!newStudent.admission_number || !newStudent.pin_no || !newStudent.student_name || !newStudent.college || !newStudent.course || !newStudent.branch || !newStudent.batch) {
+        const finalCourse = newStudent.course === 'OTHER' ? customCourse.trim() : newStudent.course;
+        const finalBranch = newStudent.branch === 'OTHER' ? customBranch.trim() : newStudent.branch;
+
+        if (!newStudent.admission_number || !newStudent.pin_no || !newStudent.student_name || !newStudent.college || !finalCourse || !finalBranch || !newStudent.batch) {
             showToastMessage("Please fill in all required fields.", "error");
             return;
         }
@@ -99,7 +104,7 @@ const Students = () => {
         setIsSaving(true);
         try {
             // Auto-calculate year, semester, and status based on batch
-            const courseDuration = metadata?.hierarchy?.[newStudent.college]?.[newStudent.course]?.total_years || 4;
+            const courseDuration = metadata?.hierarchy?.[newStudent.college]?.[finalCourse]?.total_years || 4;
             const batchYear = parseInt(newStudent.batch);
             
             let resolvedYear = 1;
@@ -130,6 +135,8 @@ const Students = () => {
 
             const payload = {
                 ...newStudent,
+                course: finalCourse,
+                branch: finalBranch,
                 current_year: resolvedYear,
                 current_semester: resolvedSem,
                 student_status: resolvedStatus,
@@ -141,6 +148,8 @@ const Students = () => {
             showToastMessage(res.data.message || 'Student created successfully!', "success");
             setShowAddModal(false);
             setNewStudent(initialStudentState);
+            setCustomCourse('');
+            setCustomBranch('');
             fetchStudents(); // Refresh list
         } catch (err) {
             console.error(err);
@@ -207,6 +216,8 @@ const Students = () => {
                      <button
                          onClick={() => {
                              setNewStudent(initialStudentState);
+                             setCustomCourse('');
+                             setCustomBranch('');
                              setShowAddModal(true);
                          }}
                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-1.5 shadow-sm transition active:scale-95"
@@ -418,14 +429,32 @@ const Students = () => {
                                         required
                                         disabled={!newStudent.college}
                                         value={newStudent.course}
-                                        onChange={e => setNewStudent({ ...newStudent, course: e.target.value, branch: '', current_year: 1 })}
+                                        onChange={e => {
+                                            setNewStudent({ ...newStudent, course: e.target.value, branch: '', current_year: 1 });
+                                            if (e.target.value !== 'OTHER') {
+                                                setCustomCourse('');
+                                            }
+                                        }}
                                         className="w-full p-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-semibold disabled:bg-gray-100 disabled:text-gray-400"
                                     >
                                         <option value="">-- Choose Course --</option>
                                         {metadata?.hierarchy && newStudent.college && Object.keys(metadata.hierarchy[newStudent.college] || {}).map(course => (
                                             <option key={course} value={course}>{course}</option>
                                         ))}
+                                        {newStudent.college && <option value="OTHER">Other (Specify)</option>}
                                     </select>
+                                    {newStudent.course === 'OTHER' && (
+                                        <div className="mt-2">
+                                            <input
+                                                required
+                                                type="text"
+                                                value={customCourse}
+                                                onChange={e => setCustomCourse(e.target.value)}
+                                                className="w-full p-2.5 border border-blue-400 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                                                placeholder="Specify Custom Course Name *"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Branch */}
@@ -435,14 +464,32 @@ const Students = () => {
                                         required
                                         disabled={!newStudent.course}
                                         value={newStudent.branch}
-                                        onChange={e => setNewStudent({ ...newStudent, branch: e.target.value })}
+                                        onChange={e => {
+                                            setNewStudent({ ...newStudent, branch: e.target.value });
+                                            if (e.target.value !== 'OTHER') {
+                                                setCustomBranch('');
+                                            }
+                                        }}
                                         className="w-full p-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-semibold disabled:bg-gray-100 disabled:text-gray-400"
                                     >
                                         <option value="">-- Choose Branch --</option>
-                                        {metadata?.hierarchy && newStudent.college && newStudent.course && (metadata.hierarchy[newStudent.college][newStudent.course]?.branches || []).map(b => (
+                                        {metadata?.hierarchy && newStudent.college && newStudent.course && newStudent.course !== 'OTHER' && (metadata.hierarchy[newStudent.college][newStudent.course]?.branches || []).map(b => (
                                             <option key={b} value={b}>{b}</option>
                                         ))}
+                                        {newStudent.course && <option value="OTHER">Other (Specify)</option>}
                                     </select>
+                                    {newStudent.branch === 'OTHER' && (
+                                        <div className="mt-2">
+                                            <input
+                                                required
+                                                type="text"
+                                                value={customBranch}
+                                                onChange={e => setCustomBranch(e.target.value)}
+                                                className="w-full p-2.5 border border-blue-400 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                                                placeholder="Specify Custom Branch Name *"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Batch */}
