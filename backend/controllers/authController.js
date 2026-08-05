@@ -209,6 +209,11 @@ const loginUser = async (req, res) => {
 
       const token = generateToken(authUser._id, newSessionId);
 
+      const Role = require('../models/Role');
+      const roleDoc = await Role.findOne({ name: authUser.role });
+      const rolePerms = roleDoc ? roleDoc.permissions : [];
+      const mergedPerms = [...new Set([...rolePerms, ...(authUser.permissions || [])])];
+
       res.json({
         _id: authUser._id,
         name: authUser.name,
@@ -218,7 +223,7 @@ const loginUser = async (req, res) => {
         colleges: authUser.colleges || [],
         campuses: authUser.campuses || [],
         courses: authUser.courses || [],
-        permissions: authUser.permissions,
+        permissions: mergedPerms,
         paymentAccess: authUser.paymentAccess || {},
         sessionId: newSessionId,
         token,
@@ -384,6 +389,11 @@ const ssoLogin = async (req, res) => {
       await User.findByIdAndUpdate(authUser._id, { sessionId: newSessionId });
       const token = generateToken(authUser._id, newSessionId);
 
+      const Role = require('../models/Role');
+      const roleDoc = await Role.findOne({ name: authUser.role });
+      const rolePerms = roleDoc ? roleDoc.permissions : [];
+      const mergedPerms = [...new Set([...rolePerms, ...(authUser.permissions || [])])];
+
       res.json({
         _id: authUser._id,
         name: authUser.name,
@@ -393,7 +403,7 @@ const ssoLogin = async (req, res) => {
         colleges: authUser.colleges || [],
         campuses: authUser.campuses || [],
         courses: authUser.courses || [],
-        permissions: authUser.permissions,
+        permissions: mergedPerms,
         paymentAccess: authUser.paymentAccess || {},
         sessionId: newSessionId,
         token,

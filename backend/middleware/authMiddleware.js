@@ -36,6 +36,16 @@ const protect = async (req, res, next) => {
                 }).select('-password');
             }
 
+            if (user) {
+                const Role = require('../models/Role');
+                const roleDoc = await Role.findOne({ name: user.role });
+                const rolePerms = roleDoc ? roleDoc.permissions : [];
+                const merged = [...new Set([...rolePerms, ...(user.permissions || [])])];
+                user = user.toObject();
+                user.permissions = merged;
+                user.id = user._id.toString();
+            }
+
             if (!user) {
                 return res.status(401).json({ message: 'Not authorized, user not found in Fee Management' });
             }

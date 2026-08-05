@@ -55,6 +55,11 @@ const getMe = async (req, res) => {
     const user = await User.findById(req.user.id).select('-password').lean();
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    const Role = require('../models/Role');
+    const roleDoc = await Role.findOne({ name: user.role });
+    const rolePerms = roleDoc ? roleDoc.permissions : [];
+    user.permissions = [...new Set([...rolePerms, ...(user.permissions || [])])];
+
     if (user.employeeId) {
       try {
         const getEmployeeModel = require('../models/Employee');
