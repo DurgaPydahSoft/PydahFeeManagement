@@ -28,6 +28,7 @@ const FeeConfigurationPrint = require('../../frontend/src/components/FeeConfigur
 const OverallConcessionRegisterPrint = require('../../frontend/src/components/OverallConcessionRegisterPrint').default;
 const ProceedingsPrint = require('../../frontend/src/components/ProceedingsPrint').default;
 const StudentStatementTemplate = require('../../frontend/src/components/StudentStatementTemplate').default;
+const DueReportPrintTemplate = require('../../frontend/src/components/DueReportPrintTemplate').default;
 
 const renderTemplate = async (templateName, data) => {
     let renderedMarkup = '';
@@ -212,6 +213,19 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = `Fee_Statement_${student?.admission_number || 'Student'}`;
+
+    } else if (templateName === 'due-report') {
+        const { type, reportData, filters, summary, student, includeDetails } = data;
+        const element = React.createElement(DueReportPrintTemplate, {
+            type,
+            reportData,
+            filters,
+            summary,
+            student,
+            includeDetails
+        });
+        renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
+        pageTitle = type === 'overall' ? 'Overall_Due_Report' : `Due_Report_${student?.admission_number || 'Student'}`;
 
     } else {
         throw new Error(`Unsupported template: ${templateName}`);

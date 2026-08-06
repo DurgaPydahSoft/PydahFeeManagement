@@ -1318,7 +1318,10 @@ const getDueReports = async (req, res) => {
                 }).toArray();
 
                 heads.forEach(h => {
-                    feeHeadNameMap[h._id.toString()] = h.name;
+                    feeHeadNameMap[h._id.toString()] = {
+                        name: h.name,
+                        code: h.code || h.alias || h.name
+                    };
                 });
             } catch (e) {
                 console.log('Error fetching fee heads', e);
@@ -1334,8 +1337,13 @@ const getDueReports = async (req, res) => {
                 const detail = student.feeDetails[fid];
                 const total = detail.total || 0;
                 const paid = detail.paid || 0;
+                const headObj = feeHeadNameMap[fid];
+                const headName = typeof headObj === 'object' ? headObj.name : (feeHeadNameMap[fid] || 'Unknown');
+                const headCode = typeof headObj === 'object' ? headObj.code : (feeHeadNameMap[fid] || 'Unknown');
                 return {
-                    headName: feeHeadNameMap[fid] || 'Unknown',
+                    headId: fid,
+                    headName: headName,
+                    headCode: headCode || headName,
                     total: total,
                     paid: paid,
                     due: Math.max(0, total - paid)
