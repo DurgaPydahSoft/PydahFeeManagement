@@ -82,6 +82,12 @@ const applyStudentIdFilter = async (user, campusIdParam, existingQuery = {}) => 
     return { ...existingQuery, studentId: { $in: studentIds } };
 };
 
+const applyCollegeFilter = async (user, campusIdParam, existingQuery = {}) => {
+    const collegeNames = await getEffectiveCollegeNames(user, campusIdParam);
+    if (collegeNames === null) return existingQuery;
+    return { ...existingQuery, college: { $in: collegeNames } };
+};
+
 const filterHierarchyByColleges = (hierarchy, collegeNames) => {
     if (!collegeNames || collegeNames.length === 0) return hierarchy;
     const filtered = {};
@@ -128,6 +134,7 @@ module.exports = {
     getStudentIdentifiersByColleges,
     getStudentAdmissionNumbersByColleges,
     applyStudentIdFilter,
+    applyCollegeFilter,
     filterHierarchyByColleges,
     filterCollegeCodes,
     buildCollegeSqlFilter,

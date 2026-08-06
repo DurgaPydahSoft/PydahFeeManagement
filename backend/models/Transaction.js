@@ -8,6 +8,21 @@ const transactionSchema = mongoose.Schema({
   studentName: {
     type: String, // Snapshot of name
   },
+  college: {
+    type: String, // Snapshot of college
+  },
+  course: {
+    type: String, // Snapshot of course
+  },
+  branch: {
+    type: String, // Snapshot of branch
+  },
+  pinNo: {
+    type: String, // Snapshot of PIN number
+  },
+  admissionNumber: {
+    type: String, // Snapshot of admission number
+  },
   feeHead: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FeeHead',
@@ -100,6 +115,92 @@ const transactionSchema = mongoose.Schema({
   },
 }, {
   timestamps: true,
+});
+
+// Indexes for query performance optimization
+transactionSchema.index({ studentId: 1 });
+transactionSchema.index({ paymentDate: -1 });
+transactionSchema.index({ status: 1 });
+transactionSchema.index({ college: 1 });
+
+// Middleware to cache core student metadata on save (single document)
+transactionSchema.pre('save', async function (next) {
+  if (this.studentId && (!this.college || !this.course || !this.branch || !this.pinNo || !this.admissionNumber || !this.studentName || !this.studentYear)) {
+    try {
+      const db = require('../config/sqlDb');
+      const [studentRows] = await db.query(
+        'SELECT student_name, college, course, branch, pin_no, admission_number, current_year FROM students WHERE admission_number = ? OR pin_no = ?',
+        [this.studentId, this.studentId]
+      );
+      if (studentRows && studentRows.length > 0) {
+        const s = studentRows[0];
+        if (!this.studentName && s.student_name) this.studentName = s.student_name;
+        if (!this.college && s.college) this.college = s.college;
+        if (!this.course && s.course) this.course = s.course;
+        if (!this.branch && s.branch) this.branch = s.branch;
+        if (!this.pinNo && s.pin_no) this.pinNo = s.pin_no;
+        if (!this.admissionNumber && s.admission_number) this.admissionNumber = s.admission_number;
+        if (!this.studentYear && s.current_year) this.studentYear = String(s.current_year);
+      }
+    } catch (err) {
+      console.error('[Transaction Pre-Save Metadata Cache Failed]', err);
+    }
+  }
+  next();
+});
+
+// Middleware to cache core student metadata on insertMany (bulk docs)
+transactionSchema.pre('insertMany', async function (next, docs) {
+  if (!docs || docs.length === 0) return next();
+  try {
+    const db = require('../config/sqlDb');
+    const studentIds = [...new Set(docs.map(d => d.studentId).filter(Boolean))];
+    if (studentIds.length > 0) {
+      const idPlaceholders = studentIds.map(() => '?').join(',');
+      const [studentRows] = await db.query(
+        `SELECT admission_number, pin_no, student_name, college, course, branch, current_year FROM students WHERE admission_number IN (${idPlaceholders}) OR pin_no IN (${idPlaceholders})`,
+        [...studentIds, ...studentIds]
+      );
+      
+      const studentMap = {};
+      studentRows.forEach(s => {
+        const data = {
+          studentName: s.student_name,
+          college: s.college,
+          course: s.course,
+          branch: s.branch,
+          pinNo: s.pin_no,
+          admissionNumber: s.admission_number,
+          studentYear: String(s.current_year)
+        };
+        if (s.admission_number) {
+          studentMap[s.admission_number.trim().toLowerCase()] = data;
+        }
+        if (s.pin_no) {
+          studentMap[s.pin_no.trim().toLowerCase()] = data;
+        }
+      });
+
+      docs.forEach(doc => {
+        if (doc.studentId) {
+          const key = doc.studentId.trim().toLowerCase();
+          const s = studentMap[key];
+          if (s) {
+            if (!doc.studentName && s.studentName) doc.studentName = s.studentName;
+            if (!doc.college && s.college) doc.college = s.college;
+            if (!doc.course && s.course) doc.course = s.course;
+            if (!doc.branch && s.branch) doc.branch = s.branch;
+            if (!doc.pinNo && s.pinNo) doc.pinNo = s.pinNo;
+            if (!doc.admissionNumber && s.admissionNumber) doc.admissionNumber = s.admissionNumber;
+            if (!doc.studentYear && s.studentYear) doc.studentYear = s.studentYear;
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[Transaction Pre-InsertMany Metadata Cache Failed]', err);
+  }
+  next();
 });
 
 module.exports = mongoose.model('Transaction', transactionSchema);

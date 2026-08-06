@@ -5,6 +5,23 @@ const db = require('../config/sqlDb');
 const collegeScope = require('../utils/collegeScope');
 const { buildReportDateFilter, applyReportDateToMatch, buildIstDayBounds, buildCollectionDateMatch } = require('../utils/reportDateFilter');
 
+// Helper to filter transactions by user's scoped colleges using cached fields first
+const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
+    const collegeNames = await collegeScope.getEffectiveCollegeNames(user, campusId);
+    if (collegeNames === null) return query;
+    const studentIds = await collegeScope.getStudentIdentifiersByColleges(collegeNames);
+    if (studentIds.length === 0) {
+        return { ...query, studentId: { $in: ['__none__'] } };
+    }
+    return {
+        ...query,
+        $or: [
+            { college: { $in: collegeNames } },
+            { studentId: { $in: studentIds } }
+        ]
+    };
+};
+
 // @desc    Get Transaction Reports (Daily, Cashier, FeeHead, Mode)
 // @route   GET /api/reports/transactions
 // @access  Public (should be Protected)
@@ -20,7 +37,7 @@ const getTransactionReports = async (req, res) => {
             status: { $ne: 'cancelled' },
             remarks: { $ne: 'Concession as per declaration' }
         };
-        matchStage = await collegeScope.applyStudentIdFilter(req.user, campusId, matchStage);
+        matchStage = await applyTransactionScopeFilter(req.user, campusId, matchStage);
         if (matchStage.studentId?.$in?.[0] === '__none__') {
             return res.json([]);
         }
@@ -137,11 +154,13 @@ const getTransactionReports = async (req, res) => {
                 console.error("Error fetching cashier details:", userErr);
             }
 
-            // 2. Extract Student IDs for SQL Lookup
+            // 2. Extract Student IDs for SQL Lookup (only if cached metadata is missing)
             const studentIds = new Set();
             const feeHeadIds = new Set();
             transactions.forEach(tx => {
-                if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                    studentIds.add(String(tx.studentId).trim());
+                }
                 if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
             });
 
@@ -194,7 +213,7 @@ const getTransactionReports = async (req, res) => {
                 const cashierUsername = tx.collectedBy || 'Unknown';
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
-                const college = collegeData ? collegeData.college : 'Unknown';
+                const college = tx.college || (collegeData ? collegeData.college : 'Unknown');
 
                 if (hasCollegeScope && !collegeScope.isCollegeAllowed(college, allowedColleges)) {
                     return;
@@ -258,11 +277,11 @@ const getTransactionReports = async (req, res) => {
                     amount: tx.amount,
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
-                    pinNo: collegeData ? collegeData.pin_no : '-',
+                    pinNo: tx.pinNo || (collegeData ? collegeData.pin_no : '-'),
                     studentId: tx.studentId,
-                    course: collegeData && collegeData.course ? collegeData.course : 'N/A',
-                    branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
-                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
+                    course: tx.course || (collegeData && collegeData.course ? collegeData.course : 'N/A'),
+                    branch: tx.branch || (collegeData && collegeData.branch ? collegeData.branch : 'N/A'),
+                    studentYear: tx.studentYear || (collegeData && collegeData.current_year ? collegeData.current_year : 'N/A'),
                     feeHead: fhName,
                     college: college,
                     status: tx.status || 'active',
@@ -355,9 +374,13 @@ const getTransactionReports = async (req, res) => {
                 fheads.forEach(fh => fhNameMap[fh._id.toString()] = fh.name);
             } catch (err) { console.error('Error fetching fee heads for feeHead report:', err); }
 
-            // SQL student enrichment
+            // SQL student enrichment (only for uncached transactions)
             const fhStudentIds = new Set();
-            transactions.forEach(tx => { if (tx.studentId) fhStudentIds.add(String(tx.studentId).trim()); });
+            transactions.forEach(tx => {
+                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                    fhStudentIds.add(String(tx.studentId).trim());
+                }
+            });
             const fhStudentDataMap = {};
             if (fhStudentIds.size > 0) {
                 const idList = Array.from(fhStudentIds).map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
@@ -395,7 +418,7 @@ const getTransactionReports = async (req, res) => {
                 const isCancelled = tx.status === 'cancelled';
                 const sId = String(tx.studentId || '').trim();
                 const sData = fhStudentDataMap[sId] || fhStudentDataMap[sId.toLowerCase()] || {};
-                const studentCollege = sData.college || 'Unknown';
+                const studentCollege = tx.college || sData.college || 'Unknown';
 
                 // Apply college query filter if specified
                 if (collegeFilter && collegeFilter !== studentCollege) {
@@ -413,11 +436,11 @@ const getTransactionReports = async (req, res) => {
                     receiptNo: tx.receiptNumber || '-',
                     studentName: tx.studentName || '',
                     studentId: tx.studentId,
-                    pinNo: sData.pin_no || '-',
+                    pinNo: tx.pinNo || sData.pin_no || '-',
                     college: studentCollege,
-                    course: sData.course || 'N/A',
-                    branch: sData.branch || 'N/A',
-                    studentYear: sData.current_year || tx.studentYear || 'N/A',
+                    course: tx.course || sData.course || 'N/A',
+                    branch: tx.branch || sData.branch || 'N/A',
+                    studentYear: tx.studentYear || sData.current_year || 'N/A',
                     amount: tx.amount,
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
@@ -491,11 +514,13 @@ const getTransactionReports = async (req, res) => {
                 console.error("Error fetching cashier details:", userErr);
             }
 
-            // Extract Student IDs for SQL Lookup
+            // Extract Student IDs for SQL Lookup (only uncached ones)
             const studentIds = new Set();
             const feeHeadIds = new Set();
             transactions.forEach(tx => {
-                if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                    studentIds.add(String(tx.studentId).trim());
+                }
                 if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
             });
 
@@ -546,7 +571,7 @@ const getTransactionReports = async (req, res) => {
             transactions.forEach(tx => {
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
-                const collegeName = collegeData ? collegeData.college : 'Unknown';
+                const collegeName = tx.college || (collegeData ? collegeData.college : 'Unknown');
 
                 // Apply college query filter if specified
                 if (collegeFilter && collegeFilter !== collegeName) {
@@ -608,11 +633,11 @@ const getTransactionReports = async (req, res) => {
                     amount: tx.amount,
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
-                    pinNo: collegeData ? collegeData.pin_no : '-',
+                    pinNo: tx.pinNo || (collegeData ? collegeData.pin_no : '-'),
                     studentId: tx.studentId,
-                    course: collegeData && collegeData.course ? collegeData.course : 'N/A',
-                    branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
-                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
+                    course: tx.course || (collegeData && collegeData.course ? collegeData.course : 'N/A'),
+                    branch: tx.branch || (collegeData && collegeData.branch ? collegeData.branch : 'N/A'),
+                    studentYear: tx.studentYear || (collegeData && collegeData.current_year ? collegeData.current_year : 'N/A'),
                     feeHead: fhName,
                     college: collegeName,
                     status: tx.status || 'active',
@@ -733,11 +758,13 @@ const getTransactionReports = async (req, res) => {
             const PaymentConfig = require('../models/PaymentConfig');
             const configs = await PaymentConfig.find({}).lean();
 
-            // Extract Student IDs for SQL Lookup
+            // Extract Student IDs for SQL Lookup (only uncached ones)
             const studentIds = new Set();
             const feeHeadIds = new Set();
             transactions.forEach(tx => {
-                if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                    studentIds.add(String(tx.studentId).trim());
+                }
                 if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
             });
 
@@ -863,7 +890,7 @@ const getTransactionReports = async (req, res) => {
             transactions.forEach(tx => {
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
-                const studentCollege = collegeData ? collegeData.college : 'Unknown';
+                const studentCollege = tx.college || (collegeData ? collegeData.college : 'Unknown');
 
                 // Apply college query filter if specified
                 if (collegeFilter && collegeFilter !== studentCollege) {
@@ -926,11 +953,11 @@ const getTransactionReports = async (req, res) => {
                     amount: tx.amount,
                     paymentMode: tx.paymentMode,
                     transactionType: tx.transactionType,
-                    pinNo: collegeData ? collegeData.pin_no : '-',
+                    pinNo: tx.pinNo || (collegeData ? collegeData.pin_no : '-'),
                     studentId: tx.studentId,
-                    course: collegeData && collegeData.course ? collegeData.course : 'N/A',
-                    branch: collegeData && collegeData.branch ? collegeData.branch : 'N/A',
-                    studentYear: collegeData && collegeData.current_year ? collegeData.current_year : 'N/A',
+                    course: tx.course || (collegeData && collegeData.course ? collegeData.course : 'N/A'),
+                    branch: tx.branch || (collegeData && collegeData.branch ? collegeData.branch : 'N/A'),
+                    studentYear: tx.studentYear || (collegeData && collegeData.current_year ? collegeData.current_year : 'N/A'),
                     feeHead: fhName,
                     college: studentCollege,
                     status: tx.status || 'active',
@@ -1001,7 +1028,11 @@ const getTransactionReports = async (req, res) => {
                                 transactionType: "$transactionType",
                                 feeHead: "$feeHead",
                                 semester: "$semester",      // Include semester
-                                studentYear: "$studentYear" // Include year
+                                studentYear: "$studentYear", // Include year
+                                college: "$college",
+                                course: "$course",
+                                branch: "$branch",
+                                pinNo: "$pinNo"
                             }
                         }
                     }
@@ -1012,12 +1043,14 @@ const getTransactionReports = async (req, res) => {
             const dailyStats = await Transaction.aggregate(pipeline);
 
             // --- SQL Enrichment Start ---
-            // Extract all studentIds (Admission Numbers)
+            // Extract all studentIds (Admission Numbers) that lack cached metadata
             const admissionNumbers = new Set();
             dailyStats.forEach(day => {
                 if (day.transactions) {
                     day.transactions.forEach(tx => {
-                        if (tx.studentId) admissionNumbers.add(String(tx.studentId).trim());
+                        if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                            admissionNumbers.add(String(tx.studentId).trim());
+                        }
                     });
                 }
             });
@@ -1048,27 +1081,18 @@ const getTransactionReports = async (req, res) => {
                             day.transactions = day.transactions.filter(tx => {
                                 const validId = String(tx.studentId).trim();
                                 const details = studentMap[validId] || studentMap[validId.toLowerCase()];
-                                if (details) {
-                                    tx.pinNo = details.pin_no || '-'; // Ensure '-' if null
-                                    tx.course = details.course;
-                                    tx.branch = details.branch;
-                                    tx.studentYear = details.current_year;
-                                    tx.college = details.college || 'Unknown';
+                                
+                                tx.pinNo = tx.pinNo || (details ? details.pin_no : null) || '-';
+                                tx.course = tx.course || (details ? details.course : 'N/A');
+                                tx.branch = tx.branch || (details ? details.branch : 'N/A');
+                                tx.studentYear = tx.studentYear || (details ? details.current_year : 'N/A');
+                                tx.college = tx.college || (details ? details.college : 'Unknown');
 
-                                    // Apply college query filter if specified
-                                    if (collegeFilter && collegeFilter !== tx.college) {
-                                        return false;
-                                    }
-                                    return true;
-                                } else {
-                                    tx.pinNo = '-';
-                                    tx.college = 'Unknown';
-                                    // Filter out if college is specified and doesn't match
-                                    if (collegeFilter) {
-                                        return false;
-                                    }
-                                    return true;
+                                // Apply college query filter if specified
+                                if (collegeFilter && collegeFilter !== tx.college) {
+                                    return false;
                                 }
+                                return true;
                             });
                         }
                     });
@@ -1365,7 +1389,7 @@ const getDashboardStats = async (req, res) => {
     try {
         const { startDate, endDate, campusId } = req.query;
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
-        const studentScopeFilter = await collegeScope.applyStudentIdFilter(req.user, campusId, {});
+        const studentScopeFilter = await applyTransactionScopeFilter(req.user, campusId, {});
         const hasNoAccess = studentScopeFilter.studentId?.$in?.[0] === '__none__';
 
         // Base date matching — paymentDate (collection date), fallback createdAt
