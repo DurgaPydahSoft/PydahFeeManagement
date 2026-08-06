@@ -60,7 +60,7 @@ const getAcademicYears = async (req, res) => {
 const getCalendarMetadata = async (req, res) => {
     try {
         const [years] = await db.query('SELECT id, year_label FROM academic_years ORDER BY year_label DESC');
-        const [courses] = await db.query('SELECT id, name, total_years, semesters_per_year FROM courses ORDER BY name');
+        const [courses] = await db.query('SELECT id, name, college_id, total_years, semesters_per_year FROM courses ORDER BY name');
         res.json({ years, courses });
     } catch (error) {
         console.error('Error fetching calendar metadata:', error);

@@ -43,14 +43,41 @@ const getCurrentAcademicYear = () => {
     return `${startYear}-${startYear + 1}`;
 };
 
+/** Calculate batch dynamically from academic year label and year of study */
+const calculateBatch = (academicYearLabel, yearOfStudy) => {
+    if (!academicYearLabel || !yearOfStudy) return null;
+    const match = academicYearLabel.match(/^(\d{4})/);
+    if (!match) return null;
+    const startYear = parseInt(match[1], 10);
+    return String(startYear - (parseInt(yearOfStudy, 10) - 1));
+};
+
+/** Helper to find college name for a given course name using studentsMetadata hierarchy */
+const findCollegeForCourse = (courseName, studentsMetadata) => {
+    if (!studentsMetadata) return null;
+    for (const [colName, coursesObj] of Object.entries(studentsMetadata)) {
+        if (coursesObj && coursesObj[courseName]) {
+            return colName;
+        }
+    }
+    return null;
+};
+
+/** Calculate Academic Year label dynamically from batch and year of study */
+const calculateAcademicYearLabel = (batch, yearOfStudy) => {
+    if (!batch || !yearOfStudy) return null;
+    const batchYear = parseInt(batch, 10);
+    const startYear = batchYear + (parseInt(yearOfStudy, 10) - 1);
+    return `${startYear}-${startYear + 1}`;
+};
+
 const AcademicCalendar = () => {
     const [academicYears, setAcademicYears] = useState([]);
     const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
     const [calendarFilters, setCalendarFilters] = useState({
         college: '',
         academicYear: getCurrentAcademicYear(),
-        course: '',
-        branch: ''
+        course: ''
     });
     const [hideEmptyDates, setHideEmptyDates] = useState(false);
 
@@ -145,16 +172,20 @@ const AcademicCalendar = () => {
 
     const handleOpenModal = (entry = null) => {
         if (entry) {
-            setEditingId(entry.id);
+            const isPlaceholder = !!entry._isPlaceholder;
+            const yearMeta = metadata.years.find(y => y.year_label === entry.year_label);
+            const courseMeta = metadata.courses.find(c => c.name === entry.course_name);
+
+            setEditingId(isPlaceholder ? null : entry.id);
             setFormData({
-                academic_year_id: entry.academic_year_id || '',
-                course_id: entry.course_id || '',
+                academic_year_id: entry.academic_year_id || yearMeta?.id || '',
+                course_id: entry.course_id || courseMeta?.id || '',
                 year_of_study: entry.year_of_study != null ? entry.year_of_study.toString() : '1',
                 semester_number: entry.semester_number != null ? entry.semester_number.toString() : '1',
                 start_date: toDateInputValue(entry.start_date),
                 end_date: toDateInputValue(entry.end_date),
                 batch: entry.batch || '',
-                college_id: entry.college_id || ''
+                college_id: entry.college_id || courseMeta?.college_id || ''
             });
         } else {
             setEditingId(null);
@@ -187,12 +218,24 @@ const AcademicCalendar = () => {
         setIsSaving(true);
         setError('');
         try {
+            const selectedCourse = metadata.courses.find(c => String(c.id) === String(formData.course_id));
+            const selectedYear = metadata.years.find(y => String(y.id) === String(formData.academic_year_id));
+            
+            const collegeId = formData.college_id || selectedCourse?.college_id || null;
+            const calculatedBatchVal = formData.batch || calculateBatch(selectedYear?.year_label, formData.year_of_study);
+
+            const payload = {
+                ...formData,
+                college_id: collegeId,
+                batch: calculatedBatchVal
+            };
+
             const url = editingId 
                 ? `/academic-calendar/academic-years/${editingId}`
                 : `/academic-calendar/academic-years`;
             const method = editingId ? 'put' : 'post';
 
-            await api[method](url, formData);
+            await api[method](url, payload);
 
             setIsModalOpen(false);
             fetchAcademicYears();
@@ -246,12 +289,7 @@ const AcademicCalendar = () => {
         return Array.from(new Set([...fromData, ...fromMeta])).sort();
     }, [calendarFilters.college, studentsMetadata, academicYears, metadata.courses]);
 
-    const branchOptions = React.useMemo(() => {
-        if (calendarFilters.college && calendarFilters.course) {
-            return studentsMetadata[calendarFilters.college]?.[calendarFilters.course]?.branches || [];
-        }
-        return [];
-    }, [calendarFilters.college, calendarFilters.course, studentsMetadata]);
+
 
     const filteredCalendarData = React.useMemo(() => {
         const collegeCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
@@ -276,92 +314,178 @@ const AcademicCalendar = () => {
         });
 
         // Always synthesize placeholder rows for missing courses AND missing semesters
+        const allCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
+            ? Object.keys(studentsMetadata[calendarFilters.college])
+            : Object.values(studentsMetadata).flatMap(c => Object.keys(c));
+        const uniqueCourses = [...new Set(allCourses)];
+
+        const filteredForCourse = calendarFilters.course ? [calendarFilters.course] : uniqueCourses;
+
+        // Parse academic year start year if filter is selected
+        let filterStartYear = null;
         if (calendarFilters.academicYear) {
-            const allCourses = calendarFilters.college && studentsMetadata[calendarFilters.college]
-                ? Object.keys(studentsMetadata[calendarFilters.college])
-                : Object.values(studentsMetadata).flatMap(c => Object.keys(c));
-            const uniqueCourses = [...new Set(allCourses)];
-
-            const filteredForCourse = calendarFilters.course ? [calendarFilters.course] : uniqueCourses;
-
-            // For each course, determine what years and semesters should exist
-            filteredForCourse.forEach(courseName => {
-                // Get all years for this course in the current academic year
-                const courseEntriesInYear = dbRows.filter(r => 
-                    r.course_name === courseName && 
-                    r.year_label === calendarFilters.academicYear
-                );
-
-                // Get all year_of_study values for this course
-                const yearsInCourse = new Set(courseEntriesInYear.map(r => r.year_of_study).filter(y => y != null));
-
-                // If we have years configured, create placeholders for missing semesters
-                if (yearsInCourse.size > 0) {
-                    yearsInCourse.forEach(yearNum => {
-                        // Find max semester configured for this year
-                        const semestersForYear = courseEntriesInYear
-                            .filter(r => r.year_of_study === yearNum)
-                            .map(r => r.semester_number)
-                            .filter(s => s != null);
-                        
-                        const maxSemester = semestersForYear.length > 0 ? Math.max(...semestersForYear) : 0;
-
-                        // Generate semesters up to max semester + 1 (or at least 2 semesters)
-                        const semestersToCreate = Math.max(maxSemester + 1, 2);
-                        
-                        for (let semNum = 1; semNum <= semestersToCreate; semNum++) {
-                            const exists = courseEntriesInYear.some(r => 
-                                r.year_of_study === yearNum && 
-                                r.semester_number === semNum
-                            );
-
-                            if (!exists) {
-                                // Check for existing placeholder to avoid duplicates
-                                const placeholderId = `placeholder-${courseName}-${yearNum}-${semNum}`;
-                                const alreadyExists = dbRows.some(r => r.id === placeholderId);
-
-                                if (!alreadyExists) {
-                                    dbRows.push({
-                                        id: placeholderId,
-                                        college_name: calendarFilters.college || null,
-                                        course_name: courseName,
-                                        batch: null,
-                                        year_label: calendarFilters.academicYear,
-                                        year_of_study: yearNum,
-                                        semester_number: semNum,
-                                        start_date: null,
-                                        end_date: null,
-                                        _isPlaceholder: true
-                                    });
-                                }
-                            }
-                        }
-                    });
-                } else {
-                    // Course has no entries at all, create a placeholder
-                    const placeholderId = `placeholder-${courseName}`;
-                    const alreadyExists = dbRows.some(r => r.id === placeholderId);
-                    
-                    if (!alreadyExists) {
-                        dbRows.push({
-                            id: placeholderId,
-                            college_name: calendarFilters.college || null,
-                            course_name: courseName,
-                            batch: null,
-                            year_label: calendarFilters.academicYear,
-                            year_of_study: null,
-                            semester_number: null,
-                            start_date: null,
-                            end_date: null,
-                            _isPlaceholder: true
-                        });
-                    }
-                }
-            });
+            const match = calendarFilters.academicYear.match(/^(\d{4})/);
+            if (match) {
+                filterStartYear = parseInt(match[1], 10);
+            }
         }
 
+        filteredForCourse.forEach(courseName => {
+            const courseMeta = metadata.courses?.find(c => c.name === courseName);
+            const totalYears = courseMeta?.total_years || 4;
+            const semestersPerYear = courseMeta?.semesters_per_year || 2;
+
+            const courseEntries = dbRows.filter(r => r.course_name === courseName);
+
+            // Determine target batches for this course
+            let targetBatches = [];
+            if (filterStartYear !== null) {
+                // If filtering by academic year, show only batches active in this academic year
+                for (let yearNum = 1; yearNum <= totalYears; yearNum++) {
+                    const batchYear = filterStartYear - (yearNum - 1);
+                    targetBatches.push(String(batchYear));
+                }
+            } else {
+                // Show all distinct batches in the student registry
+                targetBatches = batches.length > 0 ? batches : [...new Set(dbRows.map(r => r.batch).filter(Boolean))];
+            }
+
+            const resolvedCollegeName = calendarFilters.college || findCollegeForCourse(courseName, studentsMetadata);
+
+            targetBatches.forEach(batchVal => {
+                // For this batch, determine what years to show
+                let targetYears = [];
+                if (filterStartYear !== null) {
+                    // Only show the year of study active in the filtered academic year
+                    const batchYear = parseInt(batchVal, 10);
+                    const yearNum = filterStartYear - batchYear + 1;
+                    if (yearNum >= 1 && yearNum <= totalYears) {
+                        targetYears.push(yearNum);
+                    }
+                } else {
+                    // Show all years
+                    for (let yearNum = 1; yearNum <= totalYears; yearNum++) {
+                        targetYears.push(yearNum);
+                    }
+                }
+
+                targetYears.forEach(yearNum => {
+                    const acadYearLabel = calculateAcademicYearLabel(batchVal, yearNum);
+                    const yearMeta = metadata.years?.find(y => y.year_label === acadYearLabel);
+
+                    for (let semIndex = 0; semIndex < semestersPerYear; semIndex++) {
+                        const semNum = semIndex + 1;
+
+                        const exists = courseEntries.some(r => 
+                            r.batch === batchVal &&
+                            r.year_of_study === yearNum && 
+                            r.semester_number === semNum
+                        );
+
+                        if (!exists) {
+                            const placeholderId = `placeholder-${courseName}-${batchVal}-${yearNum}-${semNum}`;
+                            const alreadyExists = dbRows.some(r => r.id === placeholderId);
+
+                            if (!alreadyExists) {
+                                dbRows.push({
+                                    id: placeholderId,
+                                    college_name: resolvedCollegeName,
+                                    course_name: courseName,
+                                    course_id: courseMeta?.id || null,
+                                    college_id: courseMeta?.college_id || null,
+                                    batch: batchVal,
+                                    year_label: acadYearLabel,
+                                    academic_year_id: yearMeta?.id || null,
+                                    year_of_study: yearNum,
+                                    semester_number: semNum,
+                                    start_date: null,
+                                    end_date: null,
+                                    _isPlaceholder: true
+                                });
+                            }
+                        }
+                    }
+                });
+            });
+        });
+
         return dbRows;
-    }, [academicYears, calendarFilters, studentsMetadata]);
+    }, [academicYears, calendarFilters, studentsMetadata, metadata, batches]);
+
+    const groupedCalendarData = React.useMemo(() => {
+        const groups = {};
+
+        filteredCalendarData.forEach(item => {
+            if (hideEmptyDates && item._isPlaceholder) {
+                return;
+            }
+
+            const collegeKey = item.college_name || 'No college';
+            const courseKey = item.course_name || 'No course';
+            const batchKey = item.batch || 'No batch';
+            const groupKey = `${collegeKey}||${courseKey}||${batchKey}`;
+
+            if (!groups[groupKey]) {
+                groups[groupKey] = {
+                    college_name: item.college_name,
+                    course_name: item.course_name,
+                    batch: item.batch,
+                    yearsMap: {}
+                };
+            }
+
+            const yearKey = item.year_of_study != null ? item.year_of_study : 'No Year';
+            if (!groups[groupKey].yearsMap[yearKey]) {
+                groups[groupKey].yearsMap[yearKey] = {
+                    year_of_study: item.year_of_study,
+                    year_label: item.year_label, // Academic year label for this year of study
+                    semesters: []
+                };
+            }
+
+            // If some entry has a year_label, prefer it over null
+            if (item.year_label && !groups[groupKey].yearsMap[yearKey].year_label) {
+                groups[groupKey].yearsMap[yearKey].year_label = item.year_label;
+            }
+
+            groups[groupKey].yearsMap[yearKey].semesters.push(item);
+        });
+
+        return Object.values(groups).map(group => {
+            // Sort years in ascending order (e.g. Yr 1, Yr 2, Yr 3, Yr 4)
+            const years = Object.values(group.yearsMap).sort((a, b) => {
+                if (a.year_of_study == null) return 1;
+                if (b.year_of_study == null) return -1;
+                return a.year_of_study - b.year_of_study;
+            });
+
+            years.forEach(yr => {
+                // Semesters can stay ascending (Sem 1 then Sem 2) within each year
+                yr.semesters.sort((a, b) => {
+                    if (a.semester_number == null) return 1;
+                    if (b.semester_number == null) return -1;
+                    return a.semester_number - b.semester_number;
+                });
+            });
+
+            const totalSemestersCount = years.reduce((sum, yr) => sum + yr.semesters.length, 0);
+
+            return {
+                ...group,
+                years,
+                totalSemestersCount
+            };
+        }).sort((a, b) => {
+            // Sort batch groups: College ascending, Course ascending, Batch descending
+            if (a.college_name !== b.college_name) {
+                return (a.college_name || '').localeCompare(b.college_name || '');
+            }
+            if (a.course_name !== b.course_name) {
+                return (a.course_name || '').localeCompare(b.course_name || '');
+            }
+            return (b.batch || '').localeCompare(a.batch || '');
+        });
+    }, [filteredCalendarData, hideEmptyDates]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -386,13 +510,13 @@ const AcademicCalendar = () => {
 
                 <main className="flex-1 overflow-hidden p-6 pt-2 flex flex-col">
                     {/* Table Filters Bar matching Fee Structures page */}
-                    <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-[1.6fr_1fr_1fr_1fr_auto_auto] gap-3 items-end shadow-xs shrink-0">
+                    <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-[1.6fr_1.2fr_1.2fr_auto_auto] gap-3 items-end shadow-xs shrink-0">
                         <div>
                             <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
                             <select 
                                 className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
                                 value={calendarFilters.college} 
-                                onChange={e => setCalendarFilters({ ...calendarFilters, college: e.target.value, course: '', branch: '' })}
+                                onChange={e => setCalendarFilters({ ...calendarFilters, college: e.target.value, course: '' })}
                             >
                                 <option value="">All Colleges</option>
                                 {colleges.map(c => <option key={c} value={c}>{c}</option>)}
@@ -416,24 +540,11 @@ const AcademicCalendar = () => {
                             <select 
                                 className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" 
                                 value={calendarFilters.course} 
-                                onChange={e => setCalendarFilters({ ...calendarFilters, course: e.target.value, branch: '' })}
+                                onChange={e => setCalendarFilters({ ...calendarFilters, course: e.target.value })}
                                 disabled={!calendarFilters.college && courseOptions.length === 0}
                             >
                                 <option value="">All Courses</option>
                                 {courseOptions.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Branch</label>
-                            <select 
-                                className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-400" 
-                                value={calendarFilters.branch} 
-                                onChange={e => setCalendarFilters({ ...calendarFilters, branch: e.target.value })}
-                                disabled={!calendarFilters.course}
-                            >
-                                <option value="">All Branches</option>
-                                {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                             </select>
                         </div>
 
@@ -448,10 +559,10 @@ const AcademicCalendar = () => {
                         </label>
 
                         <div className="shrink-0">
-                            {(calendarFilters.college || calendarFilters.academicYear !== getCurrentAcademicYear() || calendarFilters.course || calendarFilters.branch) ? (
+                            {(calendarFilters.college || calendarFilters.academicYear !== getCurrentAcademicYear() || calendarFilters.course) ? (
                                 <button
                                     type="button"
-                                    onClick={() => setCalendarFilters({ college: '', academicYear: getCurrentAcademicYear(), course: '', branch: '' })}
+                                    onClick={() => setCalendarFilters({ college: '', academicYear: getCurrentAcademicYear(), course: '' })}
                                     className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold rounded-lg transition text-center shrink-0 w-auto"
                                 >
                                    Clear
@@ -494,68 +605,115 @@ const AcademicCalendar = () => {
                                                     <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
                                                 </tr>
                                             ))
-                                        ) : filteredCalendarData.length > 0 ? (
-                                            filteredCalendarData.map((item) => {
-                                                return (
-                                                    <tr key={item.id} className={`hover:bg-gray-50/80 transition-colors group text-xs ${item._isPlaceholder ? 'opacity-60 bg-gray-50/40' : ''}`}>
-                                                        <td className="px-4 py-3.5 text-gray-700 font-medium">
-                                                            {item.college_name || <span className="text-gray-400 italic">No college</span>}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 font-semibold text-blue-800">
-                                                            {item.course_name}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 font-bold text-gray-900">
-                                                            {item.batch || '—'}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-gray-600 font-medium">
-                                                            {item.year_label || '—'}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-center">
-                                                            {item.year_of_study != null
-                                                                ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {item.year_of_study}</span>
-                                                                : <span className="text-gray-300 italic text-[11px]">—</span>
-                                                            }
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-center">
-                                                            {item.semester_number != null
-                                                                ? <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-md font-bold text-[11px]">Sem {item.semester_number}</span>
-                                                                : <span className="text-gray-300 italic text-[11px]">—</span>
-                                                            }
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">
-                                                            {item._isPlaceholder
-                                                                ? <span className="text-gray-300 italic text-[11px]">Not configured</span>
-                                                                : formatSqlDate(item.start_date)
-                                                            }
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-gray-700 font-medium font-mono">
-                                                            {item._isPlaceholder
-                                                                ? <span className="text-gray-300 italic text-[11px]">Not configured</span>
-                                                                : formatSqlDate(item.end_date)
-                                                            }
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-right">
-                                                            {!item._isPlaceholder && (
-                                                                <div className="flex justify-end gap-2">
-                                                                    <button 
-                                                                        onClick={() => handleOpenModal(item)}
-                                                                        className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
-                                                                        title="Edit"
-                                                                    >
-                                                                        <Pencil size={15} />
-                                                                    </button>
-                                                                    <button 
-                                                                        onClick={() => handleDelete(item.id)}
-                                                                        className="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
-                                                                        title="Delete"
-                                                                    >
-                                                                        <Trash2 size={15} />
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                );
+                                                                                ) : groupedCalendarData.length > 0 ? (
+                                            groupedCalendarData.map((group, groupIdx) => {
+                                                return group.years.map((yearObj, yearIdx) => {
+                                                    return yearObj.semesters.map((semItem, semIdx) => {
+                                                        const isFirstInGroup = yearIdx === 0 && semIdx === 0;
+                                                        const isFirstInYear = semIdx === 0;
+
+                                                        return (
+                                                            <tr 
+                                                                key={semItem.id} 
+                                                                className={`hover:bg-gray-50/80 transition-colors group text-xs border-b border-gray-100 ${
+                                                                    semItem._isPlaceholder ? 'opacity-65 bg-gray-50/30' : ''
+                                                                }`}
+                                                            >
+                                                                {isFirstInGroup && (
+                                                                    <>
+                                                                        <td 
+                                                                            rowSpan={group.totalSemestersCount} 
+                                                                            className="px-4 py-3 text-gray-700 font-medium align-middle border-r border-gray-100 bg-white"
+                                                                        >
+                                                                            {group.college_name || <span className="text-gray-400 italic">No college</span>}
+                                                                        </td>
+                                                                        <td 
+                                                                            rowSpan={group.totalSemestersCount} 
+                                                                            className="px-4 py-3 font-semibold text-blue-800 align-middle border-r border-gray-100 bg-white"
+                                                                        >
+                                                                            {group.course_name}
+                                                                        </td>
+                                                                        <td 
+                                                                            rowSpan={group.totalSemestersCount} 
+                                                                            className="px-4 py-3 font-bold text-gray-900 align-middle border-r border-gray-100 bg-white text-center"
+                                                                        >
+                                                                            {group.batch || '—'}
+                                                                        </td>
+                                                                    </>
+                                                                )}
+
+                                                                {isFirstInYear && (
+                                                                    <>
+                                                                        <td 
+                                                                            rowSpan={yearObj.semesters.length} 
+                                                                            className="px-4 py-3 text-gray-600 font-medium align-middle border-r border-gray-100 bg-white text-center"
+                                                                        >
+                                                                            {yearObj.year_label || '—'}
+                                                                        </td>
+                                                                        <td 
+                                                                            rowSpan={yearObj.semesters.length} 
+                                                                            className="px-4 py-3 align-middle border-r border-gray-100 bg-white text-center"
+                                                                        >
+                                                                            {yearObj.year_of_study != null
+                                                                                ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {yearObj.year_of_study}</span>
+                                                                                : <span className="text-gray-300 italic text-[11px]">—</span>
+                                                                            }
+                                                                        </td>
+                                                                    </>
+                                                                )}
+
+                                                                <td className="px-4 py-3 text-center border-r border-gray-100">
+                                                                    {semItem.semester_number != null
+                                                                        ? <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-md font-bold text-[11px]">Sem {semItem.semester_number}</span>
+                                                                        : <span className="text-gray-300 italic text-[11px]">—</span>
+                                                                    }
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-700 font-medium font-mono border-r border-gray-100">
+                                                                    {semItem._isPlaceholder
+                                                                        ? <span className="text-gray-400 font-bold">-</span>
+                                                                        : formatSqlDate(semItem.start_date)
+                                                                    }
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-700 font-medium font-mono border-r border-gray-100">
+                                                                    {semItem._isPlaceholder
+                                                                        ? <span className="text-gray-400 font-bold">-</span>
+                                                                        : formatSqlDate(semItem.end_date)
+                                                                    }
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    {semItem._isPlaceholder ? (
+                                                                        <div className="flex justify-end">
+                                                                            <button 
+                                                                                onClick={() => handleOpenModal(semItem)}
+                                                                                className="p-1.5 text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"
+                                                                                title="Configure dates"
+                                                                            >
+                                                                                <Plus size={15} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="flex justify-end gap-2">
+                                                                            <button 
+                                                                                onClick={() => handleOpenModal(semItem)}
+                                                                                className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <Pencil size={15} />
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleDelete(semItem.id)}
+                                                                                className="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                                                                                title="Delete"
+                                                                            >
+                                                                                <Trash2 size={15} />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    });
+                                                });
                                             })
                                         ) : (
                                             <tr>
@@ -626,6 +784,7 @@ const AcademicCalendar = () => {
                                                 setFormData({
                                                     ...formData, 
                                                     course_id: newCourseId,
+                                                    college_id: selectedCourse?.college_id || '',
                                                     year_of_study: '1',
                                                     semester_number: '1'
                                                 });
@@ -645,13 +804,10 @@ const AcademicCalendar = () => {
                                                 value={formData.year_of_study}
                                                 onChange={(e) => {
                                                     const newYear = e.target.value;
-                                                    const selectedCourse = metadata.courses.find(c => String(c.id) === String(formData.course_id));
-                                                    const semestersPerYear = selectedCourse?.semesters_per_year || 2;
-                                                    const startSem = (parseInt(newYear) - 1) * semestersPerYear + 1;
                                                     setFormData({
                                                         ...formData, 
                                                         year_of_study: newYear,
-                                                        semester_number: String(startSem)
+                                                        semester_number: '1'
                                                     });
                                                 }}
                                             >
@@ -679,15 +835,8 @@ const AcademicCalendar = () => {
                                                     // This can be absolute sem number (1-8) or per-year (1-2)
                                                     // Given current system uses numbers like 1, 2, 3.. etc based on the previous implementation
                                                     // Let's assume standard behavior where Sem 1 and 2 exist for each year, 
-                                                    // but the academic calendar entry might be for "Sem 1 of Year 1" which is Sem 1 absolute.
-                                                    // If it's absolute, sem_number goes from (year-1)*2 + 1 to (year-1)*2 + semestersPerYear.
-                                                    
-                                                    // Let's check existing data format. 
-                                                    // The current code has [1..8]. 
-                                                    // I'll assume absolute sem number for now.
-                                                    const startSem = (year - 1) * semestersPerYear + 1;
                                                     return Array.from({ length: semestersPerYear }, (_, i) => {
-                                                        const s = startSem + i;
+                                                        const s = i + 1;
                                                         return <option key={s} value={s}>Sem {s}</option>;
                                                     });
                                                 })()}
