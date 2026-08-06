@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
-import { Calendar, Loader2, Activity, Plus, Pencil, Trash2, X, AlertCircle } from 'lucide-react';
+import { Calendar, Loader2, Activity, Plus, Pencil, Trash2, X, AlertCircle, Printer } from 'lucide-react';
+import { printHtmlDocument } from '../utils/printService';
 
 /** Format MySQL DATE without UTC shift (avoids off-by-one in IST). */
 const toDateParts = (value) => {
@@ -428,6 +429,7 @@ const AcademicCalendar = () => {
             if (!groups[groupKey]) {
                 groups[groupKey] = {
                     college_name: item.college_name,
+                    college_code: item.college_code,
                     course_name: item.course_name,
                     batch: item.batch,
                     yearsMap: {}
@@ -487,10 +489,88 @@ const AcademicCalendar = () => {
         });
     }, [filteredCalendarData, hideEmptyDates]);
 
+    // ── Print handler ────────────────────────────────────────────────────
+    const handlePrint = () => {
+        const filterLabel = [
+            calendarFilters.college,
+            calendarFilters.course,
+            calendarFilters.academicYear ? `AY: ${calendarFilters.academicYear}` : ''
+        ].filter(Boolean).join(' · ') || 'All';
+
+        let rowsHtml = '';
+        groupedCalendarData.forEach(group => {
+            group.years.forEach((yearObj, yearIdx) => {
+                yearObj.semesters.forEach((sem, semIdx) => {
+                    const isFirstGroup = yearIdx === 0 && semIdx === 0;
+                    const isFirstYear  = semIdx === 0;
+                    const placeholder  = sem._isPlaceholder;
+
+                    let collegeTd   = '';
+                    let courseTd    = '';
+                    let batchTd     = '';
+                    let yearLabelTd = '';
+                    let yearNumTd   = '';
+
+                    if (isFirstGroup) {
+                        collegeTd = `<td rowspan="${group.totalSemestersCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;font-weight:600">${group.college_code || '—'}</td>`;
+                        courseTd  = `<td rowspan="${group.totalSemestersCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;font-weight:800;color:#000">${group.course_name || '—'}</td>`;
+                        batchTd   = `<td rowspan="${group.totalSemestersCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:900">${group.batch || '—'}</td>`;
+                    }
+                    if (isFirstYear) {
+                        yearLabelTd = `<td rowspan="${yearObj.semesters.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-size:10px">${yearObj.year_label || '—'}</td>`;
+                        yearNumTd   = `<td rowspan="${yearObj.semesters.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:700">Yr ${yearObj.year_of_study ?? '—'}</td>`;
+                    }
+
+                    rowsHtml += `
+                        <tr style="${placeholder ? 'opacity:0.55;background:#f9f9f9' : ''}">
+                            ${collegeTd}${courseTd}${batchTd}${yearLabelTd}${yearNumTd}
+                            <td style="border:1.5px solid #000;padding:5px 8px;text-align:center;font-weight:700">Sem ${sem.semester_number ?? '—'}</td>
+                            <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px">${placeholder ? '—' : formatSqlDate(sem.start_date)}</td>
+                            <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px">${placeholder ? '—' : formatSqlDate(sem.end_date)}</td>
+                        </tr>`;
+                });
+            });
+        });
+
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Academic Calendar</title>
+<style>
+    @page { size: A4 portrait; margin: 12mm; }
+    body { font-family: Arial, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h1 { font-size: 17px; font-weight: 900; text-transform: uppercase; text-align: center; margin: 0; letter-spacing: 1px; }
+    h2 { font-size: 12px; font-weight: 700; text-align: center; margin: 3px 0 0; color: #333; text-transform: uppercase; letter-spacing: 0.5px; }
+    .meta { display: flex; justify-content: space-between; font-size: 10px; color: #555; margin: 10px 0 14px; border-top: 2px solid #000; padding-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+    th { background: #f0f0f0 !important; border: 1.5px solid #000; padding: 6px 8px; font-weight: 900; text-transform: uppercase; font-size: 10px; text-align: left; }
+    td { border: 1.5px solid #000; padding: 5px 8px; font-size: 11px; }
+</style>
+</head><body>
+<h1>Pydah Group of Colleges</h1>
+<h2>Academic Calendar</h2>
+<div class="meta">
+    <span>Filter: <strong>${filterLabel}</strong></span>
+    <span>Total Entries: <strong>${groupedCalendarData.reduce((s, g) => s + g.totalSemestersCount, 0)}</strong></span>
+</div>
+<table>
+    <thead><tr>
+        <th>College</th><th>Course</th>
+        <th style="text-align:center">Batch</th>
+        <th style="text-align:center">Academic Year</th>
+        <th style="text-align:center">Year</th>
+        <th style="text-align:center">Semester</th>
+        <th>Start Date</th><th>End Date</th>
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+</table>
+</body></html>`;
+
+        printHtmlDocument(html);
+    };
+
+    // ════════════════════════════════════════════════════════════════════
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
             <Sidebar />
-
             <div className="flex-1 flex flex-col h-full overflow-hidden relative">
                 {/* Header */}
                 <header className="p-6 pb-2 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -500,12 +580,21 @@ const AcademicCalendar = () => {
                         </h1>
                         <p className="text-sm text-gray-500 mt-1">View and manage important academic dates across sessions.</p>
                     </div>
-                    <button 
-                        onClick={() => handleOpenModal()}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-blue-200 transition-all text-sm"
-                    >
-                        <Plus size={18} /> Add New Entry
-                    </button>
+                    <div className="flex items-center gap-3 shrink-0">
+                        <button
+                            onClick={handlePrint}
+                            disabled={groupedCalendarData.length === 0}
+                            className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-slate-200 transition-all text-sm disabled:opacity-50 cursor-pointer"
+                        >
+                            <Printer size={16} /> Print
+                        </button>
+                        <button
+                            onClick={() => handleOpenModal()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-blue-200 transition-all text-sm cursor-pointer"
+                        >
+                            <Plus size={18} /> Add New Entry
+                        </button>
+                    </div>
                 </header>
 
                 <main className="flex-1 overflow-hidden p-6 pt-2 flex flex-col">
