@@ -144,12 +144,20 @@ const run = async () => {
 
     console.log('\n4. All Fee Structures for Batch 2026:');
     const batch2026 = structures.filter(s => String(s.batch) === '2026');
-    if (batch2026.length > 0) {
-      batch2026.forEach(s => {
-        console.log(` - ID: ${s._id} | Branch: "${s.branch}" (branchId: ${s.branchId}) | Year: ${s.studentYear} | Category: ${s.category} | FeeHead: ${s.feeHead?.name || s.feeHead}`);
+    console.log(`Found ${batch2026.length} FeeStructure documents for Batch 2026.`);
+    console.log('\n========================================================================');
+
+    const StudentFee = require('../models/StudentFee');
+    console.log('\n5. Mismatched StudentFee records with branch: "DCSE(AI)":');
+    const oldFees = await StudentFee.find({ branch: 'DCSE(AI)' });
+    console.log(`Found ${oldFees.length} StudentFee documents with branch: "DCSE(AI)".`);
+    if (oldFees.length > 0) {
+      oldFees.slice(0, 15).forEach(f => {
+        console.log(` - Student: ${f.studentId} (${f.studentName}) | Batch: ${f.academicYear} | Year: ${f.studentYear} | structureId: ${f.structureId || 'null'}`);
       });
-    } else {
-      console.log(' None found for Batch 2026.');
+      if (oldFees.length > 15) {
+        console.log(` ... and ${oldFees.length - 15} more`);
+      }
     }
     console.log('\n========================================================================');
 
