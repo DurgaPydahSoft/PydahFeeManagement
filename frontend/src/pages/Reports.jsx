@@ -883,8 +883,8 @@ const Reports = () => {
         ];
 
         const merges = [
-            { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
-            { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }
+            { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
+            { s: { r: 1, c: 0 }, e: { r: 1, c: 10 } }
         ];
 
         const collegeHeaderRowIndexes = [];
@@ -901,7 +901,7 @@ const Reports = () => {
             const colRowIdx = sheetRows.length;
             collegeHeaderRowIndexes.push(colRowIdx);
             sheetRows.push([`COLLEGE: ${String(college).toUpperCase()}`]);
-            merges.push({ s: { r: colRowIdx, c: 0 }, e: { r: colRowIdx, c: 9 } });
+            merges.push({ s: { r: colRowIdx, c: 0 }, e: { r: colRowIdx, c: 10 } });
 
             const courses = grouped[college];
             const sortedCourses = Object.keys(courses).sort();
@@ -910,25 +910,28 @@ const Reports = () => {
                 const crsRowIdx = sheetRows.length;
                 courseHeaderRowIndexes.push(crsRowIdx);
                 sheetRows.push([`  Course: ${String(course).toUpperCase()}`]);
-                merges.push({ s: { r: crsRowIdx, c: 0 }, e: { r: crsRowIdx, c: 9 } });
+                merges.push({ s: { r: crsRowIdx, c: 0 }, e: { r: crsRowIdx, c: 10 } });
 
                 const { cash, bank } = courses[course];
                 const hasCash = includeCash && cash.length > 0;
                 const hasBank = includeBank && bank.length > 0;
 
-                const tableHeaders = ['S.NO', 'RECEIPT NO', 'DATE', 'STUDENT NAME', 'PIN NO', 'YEAR', 'PAYMENT MODE', 'FEE HEAD', 'AMOUNT'];
+                const tableHeaders = ['S.NO', 'RECEIPT NO', 'DATE', 'STUDENT NAME', 'PIN NO', 'YEAR', 'PAYMENT MODE', 'FEE HEAD', 'AMOUNT', 'CASHIER ID', 'CASHIER NAME'];
 
                 if (hasCash) {
                     const secRowIdx = sheetRows.length;
                     sectionHeaderRowIndexes.push(secRowIdx);
                     sheetRows.push([`    Cash Transactions (${cash.length})`]);
-                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 9 } });
+                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 10 } });
 
                     const tblRowIdx = sheetRows.length;
                     tableHeaderRowIndexes.push(tblRowIdx);
                     sheetRows.push(tableHeaders);
 
                     cash.forEach((tx, idx) => {
+                        const cEmp = tx.cashierEmpNo || empNo || tx.empNo || '';
+                        const cName = tx.cashierName || cashierName || tx.collectedByName || '';
+
                         sheetRows.push([
                             idx + 1,
                             tx.receiptNo || tx.receiptNumber || '',
@@ -938,7 +941,9 @@ const Reports = () => {
                             tx.year || tx.studentYear || '',
                             tx.paymentMode || '',
                             tx.feeHead || '',
-                            tx.amount || 0
+                            tx.amount || 0,
+                            cEmp,
+                            cName
                         ]);
                     });
 
@@ -952,13 +957,16 @@ const Reports = () => {
                     const secRowIdx = sheetRows.length;
                     sectionHeaderRowIndexes.push(secRowIdx);
                     sheetRows.push([`    Bank / Online Transactions (${bank.length})`]);
-                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 9 } });
+                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 10 } });
 
                     const tblRowIdx = sheetRows.length;
                     tableHeaderRowIndexes.push(tblRowIdx);
                     sheetRows.push(tableHeaders);
 
                     bank.forEach((tx, idx) => {
+                        const cEmp = tx.cashierEmpNo || empNo || tx.empNo || '';
+                        const cName = tx.cashierName || cashierName || tx.collectedByName || '';
+
                         sheetRows.push([
                             idx + 1,
                             tx.receiptNo || tx.receiptNumber || '',
@@ -968,7 +976,9 @@ const Reports = () => {
                             tx.year || tx.studentYear || '',
                             tx.paymentMode || '',
                             tx.feeHead || '',
-                            tx.amount || 0
+                            tx.amount || 0,
+                            cEmp,
+                            cName
                         ]);
                     });
 
@@ -988,11 +998,23 @@ const Reports = () => {
         sheetRows.push([]);
         const grandTotal = filteredTxs.reduce((sum, t) => sum + (t.amount || 0), 0);
         const grandIdx = sheetRows.length;
-        sheetRows.push(['', '', `Total Receipts: ${filteredTxs.length}`, '', '', '', '', '', 'GRAND TOTAL', grandTotal]);
+        sheetRows.push(['', '', `Total Receipts: ${filteredTxs.length}`, '', '', '', '', 'GRAND TOTAL', grandTotal]);
 
         const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
         sheet['!merges'] = merges;
-        sheet['!cols'] = [{ wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 26 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 14 }];
+        sheet['!cols'] = [
+            { wch: 8 },  // S.NO
+            { wch: 16 }, // RECEIPT NO
+            { wch: 14 }, // DATE
+            { wch: 26 }, // STUDENT NAME
+            { wch: 12 }, // PIN NO
+            { wch: 8 },  // YEAR
+            { wch: 14 }, // PAYMENT MODE
+            { wch: 22 }, // FEE HEAD
+            { wch: 14 }, // AMOUNT
+            { wch: 16 }, // CASHIER ID (empNo only)
+            { wch: 18 }  // CASHIER NAME
+        ];
 
         try {
             ['A1', 'A2'].forEach(cell => {
@@ -1033,7 +1055,7 @@ const Reports = () => {
             });
 
             tableHeaderRowIndexes.forEach(ri => {
-                for (let c = 0; c < 9; c++) {
+                for (let c = 0; c < 11; c++) {
                     const cellAddr = XLSX.utils.encode_cell({ r: ri, c });
                     if (sheet[cellAddr]) {
                         sheet[cellAddr].s = {
@@ -1064,8 +1086,8 @@ const Reports = () => {
                 });
             });
 
-            const grandAddr1 = 'I' + (grandIdx + 1);
-            const grandAddr2 = 'J' + (grandIdx + 1);
+            const grandAddr1 = 'H' + (grandIdx + 1);
+            const grandAddr2 = 'I' + (grandIdx + 1);
             if (sheet[grandAddr1]) sheet[grandAddr1].s = { font: { bold: true, sz: 11 } };
             if (sheet[grandAddr2]) sheet[grandAddr2].s = { font: { bold: true, sz: 11 }, fill: { fgColor: { rgb: "F2F2F2" } } };
 
@@ -1230,13 +1252,24 @@ const Reports = () => {
 
         if (showDetails) {
             if (isAll) {
+                const allTransactions = [];
                 cashierRows.forEach(c => {
-                    const cashierName = c._id || 'Cashier';
+                    const cashierName = c._id || 'N/A';
+                    const empNo = c.empNo || '';
                     const cashierUsername = c.transactions?.[0]?.collectedBy || c.username || '';
-                    const cashierSheet = buildCashierDetailedSheet(c.transactions || [], cashierName, cashierUsername, c.empNo, options);
-                    const sheetName = sanitizeSheetName(`${cashierName} (${c.empNo || cashierUsername})`);
-                    XLSX.utils.book_append_sheet(workbook, cashierSheet, sheetName);
+                    
+                    (c.transactions || []).forEach(tx => {
+                        allTransactions.push({
+                            ...tx,
+                            cashierName,
+                            cashierEmpNo: empNo,
+                            cashierUsername
+                        });
+                    });
                 });
+
+                const cashierSheet = buildCashierDetailedSheet(allTransactions, 'ALL CASHIERS', 'all', '', options);
+                XLSX.utils.book_append_sheet(workbook, cashierSheet, sanitizeSheetName("Detailed Transactions"));
             } else {
                 const singleCashier = cashierRows[0];
                 const cashierName = singleCashier._id || 'Cashier';
@@ -1852,10 +1885,11 @@ const Reports = () => {
                                             <tr>
                                                 <td className="py-4 px-6 font-bold text-gray-800 text-[11px] text-left uppercase tracking-wide">GRAND TOTAL</td>
                                                 <td className="py-4 px-6 text-right font-bold text-xs text-gray-800">{summary.count}</td>
-
-                                                <td className="py-4 px-6 text-right font-bold text-xs text-emerald-600">
-                                                    {Number(summary.totalCash || 0).toLocaleString('en-IN')}
-                                                </td>
+                                                {activeTab !== 'account' && (
+                                                    <td className="py-4 px-6 text-right font-bold text-xs text-emerald-600">
+                                                        {Number(summary.totalCash || 0).toLocaleString('en-IN')}
+                                                    </td>
+                                                )}
                                                 <td className="py-4 px-6 text-right font-bold text-xs text-indigo-600">
                                                     {Number(summary.totalBank || 0).toLocaleString('en-IN')}
                                                 </td>
