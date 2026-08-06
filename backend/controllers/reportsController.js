@@ -37,8 +37,19 @@ const getTransactionReports = async (req, res) => {
         }
 
         // 🚨 CASHIER PRIVACY: If the user is a cashier, they can only see their own transactions.
+        // Support matching by username OR their name in collectedByName (in case of UUID stored by other applications)
         if (req.user && req.user.role === 'cashier') {
-            matchStage.collectedBy = req.user.username;
+            const orConditions = [
+                { collectedBy: req.user.username }
+            ];
+            if (req.user.name) {
+                orConditions.push({ collectedByName: req.user.name });
+                const normName = req.user.name.replace(/\s+/g, ' ').trim();
+                if (normName !== req.user.name) {
+                    orConditions.push({ collectedByName: normName });
+                }
+            }
+            matchStage.$or = orConditions;
         }
 
         // Date Filter (IST-aligned) — paymentDate (collection date), fallback createdAt
@@ -48,6 +59,7 @@ const getTransactionReports = async (req, res) => {
         const usersListForMapping = await User.find({}).lean();
         const userIdMap = {};
         const userIdNameMap = {};
+        const nameToUsernameMap = {};
         usersListForMapping.forEach(u => {
             const uidStr = String(u._id);
             if (u.username) {
@@ -55,6 +67,10 @@ const getTransactionReports = async (req, res) => {
             }
             if (u.name) {
                 userIdNameMap[uidStr] = u.name;
+                const norm = u.name.replace(/\s+/g, ' ').toLowerCase().trim();
+                if (u.username) {
+                    nameToUsernameMap[norm] = u.username;
+                }
             }
         });
 
@@ -74,6 +90,12 @@ const getTransactionReports = async (req, res) => {
                 if (userIdMap[cbStr]) {
                     tx.collectedBy = userIdMap[cbStr];
                     if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                } else if (tx.collectedByName) {
+                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
+                    const resolvedUsername = nameToUsernameMap[normName];
+                    if (resolvedUsername) {
+                        tx.collectedBy = resolvedUsername;
+                    }
                 }
             });
 
@@ -313,6 +335,12 @@ const getTransactionReports = async (req, res) => {
                 if (userIdMap[cbStr]) {
                     tx.collectedBy = userIdMap[cbStr];
                     if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                } else if (tx.collectedByName) {
+                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
+                    const resolvedUsername = nameToUsernameMap[normName];
+                    if (resolvedUsername) {
+                        tx.collectedBy = resolvedUsername;
+                    }
                 }
             });
 
@@ -416,6 +444,12 @@ const getTransactionReports = async (req, res) => {
                 if (userIdMap[cbStr]) {
                     tx.collectedBy = userIdMap[cbStr];
                     if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                } else if (tx.collectedByName) {
+                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
+                    const resolvedUsername = nameToUsernameMap[normName];
+                    if (resolvedUsername) {
+                        tx.collectedBy = resolvedUsername;
+                    }
                 }
             });
 
@@ -687,6 +721,12 @@ const getTransactionReports = async (req, res) => {
                 if (userIdMap[cbStr]) {
                     tx.collectedBy = userIdMap[cbStr];
                     if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
+                } else if (tx.collectedByName) {
+                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
+                    const resolvedUsername = nameToUsernameMap[normName];
+                    if (resolvedUsername) {
+                        tx.collectedBy = resolvedUsername;
+                    }
                 }
             });
 
