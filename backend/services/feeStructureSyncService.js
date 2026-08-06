@@ -226,6 +226,42 @@ const syncFeeStructureNamesWithSql = async () => {
     if (studentFeesUpdated > 0) {
       console.log(`[Startup Name Sync] Cleaned up ${studentFeesUpdated} historically mismatched StudentFee records.`);
     }
+
+    // Phase 3: Clean up any stale branch names in StudentFee records (for records without structureId)
+    try {
+      const activeBranchNames = new Set(branches.map(b => String(b.name || '').trim().toLowerCase()));
+      const mongoBranches = await StudentFee.distinct("branch");
+      const staleBranches = mongoBranches.filter(b => b && !activeBranchNames.has(String(b).trim().toLowerCase()));
+
+      if (staleBranches.length > 0) {
+        console.log(`[Startup Name Sync] Found stale branch names in StudentFees: ${staleBranches.join(', ')}. Syncing student records...`);
+        let staleFeesUpdated = 0;
+        for (const staleBranch of staleBranches) {
+          const mismatchedFees = await StudentFee.find({ branch: staleBranch });
+          for (const fee of mismatchedFees) {
+            const [sqlStuds] = await db.query(
+              "SELECT college, course, branch FROM students WHERE admission_number = ?",
+              [fee.studentId]
+            );
+            if (sqlStuds.length > 0) {
+              const s = sqlStuds[0];
+              if (fee.college !== s.college || fee.course !== s.course || fee.branch !== s.branch) {
+                fee.college = s.college;
+                fee.course = s.course;
+                fee.branch = s.branch;
+                await fee.save();
+                staleFeesUpdated++;
+              }
+            }
+          }
+        }
+        if (staleFeesUpdated > 0) {
+          console.log(`[Startup Name Sync] Successfully updated ${staleFeesUpdated} student fee records with renamed branch names.`);
+        }
+      }
+    } catch (staleErr) {
+      console.error("[Startup Name Sync] Error syncing stale student fee branch names:", staleErr);
+    }
     
     if (updatedCount > 0) {
       console.log(`[Startup Name Sync] Successfully updated ${updatedCount} MongoDB FeeStructure documents.`);
