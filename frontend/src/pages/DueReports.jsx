@@ -82,6 +82,12 @@ const DueReports = () => {
     const [itemsPerPage, setItemsPerPage] = useState(20);
     const [expandedRow, setExpandedRow] = useState(null);
 
+    const maxTerms = React.useMemo(() => {
+        if (!reportData || reportData.length === 0) return 1;
+        const counts = reportData.map(st => st.termDues?.length || 0);
+        return Math.max(1, ...counts);
+    }, [reportData]);
+
     // Print Options Modal State
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [includePrintDetails, setIncludePrintDetails] = useState(false);
@@ -385,8 +391,8 @@ const DueReports = () => {
     const sortedData = React.useMemo(() => {
         if (!sortField) return reportData;
         return [...reportData].sort((a, b) => {
-            let valA = sortField === 'dueAmount' ? (a.dueAmount || 0) : (a[sortField] || '');
-            let valB = sortField === 'dueAmount' ? (b.dueAmount || 0) : (b[sortField] || '');
+            let valA = (sortField === 'dueAmount' || sortField === 'activeDue') ? (a[sortField] || 0) : (a[sortField] || '');
+            let valB = (sortField === 'dueAmount' || sortField === 'activeDue') ? (b[sortField] || 0) : (b[sortField] || '');
 
             if (typeof valA === 'string') {
                 return sortDir === 'asc'
@@ -411,8 +417,21 @@ const DueReports = () => {
 
     const totalDue = filteredData.reduce((acc, curr) => acc + (curr.dueAmount || 0), 0);
     const totalCollected = filteredData.reduce((acc, curr) => acc + (curr.paidAmount || 0), 0);
+    const totalActiveDue = filteredData.reduce((acc, curr) => acc + (curr.activeDue || 0), 0);
     const totalFee = filteredData.reduce((acc, curr) => acc + (curr.totalFee || 0), 0);
     const totalStudents = filteredData.length;
+
+    const termBalances = React.useMemo(() => {
+        const totals = Array.from({ length: maxTerms }, () => 0);
+        filteredData.forEach(student => {
+            (student.termDues || []).forEach((due, idx) => {
+                if (idx < maxTerms) {
+                    totals[idx] += (due || 0);
+                }
+            });
+        });
+        return totals;
+    }, [filteredData, maxTerms]);
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -493,12 +512,12 @@ const DueReports = () => {
                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <p className="text-xs text-gray-600 uppercase font-semibold">Total Collected</p>
-                                        <p className="text-2xl font-bold text-green-600 mt-1">₹{(totalCollected / 100000).toFixed(1)}L</p>
-                                        <p className="text-[10px] text-gray-500 mt-1">₹{totalCollected.toLocaleString('en-IN')}</p>
+                                        <p className="text-xs text-gray-600 uppercase font-semibold">Active Due</p>
+                                        <p className="text-2xl font-bold text-amber-600 mt-1">₹{(totalActiveDue / 100000).toFixed(1)}L</p>
+                                        <p className="text-[10px] text-gray-500 mt-1">₹{totalActiveDue.toLocaleString('en-IN')}</p>
                                     </div>
-                                    <div className="bg-green-100 p-3 rounded-lg">
-                                        <ArrowRight className="text-green-600" size={24} />
+                                    <div className="bg-amber-100 p-3 rounded-lg">
+                                        <DollarSign className="text-amber-600" size={24} />
                                     </div>
                                 </div>
                             </div>
@@ -516,6 +535,18 @@ const DueReports = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Term-wise Outstanding Balances Stats Bar */}
+                        {maxTerms > 0 && (
+                            <div className="bg-blue-50/20 border border-blue-100/50 rounded-lg p-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                {termBalances.map((bal, idx) => (
+                                    <div key={idx} className="bg-white border border-gray-150 rounded p-2 text-center shadow-xs">
+                                        <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">T{idx + 1} Balance</span>
+                                        <span className="block text-sm font-bold text-gray-800 mt-0.5">₹{bal.toLocaleString('en-IN')}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         {/* Control Bar: Filters & Search */}
                         <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
@@ -678,16 +709,22 @@ const DueReports = () => {
                                                     Total Fee {sortField === 'totalFee' && (sortDir === 'asc' ? '▲' : '▼')}
                                                 </div>
                                             </th>
+                                            {/* Dynamic Term Headers */}
+                                            {Array.from({ length: maxTerms }).map((_, i) => (
+                                                <th key={i} className="p-2 text-right text-gray-500 font-semibold bg-blue-50/15 w-24">
+                                                    T{i + 1} Due
+                                                </th>
+                                            ))}
                                             <th 
                                                 className="p-2 text-right cursor-pointer select-none hover:bg-gray-100 transition"
                                                 onClick={() => {
-                                                    const dir = (sortField === 'paidAmount' && sortDir === 'asc') ? 'desc' : 'asc';
-                                                    setSortField('paidAmount');
+                                                    const dir = (sortField === 'activeDue' && sortDir === 'asc') ? 'desc' : 'asc';
+                                                    setSortField('activeDue');
                                                     setSortDir(dir);
                                                 }}
                                             >
                                                 <div className="flex items-center justify-end gap-1">
-                                                    Paid {sortField === 'paidAmount' && (sortDir === 'asc' ? '▲' : '▼')}
+                                                    Active Due {sortField === 'activeDue' && (sortDir === 'asc' ? '▲' : '▼')}
                                                 </div>
                                             </th>
                                             <th 
@@ -708,10 +745,10 @@ const DueReports = () => {
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {loading ? (
-                                            <tr><td colSpan="9" className="text-center py-20 text-gray-500 italic">Processing data...</td></tr>
+                                            <tr><td colSpan={9 + maxTerms} className="text-center py-20 text-gray-500 italic">Processing data...</td></tr>
                                         ) : filteredData.length === 0 ? (
                                             <tr>
-                                                <td colSpan="9" className="text-center py-32">
+                                                <td colSpan={9 + maxTerms} className="text-center py-32">
                                                     {hasSearched ? (
                                                         <div className="text-gray-500">No records match your search.</div>
                                                     ) : (
@@ -740,7 +777,26 @@ const DueReports = () => {
                                                             <td className="p-2 font-mono text-gray-600">{student.admission_number || '-'}</td>
                                                             <td className="p-2 font-medium text-gray-900">{student.student_name}</td>
                                                             <td className="p-2 text-right text-gray-600">₹{(student.totalFee || 0).toLocaleString('en-IN')}</td>
-                                                            <td className="p-2 text-right text-green-600">₹{(student.paidAmount || 0).toLocaleString('en-IN')}</td>
+                                                            {/* Dynamic Term Dues */}
+                                                            {Array.from({ length: maxTerms }).map((_, i) => {
+                                                                const dueVal = student.termDues?.[i] || 0;
+                                                                const dueDateVal = student.termDueDates?.[i];
+                                                                const dateObj = dueDateVal ? new Date(dueDateVal) : null;
+                                                                const formattedDate = dateObj && !isNaN(dateObj.getTime())
+                                                                    ? dateObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                                                                    : null;
+                                                                return (
+                                                                    <td key={i} className="p-2 text-right text-gray-700 font-medium bg-blue-50/5">
+                                                                        <div className={dueVal > 0 ? "font-bold text-red-600" : "text-gray-400"}>
+                                                                            ₹{dueVal.toLocaleString('en-IN')}
+                                                                        </div>
+                                                                        {dueVal > 0 && formattedDate && (
+                                                                            <div className="text-[9px] text-gray-400 font-normal mt-0.5">{formattedDate}</div>
+                                                                        )}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className="p-2 text-right text-amber-600 font-bold">₹{(student.activeDue || 0).toLocaleString('en-IN')}</td>
                                                             <td className="p-2 text-right font-bold text-red-600">₹{due.toLocaleString('en-IN')}</td>
                                                             <td className="p-2 text-center">
                                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${status === 'CLEARED' ? 'bg-green-100 text-green-800' : 'bg-red-50 text-red-800'}`}>
@@ -759,30 +815,75 @@ const DueReports = () => {
                                                         </tr>
                                                         {isExpanded && (
                                                             <tr className="bg-gray-50">
-                                                                <td colSpan="9" className="p-4 border-b border-gray-200">
-                                                                    <div className="bg-white border border-gray-200 rounded p-4 shadow-sm">
-                                                                        {/* <h4 className="text-xs font-bold text-gray-700 uppercase mb-3">Fee Breakdown</h4> */}
-                                                                        <table className="w-full text-xs">
+                                                                <td colSpan={9 + maxTerms} className="p-4 border-b border-gray-200">
+                                                                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                                                                        <table className="w-full text-xs text-left border-collapse">
                                                                             <thead>
-                                                                                <tr className="text-gray-500 border-b border-gray-100">
-                                                                                    <th className="text-left pb-2 font-medium">Type of Fee</th>
-                                                                                    <th className="text-right pb-2 font-medium">Total</th>
-                                                                                    <th className="text-right pb-2 font-medium">Paid</th>
-                                                                                    <th className="text-right pb-2 font-medium">Due</th>
+                                                                                <tr className="text-gray-500 border-b border-gray-200 text-[10px] uppercase font-bold">
+                                                                                    <th className="pb-2">Fee Category</th>
+                                                                                    <th className="pb-2 text-right">Total</th>
+                                                                                    {Array.from({ length: maxTerms }).map((_, i) => (
+                                                                                        <th key={i} className="pb-2 text-right text-gray-500 bg-blue-50/15 w-24">T{i + 1} Due</th>
+                                                                                    ))}
+                                                                                    <th className="pb-2 text-right">Active Due</th>
+                                                                                    <th className="pb-2 text-right">Concession</th>
+                                                                                    <th className="pb-2 text-right">Due</th>
                                                                                 </tr>
                                                                             </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {student.feeDetailsArray && student.feeDetailsArray.map((detail, dIdx) => (
-                                                                                    <tr key={dIdx}>
-                                                                                        <td className="py-2 text-gray-800 font-medium">{detail.headName}</td>
-                                                                                        <td className="py-2 text-right text-gray-600">₹{(detail.total || 0).toLocaleString('en-IN')}</td>
-                                                                                        <td className="py-2 text-right text-green-600">₹{(detail.paid || 0).toLocaleString('en-IN')}</td>
-                                                                                        <td className="py-2 text-right text-red-600 font-bold">₹{((detail.total || 0) - (detail.paid || 0)).toLocaleString('en-IN')}</td>
-                                                                                    </tr>
-                                                                                ))}
-                                                                                {(!student.feeDetailsArray || student.feeDetailsArray.length === 0) && (
-                                                                                    <tr><td colSpan="4" className="py-2 text-center text-gray-400">No detailed fee breakdown available.</td></tr>
-                                                                                )}
+                                                                            <tbody className="divide-y divide-gray-100">
+                                                                                {(() => {
+                                                                                    const categories = [
+                                                                                        { key: 'academic', label: 'Academic Fees' },
+                                                                                        { key: 'hostel', label: 'Hostel Fee' },
+                                                                                        { key: 'transport', label: 'Transport Fee' }
+                                                                                    ].filter(c => student.groupedFeeDetails?.[c.key]);
+
+                                                                                    if (categories.length === 0) {
+                                                                                        return <tr><td colSpan={6 + maxTerms} className="text-center py-4 text-gray-400 italic">No breakdown details found.</td></tr>;
+                                                                                    }
+
+                                                                                    return categories.map(cat => {
+                                                                                        const catData = student.groupedFeeDetails[cat.key];
+                                                                                        const catActiveDue = (catData.terms || []).reduce((acc, t) => acc + (t.isActiveTerm ? (t.balance || 0) : 0), 0);
+                                                                                        return (
+                                                                                            <tr key={cat.key} className="hover:bg-gray-50/50">
+                                                                                                <td className="py-2.5 font-bold text-gray-700">{cat.label}</td>
+                                                                                                <td className="py-2.5 text-right text-gray-600">₹{catData.total.toLocaleString('en-IN')}</td>
+                                                                                                {Array.from({ length: maxTerms }).map((_, i) => {
+                                                                                                    const termObj = (catData.terms || []).find(t => Number(t.termNumber) === (i + 1));
+                                                                                                    const termBalance = termObj ? (termObj.balance || 0) : 0;
+                                                                                                    const termTarget = termObj ? (termObj.termTarget || 0) : 0;
+                                                                                                    const termConc = termObj ? (termObj.concessionShare || 0) : 0;
+                                                                                                    
+                                                                                                    const tDate = termObj?.dueDate ? new Date(termObj.dueDate) : null;
+                                                                                                    const fTermDate = tDate && !isNaN(tDate.getTime())
+                                                                                                        ? tDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                                                                                                        : null;
+
+                                                                                                    return (
+                                                                                                        <td key={i} className="py-2.5 text-right text-gray-700 bg-blue-50/5">
+                                                                                                            <div className={termBalance > 0 ? "font-bold text-red-600" : "text-gray-400"}>
+                                                                                                                ₹{termBalance.toLocaleString('en-IN')}
+                                                                                                            </div>
+                                                                                                            {termTarget > 0 && (
+                                                                                                                <div className="text-[9px] text-gray-400 font-normal mt-0.5">
+                                                                                                                    Target: ₹{termTarget.toLocaleString('en-IN')}
+                                                                                                                    {termConc > 0 && ` (Conc: ₹${termConc.toLocaleString('en-IN')})`}
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                            {termBalance > 0 && fTermDate && (
+                                                                                                                <div className="text-[9px] text-gray-400 font-normal font-mono mt-0.5">{fTermDate}</div>
+                                                                                                            )}
+                                                                                                        </td>
+                                                                                                    );
+                                                                                                })}
+                                                                                                <td className="py-2.5 text-right text-amber-600 font-bold">₹{catActiveDue.toLocaleString('en-IN')}</td>
+                                                                                                <td className="py-2.5 text-right text-purple-600">₹{catData.concession.toLocaleString('en-IN')}</td>
+                                                                                                <td className="py-2.5 text-right font-bold text-red-600">₹{catData.due.toLocaleString('en-IN')}</td>
+                                                                                            </tr>
+                                                                                        );
+                                                                                    });
+                                                                                })()}
                                                                             </tbody>
                                                                         </table>
                                                                     </div>
