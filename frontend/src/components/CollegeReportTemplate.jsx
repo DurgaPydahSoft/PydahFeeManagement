@@ -419,8 +419,8 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Edited Transactions Breakdown */}
-            {showDetails && editedTransactions.length > 0 && (
+            {/* Temporarily hidden */}
+            {false && showDetails && editedTransactions.length > 0 && (
                 <div style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
                     <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
                         Edited Transactions
