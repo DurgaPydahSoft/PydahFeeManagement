@@ -780,19 +780,11 @@ const DueReports = () => {
                                                             {/* Dynamic Term Dues */}
                                                             {Array.from({ length: maxTerms }).map((_, i) => {
                                                                 const dueVal = student.termDues?.[i] || 0;
-                                                                const dueDateVal = student.termDueDates?.[i];
-                                                                const dateObj = dueDateVal ? new Date(dueDateVal) : null;
-                                                                const formattedDate = dateObj && !isNaN(dateObj.getTime())
-                                                                    ? dateObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-                                                                    : null;
                                                                 return (
                                                                     <td key={i} className="p-2 text-right text-gray-700 font-medium bg-blue-50/5">
                                                                         <div className={dueVal > 0 ? "font-bold text-red-600" : "text-gray-400"}>
                                                                             ₹{dueVal.toLocaleString('en-IN')}
                                                                         </div>
-                                                                        {dueVal > 0 && formattedDate && (
-                                                                            <div className="text-[9px] text-gray-400 font-normal mt-0.5">{formattedDate}</div>
-                                                                        )}
                                                                     </td>
                                                                 );
                                                             })}

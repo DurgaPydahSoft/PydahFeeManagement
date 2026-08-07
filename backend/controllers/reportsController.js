@@ -10,6 +10,14 @@ const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
 const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
 const { allocateTermBalances, resolveEffectiveTerms, isDeclarationConcessionTxn } = require('../utils/termConcessionAllocation');
 
+const formatLocalDate = (date) => {
+    if (!date) return null;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 // Helper to filter transactions by user's scoped colleges using cached fields directly
 const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
     const collegeNames = await collegeScope.getEffectiveCollegeNames(user, campusId);
@@ -1371,6 +1379,9 @@ const getDueReports = async (req, res) => {
         });
 
         const resolveTermDueDate = (term, isServiceRule, student, studentYear, academicYear, struct) => {
+            if (isServiceRule && !term.dueDateMode) {
+                return null;
+            }
             const mode = term.dueDateMode === 'fixed' ? 'fixed' : 'offset';
             if (mode === 'fixed') {
                 if (!term.fixedDueDate) return null;
@@ -1424,14 +1435,13 @@ const getDueReports = async (req, res) => {
 
         const getFeeHeadCategory = (headId, headCode, headName, academicYear) => {
             const idStr = String(headId);
-            const hostelConfig = (serviceConfigs || []).find(c => c.type === 'HOSTEL' && String(c.applicableFeeHead) === idStr && String(c.academicYear) === String(academicYear));
+            const hostelConfig = (serviceConfigs || []).find(c => c.type === 'HOSTEL' && String(c.applicableFeeHead) === idStr && String(c.academicYear).slice(0, 4) === String(academicYear).slice(0, 4));
             if (hostelConfig) return 'HOSTEL';
             
-            const transportConfig = (serviceConfigs || []).find(c => c.type === 'TRANSPORT' && String(c.applicableFeeHead) === idStr && String(c.academicYear) === String(academicYear));
+            const transportConfig = (serviceConfigs || []).find(c => c.type === 'TRANSPORT' && String(c.applicableFeeHead) === idStr && String(c.academicYear).slice(0, 4) === String(academicYear).slice(0, 4));
             if (transportConfig) return 'TRANSPORT';
             
             const codeUpper = String(headCode || '').toUpperCase();
-            const nameUpper = String(headName || '').toUpperCase();
             
             if (codeUpper === 'HST01') {
                 return 'HOSTEL';
@@ -1637,12 +1647,28 @@ const getDueReports = async (req, res) => {
                 const matchedStructure = structureMap[structKey];
 
                 const currentEffectiveTerms = resolveEffectiveTerms(item.terms, item.totalAmount);
+                const structTermsCount = currentEffectiveTerms.length || 1;
+                const defCfg = (defaultConfigs || []).find((c) => Number(c.termsCount) === structTermsCount);
                 
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
 
-                const resolvedTerms = currentEffectiveTerms.map(t => {
-                    const dueDateVal = resolveTermDueDate(t, isService, student, item.studentYear, item.academicYear, matchedStructure);
+                const resolvedTerms = currentEffectiveTerms.map(st => {
+                    const dt = defCfg ? (defCfg.terms || []).find((t) => Number(t.termNumber) === Number(st.termNumber)) : null;
+                    const timingTerm = {
+                        ...st,
+                        dueDateMode: st.dueDateMode || dt?.dueDateMode || 'offset',
+                        referenceSemester: st.referenceSemester || dt?.referenceSemester || 1,
+                        dueOffsetDays: (st.dueOffsetDays !== undefined && st.dueOffsetDays !== 0)
+                            ? Number(st.dueOffsetDays)
+                            : (Number(dt?.dueOffsetDays) || 0),
+                        fixedDueDate: st.fixedDueDate || dt?.fixedDueDate || null
+                    };
+
+                    const serviceTerms = serviceTermsMap[`${fHeadIdStr}|${String(item.academicYear).trim()}`];
+                    const dueDateVal = (isService && !serviceTerms)
+                        ? null
+                        : resolveTermDueDate(timingTerm, isService, student, item.studentYear, item.academicYear, matchedStructure);
                     
                     // Determine if active
                     let isTermActive = false;
@@ -1650,8 +1676,8 @@ const getDueReports = async (req, res) => {
                     const batchVal = matchedStructure ? matchedStructure.batch : student.batch;
                     const batchKey = String(batchVal || '').split('-')[0].trim();
                     const targetSem = isService
-                        ? (Number(t.referenceSemester) || 1)
-                        : (Number(t.referenceSemester) || Number(matchedStructure?.semester) || 1);
+                        ? (Number(timingTerm.referenceSemester) || 1)
+                        : (Number(timingTerm.referenceSemester) || Number(matchedStructure?.semester) || 1);
                     const collegeName = student.college;
                     const courseName = student.course;
                     
@@ -1663,9 +1689,9 @@ const getDueReports = async (req, res) => {
                         Number(s.year_of_study) === Number(item.studentYear)
                     );
 
-                    if (t.dueDateMode === 'fixed') {
-                        if (t.fixedDueDate) {
-                            const fixedDate = new Date(t.fixedDueDate);
+                    if (timingTerm.dueDateMode === 'fixed') {
+                        if (timingTerm.fixedDueDate) {
+                            const fixedDate = new Date(timingTerm.fixedDueDate);
                             fixedDate.setHours(0, 0, 0, 0);
                             const warnWindow = new Date(fixedDate);
                             warnWindow.setDate(warnWindow.getDate() - 15);
@@ -1691,8 +1717,8 @@ const getDueReports = async (req, res) => {
                     }
 
                     return {
-                        ...t,
-                        dueDate: dueDateVal ? dueDateVal.toISOString().slice(0, 10) : null,
+                        ...st,
+                        dueDate: dueDateVal ? formatLocalDate(dueDateVal) : null,
                         isActiveTerm: isTermActive
                     };
                 });
