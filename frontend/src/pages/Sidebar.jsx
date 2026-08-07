@@ -73,11 +73,22 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { name: 'Late Fees',     hash: 'latefees' },
     ];
 
+    // Reminder Configuration sub-items (hash-based navigation within /reminders)
+    const REMINDER_CONFIG_SUB_ITEMS = [
+        { name: 'Templates',      hash: 'templates' },
+        { name: 'Send Reminders',  hash: 'send' },
+        { name: 'Reminder Rules',  hash: 'rules' },
+        { name: 'Setup Guide',     hash: 'guide' },
+    ];
+
     const isSettingsActive = location.pathname === '/settings';
     const [settingsExpanded, setSettingsExpanded] = React.useState(isSettingsActive);
 
     const isFeeConfigActive = location.pathname === '/fee-config';
     const [feeConfigExpanded, setFeeConfigExpanded] = React.useState(isFeeConfigActive);
+
+    const isReminderConfigActive = location.pathname === '/reminders';
+    const [reminderConfigExpanded, setReminderConfigExpanded] = React.useState(isReminderConfigActive);
 
     // Auto-expand groups when navigating to their respective routes
     React.useEffect(() => {
@@ -87,6 +98,10 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     React.useEffect(() => {
         if (isFeeConfigActive) setFeeConfigExpanded(true);
     }, [isFeeConfigActive]);
+
+    React.useEffect(() => {
+        if (isReminderConfigActive) setReminderConfigExpanded(true);
+    }, [isReminderConfigActive]);
 
     const settingsIcon = <svg className="w-5 h-5 icon-settings transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
@@ -112,7 +127,7 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { section: 'Configuration', name: '__FEE_CONFIG__', path: '/fee-config', icon: icons.Config },
         { section: 'Configuration', name: 'Payment Config', path: '/payment-config', icon: icons.PaymentConfig },
         { section: 'Configuration', name: '__SETTINGS__', path: '/settings', icon: settingsIcon },
-        { section: 'Configuration', name: 'Reminder Config', path: '/reminders', icon: icons.Reminders },
+        { section: 'Configuration', name: '__REMINDER_CONFIG__', path: '/reminders', icon: icons.Reminders },
         { section: 'Configuration', name: 'Academic Calendar', path: '/academic-calendar', icon: icons.Calendar },
 
         // Administration
@@ -268,6 +283,59 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
                                                             <Link
                                                                 key={sub.hash}
                                                                 to={`/fee-config#${sub.hash}`}
+                                                                className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                                                    subActive
+                                                                        ? 'bg-blue-50 text-blue-700 font-bold'
+                                                                        : 'text-slate-500 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                                }`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full mr-2 shrink-0 ${subActive ? 'bg-blue-600' : 'bg-slate-300'}`}></span>
+                                                                {sub.name}
+                                                            </Link>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }
+
+                                // ── Special: Reminder Configuration expandable group ──
+                                if (item.name === '__REMINDER_CONFIG__') {
+                                    const isActive = isReminderConfigActive;
+                                    return (
+                                        <div key={index}>
+                                            <button
+                                                onClick={() => {
+                                                    if (isCollapsed) {
+                                                        expandSidebar();
+                                                    }
+                                                    setReminderConfigExpanded(prev => !prev);
+                                                }}
+                                                className={`sidebar-link w-full flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                                    isActive
+                                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
+                                                        : 'text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                } ${isCollapsed ? 'justify-center' : ''}`}
+                                                title={isCollapsed ? 'Reminder Config' : ''}
+                                            >
+                                                <span className={`text-xl shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`}>{item.icon}</span>
+                                                {!isCollapsed && (
+                                                    <>
+                                                        <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Reminder Config</span>
+                                                        <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${reminderConfigExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+                                                    </>
+                                                )}
+                                            </button>
+                                            {/* Sub-items */}
+                                            {!isCollapsed && reminderConfigExpanded && (
+                                                <div className="ml-3 mt-0.5 pl-3 border-l border-indigo-100 space-y-0.5">
+                                                    {REMINDER_CONFIG_SUB_ITEMS.map(sub => {
+                                                        const subActive = isReminderConfigActive && (location.hash === `#${sub.hash}` || (!location.hash && sub.hash === 'templates'));
+                                                        return (
+                                                            <Link
+                                                                key={sub.hash}
+                                                                to={`/reminders#${sub.hash}`}
                                                                 className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                                                                     subActive
                                                                         ? 'bg-blue-50 text-blue-700 font-bold'
