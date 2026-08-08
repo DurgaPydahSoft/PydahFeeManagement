@@ -181,6 +181,12 @@ const mapNarrationToFeeHeads = (narrationStr, feeHeads) => {
   return uniqueMatched;
 };
 
+// Helper to normalize Student ID (removes sches, dashes, spaces, and converts to uppercase)
+const normalizeId = (id) => {
+  if (!id) return '';
+  return String(id).replace(/[-/\s]/g, '').trim().toUpperCase();
+};
+
 // Helper to parse Excel dates (handles serial numbers, Date objects, and strings, forcing month to July (7))
 const parseExcelDate = (val) => {
   if (val === undefined || val === null || val === '') return '';
@@ -874,19 +880,23 @@ const run = async () => {
 
     // 3. Resolve students using SQL database (Admission Numbers vs. PIN Numbers)
     const excelAdmnNos = [...new Set(filteredExcelRows.map(r => r.admnNo).filter(Boolean))];
+    const normalizedQueryIds = [...new Set(excelAdmnNos.map(id => normalizeId(id)))];
     const studentMap = {};
 
-    if (excelAdmnNos.length > 0) {
-      console.log(`Resolving student details for ${excelAdmnNos.length} unique identifiers via SQL...`);
+    if (normalizedQueryIds.length > 0) {
+      console.log(`Resolving student details for ${normalizedQueryIds.length} normalized identifiers via SQL...`);
       const chunk = 500;
-      for (let i = 0; i < excelAdmnNos.length; i += chunk) {
-        const admnNosSubset = excelAdmnNos.slice(i, i + chunk);
+      for (let i = 0; i < normalizedQueryIds.length; i += chunk) {
+        const admnNosSubset = normalizedQueryIds.slice(i, i + chunk);
         const placeholders = admnNosSubset.map(() => '?').join(',');
         
         const sqlQuery = `
           SELECT admission_number, pin_no, student_name, college, course, branch 
           FROM students 
-          WHERE admission_number IN (${placeholders}) OR pin_no IN (${placeholders})
+          WHERE 
+            REPLACE(REPLACE(REPLACE(admission_number, '-', ''), '/', ''), ' ', '') IN (${placeholders}) 
+            OR 
+            REPLACE(REPLACE(REPLACE(pin_no, '-', ''), '/', ''), ' ', '') IN (${placeholders})
         `;
         
         const [studentRows] = await db.query(sqlQuery, [...admnNosSubset, ...admnNosSubset]);
@@ -902,10 +912,10 @@ const run = async () => {
           };
           
           if (sData.admissionNumber) {
-            studentMap[sData.admissionNumber.toLowerCase()] = sData;
+            studentMap[normalizeId(sData.admissionNumber).toLowerCase()] = sData;
           }
           if (sData.pinNo) {
-            studentMap[sData.pinNo.toLowerCase()] = sData;
+            studentMap[normalizeId(sData.pinNo).toLowerCase()] = sData;
           }
         });
       }
@@ -915,7 +925,8 @@ const run = async () => {
     let sqlFoundCount = 0;
     let sqlNotFoundCount = 0;
     excelAdmnNos.forEach(id => {
-      if (studentMap[id.toLowerCase()]) {
+      const normKey = normalizeId(id).toLowerCase();
+      if (studentMap[normKey]) {
         sqlFoundCount++;
       } else {
         sqlNotFoundCount++;
@@ -933,8 +944,8 @@ const run = async () => {
     // Group Excel rows
     const groupedExcelTransactions = {};
     filteredExcelRows.forEach(row => {
-      const key = row.admnNo.toLowerCase();
-      const studentDetail = studentMap[key] || {
+      const normKey = normalizeId(row.admnNo).toLowerCase();
+      const studentDetail = studentMap[normKey] || {
         admissionNumber: row.admnNo,
         pinNo: '',
         studentName: row.studentName,
@@ -944,7 +955,7 @@ const run = async () => {
         isUnresolved: true
       };
 
-      const groupKey = (studentDetail.admissionNumber || row.admnNo).toUpperCase().trim();
+      const groupKey = normalizeId(studentDetail.admissionNumber || row.admnNo);
       if (!groupedExcelTransactions[groupKey]) {
         groupedExcelTransactions[groupKey] = {
           studentInfo: studentDetail,
@@ -1010,6 +1021,11 @@ const run = async () => {
       expandedQueryIds.add(trimmed);
       expandedQueryIds.add(trimmed.toLowerCase());
       expandedQueryIds.add(trimmed.toUpperCase());
+      
+      const cleaned = normalizeId(trimmed);
+      expandedQueryIds.add(cleaned);
+      expandedQueryIds.add(cleaned.toLowerCase());
+      expandedQueryIds.add(cleaned.toUpperCase());
     });
     const finalQueryIds = Array.from(expandedQueryIds);
 
@@ -1054,7 +1070,7 @@ const run = async () => {
     const mongoTxnsByStudent = {};
     const addTxnToMap = (key, tx) => {
       if (!key) return;
-      const normalizedKey = key.trim().toUpperCase();
+      const normalizedKey = normalizeId(key);
       if (!mongoTxnsByStudent[normalizedKey]) {
         mongoTxnsByStudent[normalizedKey] = [];
       }
@@ -1078,7 +1094,7 @@ const run = async () => {
       // Resolve transactions for this student from the indexed map
       const queryIds = [student.admissionNumber, student.pinNo, groupKey]
         .filter(Boolean)
-        .map(id => id.trim().toUpperCase());
+        .map(id => normalizeId(id));
       
       const mongoTxns = [];
       const seenTxnIds = new Set();
