@@ -643,6 +643,88 @@ const AcademicCalendar = () => {
         printHtmlDocument(html);
     };
 
+    const handlePrintTermDates = () => {
+        const filterLabel = [
+            calendarFilters.college,
+            calendarFilters.course,
+            calendarFilters.academicYear ? `AY: ${calendarFilters.academicYear}` : ''
+        ].filter(Boolean).join(' · ') || 'All';
+
+        let rowsHtml = '';
+        groupedTermDates.forEach(group => {
+            group.years.forEach((yearObj, yearIdx) => {
+                yearObj.categories.forEach((cat, catIdx) => {
+                    const isFirstGroup = yearIdx === 0 && catIdx === 0;
+                    const isFirstYear  = catIdx === 0;
+
+                    let collegeTd   = '';
+                    let courseTd    = '';
+                    let batchTd     = '';
+                    let yearNumTd   = '';
+
+                    if (isFirstGroup) {
+                        collegeTd = `<td rowspan="${group.totalRowsCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;font-weight:600">${group.college_code || '—'}</td>`;
+                        courseTd  = `<td rowspan="${group.totalRowsCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;font-weight:800;color:#000">${group.course_name || '—'}</td>`;
+                        batchTd   = `<td rowspan="${group.totalRowsCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:900">${group.batch || '—'}</td>`;
+                    }
+                    if (isFirstYear) {
+                        yearNumTd   = `<td rowspan="${yearObj.categories.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:700">Yr ${yearObj.year_of_study ?? '—'}</td>`;
+                    }
+
+                    const getTermText = (termNum) => {
+                        const tObj = cat.terms.find(t => Number(t.termNumber) === termNum);
+                        if (!tObj) return '—';
+                        return tObj.dateText || '—';
+                    };
+
+                    rowsHtml += `
+                        <tr>
+                            ${collegeTd}${courseTd}${batchTd}${yearNumTd}
+                            <td style="border:1.5px solid #000;padding:5px 8px;font-weight:700">${cat.categoryName}</td>
+                            <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px;text-align:center">${getTermText(1)}</td>
+                            <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px;text-align:center">${getTermText(2)}</td>
+                            <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px;text-align:center">${getTermText(3)}</td>
+                        </tr>`;
+                });
+            });
+        });
+
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Term Dues Calendar</title>
+<style>
+    @page { size: A4 portrait; margin: 12mm; }
+    body { font-family: Arial, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h1 { font-size: 17px; font-weight: 900; text-transform: uppercase; text-align: center; margin: 0; letter-spacing: 1px; }
+    h2 { font-size: 12px; font-weight: 700; text-align: center; margin: 3px 0 0; color: #333; text-transform: uppercase; letter-spacing: 0.5px; }
+    .meta { display: flex; justify-content: space-between; font-size: 10px; color: #555; margin: 10px 0 14px; border-top: 2px solid #000; padding-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
+    th { background: #f0f0f0 !important; border: 1.5px solid #000; padding: 6px 8px; font-weight: 900; text-transform: uppercase; font-size: 10px; text-align: left; }
+    td { border: 1.5px solid #000; padding: 5px 8px; font-size: 11px; }
+</style>
+</head><body>
+<h1>Pydah Group of Colleges</h1>
+<h2>Term Dues Calendar</h2>
+<div class="meta">
+    <span>Filter: <strong>${filterLabel}</strong></span>
+    <span>Total Entries: <strong>${groupedTermDates.length > 0 ? groupedTermDates.reduce((s, g) => s + g.totalRowsCount, 0) : 0}</strong></span>
+</div>
+<table>
+    <thead><tr>
+        <th>College Code</th><th>Course</th>
+        <th style="text-align:center">Batch</th>
+        <th style="text-align:center">Year</th>
+        <th>Category</th>
+        <th style="text-align:center">Term 1</th>
+        <th style="text-align:center">Term 2</th>
+        <th style="text-align:center">Term 3</th>
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+</table>
+</body></html>`;
+
+        printHtmlDocument(html);
+    };
+
     // ════════════════════════════════════════════════════════════════════
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -673,6 +755,15 @@ const AcademicCalendar = () => {
                                     <Plus size={18} /> Add New Entry
                                 </button>
                             </>
+                        )}
+                        {activeTab === 'term-dates' && (
+                            <button
+                                onClick={handlePrintTermDates}
+                                disabled={groupedTermDates.length === 0}
+                                className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-slate-200 transition-all text-sm disabled:opacity-50 cursor-pointer"
+                            >
+                                <Printer size={16} /> Print
+                            </button>
                         )}
                     </div>
                 </header>
@@ -936,7 +1027,6 @@ const AcademicCalendar = () => {
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 1</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 2</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 3</th>
-                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 4</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -948,7 +1038,6 @@ const AcademicCalendar = () => {
                                                         <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
                                                         <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
                                                         <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
-                                                        <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
@@ -1019,9 +1108,6 @@ const AcademicCalendar = () => {
                                                                     <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
                                                                         {getTermText(3)}
                                                                     </td>
-                                                                    <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
-                                                                        {getTermText(4)}
-                                                                    </td>
                                                                 </tr>
                                                             );
                                                         });
@@ -1029,7 +1115,7 @@ const AcademicCalendar = () => {
                                                 })
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
+                                                    <td colSpan="8" className="px-6 py-16 text-center text-gray-400 italic">
                                                         <div className="flex flex-col items-center justify-center gap-2">
                                                             <Calendar size={36} className="text-gray-300" />
                                                             <span>No term dates found. Make sure academic calendar semesters are configured.</span>
