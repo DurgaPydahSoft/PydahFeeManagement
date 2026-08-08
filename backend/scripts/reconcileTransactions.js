@@ -497,6 +497,17 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
   // Helper to build date-wise breakdown sheet
   const buildDateSheet = (sheetName, studentsList) => {
     const ws = workbook.addWorksheet(sheetName, { views: [{ showGridLines: true }] });
+    ws.properties.outlineProperties = {
+      summaryBelow: false
+    };
+    
+    const addChildRow = (values) => {
+      const finalValues = (!values || values.length === 0) ? [''] : values;
+      const row = ws.addRow(finalValues);
+      row.outlineLevel = 1;
+      row.hidden = true;
+      return row;
+    };
     
     // 1. Gather all unique dates from all transactions
     const dateMap = {}; // { 'DD/MM/YYYY': [ { student, excelTxns, mongoTxns } ] }
@@ -540,26 +551,34 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
     });
     
     // Render each date group
-    sortedDates.forEach(date => {
+    sortedDates.forEach((date, dateIdx) => {
+      const records = dateMap[date].sort((a, b) => {
+        return String(a.student.studentName).localeCompare(b.student.studentName);
+      });
+
+      // Calculate total EZ transactions and unique students on this date
+      let ezTxnCount = 0;
+      records.forEach(r => {
+        ezTxnCount += r.excelTxns.length;
+      });
+      const uniqueStudentCount = records.length;
+
       // Date Header Row
-      const dateHeaderRow = ws.addRow([`DATE: ${date}`, '', '', '', '', '', '', '', '']);
+      const dateHeaderLabel = `DATE: ${date} | Unique Students: ${uniqueStudentCount} | EZ Transactions: ${ezTxnCount}`;
+      const dateHeaderRow = ws.addRow([dateHeaderLabel, '', '', '', '', '', '', '', '']);
       ws.mergeCells(`A${dateHeaderRow.number}:I${dateHeaderRow.number}`);
       dateHeaderRow.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
       dateHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F497D' } }; // Dark Blue
       dateHeaderRow.alignment = { horizontal: 'left', vertical: 'middle' };
       dateHeaderRow.height = 25;
       
-      const records = dateMap[date].sort((a, b) => {
-        return String(a.student.studentName).localeCompare(b.student.studentName);
-      });
-      
-      records.forEach(r => {
+      records.forEach((r, rIdx) => {
         const s = r.student;
         const excelTotalOnDate = r.excelTxns.reduce((acc, t) => acc + t.amount, 0);
         const mongoTotal = r.mongoTxns.reduce((acc, t) => acc + t.amount, 0);
         
         // Student Row
-        const detailsRow = ws.addRow([
+        const detailsRow = addChildRow([
           `STUDENT: ${s.studentName} (Admission: ${s.admissionNumber} | PIN: ${s.pinNo || 'N/A'})`,
           '', '', '', '', 
           `College: ${s.college} | Course: ${s.course} | Branch: ${s.branch}`,
@@ -576,7 +595,7 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
         detailsRow.height = 30;
         
         // EZ Transactions Section Header
-        const excelHeader = ws.addRow([
+        const excelHeader = addChildRow([
           'EZ TRANSACTIONS', 'Row Index', 'Date', 'Amount', 'Narration', 'Pay Mode', 'Reconciliation Status'
         ]);
         for (let c = 1; c <= 7; c++) {
@@ -586,12 +605,12 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
         
         // EZ Transactions Rows
         if (r.excelTxns.length === 0) {
-          const emptyRow = ws.addRow(['(No transactions found in EZ on this date)']);
+          const emptyRow = addChildRow(['(No transactions found in EZ on this date)']);
           ws.mergeCells(`A${emptyRow.number}:G${emptyRow.number}`);
         } else {
           r.excelTxns.forEach(t => {
             const statusText = t.status === 'matched' ? 'MATCHED' : 'MISSING IN NEW SOFTWARE';
-            const row = ws.addRow([
+            const row = addChildRow([
               '', 
               t.excelRow ? `Row ${t.excelRow}` : 'N/A', 
               t.date || 'N/A', 
@@ -605,7 +624,7 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
         }
         
         // NEW SOFTWARE Transactions Section Header
-        const mongoHeader = ws.addRow([
+        const mongoHeader = addChildRow([
           'NEW SOFTWARE TRANSACTIONS', 'Receipt No', 'Date', 'Amount', 'Fee Head', 'Pay Mode', 'Reconciliation Status', 'Collected By'
         ]);
         for (let c = 1; c <= 8; c++) {
@@ -615,14 +634,14 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
         
         // NEW SOFTWARE Transactions Rows
         if (r.mongoTxns.length === 0) {
-          const emptyRow = ws.addRow(['(No transactions found in New software transactions)']);
+          const emptyRow = addChildRow(['(No transactions found in New software transactions)']);
           ws.mergeCells(`A${emptyRow.number}:H${emptyRow.number}`);
         } else {
           r.mongoTxns.forEach(t => {
             const dateStr = t.paymentDate ? new Date(t.paymentDate).toLocaleDateString('en-IN') : 'N/A';
             const statusText = t.status === 'matched' ? 'MATCHED' : 'MISSING IN EZ';
             const collectorStr = t.collectedByName || t.collectedBy || 'Unknown';
-            const row = ws.addRow([
+            const row = addChildRow([
               '', 
               t.receiptNumber || 'N/A', 
               dateStr, 
@@ -636,11 +655,14 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
           });
         }
         
-        ws.addRow([]); // space between students on the same date
+        // Space between students on the same date (outlineLevel = 1, hidden = true)
+        if (rIdx < records.length - 1) {
+          addChildRow([]);
+        }
       });
       
-      ws.addRow([]); // extra space between date groups
-      ws.addRow([]);
+      // Just one spacing row difference for each date at the end of the group (outlineLevel = 1, hidden = true)
+      addChildRow([]);
     });
     
     // Auto-fit column widths
