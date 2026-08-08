@@ -215,8 +215,10 @@ const renderTemplate = async (templateName, data) => {
         pageTitle = `Fee_Statement_${student?.admission_number || 'Student'}`;
 
     } else if (templateName === 'due-report') {
+        try { delete require.cache[require.resolve('../../frontend/src/components/DueReportPrintTemplate')]; } catch (e) {}
+        const DynamicDueReportPrintTemplate = require('../../frontend/src/components/DueReportPrintTemplate').default;
         const { type, reportData, filters, summary, student, includeDetails } = data;
-        const element = React.createElement(DueReportPrintTemplate, {
+        const element = React.createElement(DynamicDueReportPrintTemplate, {
             type,
             reportData,
             filters,
