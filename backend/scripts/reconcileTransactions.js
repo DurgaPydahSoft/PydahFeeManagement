@@ -181,28 +181,76 @@ const mapNarrationToFeeHeads = (narrationStr, feeHeads) => {
   return uniqueMatched;
 };
 
-// Helper to parse Excel dates (handles serial numbers, Date objects, and strings)
+// Helper to parse Excel dates (handles serial numbers, Date objects, and strings, forcing month to July (7))
 const parseExcelDate = (val) => {
   if (val === undefined || val === null || val === '') return '';
   
+  let dateObj = null;
+
   if (val instanceof Date) {
-    const d = val.getDate().toString().padStart(2, '0');
-    const m = (val.getMonth() + 1).toString().padStart(2, '0');
-    const y = val.getFullYear();
-    return `${d}/${m}/${y}`;
+    dateObj = val;
+  } else {
+    const num = Number(val);
+    if (!Number.isNaN(num) && num > 30000 && num < 60000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      dateObj = new Date(excelEpoch.getTime() + num * 24 * 60 * 60 * 1000);
+    }
   }
 
-  const num = Number(val);
-  if (!Number.isNaN(num) && num > 30000 && num < 60000) {
-    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-    const date = new Date(excelEpoch.getTime() + num * 24 * 60 * 60 * 1000);
-    const d = date.getUTCDate().toString().padStart(2, '0');
-    const m = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-    const y = date.getUTCFullYear();
-    return `${d}/${m}/${y}`;
+  if (dateObj) {
+    const d = dateObj.getUTCDate ? dateObj.getUTCDate() : dateObj.getDate();
+    // Enforce July (month = 7)
+    const m = 7;
+    const y = dateObj.getUTCFullYear ? dateObj.getUTCFullYear() : dateObj.getFullYear();
+    return `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y}`;
   }
 
-  return String(val).trim();
+  // Handle string dates (e.g. DD/MM/YYYY, MM/DD/YYYY, or with dashes)
+  let str = String(val).trim();
+  if (str) {
+    str = str.replace(/[-.]/g, '/'); // replace dashes or dots with slashes
+    const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (match) {
+      const part1 = Number(match[1]);
+      const part2 = Number(match[2]);
+      let y = Number(match[3]);
+      if (y < 100) y = 2000 + y; // 2-digit year conversion
+      
+      let d = 1;
+      let m = 7; // Enforce July
+      
+      // Since we know the month is July (7):
+      // - If part1 is 7 and part2 !== 7, then part2 is the day.
+      // - If part2 is 7 and part1 !== 7, then part1 is the day.
+      // - If both are <= 12 and neither is 7, or if they are ambiguous, force month to 7.
+      // - If one is > 12, that one must be the day, and the other is forced to 7.
+      if (part1 === 7 && part2 !== 7) {
+        d = part2;
+      } else if (part2 === 7 && part1 !== 7) {
+        d = part1;
+      } else if (part1 > 12) {
+        d = part1;
+      } else if (part2 > 12) {
+        d = part2;
+      } else {
+        // Ambiguous or neither is 7. Default first part to day and force month to 7.
+        d = part1;
+      }
+      return `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y}`;
+    }
+
+    // Match YYYY/MM/DD
+    const matchYMD = str.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (matchYMD) {
+      const y = Number(matchYMD[1]);
+      const part3 = Number(matchYMD[3]);
+      const d = part3;
+      const m = 7; // Enforce July
+      return `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y}`;
+    }
+  }
+
+  return str;
 };
 
 // Helper to check if value is numeric/valid
@@ -437,8 +485,169 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
     // Auto-fit column widths
     ws.columns.forEach(col => {
       let maxLen = 0;
+    });
+    ws.getColumn(1).width = 25; // Header title column
+    ws.getColumn(2).width = 14; // B: Row Index / Receipt No column
+    ws.getColumn(3).width = 12; // C: Date column
+    ws.getColumn(4).width = 10; // D: Amount column
+    ws.getColumn(5).width = 22; // E: Narration / Fee Head column
+    ws.getColumn(8).width = 25; // Collected By column
+  };
+
+  // Helper to build date-wise breakdown sheet
+  const buildDateSheet = (sheetName, studentsList) => {
+    const ws = workbook.addWorksheet(sheetName, { views: [{ showGridLines: true }] });
+    
+    // 1. Gather all unique dates from all transactions
+    const dateMap = {}; // { 'DD/MM/YYYY': [ { student, excelTxns, mongoTxns } ] }
+    
+    studentsList.forEach(s => {
+      const studentDates = new Set();
+      s.excelTransactions.forEach(t => {
+        if (t.date) studentDates.add(t.date);
+      });
+      
+      const matchedMongo = s.excelTransactions.filter(t => t.status === 'matched').map(t => t.matchedWith);
+      const unmatchedMongo = s.missingInExcelTransactions;
+      const allMongo = [
+        ...matchedMongo.map(m => ({ ...m, status: 'matched' })),
+        ...unmatchedMongo.map(m => ({ ...m, status: 'missing_in_excel' }))
+      ];
+      
+      studentDates.forEach(date => {
+        const excelTxnsOnDate = s.excelTransactions.filter(t => t.date === date);
+        
+        if (excelTxnsOnDate.length > 0) {
+          if (!dateMap[date]) {
+            dateMap[date] = [];
+          }
+          dateMap[date].push({
+            student: s,
+            excelTxns: excelTxnsOnDate,
+            mongoTxns: allMongo
+          });
+        }
+      });
+    });
+    
+    // Sort dates chronologically
+    const sortedDates = Object.keys(dateMap).sort((a, b) => {
+      const aParts = a.split('/');
+      const bParts = b.split('/');
+      const aDate = new Date(aParts[2], aParts[1] - 1, aParts[0]);
+      const bDate = new Date(bParts[2], bParts[1] - 1, bParts[0]);
+      return aDate - bDate;
+    });
+    
+    // Render each date group
+    sortedDates.forEach(date => {
+      // Date Header Row
+      const dateHeaderRow = ws.addRow([`DATE: ${date}`, '', '', '', '', '', '', '', '']);
+      ws.mergeCells(`A${dateHeaderRow.number}:I${dateHeaderRow.number}`);
+      dateHeaderRow.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+      dateHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F497D' } }; // Dark Blue
+      dateHeaderRow.alignment = { horizontal: 'left', vertical: 'middle' };
+      dateHeaderRow.height = 25;
+      
+      const records = dateMap[date].sort((a, b) => {
+        return String(a.student.studentName).localeCompare(b.student.studentName);
+      });
+      
+      records.forEach(r => {
+        const s = r.student;
+        const excelTotalOnDate = r.excelTxns.reduce((acc, t) => acc + t.amount, 0);
+        const mongoTotal = r.mongoTxns.reduce((acc, t) => acc + t.amount, 0);
+        
+        // Student Row
+        const detailsRow = ws.addRow([
+          `STUDENT: ${s.studentName} (Admission: ${s.admissionNumber} | PIN: ${s.pinNo || 'N/A'})`,
+          '', '', '', '', 
+          `College: ${s.college} | Course: ${s.course} | Branch: ${s.branch}`,
+          '', 
+          `EZ Date Total: Rs. ${excelTotalOnDate}`,
+          `New software Total: Rs. ${mongoTotal}`
+        ]);
+        ws.mergeCells(`A${detailsRow.number}:E${detailsRow.number}`);
+        ws.mergeCells(`F${detailsRow.number}:G${detailsRow.number}`);
+        
+        for (let c = 1; c <= 9; c++) {
+          detailsRow.getCell(c).style = studentHeaderStyle;
+        }
+        detailsRow.height = 30;
+        
+        // EZ Transactions Section Header
+        const excelHeader = ws.addRow([
+          'EZ TRANSACTIONS', 'Row Index', 'Date', 'Amount', 'Narration', 'Pay Mode', 'Reconciliation Status'
+        ]);
+        for (let c = 1; c <= 7; c++) {
+          excelHeader.getCell(c).style = excelHeaderStyle;
+        }
+        excelHeader.height = 20;
+        
+        // EZ Transactions Rows
+        if (r.excelTxns.length === 0) {
+          const emptyRow = ws.addRow(['(No transactions found in EZ on this date)']);
+          ws.mergeCells(`A${emptyRow.number}:G${emptyRow.number}`);
+        } else {
+          r.excelTxns.forEach(t => {
+            const statusText = t.status === 'matched' ? 'MATCHED' : 'MISSING IN NEW SOFTWARE';
+            const row = ws.addRow([
+              '', 
+              t.excelRow ? `Row ${t.excelRow}` : 'N/A', 
+              t.date || 'N/A', 
+              t.amount, 
+              t.narration, 
+              t.payMode, 
+              statusText
+            ]);
+            row.getCell(7).style = t.status === 'matched' ? greenText : redText;
+          });
+        }
+        
+        // NEW SOFTWARE Transactions Section Header
+        const mongoHeader = ws.addRow([
+          'NEW SOFTWARE TRANSACTIONS', 'Receipt No', 'Date', 'Amount', 'Fee Head', 'Pay Mode', 'Reconciliation Status', 'Collected By'
+        ]);
+        for (let c = 1; c <= 8; c++) {
+          mongoHeader.getCell(c).style = mongoHeaderStyle;
+        }
+        mongoHeader.height = 20;
+        
+        // NEW SOFTWARE Transactions Rows
+        if (r.mongoTxns.length === 0) {
+          const emptyRow = ws.addRow(['(No transactions found in New software transactions)']);
+          ws.mergeCells(`A${emptyRow.number}:H${emptyRow.number}`);
+        } else {
+          r.mongoTxns.forEach(t => {
+            const dateStr = t.paymentDate ? new Date(t.paymentDate).toLocaleDateString('en-IN') : 'N/A';
+            const statusText = t.status === 'matched' ? 'MATCHED' : 'MISSING IN EZ';
+            const collectorStr = t.collectedByName || t.collectedBy || 'Unknown';
+            const row = ws.addRow([
+              '', 
+              t.receiptNumber || 'N/A', 
+              dateStr, 
+              t.amount, 
+              t.feeHead || 'Unknown', 
+              t.paymentMode || 'Cash', 
+              statusText,
+              collectorStr
+            ]);
+            row.getCell(7).style = t.status === 'matched' ? greenText : redText;
+          });
+        }
+        
+        ws.addRow([]); // space between students on the same date
+      });
+      
+      ws.addRow([]); // extra space between date groups
+      ws.addRow([]);
+    });
+    
+    // Auto-fit column widths
+    ws.columns.forEach(col => {
+      let maxLen = 0;
       col.eachCell({ includeEmpty: false }, cell => {
-        // Skip custom merged cell titles that are very long to avoid blown-out widths
+        if (cell.value && String(cell.value).startsWith('DATE:')) return;
         if (cell.value && String(cell.value).startsWith('STUDENT:')) return;
         if (cell.value && String(cell.value).startsWith('College:')) return;
         const val = cell.value ? String(cell.value) : '';
@@ -458,11 +667,15 @@ const generateExcelReport = async (filePath, summaryTotalStudents, summaryMismat
   console.log('Generating Matched Total Sheet...');
   const matchedStudentsList = studentsReport.filter(s => s.status === 'matched');
   buildStudentSheet('Matched Total', matchedStudentsList);
-
+ 
   // 3. Sheet 3: Mismatched Total Students
   console.log('Generating Mismatched Total Sheet...');
   const mismatchedStudentsList = studentsReport.filter(s => s.status === 'mismatched');
   buildStudentSheet('Mismatched Total', mismatchedStudentsList);
+
+  // 4. Sheet 4: Date-wise Breakdown
+  console.log('Generating Date-wise Breakdown Sheet...');
+  buildDateSheet('Date-wise Breakdown', studentsReport);
 
   // Write workbook to file
   await workbook.xlsx.writeFile(savePath);
