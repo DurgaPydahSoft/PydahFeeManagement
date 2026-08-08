@@ -344,16 +344,97 @@ const addTransaction = async (req, res) => {
   }
 };
 
+// Helper to map cashier username/name from Mongo User ID if stored as ObjectId string
+const mapTransactionCashiers = async (transactions) => {
+  if (!transactions || transactions.length === 0) return transactions;
+  
+  try {
+    const User = require('../models/User');
+    const users = await User.find({}).lean();
+    const userIdMap = {};
+    const userIdNameMap = {};
+    const nameToUsernameMap = {};
+    
+    users.forEach(u => {
+      const uidStr = String(u._id);
+      if (u.username) userIdMap[uidStr] = u.username;
+      if (u.name) {
+        userIdNameMap[uidStr] = u.name;
+        const norm = u.name.replace(/\s+/g, ' ').toLowerCase().trim();
+        if (u.username) nameToUsernameMap[norm] = u.username;
+      }
+    });
+
+    const list = Array.isArray(transactions) ? transactions : [transactions];
+    list.forEach(tx => {
+      const cbStr = String(tx.collectedBy || '');
+      if (userIdMap[cbStr]) {
+        tx.collectedBy = userIdMap[cbStr];
+        if (userIdNameMap[cbStr]) {
+          tx.collectedByName = userIdNameMap[cbStr];
+        }
+      } else if (tx.collectedByName) {
+        const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
+        const resolvedUsername = nameToUsernameMap[normName];
+        if (resolvedUsername) {
+          tx.collectedBy = resolvedUsername;
+        }
+      }
+    });
+  } catch (err) {
+    console.error('[mapTransactionCashiers Error]', err);
+  }
+  return transactions;
+};
+
 // @desc    Get Transactions by Student
 // @route   GET /api/transactions/student/:admissionNo
 const getStudentTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ studentId: req.params.admissionNo })
+    const admissionNo = req.params.admissionNo;
+    
+    // Resolve student's other ID (PIN Number or Admission No) from SQL
+    let ids = [admissionNo];
+    try {
+      const [studentRows] = await db.query(
+        'SELECT admission_number, pin_no FROM students WHERE admission_number = ? OR pin_no = ?',
+        [admissionNo, admissionNo]
+      );
+      if (studentRows && studentRows.length > 0) {
+        const s = studentRows[0];
+        if (s.admission_number) ids.push(s.admission_number);
+        if (s.pin_no) ids.push(s.pin_no);
+      }
+    } catch (sqlErr) {
+      console.error('[getStudentTransactions SQL Lookup Error]', sqlErr);
+    }
+    
+    // Normalize IDs and make them unique
+    const uniqueIds = [...new Set(ids.map(id => id.trim()).filter(Boolean))];
+    // Create case-insensitive variants
+    const idVariants = new Set();
+    uniqueIds.forEach(id => {
+      idVariants.add(id);
+      idVariants.add(id.toLowerCase());
+      idVariants.add(id.toUpperCase());
+    });
+    const finalIds = Array.from(idVariants);
+
+    const transactions = await Transaction.find({
+      $or: [
+        { studentId: { $in: finalIds } },
+        { pinNo: { $in: finalIds } },
+        { admissionNumber: { $in: finalIds } }
+      ]
+    })
       .populate('feeHead', 'name')
       .sort({ createdAt: -1 })
       .lean();
+
+    await mapTransactionCashiers(transactions);
     res.json(transactions);
   } catch (error) {
+    console.error('Error fetching student transactions:', error);
     res.status(500).json({ message: 'Server Error' });
   }
 };
@@ -616,6 +697,7 @@ const getRecentTransactions = async (req, res) => {
       .limit(10)
       .lean();
 
+    await mapTransactionCashiers(recentTxs);
     res.json(recentTxs);
   } catch (error) {
     console.error('Error fetching recent transactions:', error);

@@ -73,13 +73,18 @@ const calculateAcademicYearLabel = (batch, yearOfStudy) => {
 };
 
 const AcademicCalendar = () => {
+    const [activeTab, setActiveTab] = useState('calendar'); // 'calendar' or 'term-dates'
     const [academicYears, setAcademicYears] = useState([]);
     const [isFetchingCalendar, setIsFetchingCalendar] = useState(false);
+    const [termDates, setTermDates] = useState([]);
+    const [isFetchingTermDates, setIsFetchingTermDates] = useState(false);
     const [calendarFilters, setCalendarFilters] = useState({
         college: '',
         academicYear: getCurrentAcademicYear(),
-        course: ''
+        course: '',
+        quota: ''
     });
+    const [quotas, setQuotas] = useState([]);
     const [hideEmptyDates, setHideEmptyDates] = useState(false);
 
     // Student & Academic Metadata for Filters
@@ -146,6 +151,12 @@ const AcademicCalendar = () => {
         }
     }, [calendarFilters, hasPermission]);
 
+    useEffect(() => {
+        if (hasPermission && activeTab === 'term-dates') {
+            fetchTermDates(calendarFilters);
+        }
+    }, [calendarFilters, activeTab, hasPermission]);
+
     const fetchAcademicYears = async (filters = calendarFilters) => {
         setIsFetchingCalendar(true);
         try {
@@ -159,6 +170,23 @@ const AcademicCalendar = () => {
             console.error(error);
         } finally {
             setIsFetchingCalendar(false);
+        }
+    };
+
+    const fetchTermDates = async (filters = calendarFilters) => {
+        setIsFetchingTermDates(true);
+        try {
+            const params = new URLSearchParams();
+            if (filters.college) params.append('college', filters.college);
+            if (filters.academicYear) params.append('academicYear', filters.academicYear);
+            if (filters.course) params.append('course', filters.course);
+            if (filters.quota) params.append('quota', filters.quota);
+            const res = await api.get(`/academic-calendar/term-dates?${params.toString()}`);
+            setTermDates(res.data);
+        } catch (error) {
+            console.error('Error fetching term dates:', error);
+        } finally {
+            setIsFetchingTermDates(false);
         }
     };
 
@@ -263,6 +291,9 @@ const AcademicCalendar = () => {
             const res = await api.get(`/students/metadata`);
             setStudentsMetadata(res.data.hierarchy || res.data);
             if (res.data.batches) setBatches(res.data.batches);
+            if (res.data.quotas || res.data.categories) {
+                setQuotas(res.data.quotas || res.data.categories);
+            }
         } catch (error) {
             console.error('Error fetching student metadata:', error);
         }
@@ -489,6 +520,51 @@ const AcademicCalendar = () => {
         });
     }, [filteredCalendarData, hideEmptyDates]);
 
+    const groupedTermDates = React.useMemo(() => {
+        const groups = {};
+
+        termDates.forEach(cohort => {
+            const collegeKey = cohort.college_code || cohort.college_name || 'No college';
+            const courseKey = cohort.course_name || 'No course';
+            const batchKey = cohort.batch || 'No batch';
+            const groupKey = `${collegeKey}||${courseKey}||${batchKey}`;
+
+            if (!groups[groupKey]) {
+                groups[groupKey] = {
+                    college_name: cohort.college_name,
+                    college_code: cohort.college_code,
+                    course_name: cohort.course_name,
+                    batch: cohort.batch,
+                    years: []
+                };
+            }
+
+            groups[groupKey].years.push({
+                year_of_study: cohort.year_of_study,
+                year_label: cohort.year_label,
+                categories: cohort.categories
+            });
+        });
+
+        return Object.values(groups).map(group => {
+            group.years.sort((a, b) => a.year_of_study - b.year_of_study);
+            const totalRowsCount = group.years.length * 3;
+
+            return {
+                ...group,
+                totalRowsCount
+            };
+        }).sort((a, b) => {
+            if (a.college_code !== b.college_code) {
+                return (a.college_code || '').localeCompare(b.college_code || '');
+            }
+            if (a.course_name !== b.course_name) {
+                return (a.course_name || '').localeCompare(b.course_name || '');
+            }
+            return (b.batch || '').localeCompare(a.batch || '');
+        });
+    }, [termDates]);
+
     // ── Print handler ────────────────────────────────────────────────────
     const handlePrint = () => {
         const filterLabel = [
@@ -581,25 +657,53 @@ const AcademicCalendar = () => {
                         <p className="text-sm text-gray-500 mt-1">View and manage important academic dates across sessions.</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                        <button
-                            onClick={handlePrint}
-                            disabled={groupedCalendarData.length === 0}
-                            className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-slate-200 transition-all text-sm disabled:opacity-50 cursor-pointer"
-                        >
-                            <Printer size={16} /> Print
-                        </button>
-                        <button
-                            onClick={() => handleOpenModal()}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-blue-200 transition-all text-sm cursor-pointer"
-                        >
-                            <Plus size={18} /> Add New Entry
-                        </button>
+                        {activeTab === 'calendar' && (
+                            <>
+                                <button
+                                    onClick={handlePrint}
+                                    disabled={groupedCalendarData.length === 0}
+                                    className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-slate-200 transition-all text-sm disabled:opacity-50 cursor-pointer"
+                                >
+                                    <Printer size={16} /> Print
+                                </button>
+                                <button
+                                    onClick={() => handleOpenModal()}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-blue-200 transition-all text-sm cursor-pointer"
+                                >
+                                    <Plus size={18} /> Add New Entry
+                                </button>
+                            </>
+                        )}
                     </div>
                 </header>
 
                 <main className="flex-1 overflow-hidden p-6 pt-2 flex flex-col">
+                    {/* Tabs bar */}
+                    <div className="flex border-b border-gray-200 mb-4 shrink-0 bg-white rounded-lg p-1 shadow-xs gap-2">
+                        <button
+                            onClick={() => setActiveTab('calendar')}
+                            className={`px-4 py-2 text-xs font-bold transition-all rounded-lg cursor-pointer ${
+                                activeTab === 'calendar'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                            }`}
+                        >
+                            Semester Calendars
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('term-dates')}
+                            className={`px-4 py-2 text-xs font-bold transition-all rounded-lg cursor-pointer ${
+                                activeTab === 'term-dates'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                            }`}
+                        >
+                            Term Dues Calendar
+                        </button>
+                    </div>
+
                     {/* Table Filters Bar matching Fee Structures page */}
-                    <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-[1.6fr_1.2fr_1.2fr_auto_auto] gap-3 items-end shadow-xs shrink-0">
+                    <div className="bg-white p-3.5 rounded-xl border border-gray-200/80 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 lg:grid-cols-[1.2fr_1.1fr_1.1fr_1.1fr_auto_auto] gap-3 items-end shadow-xs shrink-0">
                         <div>
                             <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
                             <select 
@@ -637,6 +741,18 @@ const AcademicCalendar = () => {
                             </select>
                         </div>
 
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Quota</label>
+                            <select 
+                                className="w-full border border-gray-200 bg-white p-2 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none transition" 
+                                value={calendarFilters.quota} 
+                                onChange={e => setCalendarFilters({ ...calendarFilters, quota: e.target.value })}
+                            >
+                                <option value="">All Quotas</option>
+                                {quotas.map(q => <option key={q} value={q}>{q}</option>)}
+                            </select>
+                        </div>
+
                         <label className="flex items-center gap-2 text-[11px] font-bold text-gray-600 cursor-pointer pb-2 whitespace-nowrap">
                             <input
                                 type="checkbox"
@@ -648,10 +764,10 @@ const AcademicCalendar = () => {
                         </label>
 
                         <div className="shrink-0">
-                            {(calendarFilters.college || calendarFilters.academicYear !== getCurrentAcademicYear() || calendarFilters.course) ? (
+                            {(calendarFilters.college || calendarFilters.academicYear !== getCurrentAcademicYear() || calendarFilters.course || calendarFilters.quota) ? (
                                 <button
                                     type="button"
-                                    onClick={() => setCalendarFilters({ college: '', academicYear: getCurrentAcademicYear(), course: '' })}
+                                    onClick={() => setCalendarFilters({ college: '', academicYear: getCurrentAcademicYear(), course: '', quota: '' })}
                                     className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold rounded-lg transition text-center shrink-0 w-auto"
                                 >
                                    Clear
@@ -665,82 +781,223 @@ const AcademicCalendar = () => {
                     <div className="w-full h-full flex flex-col bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex-1">
                         <div className="flex-1 overflow-y-auto p-4">
                             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden pb-10">
-                                <table className="w-full text-left text-xs border-collapse">
-                                    <thead className="bg-gray-50/80 border-b border-gray-200 sticky top-0 z-20 shadow-xs">
-                                        <tr>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">College</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Course</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Batch</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Academic Year</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Year</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Semester</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Start Date</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">End Date</th>
-                                            <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {isFetchingCalendar ? (
-                                            Array.from({ length: 5 }).map((_, idx) => (
-                                                <tr key={idx} className="animate-pulse">
-                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
-                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
-                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
-                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
-                                                    <td className="px-4 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
-                                                    <td className="px-4 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
-                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
-                                                    <td className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
-                                                    <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
+                                {activeTab === 'calendar' ? (
+                                    <table className="w-full text-left text-xs border-collapse">
+                                        <thead className="bg-gray-50/80 border-b border-gray-200 sticky top-0 z-20 shadow-xs">
+                                            <tr>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">College</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Course</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Batch</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Academic Year</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Year</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Semester</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Start Date</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">End Date</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {isFetchingCalendar ? (
+                                                Array.from({ length: 5 }).map((_, idx) => (
+                                                    <tr key={idx} className="animate-pulse">
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
+                                                        <td className="px-4 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
+                                                        <td className="px-4 py-4 text-center"><div className="h-6 bg-slate-200 rounded-md w-12 mx-auto"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-100 rounded w-24"></div></td>
+                                                        <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-16 ml-auto"></div></td>
+                                                    </tr>
+                                                ))
+                                            ) : groupedCalendarData.length > 0 ? (
+                                                groupedCalendarData.map((group, groupIdx) => {
+                                                    return group.years.map((yearObj, yearIdx) => {
+                                                        return yearObj.semesters.map((semItem, semIdx) => {
+                                                            const isFirstInGroup = yearIdx === 0 && semIdx === 0;
+                                                            const isFirstInYear = semIdx === 0;
+
+                                                            return (
+                                                                <tr 
+                                                                    key={semItem.id} 
+                                                                    className={`hover:bg-gray-50/80 transition-colors group text-xs border-b border-gray-100 ${
+                                                                        semItem._isPlaceholder ? 'opacity-65 bg-gray-50/30' : ''
+                                                                    }`}
+                                                                >
+                                                                    {isFirstInGroup && (
+                                                                        <>
+                                                                            <td 
+                                                                                rowSpan={group.totalSemestersCount} 
+                                                                                className="px-4 py-3 text-gray-700 font-medium align-middle border-r border-gray-100 bg-white"
+                                                                            >
+                                                                                {group.college_name || <span className="text-gray-400 italic">No college</span>}
+                                                                            </td>
+                                                                            <td 
+                                                                                rowSpan={group.totalSemestersCount} 
+                                                                                className="px-4 py-3 font-semibold text-blue-800 align-middle border-r border-gray-100 bg-white"
+                                                                            >
+                                                                                {group.course_name}
+                                                                            </td>
+                                                                            <td 
+                                                                                rowSpan={group.totalSemestersCount} 
+                                                                                className="px-4 py-3 font-bold text-gray-900 align-middle border-r border-gray-100 bg-white text-center"
+                                                                            >
+                                                                                {group.batch || '—'}
+                                                                            </td>
+                                                                        </>
+                                                                    )}
+
+                                                                    {isFirstInYear && (
+                                                                        <>
+                                                                            <td 
+                                                                                rowSpan={yearObj.semesters.length} 
+                                                                                className="px-4 py-3 text-gray-600 font-medium align-middle border-r border-gray-100 bg-white text-center"
+                                                                            >
+                                                                                {yearObj.year_label || '—'}
+                                                                            </td>
+                                                                            <td 
+                                                                                rowSpan={yearObj.semesters.length} 
+                                                                                className="px-4 py-3 align-middle border-r border-gray-100 bg-white text-center"
+                                                                            >
+                                                                                {yearObj.year_of_study != null
+                                                                                    ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {yearObj.year_of_study}</span>
+                                                                                    : <span className="text-gray-300 italic text-[11px]">—</span>
+                                                                                }
+                                                                            </td>
+                                                                        </>
+                                                                    )}
+
+                                                                    <td className="px-4 py-3 text-center border-r border-gray-100 font-bold bg-blue-50/5 text-blue-900">
+                                                                        Sem {semItem.semester_number || '—'}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 font-mono font-bold text-gray-800 border-r border-gray-100">
+                                                                        {semItem.start_date ? formatSqlDate(semItem.start_date) : <span className="text-gray-300 font-normal italic">Not set</span>}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 font-mono font-medium text-gray-600 border-r border-gray-100">
+                                                                        {semItem.end_date ? formatSqlDate(semItem.end_date) : <span className="text-gray-300 font-normal italic">Not set</span>}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-right">
+                                                                        {semItem._isPlaceholder ? (
+                                                                            <div className="flex justify-end">
+                                                                                <button 
+                                                                                    onClick={() => handleOpenModal(semItem)}
+                                                                                    className="p-1 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all flex items-center gap-1 font-bold text-[10px]"
+                                                                                    title="Initialize semester dates"
+                                                                                >
+                                                                                    <Plus size={15} />
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="flex justify-end gap-2">
+                                                                                <button 
+                                                                                    onClick={() => handleOpenModal(semItem)}
+                                                                                    className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                                                                                    title="Edit"
+                                                                                >
+                                                                                    <Pencil size={15} />
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleDelete(semItem.id)}
+                                                                                    className="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                                                                                    title="Delete"
+                                                                                >
+                                                                                    <Trash2 size={15} />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        });
+                                                    });
+                                                })
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
+                                                        <div className="flex flex-col items-center justify-center gap-2">
+                                                            <Calendar size={36} className="text-gray-300" />
+                                                            <span>No academic calendar records found for selected filters.</span>
+                                                        </div>
+                                                    </td>
                                                 </tr>
-                                            ))
-                                                                                ) : groupedCalendarData.length > 0 ? (
-                                            groupedCalendarData.map((group, groupIdx) => {
-                                                return group.years.map((yearObj, yearIdx) => {
-                                                    return yearObj.semesters.map((semItem, semIdx) => {
-                                                        const isFirstInGroup = yearIdx === 0 && semIdx === 0;
-                                                        const isFirstInYear = semIdx === 0;
+                                            )}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <table className="w-full text-left text-xs border-collapse">
+                                        <thead className="bg-gray-50/80 border-b border-gray-200 sticky top-0 z-20 shadow-xs">
+                                            <tr>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">College Code</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Course</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Batch</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Year</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Category</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 1</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 2</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 3</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 4</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {isFetchingTermDates ? (
+                                                Array.from({ length: 5 }).map((_, idx) => (
+                                                    <tr key={idx} className="animate-pulse">
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
+                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                                                        <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
+                                                        <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
+                                                        <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
+                                                        <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
+                                                    </tr>
+                                                ))
+                                            ) : groupedTermDates.length > 0 ? (
+                                                groupedTermDates.map((group, groupIdx) => {
+                                                    return group.years.map((yearObj, yearIdx) => {
+                                                        return yearObj.categories.map((cat, catIdx) => {
+                                                            const isFirstInGroup = yearIdx === 0 && catIdx === 0;
+                                                            const isFirstInYear = catIdx === 0;
 
-                                                        return (
-                                                            <tr 
-                                                                key={semItem.id} 
-                                                                className={`hover:bg-gray-50/80 transition-colors group text-xs border-b border-gray-100 ${
-                                                                    semItem._isPlaceholder ? 'opacity-65 bg-gray-50/30' : ''
-                                                                }`}
-                                                            >
-                                                                {isFirstInGroup && (
-                                                                    <>
-                                                                        <td 
-                                                                            rowSpan={group.totalSemestersCount} 
-                                                                            className="px-4 py-3 text-gray-700 font-medium align-middle border-r border-gray-100 bg-white"
-                                                                        >
-                                                                            {group.college_name || <span className="text-gray-400 italic">No college</span>}
-                                                                        </td>
-                                                                        <td 
-                                                                            rowSpan={group.totalSemestersCount} 
-                                                                            className="px-4 py-3 font-semibold text-blue-800 align-middle border-r border-gray-100 bg-white"
-                                                                        >
-                                                                            {group.course_name}
-                                                                        </td>
-                                                                        <td 
-                                                                            rowSpan={group.totalSemestersCount} 
-                                                                            className="px-4 py-3 font-bold text-gray-900 align-middle border-r border-gray-100 bg-white text-center"
-                                                                        >
-                                                                            {group.batch || '—'}
-                                                                        </td>
-                                                                    </>
-                                                                )}
+                                                            const getTermText = (termNum) => {
+                                                                const tObj = cat.terms.find(t => Number(t.termNumber) === termNum);
+                                                                if (!tObj) return '—';
+                                                                return tObj.dateText || '—';
+                                                            };
 
-                                                                {isFirstInYear && (
-                                                                    <>
+                                                            return (
+                                                                <tr 
+                                                                    key={`${group.college_name}-${group.course_name}-${group.batch}-${yearObj.year_of_study}-${cat.categoryName}`}
+                                                                    className="hover:bg-gray-50/80 transition-colors text-xs border-b border-gray-100"
+                                                                >
+                                                                    {isFirstInGroup && (
+                                                                        <>
+                                                                            <td 
+                                                                                rowSpan={group.totalRowsCount} 
+                                                                                className="px-4 py-3 text-gray-700 font-bold align-middle border-r border-gray-100 bg-white"
+                                                                            >
+                                                                                {group.college_code || <span className="text-gray-400 italic">No college</span>}
+                                                                            </td>
+                                                                            <td 
+                                                                                rowSpan={group.totalRowsCount} 
+                                                                                className="px-4 py-3 font-semibold text-blue-800 align-middle border-r border-gray-100 bg-white"
+                                                                            >
+                                                                                {group.course_name}
+                                                                            </td>
+                                                                            <td 
+                                                                                rowSpan={group.totalRowsCount} 
+                                                                                className="px-4 py-3 font-bold text-gray-900 align-middle border-r border-gray-100 bg-white text-center"
+                                                                            >
+                                                                                {group.batch || '—'}
+                                                                            </td>
+                                                                        </>
+                                                                    )}
+
+                                                                    {isFirstInYear && (
                                                                         <td 
-                                                                            rowSpan={yearObj.semesters.length} 
-                                                                            className="px-4 py-3 text-gray-600 font-medium align-middle border-r border-gray-100 bg-white text-center"
-                                                                        >
-                                                                            {yearObj.year_label || '—'}
-                                                                        </td>
-                                                                        <td 
-                                                                            rowSpan={yearObj.semesters.length} 
+                                                                            rowSpan={3} 
                                                                             className="px-4 py-3 align-middle border-r border-gray-100 bg-white text-center"
                                                                         >
                                                                             {yearObj.year_of_study != null
@@ -748,74 +1005,41 @@ const AcademicCalendar = () => {
                                                                                 : <span className="text-gray-300 italic text-[11px]">—</span>
                                                                             }
                                                                         </td>
-                                                                    </>
-                                                                )}
-
-                                                                <td className="px-4 py-3 text-center border-r border-gray-100">
-                                                                    {semItem.semester_number != null
-                                                                        ? <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-md font-bold text-[11px]">Sem {semItem.semester_number}</span>
-                                                                        : <span className="text-gray-300 italic text-[11px]">—</span>
-                                                                    }
-                                                                </td>
-                                                                <td className="px-4 py-3 text-gray-700 font-medium font-mono border-r border-gray-100">
-                                                                    {semItem._isPlaceholder
-                                                                        ? <span className="text-gray-400 font-bold">-</span>
-                                                                        : formatSqlDate(semItem.start_date)
-                                                                    }
-                                                                </td>
-                                                                <td className="px-4 py-3 text-gray-700 font-medium font-mono border-r border-gray-100">
-                                                                    {semItem._isPlaceholder
-                                                                        ? <span className="text-gray-400 font-bold">-</span>
-                                                                        : formatSqlDate(semItem.end_date)
-                                                                    }
-                                                                </td>
-                                                                <td className="px-4 py-3 text-right">
-                                                                    {semItem._isPlaceholder ? (
-                                                                        <div className="flex justify-end">
-                                                                            <button 
-                                                                                onClick={() => handleOpenModal(semItem)}
-                                                                                className="p-1.5 text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"
-                                                                                title="Configure dates"
-                                                                            >
-                                                                                <Plus size={15} />
-                                                                            </button>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="flex justify-end gap-2">
-                                                                            <button 
-                                                                                onClick={() => handleOpenModal(semItem)}
-                                                                                className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <Pencil size={15} />
-                                                                            </button>
-                                                                            <button 
-                                                                                onClick={() => handleDelete(semItem.id)}
-                                                                                className="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
-                                                                                title="Delete"
-                                                                            >
-                                                                                <Trash2 size={15} />
-                                                                            </button>
-                                                                        </div>
                                                                     )}
-                                                                </td>
-                                                            </tr>
-                                                        );
+
+                                                                    <td className="px-4 py-3 font-medium text-gray-700 border-r border-gray-100">
+                                                                        {cat.categoryName}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
+                                                                        {getTermText(1)}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
+                                                                        {getTermText(2)}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
+                                                                        {getTermText(3)}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
+                                                                        {getTermText(4)}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        });
                                                     });
-                                                });
-                                            })
-                                        ) : (
-                                            <tr>
-                                                <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
-                                                    <div className="flex flex-col items-center justify-center gap-2">
-                                                        <Calendar size={36} className="text-gray-300" />
-                                                        <span>No academic calendar records found for selected filters.</span>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                                })
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
+                                                        <div className="flex flex-col items-center justify-center gap-2">
+                                                            <Calendar size={36} className="text-gray-300" />
+                                                            <span>No term dates found. Make sure academic calendar semesters are configured.</span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                )}
                             </div>
                         </div>
                     </div>

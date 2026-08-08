@@ -123,10 +123,198 @@ const deleteAcademicYear = async (req, res) => {
     }
 };
 
+const getTermDates = async (req, res) => {
+    try {
+        const { college, academicYear, course, quota } = req.query;
+
+        // 1. Fetch semesters matching criteria from MySQL
+        let semQuery = `
+            SELECT 
+                s.id, 
+                s.college_id, 
+                s.course_id, 
+                s.academic_year_id, 
+                s.batch,
+                s.year_of_study, 
+                s.semester_number, 
+                s.start_date, 
+                s.end_date,
+                cl.name as college_name,
+                cl.code as college_code,
+                c.name as course_name,
+                ay.year_label
+            FROM semesters s
+            LEFT JOIN courses c ON s.course_id = c.id
+            LEFT JOIN colleges cl ON cl.id = COALESCE(s.college_id, c.college_id)
+            LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
+            WHERE s.college_id IS NOT NULL AND s.start_date IS NOT NULL
+        `;
+        const semParams = [];
+        if (college) {
+            semQuery += ' AND (cl.name = ? OR cl.code = ?)';
+            semParams.push(college, college);
+        }
+        if (course) {
+            semQuery += ' AND c.name = ?';
+            semParams.push(course);
+        }
+        if (academicYear) {
+            semQuery += ' AND (s.batch = ? OR ay.year_label = ?)';
+            semParams.push(academicYear, academicYear);
+        }
+        
+        semQuery += ' ORDER BY s.batch DESC, c.name, s.year_of_study';
+
+        const [semesterRows] = await db.query(semQuery, semParams);
+
+        // 2. Fetch configurations from Mongoose
+        const FeeStructure = require('../models/FeeStructure');
+        const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
+        const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
+
+        const structuresQuery = { isActive: { $ne: false } };
+        if (quota) {
+            structuresQuery.category = quota;
+        } else {
+            structuresQuery.category = 'CONV';
+        }
+
+        const [structures, serviceConfigs, defaultConfigs] = await Promise.all([
+            FeeStructure.find(structuresQuery).lean(),
+            ServiceLateFeeConfig.find({ isActive: { $ne: false } }).lean(),
+            DefaultLateFeeConfig.find({ isActive: true }).lean()
+        ]);
+
+        // 3. Helper to resolve due date
+        const resolveDateHelper = (term, targetSem, colName, crsName, batchKey, yrStudy, acadYearLabel) => {
+            if (term.dueDateMode === 'fixed') {
+                return term.fixedDueDate ? new Date(term.fixedDueDate) : null;
+            }
+            const semMatch = (semesterRows || []).find(s => 
+                Number(s.semester_number) === targetSem &&
+                s.course_name === crsName &&
+                s.college_name === colName &&
+                String(s.batch) === batchKey &&
+                Number(s.year_of_study) === Number(yrStudy) &&
+                String(s.year_label || s.academic_year).slice(0, 4) === String(acadYearLabel).slice(0, 4)
+            );
+            if (!semMatch || !semMatch.start_date) return null;
+            const dueDate = new Date(semMatch.start_date);
+            dueDate.setDate(dueDate.getDate() + (Number(term.dueOffsetDays) || 0));
+            return dueDate;
+        };
+
+        const formatTermVal = (term, targetSem, colName, crsName, batchKey, yrStudy, acadYearLabel) => {
+            const dateVal = resolveDateHelper(term, targetSem, colName, crsName, batchKey, yrStudy, acadYearLabel);
+            if (dateVal) {
+                return dateVal.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            }
+            if (term.dueDateMode === 'offset') {
+                return `Sem ${targetSem} start date not in Academic Calendar`;
+            }
+            return '—';
+        };
+
+        // 4. Generate unique cohorts from semester calendar rows
+        const cohortKeys = new Set();
+        const cohorts = [];
+
+        semesterRows.forEach(s => {
+            const key = `${s.college_name}|${s.course_name}|${s.batch}|${s.year_of_study}`;
+            if (!cohortKeys.has(key)) {
+                cohortKeys.add(key);
+                cohorts.push({
+                    college_name: s.college_name,
+                    college_code: s.college_code,
+                    course_name: s.course_name,
+                    batch: s.batch,
+                    year_of_study: s.year_of_study,
+                    year_label: s.year_label
+                });
+            }
+        });
+
+        const results = [];
+
+        cohorts.forEach(cohort => {
+            const { college_name, college_code, course_name, batch, year_of_study, year_label } = cohort;
+
+            // Resolve Academic terms
+            const acadStruct = structures.find(fs => 
+                fs.college === college_name &&
+                fs.course === course_name &&
+                String(fs.batch).split('-')[0].trim() === String(batch).split('-')[0].trim() &&
+                Number(fs.studentYear) === Number(year_of_study) &&
+                fs.terms && fs.terms.length > 0
+            );
+
+            const acadTerms = acadStruct ? acadStruct.terms : [];
+            const acadResolved = acadTerms.map(t => {
+                const targetSem = Number(t.referenceSemester) || Number(acadStruct?.semester) || 1;
+                return {
+                    termNumber: t.termNumber,
+                    dateText: formatTermVal(t, targetSem, college_name, course_name, batch, year_of_study, year_label)
+                };
+            });
+
+            // Resolve Service terms (Transport & Hostel)
+            const getServiceResolved = (type) => {
+                const svc = serviceConfigs.find(c => c.type === type && String(c.academicYear).slice(0, 4) === String(year_label).slice(0, 4));
+                if (!svc) return [];
+                const termsCount = Number(svc.defaultTermsCount) || (svc.defaultTerms || []).length || 1;
+                const rule = (svc.lateFeeRules || []).find((r) => Number(r.termsCount) === termsCount);
+                const fallbackDefault = defaultConfigs.find((c) => Number(c.termsCount) === termsCount);
+
+                return (svc.defaultTerms || []).map((t, idx) => {
+                    const termNum = Number(t.termNumber) || idx + 1;
+                    const rt = rule?.terms?.find(item => Number(item.termNumber) === termNum);
+                    const dt = fallbackDefault?.terms?.find(item => Number(item.termNumber) === termNum);
+                    const termConfig = {
+                        dueDateMode: rt?.dueDateMode || dt?.dueDateMode || 'offset',
+                        referenceSemester: rt?.referenceSemester || dt?.referenceSemester || 1,
+                        dueOffsetDays: (rt?.dueOffsetDays !== undefined && rt?.dueOffsetDays !== null)
+                            ? Number(rt.dueOffsetDays)
+                            : (Number(dt?.dueOffsetDays) || 0),
+                        fixedDueDate: rt?.fixedDueDate || dt?.fixedDueDate || null
+                    };
+                    const targetSem = Number(termConfig.referenceSemester) || 1;
+                    return {
+                        termNumber: termNum,
+                        dateText: formatTermVal(termConfig, targetSem, college_name, course_name, batch, year_of_study, year_label)
+                    };
+                });
+            };
+
+            const transportResolved = getServiceResolved('TRANSPORT');
+            const hostelResolved = getServiceResolved('HOSTEL');
+
+            results.push({
+                college_name,
+                college_code,
+                course_name,
+                batch,
+                year_of_study,
+                year_label,
+                categories: [
+                    { categoryName: 'Academic Fees', terms: acadResolved },
+                    { categoryName: 'Transport Fee', terms: transportResolved },
+                    { categoryName: 'Hostel Fee', terms: hostelResolved }
+                ]
+            });
+        });
+
+        res.json(results);
+    } catch (err) {
+        console.error('Error fetching term dates:', err);
+        res.status(500).json({ message: 'Error fetching term dates', error: err.message });
+    }
+};
+
 module.exports = {
     getAcademicYears,
     getCalendarMetadata,
     createAcademicYear,
     updateAcademicYear,
-    deleteAcademicYear
+    deleteAcademicYear,
+    getTermDates
 };

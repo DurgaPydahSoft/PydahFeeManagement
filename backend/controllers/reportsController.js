@@ -5,6 +5,19 @@ const db = require('../config/sqlDb');
 const collegeScope = require('../utils/collegeScope');
 const { buildReportDateFilter, applyReportDateToMatch, buildIstDayBounds, buildCollectionDateMatch } = require('../utils/reportDateFilter');
 
+const FeeStructure = require('../models/FeeStructure');
+const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
+const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
+const { allocateTermBalances, resolveEffectiveTerms, isDeclarationConcessionTxn } = require('../utils/termConcessionAllocation');
+
+const formatLocalDate = (date) => {
+    if (!date) return null;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 // Helper to filter transactions by user's scoped colleges using cached fields directly
 const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
     const collegeNames = await collegeScope.getEffectiveCollegeNames(user, campusId);
@@ -1128,7 +1141,7 @@ const getDueReports = async (req, res) => {
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
 
         // 1. Build SQL Query for Students
-        let sqlQuery = `SELECT admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college FROM students WHERE 1=1`;
+        let sqlQuery = `SELECT id, admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college, stud_type, batch, current_semester FROM students WHERE LOWER(student_status) = 'regular'`;
         const params = [];
 
         if (college) {
@@ -1201,10 +1214,6 @@ const getDueReports = async (req, res) => {
             return res.json([]);
         }
 
-        const studentIds = students.map(s => s.admission_number);
-        const pinNumbers = students.map(s => s.pin_no).filter(Boolean); // Get valid pins
-        const allIdentifiers = [...new Set([...studentIds, ...pinNumbers])]; // Unique list of all IDs
-
         const studentMap = {};
         const idToStudentMap = {}; // Helper to resolve any ID (Pin or Adm) to the Student Object
 
@@ -1215,7 +1224,14 @@ const getDueReports = async (req, res) => {
                 totalFee: 0,
                 paidAmount: 0,
                 dueAmount: 0,
-                feeDetails: {} // Map key: feeHeadId -> { total: 0, paid: 0, due: 0 }
+                feeDetails: {}, // Map key: feeHeadId -> { total: 0, paid: 0, due: 0 }
+                termDues: [],
+                termDueDates: [],
+                groupedFeeDetails: {
+                    academic: null,
+                    hostel: null,
+                    transport: null
+                }
             };
 
             // Key by Primary ID (Admission Number) for final list
@@ -1223,147 +1239,591 @@ const getDueReports = async (req, res) => {
 
             // Map identifiers to this object
             if (s.admission_number) idToStudentMap[s.admission_number] = studentObj;
-            // Also map normalized versions if needed (e.g. trimmed)
             if (s.admission_number) idToStudentMap[s.admission_number.trim()] = studentObj;
-
             if (s.pin_no) {
                 idToStudentMap[s.pin_no] = studentObj;
                 idToStudentMap[s.pin_no.trim()] = studentObj;
             }
         });
 
-        // 2. Aggregate Total Fee (Demand) and Paid specific to the student year / academic year
-        let feeMatch = { studentId: { $in: allIdentifiers } };
-        let txMatch = { studentId: { $in: allIdentifiers }, status: { $ne: 'cancelled' } };
+        // 2. Fetch bulk Mongo and SQL data for processing
+        const studentIds = students.map(s => s.admission_number);
+        const pinNumbers = students.map(s => s.pin_no).filter(Boolean); // Get valid pins
+        const allIdentifiers = [...new Set([...studentIds, ...pinNumbers])]; // Unique list of all IDs
 
-        if (yearNumber !== null) {
-            // Filter by specific student year
-            feeMatch.studentYear = yearNumber;
-            txMatch.studentYear = String(yearNumber);
-        } else if (ayStartYear !== null) {
-            // Filter by target student year for each student based on Academic Year
-            const feeOrConditions = [];
-            const txOrConditions = [];
-            students.forEach(student => {
+        // Bulk fetch Mongoose documents
+        const [applicableStructures, studentFees, transactions, feeHeads, serviceConfigs, defaultConfigs] = await Promise.all([
+            FeeStructure.find({
+                college: { $in: [...new Set(students.map(s => s.college).filter(Boolean))] },
+                course: { $in: [...new Set(students.map(s => s.course).filter(Boolean))] },
+                branch: { $in: [...new Set(students.map(s => s.branch).filter(Boolean))] },
+                batch: { $in: [...new Set(students.map(s => s.batch).filter(Boolean))] },
+                category: { $in: [...new Set(students.map(s => s.stud_type).filter(Boolean))] }
+            }).lean(),
+            StudentFee.find({ studentId: { $in: allIdentifiers } }).populate('feeHead', 'name code').lean(),
+            Transaction.find({ studentId: { $in: allIdentifiers }, status: { $ne: 'cancelled' } }).lean(),
+            mongoose.model('FeeHead').find().lean(),
+            ServiceLateFeeConfig.find({ isActive: { $ne: false } }).lean(),
+            DefaultLateFeeConfig.find({ isActive: true }).lean()
+        ]);
+
+        // Bulk fetch SQL scholarships
+        const sqlIds = students.map(s => s.id).filter(Boolean);
+        let scholarshipMap = {};
+        if (sqlIds.length > 0) {
+            const [scholarshipRows] = await db.query(
+                `SELECT student_id, student_year, student_semester, eligible FROM student_scholarship WHERE student_id IN (${sqlIds.map(() => '?').join(',')})`,
+                sqlIds
+            );
+            scholarshipRows.forEach(row => {
+                const sId = String(row.student_id);
+                if (!scholarshipMap[sId]) scholarshipMap[sId] = [];
+                scholarshipMap[sId].push(row);
+            });
+        }
+
+        // Bulk fetch SQL semester start dates
+        const courseNames = [...new Set(students.map(s => s.course).filter(Boolean))];
+        const collegeNames = [...new Set(students.map(s => s.college).filter(Boolean))];
+        const batchesList = [...new Set(students.map(s => s.batch).filter(Boolean))];
+        const studentYears = [...new Set(students.map(s => s.current_year).filter(Boolean))];
+
+        let semesterRows = [];
+        if (collegeNames.length > 0 && courseNames.length > 0) {
+            let semQuery = `
+                SELECT s.semester_number, s.start_date, s.year_of_study, c.name AS course_name, cl.name AS college_name, s.batch, ay.year_label AS academic_year
+                FROM semesters s
+                JOIN academic_years ay ON s.academic_year_id = ay.id
+                JOIN courses c ON s.course_id = c.id
+                JOIN colleges cl ON s.college_id = cl.id
+                WHERE s.college_id IS NOT NULL AND s.start_date IS NOT NULL
+            `;
+            const semParams = [];
+            semQuery += ` AND cl.name IN (${collegeNames.map(() => '?').join(',')})`;
+            semParams.push(...collegeNames);
+            
+            semQuery += ` AND c.name IN (${courseNames.map(() => '?').join(',')})`;
+            semParams.push(...courseNames);
+            
+            const batchKeys = batchesList.map(b => String(b).split('-')[0].trim()).filter(Boolean);
+            if (batchKeys.length > 0) {
+                semQuery += ` AND s.batch IN (${batchKeys.map(() => '?').join(',')})`;
+                semParams.push(...batchKeys);
+            }
+            
+            if (studentYears.length > 0) {
+                semQuery += ` AND s.year_of_study IN (${studentYears.map(() => '?').join(',')})`;
+                semParams.push(...studentYears);
+            }
+            
+            [semesterRows] = await db.query(semQuery, semParams);
+        }
+
+        // Build fee structures lookup map
+        const structureMap = {};
+        applicableStructures.forEach(fs => {
+            const key = `${fs.college}|${fs.course}|${fs.branch}|${fs.category}|${fs.feeHead.toString()}-${fs.studentYear}-${fs.semester || 'null'}`;
+            structureMap[key] = fs;
+        });
+
+        // Build service terms map
+        const serviceTermsMap = {};
+        (serviceConfigs || []).forEach(cfg => {
+            if (!cfg.applicableFeeHead || !cfg.academicYear) return;
+            const termsCount = Number(cfg.defaultTermsCount) || (cfg.defaultTerms || []).length || 1;
+            const rule = (cfg.lateFeeRules || []).find((r) => Number(r.termsCount) === termsCount);
+            const fallbackDefault = defaultConfigs.find((c) => Number(c.termsCount) === termsCount);
+
+            const terms = (cfg.defaultTerms || [])
+                .filter(t => t && Number(t.percentage) > 0)
+                .map((t, idx) => {
+                    const termNum = Number(t.termNumber) || idx + 1;
+                    const rt = rule?.terms?.find(item => Number(item.termNumber) === termNum);
+                    const dt = fallbackDefault?.terms?.find(item => Number(item.termNumber) === termNum);
+                    return {
+                        termNumber: termNum,
+                        percentage: Number(t.percentage) || 0,
+                        dueDateMode: rt?.dueDateMode || dt?.dueDateMode || 'offset',
+                        referenceSemester: rt?.referenceSemester || dt?.referenceSemester || 1,
+                        dueOffsetDays: (rt?.dueOffsetDays !== undefined && rt?.dueOffsetDays !== null)
+                            ? Number(rt.dueOffsetDays)
+                            : (Number(dt?.dueOffsetDays) || 0),
+                        fixedDueDate: rt?.fixedDueDate || dt?.fixedDueDate || null,
+                        dueDescription: rt?.dueDescription || dt?.dueDescription || `Term ${termNum}`
+                    };
+                });
+            if (terms.length === 0) return;
+            serviceTermsMap[`${cfg.applicableFeeHead.toString()}|${String(cfg.academicYear).trim()}`] = terms;
+        });
+
+        // Map fee heads for name/code lookup
+        const feeHeadMap = {};
+        feeHeads.forEach(fh => {
+            feeHeadMap[fh._id.toString()] = fh;
+        });
+
+        // Group demands by student identifiers
+        const studentDemandsMap = {};
+        studentFees.forEach(fee => {
+            const sid = String(fee.studentId).trim().toLowerCase();
+            if (!studentDemandsMap[sid]) studentDemandsMap[sid] = [];
+            studentDemandsMap[sid].push(fee);
+        });
+
+        // Group transactions by student identifiers
+        const studentTransactionsMap = {};
+        transactions.forEach(t => {
+            const sid = String(t.studentId).trim().toLowerCase();
+            if (!studentTransactionsMap[sid]) studentTransactionsMap[sid] = [];
+            studentTransactionsMap[sid].push(t);
+        });
+
+        const resolveTermDueDate = (term, isServiceRule, student, studentYear, academicYear, struct) => {
+            if (isServiceRule && !term.dueDateMode) {
+                return null;
+            }
+            const mode = term.dueDateMode === 'fixed' ? 'fixed' : 'offset';
+            if (mode === 'fixed') {
+                if (!term.fixedDueDate) return null;
+                return term.fixedDueDate;
+            }
+            
+            const batchVal = struct ? struct.batch : student.batch;
+            const batchKey = String(batchVal || '').split('-')[0].trim();
+            if (!batchKey) return null;
+            
+            const targetSem = isServiceRule 
+                ? (Number(term.referenceSemester) || 1)
+                : (Number(term.referenceSemester) || Number(struct?.semester) || 1);
+                
+            const collegeName = student.college;
+            const courseName = student.course;
+            
+            const semMatch = (semesterRows || []).find(s => 
+                Number(s.semester_number) === targetSem &&
+                s.course_name === courseName &&
+                s.college_name === collegeName &&
+                String(s.batch) === batchKey &&
+                Number(s.year_of_study) === Number(studentYear)
+            );
+            
+            if (!semMatch || !semMatch.start_date) return null;
+            
+            const dueDate = new Date(semMatch.start_date);
+            dueDate.setDate(dueDate.getDate() + (Number(term.dueOffsetDays) || 0));
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate;
+        };
+
+        const getScholarshipStatus = (studentId, year, semester) => {
+            const yr = Number(year);
+            const sScholarships = scholarshipMap[studentId] || [];
+            if (semester) {
+                const sem = Number(semester);
+                const match = sScholarships.find(s => 
+                    Number(s.student_year) === yr && 
+                    Number(s.student_semester) === sem
+                );
+                return match ? match.eligible : null;
+            } else {
+                const eligibleMatches = sScholarships.filter(s => Number(s.student_year) === yr);
+                if (eligibleMatches.length === 0) return null;
+                const hasEligible = eligibleMatches.some(s => String(s.eligible).toLowerCase() === 'eligible');
+                return hasEligible ? 'eligible' : eligibleMatches[0].eligible;
+            }
+        };
+
+        const getFeeHeadCategory = (headId, headCode, headName, academicYear) => {
+            const idStr = String(headId);
+            const hostelConfig = (serviceConfigs || []).find(c => c.type === 'HOSTEL' && String(c.applicableFeeHead) === idStr && String(c.academicYear).slice(0, 4) === String(academicYear).slice(0, 4));
+            if (hostelConfig) return 'HOSTEL';
+            
+            const transportConfig = (serviceConfigs || []).find(c => c.type === 'TRANSPORT' && String(c.applicableFeeHead) === idStr && String(c.academicYear).slice(0, 4) === String(academicYear).slice(0, 4));
+            if (transportConfig) return 'TRANSPORT';
+            
+            const codeUpper = String(headCode || '').toUpperCase();
+            
+            if (codeUpper === 'HST01') {
+                return 'HOSTEL';
+            }
+            if (codeUpper === 'TRN' || codeUpper === 'TRN01') {
+                return 'TRANSPORT';
+            }
+            
+            return 'ACADEMIC';
+        };
+
+        const reportData = Object.values(studentMap).map(student => {
+            const identifiers = [student.admission_number, student.pin_no].map(id => String(id || '').trim().toLowerCase()).filter(Boolean);
+            
+            let targetStudentYear = null;
+            if (yearNumber !== null) {
+                targetStudentYear = yearNumber;
+            } else if (ayStartYear !== null) {
                 const studentBatch = parseInt(student.batch, 10);
                 if (!isNaN(studentBatch)) {
-                    const targetYear = ayStartYear - studentBatch + 1;
-                    const identifiers = [student.admission_number, student.pin_no].filter(Boolean);
-                    if (identifiers.length > 0) {
-                        feeOrConditions.push({
-                            studentId: { $in: identifiers },
-                            studentYear: targetYear
-                        });
-                        txOrConditions.push({
-                            studentId: { $in: identifiers },
-                            studentYear: String(targetYear)
-                        });
+                    targetStudentYear = ayStartYear - studentBatch + 1;
+                }
+            }
+
+            const sDemands = [];
+            identifiers.forEach(id => {
+                if (studentDemandsMap[id]) {
+                    studentDemandsMap[id].forEach(fee => {
+                        if (targetStudentYear === null || Number(fee.studentYear) === targetStudentYear) {
+                            sDemands.push(fee);
+                        }
+                    });
+                }
+            });
+            const uniqueSDemands = [];
+            const seenDemands = new Set();
+            sDemands.forEach(d => {
+                if (!seenDemands.has(String(d._id))) {
+                    seenDemands.add(String(d._id));
+                    uniqueSDemands.push(d);
+                }
+            });
+
+            const sTransactions = [];
+            identifiers.forEach(id => {
+                if (studentTransactionsMap[id]) {
+                    studentTransactionsMap[id].forEach(t => {
+                        if (targetStudentYear === null || Number(t.studentYear) === targetStudentYear) {
+                            sTransactions.push(t);
+                        }
+                    });
+                }
+            });
+            const uniqueSTransactions = [];
+            const seenTxns = new Set();
+            sTransactions.forEach(t => {
+                if (!seenTxns.has(String(t._id))) {
+                    seenTxns.add(String(t._id));
+                    uniqueSTransactions.push(t);
+                }
+            });
+
+            const groupedData = {};
+
+            const getGroupKey = (headId, year, feeCode, remarks, semester) => {
+                const semKey = semester ? `S${semester}` : 'Y';
+                if (feeCode === 'CF' || feeCode === 'SSF') {
+                    return `${headId}-${year}-${semKey}-${remarks || 'General'}`;
+                }
+                if (feeCode === 'TRN' || feeCode === 'TRN01') {
+                    return `${headId}-${year}-transport`;
+                }
+                return `${headId}-${year}-${semKey}`;
+            };
+
+            const resolveTxnGroupKey = (headId, year, feeCode, remarks, semester) => {
+                const exactKey = getGroupKey(headId, year, feeCode, remarks, semester);
+                if (feeCode === 'CF' || feeCode === 'SSF' || feeCode === 'TRN' || feeCode === 'TRN01') {
+                    return exactKey;
+                }
+                const yearPrefix = `${headId}-${year}-`;
+                const candidates = Object.keys(groupedData).filter(k => k.startsWith(yearPrefix));
+                const withDemand = candidates
+                    .map(k => ({ k, amt: Number(groupedData[k].totalAmount) || 0 }))
+                    .filter(x => x.amt > 0)
+                    .sort((a, b) => b.amt - a.amt);
+                if (withDemand.length > 0) return withDemand[0].k;
+                if (groupedData[exactKey]) return exactKey;
+                return exactKey;
+            };
+
+            uniqueSDemands.forEach(fee => {
+                const hId = fee.feeHead ? fee.feeHead._id.toString() : 'unknown';
+                const hCode = fee.feeHead ? fee.feeHead.code : '';
+                const year = String(fee.studentYear || 1);
+                const key = getGroupKey(hId, year, hCode, fee.remarks, fee.semester);
+
+                if (!groupedData[key]) {
+                    const structKey = `${student.college}|${student.course}|${student.branch}|${student.stud_type}|${hId}-${year}-${fee.semester || 'null'}`;
+                    const matchedStructure = structureMap[structKey];
+                    const serviceTerms = serviceTermsMap[`${hId}|${String(fee.academicYear).trim()}`];
+                    const effectiveTerms = serviceTerms || matchedStructure?.terms;
+
+                    groupedData[key] = {
+                        feeHeadId: fee.feeHead ? fee.feeHead._id : null,
+                        feeHeadName: (fee.feeHead && (fee.feeHead.code === 'CF' || fee.feeHead.code === 'SSF')) 
+                            ? (fee.remarks ? `${fee.feeHead.name} - ${fee.remarks}` : fee.feeHead.name) 
+                            : (fee.feeHead ? fee.feeHead.name : 'Unknown'),
+                        feeHeadCode: fee.feeHead ? fee.feeHead.code : '',
+                        academicYear: fee.academicYear || student.batch,
+                        studentYear: year,
+                        semester: fee.semester,
+                        totalAmount: 0,
+                        concessionAmount: 0,
+                        declarationConcessionAmount: 0,
+                        applicationConcessionAmount: 0,
+                        paidAmount: 0,
+                        dueAmount: 0,
+                        isActive: fee.isActive !== false,
+                        isTermsDivided: serviceTerms
+                            ? serviceTerms.length > 1
+                            : (fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)),
+                        studentScholarStatus: getScholarshipStatus(student.id, year, fee.semester) || 'not_eligible',
+                        terms: resolveEffectiveTerms(effectiveTerms, fee.amount || matchedStructure?.amount || 0)
+                    };
+                }
+                groupedData[key].totalAmount += (fee.amount || 0);
+            });
+
+            uniqueSTransactions.forEach(t => {
+                if (t.feeHead) {
+                    const hId = t.feeHead.toString();
+                    const year = String(t.studentYear || 1);
+                    const head = feeHeadMap[hId];
+                    const hCode = head ? head.code : '';
+                    const key = resolveTxnGroupKey(hId, year, hCode, t.remarks, t.semester);
+
+                    if (!groupedData[key]) {
+                        const structKey = `${student.college}|${student.course}|${student.branch}|${student.stud_type}|${hId}-${year}-${t.semester || 'null'}`;
+                        const matchedStructure = structureMap[structKey];
+                        groupedData[key] = {
+                            feeHeadId: hId,
+                            feeHeadName: (head && (head.code === 'CF' || head.code === 'SSF')) 
+                                ? (t.remarks ? `${head.name} - ${t.remarks}` : head.name) 
+                                : (head ? head.name : 'Unknown'),
+                            feeHeadCode: head ? head.code : '',
+                            academicYear: student.batch,
+                            studentYear: year,
+                            semester: t.semester || null,
+                            totalAmount: 0,
+                            concessionAmount: 0,
+                            declarationConcessionAmount: 0,
+                            applicationConcessionAmount: 0,
+                            paidAmount: 0,
+                            dueAmount: 0,
+                            isActive: true,
+                            studentScholarStatus: getScholarshipStatus(student.id, year, t.semester) || 'not_eligible',
+                            terms: resolveEffectiveTerms(matchedStructure?.terms, matchedStructure?.amount || 0)
+                        };
+                    }
+                    if (t.transactionType === 'DEBIT') {
+                        groupedData[key].paidAmount += (t.amount || 0);
+                    } else if (t.transactionType === 'CREDIT') {
+                        const amt = t.amount || 0;
+                        groupedData[key].concessionAmount += amt;
+                        if (isDeclarationConcessionTxn(t)) {
+                            groupedData[key].declarationConcessionAmount += amt;
+                        } else {
+                            groupedData[key].applicationConcessionAmount += amt;
+                        }
                     }
                 }
             });
 
-            if (feeOrConditions.length > 0) {
-                feeMatch = { $or: feeOrConditions };
-            }
-            if (txOrConditions.length > 0) {
-                txMatch = { $or: txOrConditions, status: { $ne: 'cancelled' } };
-            }
-        }
+            const academicSummary = { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} };
+            const hostelSummary = { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} };
+            const transportSummary = { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} };
 
-        const feeDemands = await StudentFee.aggregate([
-            { $match: feeMatch },
-            {
-                $group: {
-                    _id: { studentId: "$studentId", feeHead: "$feeHead" },
-                    totalFee: { $sum: "$amount" }
+            Object.values(groupedData).forEach(item => {
+                item.dueAmount = Math.max(0, item.totalAmount - item.paidAmount - item.concessionAmount);
+                student.totalFee += item.totalAmount;
+                student.paidAmount += item.paidAmount;
+
+                const fHeadIdStr = item.feeHeadId ? item.feeHeadId.toString() : 'unknown';
+                if (!student.feeDetails[fHeadIdStr]) {
+                    student.feeDetails[fHeadIdStr] = { total: 0, paid: 0, due: 0 };
                 }
-            }
-        ]);
+                student.feeDetails[fHeadIdStr].total += item.totalAmount;
+                student.feeDetails[fHeadIdStr].paid += item.paidAmount;
 
-        feeDemands.forEach(f => {
-            const rawSid = f._id.studentId; // Could be Pin or Admission
-            const fid = f._id.feeHead;
+                const category = getFeeHeadCategory(item.feeHeadId, item.feeHeadCode, item.feeHeadName, item.academicYear);
+                const targetSummary = category === 'HOSTEL' ? hostelSummary 
+                                    : category === 'TRANSPORT' ? transportSummary 
+                                    : academicSummary;
 
-            // Resolve student using the map
-            const student = idToStudentMap[rawSid] || idToStudentMap[String(rawSid).trim()];
+                targetSummary.total += item.totalAmount;
+                targetSummary.paid += item.paidAmount;
+                targetSummary.concession += item.concessionAmount;
+                targetSummary.due += item.dueAmount;
 
-            if (student) {
-                student.totalFee += f.totalFee;
-                if (!student.feeDetails[fid]) student.feeDetails[fid] = { total: 0, paid: 0, due: 0 };
-                student.feeDetails[fid].total += f.totalFee;
-            }
-        });
+                const isService = (category !== 'ACADEMIC');
+                const structKey = `${student.college}|${student.course}|${student.branch}|${student.stud_type}|${fHeadIdStr}-${item.studentYear}-${item.semester || 'null'}`;
+                const matchedStructure = structureMap[structKey];
 
-        // 3. Aggregate Total Paid - Grouped by FeeHead (exclude cancelled)
-        const payments = await Transaction.aggregate([
-            { $match: txMatch },
-            {
-                $group: {
-                    _id: { studentId: "$studentId", feeHead: "$feeHead" },
-                    totalPaid: { $sum: "$amount" }
-                }
-            }
-        ]);
+                const currentEffectiveTerms = resolveEffectiveTerms(item.terms, item.totalAmount);
+                const structTermsCount = currentEffectiveTerms.length || 1;
+                const defCfg = (defaultConfigs || []).find((c) => Number(c.termsCount) === structTermsCount);
+                
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
 
-        payments.forEach(p => {
-            const rawSid = p._id.studentId;
-            const fid = p._id.feeHead;
+                const resolvedTerms = currentEffectiveTerms.map(st => {
+                    const dt = defCfg ? (defCfg.terms || []).find((t) => Number(t.termNumber) === Number(st.termNumber)) : null;
+                    const timingTerm = {
+                        ...st,
+                        dueDateMode: st.dueDateMode || dt?.dueDateMode || 'offset',
+                        referenceSemester: st.referenceSemester || dt?.referenceSemester || 1,
+                        dueOffsetDays: (st.dueOffsetDays !== undefined && st.dueOffsetDays !== 0)
+                            ? Number(st.dueOffsetDays)
+                            : (Number(dt?.dueOffsetDays) || 0),
+                        fixedDueDate: st.fixedDueDate || dt?.fixedDueDate || null
+                    };
 
-            const student = idToStudentMap[rawSid] || idToStudentMap[String(rawSid).trim()];
+                    const serviceTerms = serviceTermsMap[`${fHeadIdStr}|${String(item.academicYear).trim()}`];
+                    const dueDateVal = (isService && !serviceTerms)
+                        ? null
+                        : resolveTermDueDate(timingTerm, isService, student, item.studentYear, item.academicYear, matchedStructure);
+                    
+                    // Determine if active
+                    let isTermActive = false;
+                    
+                    const batchVal = matchedStructure ? matchedStructure.batch : student.batch;
+                    const batchKey = String(batchVal || '').split('-')[0].trim();
+                    const targetSem = isService
+                        ? (Number(timingTerm.referenceSemester) || 1)
+                        : (Number(timingTerm.referenceSemester) || Number(matchedStructure?.semester) || 1);
+                    const collegeName = student.college;
+                    const courseName = student.course;
+                    
+                    const semMatch = (semesterRows || []).find(s => 
+                        Number(s.semester_number) === targetSem &&
+                        s.course_name === courseName &&
+                        s.college_name === collegeName &&
+                        String(s.batch) === batchKey &&
+                        Number(s.year_of_study) === Number(item.studentYear)
+                    );
 
-            if (student) {
-                student.paidAmount += p.totalPaid;
-                if (!student.feeDetails[fid]) student.feeDetails[fid] = { total: 0, paid: 0, due: 0 };
-                student.feeDetails[fid].paid += p.totalPaid;
-            }
-        });
+                    if (timingTerm.dueDateMode === 'fixed') {
+                        if (timingTerm.fixedDueDate) {
+                            const fixedDate = new Date(timingTerm.fixedDueDate);
+                            fixedDate.setHours(0, 0, 0, 0);
+                            const warnWindow = new Date(fixedDate);
+                            warnWindow.setDate(warnWindow.getDate() - 15);
+                            isTermActive = today >= warnWindow;
+                        } else {
+                            isTermActive = true;
+                        }
+                    } else {
+                        // Offset mode: active as soon as semester starts, or fallback to 15-day warning before due date
+                        if (semMatch && semMatch.start_date) {
+                            const startDate = new Date(semMatch.start_date);
+                            startDate.setHours(0, 0, 0, 0);
+                            isTermActive = today >= startDate;
+                        } else if (dueDateVal) {
+                            const dueDate = new Date(dueDateVal);
+                            dueDate.setHours(0, 0, 0, 0);
+                            const warnWindow = new Date(dueDate);
+                            warnWindow.setDate(warnWindow.getDate() - 15);
+                            isTermActive = today >= warnWindow;
+                        } else {
+                            isTermActive = true;
+                        }
+                    }
 
-        // 4. Resolve FeeHead Names
-        // Get all unique feeHead IDs from all students
-        const allFeeHeadIds = new Set();
-        Object.values(studentMap).forEach(s => {
-            Object.keys(s.feeDetails).forEach(fid => allFeeHeadIds.add(fid));
-        });
-
-        let feeHeadNameMap = {};
-        if (allFeeHeadIds.size > 0) {
-            // We need to fetch FeeHead names. Assuming 'FeeHead' model exists or we query collection 'feeheads'.
-            // In getTransactionReports, it does $lookup from 'feeheads'. Let's use mongoose model if available or distinct lookup.
-            // We don't have FeeHead imported at top, let's try direct connection collection query or assume standard model name.
-            // Best to just use direct db collection query if model not imported, OR import it. 
-            // Let's use raw collection query via mongoose.connection to be safe on imports, or 'mongoose.model("FeeHead")' if registered.
-            try {
-                const heads = await mongoose.connection.collection('feeheads').find({
-                    _id: { $in: Array.from(allFeeHeadIds).map(id => new mongoose.Types.ObjectId(id)) }
-                }).toArray();
-
-                heads.forEach(h => {
-                    feeHeadNameMap[h._id.toString()] = {
-                        name: h.name,
-                        code: h.code || h.alias || h.name
+                    return {
+                        ...st,
+                        dueDate: dueDateVal ? formatLocalDate(dueDateVal) : null,
+                        isActiveTerm: isTermActive
                     };
                 });
-            } catch (e) {
-                console.log('Error fetching fee heads', e);
-            }
-        }
 
-        // 5. Finalize Data Structure
-        const reportData = Object.values(studentMap).map(student => {
+                const allocation = allocateTermBalances({
+                    totalAmount: item.totalAmount,
+                    terms: resolvedTerms,
+                    paidAmount: item.paidAmount,
+                    declarationConcession: item.declarationConcessionAmount,
+                    applicationConcession: item.applicationConcessionAmount
+                });
+
+                (allocation.terms || []).forEach(tb => {
+                    const termNum = tb.termNumber;
+                    if (!targetSummary.termsMap[termNum]) {
+                        targetSummary.termsMap[termNum] = {
+                            termNumber: termNum,
+                            termTarget: 0,
+                            paidShare: 0,
+                            concessionShare: 0,
+                            balance: 0,
+                            dueDate: null,
+                            isActiveTerm: false
+                        };
+                    }
+                    const summaryTerm = targetSummary.termsMap[termNum];
+                    summaryTerm.termTarget += (tb.termTarget || 0);
+                    summaryTerm.paidShare += (tb.paidShare || 0);
+                    summaryTerm.concessionShare += ((tb.declarationShare || 0) + (tb.applicationShare || 0));
+                    summaryTerm.balance += (tb.balance || 0);
+                    
+                    const termOrig = resolvedTerms.find(t => Number(t.termNumber) === Number(termNum));
+                    if (termOrig?.dueDate) {
+                        summaryTerm.dueDate = termOrig.dueDate;
+                    }
+                    if (termOrig?.isActiveTerm) {
+                        summaryTerm.isActiveTerm = true;
+                    }
+                });
+            });
+
+            const finalizeCategory = (summary) => {
+                if (summary.total === 0 && summary.paid === 0 && summary.concession === 0 && summary.due === 0) {
+                    return null;
+                }
+                const terms = Object.values(summary.termsMap).sort((a, b) => a.termNumber - b.termNumber);
+                delete summary.termsMap;
+                return {
+                    total: summary.total,
+                    paid: summary.paid,
+                    concession: summary.concession,
+                    due: summary.due,
+                    terms
+                };
+            };
+
+            student.groupedFeeDetails = {
+                academic: finalizeCategory(academicSummary),
+                hostel: finalizeCategory(hostelSummary),
+                transport: finalizeCategory(transportSummary)
+            };
+
+            let activeDue = 0;
+            const studentTermDues = {};
+            const studentTermDates = {};
+
+            [student.groupedFeeDetails.academic, student.groupedFeeDetails.hostel, student.groupedFeeDetails.transport].forEach(catSum => {
+                if (!catSum) return;
+                (catSum.terms || []).forEach(t => {
+                    const termNum = t.termNumber;
+                    if (!studentTermDues[termNum]) studentTermDues[termNum] = 0;
+                    studentTermDues[termNum] += (t.balance || 0);
+                    if (t.dueDate) {
+                        studentTermDates[termNum] = t.dueDate;
+                    }
+                    if (t.isActiveTerm) {
+                        activeDue += (t.balance || 0);
+                    }
+                });
+            });
+
+            const maxTermNum = Math.max(1, ...Object.keys(studentTermDues).map(Number));
+            const termDues = [];
+            const termDueDates = [];
+            for (let i = 1; i <= maxTermNum; i++) {
+                termDues.push(studentTermDues[i] || 0);
+                termDueDates.push(studentTermDates[i] || null);
+            }
+
+            student.termDues = termDues;
+            student.termDueDates = termDueDates;
+            student.activeDue = activeDue;
             student.dueAmount = Math.max(0, student.totalFee - student.paidAmount);
 
-            // Convert feeDetails map to array expected by frontend
             student.feeDetailsArray = Object.keys(student.feeDetails).map(fid => {
                 const detail = student.feeDetails[fid];
                 const total = detail.total || 0;
                 const paid = detail.paid || 0;
-                const headObj = feeHeadNameMap[fid];
-                const headName = typeof headObj === 'object' ? headObj.name : (feeHeadNameMap[fid] || 'Unknown');
-                const headCode = typeof headObj === 'object' ? headObj.code : (feeHeadNameMap[fid] || 'Unknown');
+                const headObj = feeHeadMap[fid];
+                const headName = headObj ? headObj.name : 'Unknown';
+                const headCode = headObj ? (headObj.code || headObj.name) : 'Unknown';
                 return {
                     headId: fid,
                     headName: headName,
-                    headCode: headCode || headName,
+                    headCode: headCode,
                     total: total,
                     paid: paid,
                     due: Math.max(0, total - paid)
