@@ -594,7 +594,7 @@ const AcademicCalendar = () => {
                     }
                     if (isFirstYear) {
                         yearLabelTd = `<td rowspan="${yearObj.semesters.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-size:10px">${yearObj.year_label || '—'}</td>`;
-                        yearNumTd   = `<td rowspan="${yearObj.semesters.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:700">Yr ${yearObj.year_of_study ?? '—'}</td>`;
+                        yearNumTd   = `<td rowspan="${yearObj.semesters.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:700">${yearObj.year_of_study ?? '—'}</td>`;
                     }
 
                     rowsHtml += `
@@ -668,7 +668,7 @@ const AcademicCalendar = () => {
                         batchTd   = `<td rowspan="${group.totalRowsCount}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:900">${group.batch || '—'}</td>`;
                     }
                     if (isFirstYear) {
-                        yearNumTd   = `<td rowspan="${yearObj.categories.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:700">Yr ${yearObj.year_of_study ?? '—'}</td>`;
+                        yearNumTd   = `<td rowspan="${yearObj.categories.length}" style="border:1.5px solid #000;padding:5px 8px;vertical-align:middle;text-align:center;font-weight:700">${yearObj.year_of_study ?? '—'}</td>`;
                     }
 
                     const getTermText = (termNum) => {
@@ -952,7 +952,7 @@ const AcademicCalendar = () => {
                                                                                 className="px-4 py-3 align-middle border-r border-gray-100 bg-white text-center"
                                                                             >
                                                                                 {yearObj.year_of_study != null
-                                                                                    ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {yearObj.year_of_study}</span>
+                                                                                    ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">{yearObj.year_of_study}</span>
                                                                                     : <span className="text-gray-300 italic text-[11px]">—</span>
                                                                                 }
                                                                             </td>
@@ -1090,7 +1090,7 @@ const AcademicCalendar = () => {
                                                                             className="px-4 py-3 align-middle border-r border-gray-100 bg-white text-center"
                                                                         >
                                                                             {yearObj.year_of_study != null
-                                                                                ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">Yr {yearObj.year_of_study}</span>
+                                                                                ? <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-bold text-[11px]">{yearObj.year_of_study}</span>
                                                                                 : <span className="text-gray-300 italic text-[11px]">—</span>
                                                                             }
                                                                         </td>
