@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Transaction = require('../models/Transaction');
 const Proceeding = require('../models/Proceeding');
 const FeeGroup = require('../models/FeeGroup');
@@ -5,6 +6,7 @@ const Setting = require('../models/Setting');
 const ReceiptSequence = require('../models/ReceiptSequence');
 const db = require('../config/sqlDb');
 const collegeScope = require('../utils/collegeScope');
+
 
 const getCollectorFromRequest = (req) => ({
   collectedBy: req.user?.username || 'Unknown',
@@ -771,11 +773,11 @@ const getTransactionsByDate = async (req, res) => {
     const { buildCollectionDateMatch } = require('../utils/reportDateFilter');
     const dateQuery = buildCollectionDateMatch(date, date);
 
-    const query = {
-      status: { $ne: 'cancelled' },
-      remarks: { $ne: 'Concession as per declaration' },
-      ...dateQuery
-    };
+    const andConditions = [
+      { status: { $ne: 'cancelled' } },
+      { remarks: { $ne: 'Concession as per declaration' } },
+      dateQuery
+    ];
 
     if (collector && collector !== 'ALL') {
       const User = require('../models/User');
@@ -802,7 +804,7 @@ const getTransactionsByDate = async (req, res) => {
       if (collectorName) {
         collectorMatchConditions.push({ collectedByName: collectorName });
       }
-      query.$or = collectorMatchConditions;
+      andConditions.push({ $or: collectorMatchConditions });
     }
 
     // Role-based scope filtering for non-superadmin
@@ -816,7 +818,7 @@ const getTransactionsByDate = async (req, res) => {
         );
         if (studentRows && studentRows.length > 0) {
           const allowedStudentIds = studentRows.map(row => String(row.admission_number).trim());
-          query.studentId = { $in: allowedStudentIds };
+          andConditions.push({ studentId: { $in: allowedStudentIds } });
         } else {
           return res.json({
             transactions: [],
@@ -830,6 +832,8 @@ const getTransactionsByDate = async (req, res) => {
       }
     }
 
+    const query = { $and: andConditions };
+
     const transactions = await Transaction.find(query)
       .populate('feeHead', 'name')
       .sort({ createdAt: -1 })
@@ -839,12 +843,15 @@ const getTransactionsByDate = async (req, res) => {
 
     // Fetch all distinct collectors for date filter dropdown and normalize by Emp No
     const allDateTxs = await Transaction.find({
-      status: { $ne: 'cancelled' },
-      remarks: { $ne: 'Concession as per declaration' },
-      ...dateQuery
+      $and: [
+        { status: { $ne: 'cancelled' } },
+        { remarks: { $ne: 'Concession as per declaration' } },
+        dateQuery
+      ]
     }).select('collectedBy collectedByName').lean();
 
     await mapTransactionCashiers(allDateTxs);
+
 
     const collectorsMap = {};
     allDateTxs.forEach(t => {

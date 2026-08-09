@@ -313,47 +313,58 @@ const TransactionDateModification = () => {
                     <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
                         Summary for Date: <span className="text-blue-700">{formatDateDDMMYYYY(sourceDate)}</span>
                     </h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded">
-                            <span className="text-xs text-blue-700 font-semibold block">Total Amount</span>
-                            <span className="text-lg font-bold text-blue-900">{formatCurrency(totalAmount)}</span>
-                        </div>
-                        <div className="p-3 bg-gray-50 border border-gray-200 rounded">
-                            <span className="text-xs text-gray-600 font-semibold block">Total Transactions</span>
-                            <span className="text-lg font-bold text-gray-800">{transactions.length}</span>
-                        </div>
-                        <div className="p-3 bg-green-50 border border-green-200 rounded">
-                            <span className="text-xs text-green-700 font-semibold block">Cash Collections</span>
-                            <span className="text-lg font-bold text-green-900">{formatCurrency(modeSummary['Cash']?.totalAmount || 0)}</span>
-                        </div>
-                        <div className="p-3 bg-purple-50 border border-purple-200 rounded">
-                            <span className="text-xs text-purple-700 font-semibold block">Bank / Online</span>
-                            <span className="text-lg font-bold text-purple-900">
-                                {formatCurrency(
-                                    Object.entries(modeSummary)
-                                        .filter(([m]) => m !== 'Cash')
-                                        .reduce((acc, [, val]) => acc + (val.totalAmount || 0), 0)
-                                )}
-                            </span>
-                        </div>
-                    </div>
 
-                    {/* Course-wise summary list */}
-                    {Object.keys(courseSummary).length > 0 && (
-                        <div className="border-t border-gray-200 pt-3 mt-2">
-                            <span className="text-xs font-bold text-gray-700 block mb-2">Course-wise Totals:</span>
-                            <div className="flex flex-wrap gap-2">
-                                {Object.entries(courseSummary).map(([cName, val]) => (
-                                    <div key={cName} className="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-xs">
-                                        <span className="font-semibold text-gray-700">{cName}:</span>{' '}
-                                        <span className="font-bold text-gray-900">{formatCurrency(val.totalAmount)}</span>{' '}
-                                        <span className="text-gray-500">({val.count} txns)</span>
-                                    </div>
-                                ))}
-                            </div>
+                    {loading ? (
+                        <div className="flex items-center justify-center py-6 text-gray-600">
+                            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                            <span className="text-xs font-semibold">Calculating statistics...</span>
                         </div>
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-4 gap-3 mb-4">
+                                <div className="p-3 bg-blue-50 border border-blue-200 rounded">
+                                    <span className="text-xs text-blue-700 font-semibold block">Total Amount</span>
+                                    <span className="text-lg font-bold text-blue-900">{formatCurrency(totalAmount)}</span>
+                                </div>
+                                <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                                    <span className="text-xs text-gray-600 font-semibold block">Total Transactions</span>
+                                    <span className="text-lg font-bold text-gray-800">{transactions.length}</span>
+                                </div>
+                                <div className="p-3 bg-green-50 border border-green-200 rounded">
+                                    <span className="text-xs text-green-700 font-semibold block">Cash Collections</span>
+                                    <span className="text-lg font-bold text-green-900">{formatCurrency(modeSummary['Cash']?.totalAmount || 0)}</span>
+                                </div>
+                                <div className="p-3 bg-purple-50 border border-purple-200 rounded">
+                                    <span className="text-xs text-purple-700 font-semibold block">Bank / Online</span>
+                                    <span className="text-lg font-bold text-purple-900">
+                                        {formatCurrency(
+                                            Object.entries(modeSummary)
+                                                .filter(([m]) => m !== 'Cash')
+                                                .reduce((acc, [, val]) => acc + (val.totalAmount || 0), 0)
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Course-wise summary list */}
+                            {Object.keys(courseSummary).length > 0 && (
+                                <div className="border-t border-gray-200 pt-3 mt-2">
+                                    <span className="text-xs font-bold text-gray-700 block mb-2">Course-wise Totals:</span>
+                                    <div className="flex flex-wrap gap-2">
+                                        {Object.entries(courseSummary).map(([cName, val]) => (
+                                            <div key={cName} className="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-xs">
+                                                <span className="font-semibold text-gray-700">{cName}:</span>{' '}
+                                                <span className="font-bold text-gray-900">{formatCurrency(val.totalAmount)}</span>{' '}
+                                                <span className="text-gray-500">({val.count} txns)</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
+
 
                 {/* Step 3: Destination Date & Apply Action Box */}
                 <div className="bg-white p-5 rounded-md shadow-sm border border-gray-200 mb-5">
@@ -427,8 +438,10 @@ const TransactionDateModification = () => {
                     </div>
 
                     {loading ? (
-                        <div className="p-8 text-center text-gray-500 text-sm">
-                            Loading transactions for {sourceDate}...
+                        <div className="p-12 text-center bg-white">
+                            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                            <p className="text-sm font-bold text-gray-800">Fetching Transactions for {formatDateDDMMYYYY(sourceDate)}...</p>
+                            <p className="text-xs text-gray-500 mt-1">Please wait while transaction data is loaded.</p>
                         </div>
                     ) : transactions.length === 0 ? (
                         <div className="p-8 text-center text-gray-500 text-sm">

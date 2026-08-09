@@ -92,27 +92,29 @@ jobs:
 
           cd "${PROJECT_DIR}"
 
-          echo "==> Pulling latest code from main..."
+          echo "==> Pulling latest code..."
           git fetch origin main
+
+          # Check if backend dependencies actually changed before pulling
+          PACKAGE_CHANGED=$(git diff HEAD origin/main -- backend/package-lock.json backend/package.json)
+
           git checkout main
-          # Discard any local changes to log files before pulling
-          git checkout -- backend/logs/ 2>/dev/null || true
           git pull origin main
 
           #################################################
-          # BACKEND PART (UNCHANGED)
+          # BACKEND DEPENDENCIES (OPTIMIZED)
           #################################################
-          echo "==> Installing backend dependencies..."
           cd "${PROJECT_DIR}/backend"
 
-          if [ -f package-lock.json ]; then
+          if [ -n "$PACKAGE_CHANGED" ]; then
+            echo "==> package.json changed. Installing backend dependencies..."
             npm ci --omit=dev
           else
-            npm install --omit=dev
+            echo "==> No package changes detected. Skipping npm install."
           fi
 
           #################################################
-          # FRONTEND PART (UPDATED)
+          # FRONTEND DEPLOYMENT
           #################################################
           echo "==> Deploying frontend..."
           sudo mkdir -p "${FRONTEND_WEB_ROOT}"
@@ -122,16 +124,13 @@ jobs:
             "${FRONTEND_WEB_ROOT}/"
 
           #################################################
-          # PM2
+          # PM2 RELOAD (LOW CPU SPIKE)
           #################################################
-          echo "==> Restarting PM2 process: backend..."
-          pm2 restart backend
-
-          echo "==> Saving PM2 process list..."
-          pm2 save
+          echo "==> Reloading PM2 backend smoothly..."
+          pm2 reload backend --update-env || pm2 start backend
 
           #################################################
-          # Cleanup
+          # CLEANUP
           #################################################
           rm -rf /tmp/frontend-dist
 
