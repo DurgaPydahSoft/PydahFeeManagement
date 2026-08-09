@@ -8,8 +8,9 @@ import ReminderTemplates from './ReminderConfiguration/ReminderTemplates';
 import SendReminders from './ReminderConfiguration/SendReminders';
 import ReminderRules from './ReminderConfiguration/ReminderRules';
 import ReminderSetupGuide from './ReminderConfiguration/ReminderSetupGuide';
+import ReminderReports from './ReminderConfiguration/ReminderReports';
 
-const VALID_HASHES = ['templates', 'send', 'rules', 'guide'];
+const VALID_HASHES = ['templates', 'send', 'rules', 'guide', 'reports'];
 
 const getHashValue = (hash) => {
     const cleaned = (hash || '').replace('#', '');
@@ -122,6 +123,10 @@ const ReminderConfiguration = () => {
 
                     {activeTab === 'guide' && (
                         <ReminderSetupGuide />
+                    )}
+
+                    {activeTab === 'reports' && (
+                        <ReminderReports colleges={colleges} />
                     )}
                 </main>
             </div>
