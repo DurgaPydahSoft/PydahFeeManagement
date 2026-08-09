@@ -273,6 +273,8 @@ const TransactionDateModification = () => {
                             <input
                                 type="date"
                                 value={sourceDate}
+                                onKeyDown={(e) => e.preventDefault()}
+                                onClick={(e) => e.target.showPicker?.()}
                                 onChange={(e) => setSourceDate(e.target.value)}
                                 className="w-full px-3 py-2 bg-white border border-gray-300 rounded text-sm text-gray-800 focus:outline-none focus:border-blue-600"
                             />
@@ -321,30 +323,44 @@ const TransactionDateModification = () => {
                         </div>
                     ) : (
                         <>
-                            <div className="grid grid-cols-4 gap-3 mb-4">
-                                <div className="p-3 bg-blue-50 border border-blue-200 rounded">
-                                    <span className="text-xs text-blue-700 font-semibold block">Total Amount</span>
-                                    <span className="text-lg font-bold text-blue-900">{formatCurrency(totalAmount)}</span>
-                                </div>
-                                <div className="p-3 bg-gray-50 border border-gray-200 rounded">
-                                    <span className="text-xs text-gray-600 font-semibold block">Total Transactions</span>
-                                    <span className="text-lg font-bold text-gray-800">{transactions.length}</span>
-                                </div>
-                                <div className="p-3 bg-green-50 border border-green-200 rounded">
-                                    <span className="text-xs text-green-700 font-semibold block">Cash Collections</span>
-                                    <span className="text-lg font-bold text-green-900">{formatCurrency(modeSummary['Cash']?.totalAmount || 0)}</span>
-                                </div>
-                                <div className="p-3 bg-purple-50 border border-purple-200 rounded">
-                                    <span className="text-xs text-purple-700 font-semibold block">Bank / Online</span>
-                                    <span className="text-lg font-bold text-purple-900">
-                                        {formatCurrency(
-                                            Object.entries(modeSummary)
-                                                .filter(([m]) => m !== 'Cash')
-                                                .reduce((acc, [, val]) => acc + (val.totalAmount || 0), 0)
-                                        )}
-                                    </span>
-                                </div>
-                            </div>
+                            {(() => {
+                                const selectedTotalAmount = transactions
+                                    .filter(tx => selectedIds.includes(tx._id))
+                                    .reduce((sum, tx) => sum + (tx.amount || 0), 0);
+
+                                return (
+                                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+                                        <div className="p-3.5 bg-blue-50 border border-blue-200 rounded">
+                                            <span className="text-xs text-blue-700 font-semibold block">Total Amount</span>
+                                            <span className="text-xl font-bold text-blue-900">{formatCurrency(totalAmount)}</span>
+                                        </div>
+                                        <div className="p-4 bg-amber-50 border-2 border-amber-400 rounded-lg shadow-sm">
+                                            <span className="text-xs text-amber-900 font-extrabold uppercase tracking-wider block">
+                                                Selected Amount ({selectedIds.length})
+                                            </span>
+                                            <span className="text-2xl font-black text-amber-950">{formatCurrency(selectedTotalAmount)}</span>
+                                        </div>
+                                        <div className="p-3.5 bg-gray-50 border border-gray-200 rounded">
+                                            <span className="text-xs text-gray-600 font-semibold block">Total Transactions</span>
+                                            <span className="text-xl font-bold text-gray-800">{transactions.length}</span>
+                                        </div>
+                                        <div className="p-3.5 bg-green-50 border border-green-200 rounded">
+                                            <span className="text-xs text-green-700 font-semibold block">Cash Collections</span>
+                                            <span className="text-xl font-bold text-green-900">{formatCurrency(modeSummary['Cash']?.totalAmount || 0)}</span>
+                                        </div>
+                                        <div className="p-3.5 bg-purple-50 border border-purple-200 rounded">
+                                            <span className="text-xs text-purple-700 font-semibold block">Bank / Online</span>
+                                            <span className="text-xl font-bold text-purple-900">
+                                                {formatCurrency(
+                                                    Object.entries(modeSummary)
+                                                        .filter(([m]) => m !== 'Cash')
+                                                        .reduce((acc, [, val]) => acc + (val.totalAmount || 0), 0)
+                                                )}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Course-wise summary list */}
                             {Object.keys(courseSummary).length > 0 && (
@@ -381,6 +397,8 @@ const TransactionDateModification = () => {
                                 <input
                                     type="date"
                                     value={destinationDate}
+                                    onKeyDown={(e) => e.preventDefault()}
+                                    onClick={(e) => e.target.showPicker?.()}
                                     onChange={(e) => setDestinationDate(e.target.value)}
                                     className="px-3 py-2 bg-white border border-gray-300 rounded text-sm text-gray-800 font-medium focus:outline-none focus:border-blue-600"
                                 />
@@ -403,9 +421,15 @@ const TransactionDateModification = () => {
                         </div>
 
                         <div className="flex items-center gap-3 pt-2 md:pt-0">
-                            <span className="text-xs font-semibold text-gray-500">
-                                Ready: <strong className="text-blue-700">{selectedIds.length}</strong> items selected
-                            </span>
+                            <div className="bg-amber-100 border border-amber-300 px-3.5 py-1.5 rounded-lg flex items-center gap-2 text-amber-950">
+                                <span className="text-xs font-bold uppercase tracking-wide text-amber-900">Selected Total:</span>
+                                <span className="text-base font-black text-amber-950">{formatCurrency(
+                                    transactions
+                                        .filter(tx => selectedIds.includes(tx._id))
+                                        .reduce((sum, tx) => sum + (tx.amount || 0), 0)
+                                )}</span>
+                                <span className="text-xs font-bold text-amber-800">({selectedIds.length} txns)</span>
+                            </div>
                             <button
                                 onClick={handleSaveChanges}
                                 disabled={saving || selectedIds.length === 0}

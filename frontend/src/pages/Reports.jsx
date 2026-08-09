@@ -1797,6 +1797,8 @@ const Reports = () => {
                                             type="date"
                                             className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-24"
                                             value={startDate}
+                                            onKeyDown={(e) => e.preventDefault()}
+                                            onClick={(e) => e.target.showPicker?.()}
                                             onChange={e => handleDateChange('start', e.target.value)}
                                         />
                                         <span className="text-gray-300 mx-1">to</span>
@@ -1804,6 +1806,8 @@ const Reports = () => {
                                             type="date"
                                             className="bg-transparent border-none p-0 text-xs font-bold text-gray-700 focus:ring-0 cursor-pointer w-24"
                                             value={endDate}
+                                            onKeyDown={(e) => e.preventDefault()}
+                                            onClick={(e) => e.target.showPicker?.()}
                                             onChange={e => handleDateChange('end', e.target.value)}
                                         />
                                     </div>
