@@ -604,10 +604,18 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
     );
 };
 
+const formatLocalYYYYMMDD = (d = new Date()) => {
+    const date = new Date(d);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const Reports = () => {
     const [activeTab, setActiveTab] = useState('daily');
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(formatLocalYYYYMMDD());
+    const [endDate, setEndDate] = useState(formatLocalYYYYMMDD());
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(false);
     const [summary, setSummary] = useState({ totalConfirm: 0, count: 0 });
@@ -1353,8 +1361,8 @@ const Reports = () => {
             default:
                 break;
         }
-        setStartDate(start.toISOString().split('T')[0]);
-        setEndDate(end.toISOString().split('T')[0]);
+        setStartDate(formatLocalYYYYMMDD(start));
+        setEndDate(formatLocalYYYYMMDD(end));
     };
 
     const handleDateChange = (type, value) => {

@@ -32,22 +32,19 @@ const resolveCollectionTimestamps = (req, paymentDateInput) => {
   }
 
   const raw = String(paymentDateInput).trim();
-  // Expect YYYY-MM-DD from <input type="date">
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) {
     return { paymentDate: now, createdAt: now, updatedAt: now };
   }
 
-  const y = Number(m[1]);
-  const mo = Number(m[2]) - 1;
-  const d = Number(m[3]);
-  // Keep current clock time on the chosen calendar day (local server/IST wall clock).
-  const chosen = new Date(y, mo, d, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  // Create Date at 12:00:00 PM IST (+05:30) for exact IST day alignment across all server timezones
+  const chosen = new Date(`${raw}T12:00:00+05:30`);
   if (Number.isNaN(chosen.getTime())) {
     return { paymentDate: now, createdAt: now, updatedAt: now };
   }
   return { paymentDate: chosen, createdAt: chosen, updatedAt: chosen };
 };
+
 
 // Helper to determine the current financial year (e.g. 2026-27)
 const calculateFinancialYear = (date, resetMonth = 4, resetDay = 1) => {

@@ -75,7 +75,8 @@ const getTransactionReports = async (req, res) => {
                     orConditions.push({ collectedByName: normName });
                 }
             }
-            matchStage.$or = orConditions;
+            if (!matchStage.$and) matchStage.$and = [];
+            matchStage.$and.push({ $or: orConditions });
         }
 
         // Date Filter (IST-aligned) — paymentDate (collection date), fallback createdAt
@@ -83,22 +84,28 @@ const getTransactionReports = async (req, res) => {
 
         const User = require('../models/User');
         const usersListForMapping = await User.find({}).lean();
-        const userIdMap = {};
-        const userIdNameMap = {};
-        const nameToUsernameMap = {};
+        const sessionMap = {};
+        const idMap = {};
+        const usernameMap = {};
+        const nameMap = {};
+
         usersListForMapping.forEach(u => {
-            const uidStr = String(u._id);
-            if (u.username) {
-                userIdMap[uidStr] = u.username;
-            }
-            if (u.name) {
-                userIdNameMap[uidStr] = u.name;
-                const norm = u.name.replace(/\s+/g, ' ').toLowerCase().trim();
-                if (u.username) {
-                    nameToUsernameMap[norm] = u.username;
-                }
-            }
+            if (u.sessionId) sessionMap[String(u.sessionId)] = u;
+            if (u._id) idMap[String(u._id)] = u;
+            if (u.username) usernameMap[String(u.username).toLowerCase()] = u;
+            if (u.name) nameMap[String(u.name).replace(/\s+/g, ' ').toLowerCase().trim()] = u;
         });
+
+        const mapCashierInfo = (tx) => {
+            const cb = String(tx.collectedBy || '').trim();
+            const cbn = String(tx.collectedByName || '').trim();
+
+            const matchedUser = sessionMap[cb] || idMap[cb] || usernameMap[cb.toLowerCase()] || (cbn ? nameMap[cbn.toLowerCase()] : null);
+            if (matchedUser) {
+                tx.collectedBy = matchedUser.username || cb;
+                tx.collectedByName = matchedUser.name || cbn || matchedUser.username;
+            }
+        };
 
         // College Filter will be applied in-memory after SQL enrichment, since college is not directly stored on Transaction
         // The college query param will be used to filter student data after fetching from SQL
@@ -110,20 +117,11 @@ const getTransactionReports = async (req, res) => {
             // --- Advanced Cashier Report with College Breakdown (Includes Cancelled) ---
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
+            if (Array.isArray(matchStage.$and)) {
+                matchStageWithCancelled.$and = [...matchStage.$and];
+            }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
-            transactions.forEach(tx => {
-                const cbStr = String(tx.collectedBy || '');
-                if (userIdMap[cbStr]) {
-                    tx.collectedBy = userIdMap[cbStr];
-                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
-                } else if (tx.collectedByName) {
-                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
-                    const resolvedUsername = nameToUsernameMap[normName];
-                    if (resolvedUsername) {
-                        tx.collectedBy = resolvedUsername;
-                    }
-                }
-            });
+            transactions.forEach(tx => mapCashierInfo(tx));
 
             if (!transactions.length) {
                 return res.json([]);
@@ -357,20 +355,11 @@ const getTransactionReports = async (req, res) => {
             // Enhanced Fee Head Report — fetch full transactions for detail view + print
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
+            if (Array.isArray(matchStage.$and)) {
+                matchStageWithCancelled.$and = [...matchStage.$and];
+            }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
-            transactions.forEach(tx => {
-                const cbStr = String(tx.collectedBy || '');
-                if (userIdMap[cbStr]) {
-                    tx.collectedBy = userIdMap[cbStr];
-                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
-                } else if (tx.collectedByName) {
-                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
-                    const resolvedUsername = nameToUsernameMap[normName];
-                    if (resolvedUsername) {
-                        tx.collectedBy = resolvedUsername;
-                    }
-                }
-            });
+            transactions.forEach(tx => mapCashierInfo(tx));
 
             // Resolve fee head names
             const fhFeeHeadIds = new Set();
@@ -470,20 +459,11 @@ const getTransactionReports = async (req, res) => {
             // --- Advanced College Report with Cashier Breakdown (Includes Cancelled) ---
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
+            if (Array.isArray(matchStage.$and)) {
+                matchStageWithCancelled.$and = [...matchStage.$and];
+            }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
-            transactions.forEach(tx => {
-                const cbStr = String(tx.collectedBy || '');
-                if (userIdMap[cbStr]) {
-                    tx.collectedBy = userIdMap[cbStr];
-                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
-                } else if (tx.collectedByName) {
-                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
-                    const resolvedUsername = nameToUsernameMap[normName];
-                    if (resolvedUsername) {
-                        tx.collectedBy = resolvedUsername;
-                    }
-                }
-            });
+            transactions.forEach(tx => mapCashierInfo(tx));
 
             if (!transactions.length) {
                 return res.json([]);
@@ -749,20 +729,11 @@ const getTransactionReports = async (req, res) => {
             // --- Advanced Account-wise Report (Includes Cancelled) ---
             const matchStageWithCancelled = { ...matchStage };
             delete matchStageWithCancelled.status;
+            if (Array.isArray(matchStage.$and)) {
+                matchStageWithCancelled.$and = [...matchStage.$and];
+            }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
-            transactions.forEach(tx => {
-                const cbStr = String(tx.collectedBy || '');
-                if (userIdMap[cbStr]) {
-                    tx.collectedBy = userIdMap[cbStr];
-                    if (userIdNameMap[cbStr]) tx.collectedByName = userIdNameMap[cbStr];
-                } else if (tx.collectedByName) {
-                    const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
-                    const resolvedUsername = nameToUsernameMap[normName];
-                    if (resolvedUsername) {
-                        tx.collectedBy = resolvedUsername;
-                    }
-                }
-            });
+            transactions.forEach(tx => mapCashierInfo(tx));
 
             const PaymentConfig = require('../models/PaymentConfig');
             const configs = await PaymentConfig.find({}).lean();
@@ -994,9 +965,9 @@ const getTransactionReports = async (req, res) => {
         } else {
             // Default Day
             groupId = {
-                year: { $year: { $ifNull: ["$paymentDate", "$createdAt"] } },
-                month: { $month: { $ifNull: ["$paymentDate", "$createdAt"] } },
-                day: { $dayOfMonth: { $ifNull: ["$paymentDate", "$createdAt"] } }
+                year: { $year: { date: { $ifNull: ["$paymentDate", "$createdAt"] }, timezone: "Asia/Kolkata" } },
+                month: { $month: { date: { $ifNull: ["$paymentDate", "$createdAt"] }, timezone: "Asia/Kolkata" } },
+                day: { $dayOfMonth: { date: { $ifNull: ["$paymentDate", "$createdAt"] }, timezone: "Asia/Kolkata" } }
             };
             pipeline = [
                 { $match: matchStage },

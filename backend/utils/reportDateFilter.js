@@ -23,14 +23,20 @@ const buildIstDayBounds = (startDate, endDate) => {
 const buildCollectionDateMatch = (startDate, endDate) => {
     if (!startDate && !endDate) return {};
     const range = buildIstDayBounds(startDate, endDate);
+    
     return {
         $or: [
+            // Primary: paymentDate is Date within IST day range
             { paymentDate: range },
+            // Fallback for legacy rows missing paymentDate
             { paymentDate: { $exists: false }, createdAt: range },
             { paymentDate: null, createdAt: range }
         ]
     };
 };
+
+
+
 
 /**
  * Build MongoDB date filter for collection/transaction date.
