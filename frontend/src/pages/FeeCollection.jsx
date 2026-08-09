@@ -8,6 +8,20 @@ import { getFeeCollectionCache, setFeeCollectionCache, getOrCreateFeeCollectionF
 
 const fmtAmount = (value) => Number(value ?? 0).toLocaleString('en-IN');
 
+const formatDateDDMonthYYYY = (dateVal) => {
+    if (!dateVal) return '-';
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '-';
+    const day = d.getDate();
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const month = monthNames[d.getMonth()];
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+};
+
 const buildStudentsQueryKey = () => {
     const user = JSON.parse(localStorage.getItem('user') || 'null');
     const isSuperAdmin = user?.role === 'superadmin';
@@ -2518,11 +2532,11 @@ const TransactionRow = ({ transaction, allTransactions, student, totalDue, setti
     return (
         <tr className={`transition-colors group ${isCancelled ? 'bg-gray-50 opacity-60' : 'hover:bg-gray-50'}`}>
             <td className="py-1.5 px-3 text-[11px] text-gray-500 whitespace-nowrap">
-                {new Date(transaction.paymentDate || transaction.createdAt).toLocaleDateString()}
+                <div className="font-semibold text-gray-800">{formatDateDDMonthYYYY(transaction.paymentDate || transaction.createdAt)}</div>
                 <div className="text-[9px] text-gray-400">{new Date(transaction.paymentDate || transaction.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 {transaction.referenceDate && (
                     <div className="text-[9px] text-blue-600 mt-0.5" title="Original Transfer Date">
-                        Ref: {new Date(transaction.referenceDate).toLocaleDateString()}
+                        Ref: {formatDateDDMonthYYYY(transaction.referenceDate)}
                     </div>
                 )}
             </td>
