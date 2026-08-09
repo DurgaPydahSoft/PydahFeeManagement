@@ -22,6 +22,7 @@ export const APP_ROUTES = [
   '/settings',
   '/user-profile',
   '/proceedings',
+  '/transaction-dates',
 ];
 
 const ROUTE_SET = new Set(APP_ROUTES);

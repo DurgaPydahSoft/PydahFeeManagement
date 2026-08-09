@@ -357,23 +357,32 @@ const mapTransactionCashiers = async (transactions) => {
     
     users.forEach(u => {
       const uidStr = String(u._id);
-      if (u.username) userIdMap[uidStr] = u.username;
-      if (u.name) {
-        userIdNameMap[uidStr] = u.name;
-        const norm = u.name.replace(/\s+/g, ' ').toLowerCase().trim();
-        if (u.username) nameToUsernameMap[norm] = u.username;
+      const username = u.username;
+      const name = u.name;
+      
+      if (username) {
+        userIdMap[uidStr] = username;
+        if (u.sessionId) userIdMap[String(u.sessionId)] = username;
+      }
+      if (name) {
+        userIdNameMap[uidStr] = name;
+        if (u.sessionId) userIdNameMap[String(u.sessionId)] = name;
+        const norm = name.replace(/\s+/g, ' ').toLowerCase().trim();
+        if (username) nameToUsernameMap[norm] = username;
       }
     });
 
     const list = Array.isArray(transactions) ? transactions : [transactions];
     list.forEach(tx => {
-      const cbStr = String(tx.collectedBy || '');
+      const cbStr = String(tx.collectedBy || '').trim();
+      
       if (userIdMap[cbStr]) {
         tx.collectedBy = userIdMap[cbStr];
         if (userIdNameMap[cbStr]) {
           tx.collectedByName = userIdNameMap[cbStr];
         }
-      } else if (tx.collectedByName) {
+      }
+      if (tx.collectedByName) {
         const normName = String(tx.collectedByName).replace(/\s+/g, ' ').toLowerCase().trim();
         const resolvedUsername = nameToUsernameMap[normName];
         if (resolvedUsername) {
@@ -750,6 +759,190 @@ const cancelTransaction = async (req, res) => {
   }
 };
 
+// @desc    Get transactions by specific date (for Transaction Date Modification page)
+// @route   GET /api/transactions/by-date
+const getTransactionsByDate = async (req, res) => {
+  try {
+    const { date, collector } = req.query;
+    if (!date) {
+      return res.status(400).json({ message: 'Date parameter (date=YYYY-MM-DD) is required' });
+    }
+
+    const { buildCollectionDateMatch } = require('../utils/reportDateFilter');
+    const dateQuery = buildCollectionDateMatch(date, date);
+
+    const query = {
+      status: { $ne: 'cancelled' },
+      remarks: { $ne: 'Concession as per declaration' },
+      ...dateQuery
+    };
+
+    if (collector && collector !== 'ALL') {
+      const User = require('../models/User');
+      const isObjectId = mongoose.Types.ObjectId.isValid(collector);
+      const matchedUser = await User.findOne({
+        $or: [
+          { username: collector },
+          ...(isObjectId ? [{ _id: collector }] : [])
+        ]
+      }).lean();
+
+      const collectorIdentifiers = [collector];
+      let collectorName = null;
+
+      if (matchedUser) {
+        if (matchedUser.username) collectorIdentifiers.push(matchedUser.username);
+        collectorIdentifiers.push(String(matchedUser._id));
+        if (matchedUser.sessionId) collectorIdentifiers.push(String(matchedUser.sessionId));
+        if (matchedUser.name) collectorName = matchedUser.name;
+      }
+
+      const uniqueIdentifiers = [...new Set(collectorIdentifiers)];
+      const collectorMatchConditions = [{ collectedBy: { $in: uniqueIdentifiers } }];
+      if (collectorName) {
+        collectorMatchConditions.push({ collectedByName: collectorName });
+      }
+      query.$or = collectorMatchConditions;
+    }
+
+    // Role-based scope filtering for non-superadmin
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) {
+      const userColleges = await collegeScope.getUserCollegeNames(req.user);
+      if (userColleges && userColleges.length > 0) {
+        const [studentRows] = await db.query(
+          `SELECT admission_number FROM students WHERE college IN (${userColleges.map(() => '?').join(',')})`,
+          userColleges
+        );
+        if (studentRows && studentRows.length > 0) {
+          const allowedStudentIds = studentRows.map(row => String(row.admission_number).trim());
+          query.studentId = { $in: allowedStudentIds };
+        } else {
+          return res.json({
+            transactions: [],
+            collectors: [],
+            courseSummary: {},
+            modeSummary: {},
+            totalAmount: 0,
+            totalCount: 0
+          });
+        }
+      }
+    }
+
+    const transactions = await Transaction.find(query)
+      .populate('feeHead', 'name')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    await mapTransactionCashiers(transactions);
+
+    // Fetch all distinct collectors for date filter dropdown and normalize by Emp No
+    const allDateTxs = await Transaction.find({
+      status: { $ne: 'cancelled' },
+      remarks: { $ne: 'Concession as per declaration' },
+      ...dateQuery
+    }).select('collectedBy collectedByName').lean();
+
+    await mapTransactionCashiers(allDateTxs);
+
+    const collectorsMap = {};
+    allDateTxs.forEach(t => {
+      if (t.collectedBy) {
+        collectorsMap[t.collectedBy] = t.collectedByName || t.collectedBy;
+      }
+    });
+    const collectorsList = Object.entries(collectorsMap).map(([username, name]) => ({
+      username,
+      name
+    }));
+
+    // Calculate summaries
+    const courseSummary = {};
+    const modeSummary = {};
+    let totalAmount = 0;
+
+    transactions.forEach(t => {
+      const amt = Number(t.amount) || 0;
+      totalAmount += amt;
+
+      const courseName = t.course || 'Unspecified Course';
+      if (!courseSummary[courseName]) {
+        courseSummary[courseName] = { count: 0, totalAmount: 0 };
+      }
+      courseSummary[courseName].count += 1;
+      courseSummary[courseName].totalAmount += amt;
+
+      const mode = t.paymentMode || 'Cash';
+      if (!modeSummary[mode]) {
+        modeSummary[mode] = { count: 0, totalAmount: 0 };
+      }
+      modeSummary[mode].count += 1;
+      modeSummary[mode].totalAmount += amt;
+    });
+
+    res.json({
+      transactions,
+      collectors: collectorsList,
+      courseSummary,
+      modeSummary,
+      totalAmount,
+      totalCount: transactions.length
+    });
+  } catch (error) {
+    console.error('Error fetching transactions by date:', error);
+    res.status(500).json({ message: 'Error fetching transactions by date', error: error.message });
+  }
+};
+
+// @desc    Bulk update transaction dates
+// @route   PUT /api/transactions/bulk-date-update
+const bulkUpdateTransactionDates = async (req, res) => {
+  try {
+    const isAuthorized = req.user?.role === 'superadmin' ||
+      req.user?.role === 'admin' ||
+      (req.user?.permissions && (req.user.permissions.includes('fee_collection_edit') || req.user.permissions.includes('fee_collection_delete')));
+
+    if (!isAuthorized) {
+      return res.status(403).json({ message: 'Forbidden: Insufficient permissions to modify transaction dates' });
+    }
+
+    const { updates, transactionIds, destinationDate } = req.body;
+
+    let itemsToUpdate = [];
+
+    if (Array.isArray(updates) && updates.length > 0) {
+      itemsToUpdate = updates;
+    } else if (Array.isArray(transactionIds) && transactionIds.length > 0 && destinationDate) {
+      itemsToUpdate = transactionIds.map(id => ({ id, newDate: destinationDate }));
+    } else {
+      return res.status(400).json({ message: 'Please provide transaction updates or transactionIds with destinationDate' });
+    }
+
+    let updatedCount = 0;
+    for (const item of itemsToUpdate) {
+      if (!item.id || !item.newDate) continue;
+      const tx = await Transaction.findById(item.id);
+      if (!tx || tx.status === 'cancelled') continue;
+
+      const timestamps = resolveCollectionTimestamps(req, item.newDate);
+      tx.paymentDate = timestamps.paymentDate;
+      tx.set('createdAt', timestamps.createdAt);
+      tx.set('updatedAt', new Date());
+      await tx.save({ timestamps: false });
+      updatedCount += 1;
+    }
+
+    res.json({
+      message: `Successfully updated dates for ${updatedCount} transactions`,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('Error bulk updating transaction dates:', error);
+    res.status(500).json({ message: 'Error updating transaction dates', error: error.message });
+  }
+};
+
 module.exports = {
   addTransaction,
   getStudentTransactions,
@@ -757,5 +950,8 @@ module.exports = {
   updateTransactionPaymentMode,
   getRecentTransactions,
   deleteTransaction,
-  cancelTransaction
+  cancelTransaction,
+  getTransactionsByDate,
+  bulkUpdateTransactionDates
 };
+

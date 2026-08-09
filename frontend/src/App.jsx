@@ -25,6 +25,7 @@ import Proceedings from './pages/Proceedings';
 import Reports from './pages/Reports';
 import DueReports from './pages/DueReports';
 import VerifyReceipt from './pages/VerifyReceipt';
+import TransactionDateModification from './pages/TransactionDateModification';
 import useSessionGuard from './lib/useSessionGuard';
 import SessionDisplacedModal from './components/SessionDisplacedModal';
 import { isAuthenticated, getStoredUser } from './lib/auth';
@@ -56,6 +57,13 @@ const ProtectedRoute = ({ children }) => {
     return children;
   }
   
+  // Transaction Dates modification page is allowed if user has edit or delete permissions
+  if (location.pathname === '/transaction-dates') {
+    if (permissions.includes('fee_collection_edit') || permissions.includes('fee_collection_delete') || permissions.includes('/fee-collection')) {
+      return children;
+    }
+  }
+
   // Check if user has permission for the current path
   const hasPermission = permissions.includes(location.pathname);
   if (!hasPermission) {
@@ -114,10 +122,12 @@ function App() {
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/user-profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
           <Route path="/proceedings" element={<ProtectedRoute><Proceedings /></ProtectedRoute>} />
+          <Route path="/transaction-dates" element={<ProtectedRoute><TransactionDateModification /></ProtectedRoute>} />
         </Routes>
       </Suspense>
     </Router>
   );
 }
+
 
 export default App;

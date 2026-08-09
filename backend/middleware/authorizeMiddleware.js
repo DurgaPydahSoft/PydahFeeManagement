@@ -119,16 +119,17 @@ const hasPermission = (user, permissionList = []) => {
 
 const checkTransactionAccess = (req, user) => {
   if (req.method === 'PUT') {
-    return hasPermission(user, ['fee_collection_edit']);
+    return hasPermission(user, ['fee_collection_edit', 'fee_collection_delete']);
   }
 
   if (req.method === 'DELETE') {
     return hasPermission(user, ['fee_collection_delete']);
   }
 
-  if (req.method !== 'POST') {
-    return hasPermission(user, ['/fee-collection', '/bulk-fee-upload']);
+  if (req.method === 'GET') {
+    return hasPermission(user, ['/fee-collection', '/bulk-fee-upload', 'fee_collection_edit', 'fee_collection_delete']);
   }
+
 
   const body = req.body || {};
   const firstTx = Array.isArray(body.transactions) ? body.transactions[0] : body;
