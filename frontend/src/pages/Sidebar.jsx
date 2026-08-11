@@ -78,6 +78,7 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { name: 'Templates',      hash: 'templates' },
         { name: 'Send Reminders',  hash: 'send' },
         { name: 'Reminder Rules',  hash: 'rules' },
+        { name: 'Reminder Reports', hash: 'reports' },
         { name: 'Setup Guide',     hash: 'guide' },
     ];
 

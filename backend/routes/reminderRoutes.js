@@ -9,7 +9,10 @@ const {
     getConfigs,
     deleteConfig,
     updateConfig,
-    getVariableSources
+    getVariableSources,
+    getReminderReportStats,
+    getSentReminderLogs,
+    getUpcomingReminders
 } = require('../controllers/reminderController');
 
 router.get('/variable-sources', getVariableSources);
@@ -24,5 +27,9 @@ router.post('/config', createConfig);
 router.get('/config', getConfigs);
 router.put('/config/:id', updateConfig);
 router.delete('/config/:id', deleteConfig);
+
+router.get('/reports/stats', getReminderReportStats);
+router.get('/reports/logs', getSentReminderLogs);
+router.get('/reports/upcoming', getUpcomingReminders);
 
 module.exports = router;

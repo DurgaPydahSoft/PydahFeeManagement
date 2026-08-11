@@ -1,5 +1,10 @@
 const NotificationTemplate = require('../models/NotificationTemplate');
 const ReminderConfig = require('../models/ReminderConfig');
+const SentReminderLog = require('../models/SentReminderLog');
+const FeeStructure = require('../models/FeeStructure');
+const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
+const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
+const db = require('../config/sqlDb');
 const sendEmail = require('../utils/sendEmail');
 const { sendSMS } = require('../utils/sendSMS');
 const {
@@ -40,6 +45,36 @@ const expandBySmsRecipients = (recipients, smsRecipients) => {
     return expanded;
 };
 
+const logSentReminder = async (recipient, type, template, status, message, body, subject = '', recipientVal = '') => {
+    try {
+        const studentId = recipient.admission_number || recipient.studentId || recipient.student?.admission_number || 'Unknown';
+        const studentName = recipient.student_name || recipient.studentName || recipient.student?.student_name || 'Unknown';
+        const college = recipient.college || recipient.student?.college || 'Unknown';
+        const course = recipient.course || recipient.student?.course || '';
+        const branch = recipient.branch || recipient.student?.branch || '';
+        const pinNo = recipient.pin_no || recipient.student?.pin_no || '';
+
+        await SentReminderLog.create({
+            studentId,
+            studentName,
+            college,
+            course,
+            branch,
+            pinNo,
+            recipient: recipientVal || 'Unknown',
+            type,
+            templateId: template._id,
+            templateName: template.name,
+            subject,
+            body,
+            status,
+            message
+        });
+    } catch (err) {
+        console.error('Error logging sent reminder:', err);
+    }
+};
+
 const processRemindersBatch = async (templateId, recipients, { smsRecipients } = {}) => {
     if (!templateId || !recipients || recipients.length === 0) {
         throw new Error('Template ID and recipients are required');
@@ -60,6 +95,7 @@ const processRemindersBatch = async (templateId, recipients, { smsRecipients } =
             const recipientEmail = recipient.email || recipient.student_email || recipient.student?.email || recipient.parent_email;
 
             if (!recipientEmail) {
+                await logSentReminder(recipient, 'EMAIL', template, 'failed', 'No email address found', template.body, template.subject || '', 'No email found');
                 return { admission_number: recipient.admission_number, status: 'failed', message: 'No email address found' };
             }
 
@@ -73,9 +109,11 @@ const processRemindersBatch = async (templateId, recipients, { smsRecipients } =
                     message: messageBody,
                     html: messageBody.replace(/\n/g, '<br>')
                 });
+                await logSentReminder(recipient, 'EMAIL', template, 'success', 'Email sent successfully', messageBody, subject || template.subject, recipientEmail);
                 return { admission_number: recipient.admission_number, status: 'success', message: 'Email sent successfully' };
             } catch (emailError) {
                 console.error(`Failed to send email to ${recipientEmail}:`, emailError);
+                await logSentReminder(recipient, 'EMAIL', template, 'failed', emailError.message || 'Failed to send email', messageBody, subject || template.subject, recipientEmail);
                 return { admission_number: recipient.admission_number, status: 'failed', message: emailError.message || 'Failed to send email' };
             }
         });
@@ -91,6 +129,7 @@ const processRemindersBatch = async (templateId, recipients, { smsRecipients } =
             const mobile = recipient.phone || recipient.student_mobile || recipient.student?.student_mobile || recipient.mobile_number;
 
             if (!mobile || String(mobile).length < 10) {
+                await logSentReminder(recipient, 'SMS', template, 'failed', 'No valid mobile number', template.body, '', mobile || 'No mobile found');
                 return { admission_number: recipient.admission_number, status: 'failed', message: 'No valid mobile number' };
             }
 
@@ -98,9 +137,11 @@ const processRemindersBatch = async (templateId, recipients, { smsRecipients } =
 
             try {
                 await sendSMS(mobile, messageBody, { templateId: template.templateId });
+                await logSentReminder(recipient, 'SMS', template, 'success', 'SMS sent successfully', messageBody, '', mobile);
                 return { admission_number: recipient.admission_number, status: 'success', message: 'SMS sent successfully' };
             } catch (smsError) {
                 console.error(`Failed to send SMS to ${mobile}:`, smsError);
+                await logSentReminder(recipient, 'SMS', template, 'failed', smsError.message || 'Failed to send SMS', messageBody, '', mobile);
                 return { admission_number: recipient.admission_number, status: 'failed', message: smsError.message || 'Failed to send SMS' };
             }
         });
@@ -296,6 +337,324 @@ const updateConfig = async (req, res) => {
     }
 };
 
+const getReminderReportStats = async (req, res) => {
+    try {
+        const totalSuccess = await SentReminderLog.countDocuments({ status: 'success' });
+        const totalFailed = await SentReminderLog.countDocuments({ status: 'failed' });
+        const totalSent = totalSuccess + totalFailed;
+        const successRate = totalSent > 0 ? Math.round((totalSuccess / totalSent) * 100) : 100;
+        
+        const activeRulesCount = await ReminderConfig.countDocuments({ isActive: true });
+        
+        res.json({
+            totalSent,
+            totalSuccess,
+            totalFailed,
+            successRate,
+            activeRulesCount
+        });
+    } catch (error) {
+        console.error('Error fetching reminder report stats:', error);
+        res.status(500).json({ message: 'Error fetching report stats' });
+    }
+};
+
+const getSentReminderLogs = async (req, res) => {
+    try {
+        const { search, status, type, college, startDate, endDate, page = 1, limit = 20 } = req.query;
+        const query = {};
+
+        if (status) query.status = status;
+        if (type) query.type = type;
+        if (college) query.college = college;
+
+        if (startDate || endDate) {
+            query.sentAt = {};
+            if (startDate) query.sentAt.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.sentAt.$lte = end;
+            }
+        }
+
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            query.$or = [
+                { studentId: searchRegex },
+                { studentName: searchRegex },
+                { pinNo: searchRegex },
+                { recipient: searchRegex },
+                { templateName: searchRegex },
+                { body: searchRegex }
+            ];
+        }
+
+        const skip = (Number(page) - 1) * Number(limit);
+        const [logs, total] = await Promise.all([
+            SentReminderLog.find(query)
+                .sort({ sentAt: -1 })
+                .skip(skip)
+                .limit(Number(limit))
+                .lean(),
+            SentReminderLog.countDocuments(query)
+        ]);
+
+        res.json({
+            logs,
+            pagination: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                totalPages: Math.ceil(total / Number(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching sent reminder logs:', error);
+        res.status(500).json({ message: 'Error fetching sent logs' });
+    }
+};
+
+const getUpcomingReminders = async (req, res) => {
+    try {
+        const activeConfigs = await ReminderConfig.find({ isActive: true })
+            .populate('smsTemplateId', 'name body')
+            .populate('emailTemplateId', 'name body')
+            .lean();
+
+        // 1. Get all semesters from SQL database to avoid n+1 query calls
+        const [semesters] = await db.query(`
+            SELECT s.semester_number, s.start_date, c.name as course, cl.name as college, s.batch, s.year_of_study
+            FROM semesters s
+            JOIN courses c ON s.course_id = c.id
+            JOIN colleges cl ON s.college_id = cl.id
+            WHERE s.start_date IS NOT NULL
+        `);
+
+        // 2. Fetch default late fee configs
+        const defaultConfigs = await DefaultLateFeeConfig.find({ isActive: true }).lean();
+
+        // 3. Define target window (tomorrow to today + 30 days)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const limitDate = new Date(today);
+        limitDate.setDate(limitDate.getDate() + 30);
+        limitDate.setHours(23, 59, 59, 999);
+
+        const upcoming = [];
+
+        // 4. Map active rules
+        for (const config of activeConfigs) {
+            const offsets = config.offsets || [];
+            const triggerType = config.triggerType; // BEFORE, AFTER
+            const quotasFilter = config.quotas?.length > 0 ? new Set(config.quotas) : null;
+            const collegesFilter = config.colleges?.length > 0 ? new Set(config.colleges) : null;
+            const coursesFilter = config.courses?.length > 0 ? new Set(config.courses) : null;
+
+            if (config.dueSourceType === 'ACADEMIC') {
+                // Find all applicable Mongoose fee structures matching academicYear
+                const structures = await FeeStructure.find({
+                    academicYear: config.academicYear
+                }).populate('feeHead', 'name code').lean();
+
+                for (const struct of structures) {
+                    // Filter matching structures
+                    if (quotasFilter && !quotasFilter.has(struct.category)) continue;
+                    if (collegesFilter && !collegesFilter.has(struct.college)) continue;
+                    if (coursesFilter && !coursesFilter.has(struct.course)) continue;
+
+                    const terms = struct.terms || [];
+                    const termsCount = terms.length || 1;
+                    const defCfg = defaultConfigs.find((c) => Number(c.termsCount) === termsCount);
+
+                    for (const st of terms) {
+                        const dt = defCfg ? (defCfg.terms || []).find((t) => Number(t.termNumber) === Number(st.termNumber)) : null;
+                        const timingTerm = {
+                            ...st,
+                            dueDateMode: st.dueDateMode || dt?.dueDateMode || 'offset',
+                            referenceSemester: st.referenceSemester || dt?.referenceSemester || 1,
+                            dueOffsetDays: (st.dueOffsetDays !== undefined && st.dueOffsetDays !== 0)
+                                ? Number(st.dueOffsetDays)
+                                : (Number(dt?.dueOffsetDays) || 0),
+                            fixedDueDate: st.fixedDueDate || dt?.fixedDueDate || null
+                        };
+
+                        // Resolve due date
+                        let dueDate = null;
+                        if (timingTerm.dueDateMode === 'fixed') {
+                            if (timingTerm.fixedDueDate) {
+                                dueDate = new Date(timingTerm.fixedDueDate);
+                                dueDate.setHours(0, 0, 0, 0);
+                            }
+                        } else {
+                            const batchKey = String(struct.batch || '').split('-')[0].trim();
+                            const targetSem = Number(timingTerm.referenceSemester) || 1;
+                            const semMatch = (semesters || []).find(s => 
+                                Number(s.semester_number) === targetSem &&
+                                s.course === struct.course &&
+                                s.college === struct.college &&
+                                String(s.batch) === batchKey &&
+                                Number(s.year_of_study) === Number(struct.studentYear)
+                            );
+                            if (semMatch && semMatch.start_date) {
+                                dueDate = new Date(semMatch.start_date);
+                                dueDate.setDate(dueDate.getDate() + (Number(timingTerm.dueOffsetDays) || 0));
+                                dueDate.setHours(0, 0, 0, 0);
+                            }
+                        }
+
+                        if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
+
+                        for (const offset of offsets) {
+                            const triggerDate = new Date(dueDate);
+                            if (triggerType === 'BEFORE') {
+                                triggerDate.setDate(triggerDate.getDate() - offset);
+                            } else {
+                                triggerDate.setDate(triggerDate.getDate() + offset);
+                            }
+                            triggerDate.setHours(0, 0, 0, 0);
+
+                            if (triggerDate >= tomorrow && triggerDate <= limitDate) {
+                                // Fetch count of regular students matching cohort
+                                const [[{ count }]] = await db.query(
+                                    `SELECT COUNT(*) as count FROM students 
+                                     WHERE college = ? AND course = ? AND branch = ? AND batch = ? 
+                                       AND current_year = ? AND stud_type = ? AND LOWER(student_status) = 'regular'`,
+                                    [struct.college, struct.course, struct.branch, struct.batch, struct.studentYear, struct.category]
+                                );
+
+                                upcoming.push({
+                                    triggerDate,
+                                    dueSource: 'ACADEMIC',
+                                    templateName: config.smsTemplateId?.name || config.emailTemplateId?.name || 'Academic Reminder',
+                                    triggerType,
+                                    offset,
+                                    dueDate,
+                                    cohort: `${struct.college} - ${struct.course} - Year ${struct.studentYear} (${struct.category})`,
+                                    estimatedRecipients: count
+                                });
+                            }
+                        }
+                    }
+                }
+            } else {
+                // hostel / transport
+                const type = config.dueSourceType; // HOSTEL | TRANSPORT
+                const serviceConfigs = await ServiceLateFeeConfig.find({
+                    academicYear: config.academicYear,
+                    type
+                }).populate('applicableFeeHead', 'name code').lean();
+
+                for (const svc of serviceConfigs) {
+                    if (collegesFilter && !collegesFilter.has(svc.college)) continue;
+                    if (coursesFilter && svc.course && !coursesFilter.has(svc.course)) continue;
+
+                    const termsCount = Number(svc.defaultTermsCount) || (svc.defaultTerms || []).length || 1;
+                    const rule = (svc.lateFeeRules || []).find((r) => Number(r.termsCount) === termsCount);
+                    const fallbackDefault = defaultConfigs.find((c) => Number(c.termsCount) === termsCount);
+
+                    const timingTerms = (svc.defaultTerms || [])
+                        .filter((t) => t && Number(t.percentage) > 0)
+                        .map((t, idx) => {
+                            const termNum = Number(t.termNumber) || idx + 1;
+                            const rt = rule?.terms?.find((item) => Number(item.termNumber) === termNum);
+                            const dt = fallbackDefault?.terms?.find((item) => Number(item.termNumber) === termNum);
+                            return {
+                                termNumber: termNum,
+                                dueDateMode: rt?.dueDateMode || dt?.dueDateMode || 'offset',
+                                referenceSemester: rt?.referenceSemester || dt?.referenceSemester || 1,
+                                dueOffsetDays: (rt?.dueOffsetDays !== undefined && rt?.dueOffsetDays !== null)
+                                    ? Number(rt.dueOffsetDays)
+                                    : (Number(dt?.dueOffsetDays) || 0),
+                                fixedDueDate: rt?.fixedDueDate || dt?.fixedDueDate || null
+                            };
+                        });
+
+                    const timingTermsToUse = timingTerms.length ? timingTerms : [{
+                        termNumber: 1,
+                        dueDateMode: 'offset',
+                        referenceSemester: 1,
+                        dueOffsetDays: 0,
+                        fixedDueDate: null
+                    }];
+
+                    for (const st of timingTermsToUse) {
+                        let dueDate = null;
+                        const referenceSemester = Number(st.referenceSemester) || 1;
+
+                        if (st.dueDateMode === 'fixed') {
+                            if (st.fixedDueDate) {
+                                dueDate = new Date(st.fixedDueDate);
+                                dueDate.setHours(0, 0, 0, 0);
+                            }
+                        } else {
+                            const semMatch = (semesters || []).find(s => 
+                                Number(s.semester_number) === referenceSemester &&
+                                s.college === svc.college &&
+                                (!svc.course || s.course === svc.course)
+                            );
+                            if (semMatch && semMatch.start_date) {
+                                dueDate = new Date(semMatch.start_date);
+                                dueDate.setDate(dueDate.getDate() + (Number(st.dueOffsetDays) || 0));
+                                dueDate.setHours(0, 0, 0, 0);
+                            }
+                        }
+
+                        if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
+
+                        for (const offset of offsets) {
+                            const triggerDate = new Date(dueDate);
+                            if (triggerType === 'BEFORE') {
+                                triggerDate.setDate(triggerDate.getDate() - offset);
+                            } else {
+                                triggerDate.setDate(triggerDate.getDate() + offset);
+                            }
+                            triggerDate.setHours(0, 0, 0, 0);
+
+                            if (triggerDate >= tomorrow && triggerDate <= limitDate) {
+                                let countQuery = `SELECT COUNT(*) as count FROM students WHERE college = ? AND LOWER(student_status) = 'regular'`;
+                                const countParams = [svc.college];
+                                if (svc.course) {
+                                    countQuery += ` AND course = ?`;
+                                    countParams.push(svc.course);
+                                }
+                                if (quotasFilter) {
+                                    const quotaArr = Array.from(quotasFilter);
+                                    countQuery += ` AND stud_type IN (${quotaArr.map(() => '?').join(',')})`;
+                                    countParams.push(...quotaArr);
+                                }
+
+                                const [[{ count }]] = await db.query(countQuery, countParams);
+
+                                upcoming.push({
+                                    triggerDate,
+                                    dueSource: type,
+                                    templateName: config.smsTemplateId?.name || config.emailTemplateId?.name || `${type} Reminder`,
+                                    triggerType,
+                                    offset,
+                                    dueDate,
+                                    cohort: `${svc.college}${svc.course ? ` - ${svc.course}` : ''} (${type})`,
+                                    estimatedRecipients: count
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        upcoming.sort((a, b) => a.triggerDate - b.triggerDate);
+
+        res.json(upcoming);
+    } catch (error) {
+        console.error('Error fetching upcoming reminders:', error);
+        res.status(500).json({ message: 'Error calculating upcoming reminders', error: error.message });
+    }
+};
+
 module.exports = {
     getTemplates,
     saveTemplate,
@@ -306,5 +665,8 @@ module.exports = {
     deleteConfig,
     updateConfig,
     getVariableSources,
-    processRemindersBatch
+    processRemindersBatch,
+    getReminderReportStats,
+    getSentReminderLogs,
+    getUpcomingReminders
 };
