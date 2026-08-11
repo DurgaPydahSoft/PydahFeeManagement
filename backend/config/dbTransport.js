@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 let transportConnection = null;
 
 const connectTransportDB = async () => {
-  if (transportConnection) return transportConnection;
+  if (transportConnection && transportConnection.readyState === 1) return transportConnection;
 
   const uri = process.env.MONGO_TRANSPORT_URI;
   if (!uri) {

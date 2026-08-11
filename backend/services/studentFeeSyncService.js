@@ -4,8 +4,8 @@ const Transaction = require('../models/Transaction');
 const FeeHead = require('../models/FeeHead');
 const OverallConcessionRequest = require('../models/OverallConcessionRequest');
 const db = require('../config/sqlDb');
-const { getHostelConnection } = require('../config/dbHostel');
-const { getTransportConnection } = require('../config/dbTransport');
+const { getHostelConnection, connectHostelDB } = require('../config/dbHostel');
+const { getTransportConnection, connectTransportDB } = require('../config/dbTransport');
 const {
   buildRevisedFeesMap,
   buildConcessionLookupKey,
@@ -489,8 +489,13 @@ const syncTransportFees = async (student, admissionNo) => {
   /** @type {Map<string, Set<string>>} academicYear -> expected remarks */
   const expectedRemarksByYear = new Map();
 
-  const transportConnection = getTransportConnection();
+  let transportConnection = getTransportConnection();
+  if (!transportConnection || transportConnection.readyState !== 1) {
+    console.log(`[TransportSync] Attempting connection refresh for ${admissionNo}...`);
+    transportConnection = await connectTransportDB();
+  }
   if (!transportConnection) {
+    console.error(`[TransportSync] Skipped ${admissionNo}: no active transport database connection`);
     return { created, updated, requestsMatched: 0, academicYears: [] };
   }
 
@@ -522,30 +527,33 @@ const syncTransportFees = async (student, admissionNo) => {
   // One demand per academic year — prefer latest updated request
   const latestByYear = new Map();
   for (const request of requests) {
-    const academicYear = String(request.academic_year || '').trim();
+    const academicYear = String(request.academicYear || request.academic_year || '').trim();
     if (!academicYear) continue;
     if (!latestByYear.has(academicYear)) latestByYear.set(academicYear, request);
   }
 
   for (const request of latestByYear.values()) {
-    const academicYear = String(request.academic_year || '').trim();
+    const academicYear = String(request.academicYear || request.academic_year || '').trim();
     const yearKey = academicYear;
     academicYears.add(yearKey);
 
     // Amount source of truth = transport request fare only (never stage/structure amount).
-    if (request.fare === null || request.fare === undefined || request.fare === '') {
-      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: missing fare on request`);
+    const fare = request.fare !== undefined ? request.fare : request.amount;
+    if (fare === null || fare === undefined || fare === '') {
+      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: missing fare/amount on request`);
       continue;
     }
-    const amount = Number(request.fare);
+    const amount = Number(fare);
     if (!Number.isFinite(amount) || amount < 0) {
-      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: invalid fare`, request.fare);
+      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: invalid fare`, fare);
       continue;
     }
 
-    const studentYear = Number(request.year_of_study || student.current_year || 1) || 1;
-    const semester = Number(request.semester_number || student.current_semester || 1) || 1;
-    const remarks = buildTransportRemarks(request.route_name, request.stage_name, academicYear);
+    const studentYear = Number(request.year_of_study || request.yearOfStudy || student.current_year || 1) || 1;
+    const semester = Number(request.semester_number || request.semesterNumber || student.current_semester || 1) || 1;
+    const routeName = request.route_name || request.routeName || '';
+    const stageName = request.stage_name || request.stageName || '';
+    const remarks = buildTransportRemarks(routeName, stageName, academicYear);
 
     if (!expectedRemarksByYear.has(yearKey)) expectedRemarksByYear.set(yearKey, new Set());
     expectedRemarksByYear.get(yearKey).add(remarks);
@@ -565,26 +573,40 @@ const syncTransportFees = async (student, admissionNo) => {
     updated += result.updated;
   }
 
-  // Drop unpaid duplicate transport demands for synced years that are not
-  // the current approved request (e.g. old remarks "Transport" left after re-sync).
-  // Fee Collection groups all TRN rows for a year into one total — duplicates double the fare.
-  for (const [yearKey, expectedRemarks] of expectedRemarksByYear.entries()) {
-    const existing = await StudentFee.find({
-      studentId: admissionNo,
-      feeHead: transportFeeHead._id,
-      academicYear: yearKey
-    });
+  // Drop any transport demands for this student that do not match the current approved request or its remarks.
+  const existingTransportFees = await StudentFee.find({
+    studentId: admissionNo,
+    feeHead: transportFeeHead._id
+  });
 
-    for (const fee of existing) {
+  for (const fee of existingTransportFees) {
+    const feeAy = String(fee.academicYear || '').trim();
+    
+    // Check if there is an approved request for this academic year
+    const approvedReq = latestByYear.get(feeAy);
+    let shouldDelete = false;
+
+    if (!approvedReq) {
+      // No approved transport request for this academic year -> delete if unpaid
+      shouldDelete = true;
+    } else {
+      // Approved request exists, verify if the remarks/route match
+      const expectedRemarks = buildTransportRemarks(
+        approvedReq.route_name || approvedReq.routeName,
+        approvedReq.stage_name || approvedReq.stageName,
+        feeAy
+      );
       const feeRemarks = String(fee.remarks || '').trim();
       const feeBase = feeRemarks.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
-      const isExpected = [...expectedRemarks].some((expected) => {
-        if (feeRemarks === expected) return true;
-        const expectedBase = expected.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
-        return feeBase && feeBase === expectedBase;
-      });
-      if (isExpected) continue;
+      const expectedBase = expectedRemarks.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+      
+      if (feeRemarks !== expectedRemarks && feeBase !== expectedBase) {
+        shouldDelete = true;
+      }
+    }
 
+    if (shouldDelete) {
+      // Verify if the student has paid anything toward this specific demand
       const txs = await Transaction.find({
         studentId: admissionNo,
         feeHead: transportFeeHead._id,
@@ -593,10 +615,11 @@ const syncTransportFees = async (student, admissionNo) => {
         transactionType: 'DEBIT'
       }).lean();
       const paid = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-      if (paid > 0) continue;
-
-      await StudentFee.deleteOne({ _id: fee._id });
-      updated += 1;
+      if (paid === 0) {
+        await StudentFee.deleteOne({ _id: fee._id });
+        updated += 1;
+        console.log(`[TransportSync] Cleaned up orphaned/obsolete demand ID: ${fee._id} (AY: ${feeAy}, amount: ${fee.amount})`);
+      }
     }
   }
 
@@ -609,14 +632,17 @@ const syncTransportFees = async (student, admissionNo) => {
 };
 
 const findHostelFeeHead = async () => {
-  let feeHead = await FeeHead.findOne({ name: 'Hostel Fee' });
+  let feeHead = await FeeHead.findOne({ code: 'HST01' });
   if (!feeHead) {
-    feeHead = await FeeHead.findOne({ code: { $in: ['HOSTEL', 'HST01'] } });
+    feeHead = await FeeHead.findOne({ name: 'Hostel Fee' });
+  }
+  if (!feeHead) {
+    feeHead = await FeeHead.findOne({ code: 'HOSTEL' });
   }
   if (!feeHead) {
     feeHead = await FeeHead.create({
       name: 'Hostel Fee',
-      code: 'HOSTEL',
+      code: 'HST01',
       description: 'Hostel accommodation fee'
     });
   }
@@ -659,16 +685,28 @@ const syncHostelFees = async (student, admissionNo) => {
   let updated = 0;
   const academicYears = new Set();
 
-  const hostelConnection = getHostelConnection();
+  let hostelConnection = getHostelConnection();
+  if (!hostelConnection || hostelConnection.readyState !== 1) {
+    console.log(`[HostelSync] Attempting connection refresh for ${admissionNo}...`);
+    hostelConnection = await connectHostelDB();
+  }
   if (!hostelConnection) {
+    console.error(`[HostelSync] Skipped ${admissionNo}: no active hostel database connection`);
     return { created, updated, requestsMatched: 0, academicYears: [] };
   }
+
+  const admissionVariants = Array.from(new Set([
+    admissionNo,
+    String(admissionNo).trim(),
+    String(admissionNo).trim().toUpperCase(),
+    String(admissionNo).trim().toLowerCase()
+  ].filter(Boolean)));
 
   const requests = await hostelConnection.db
     .collection('hostelrequests')
     .find({
-      admissionNumber: admissionNo.toUpperCase(),
-      status: 'active'
+      admissionNumber: { $in: admissionVariants },
+      status: { $regex: /^(active|approved)$/i }
     })
     .sort({ updatedAt: -1 })
     .toArray();
@@ -682,21 +720,27 @@ const syncHostelFees = async (student, admissionNo) => {
   const categories = hostelConnection.db.collection('hostelcategories');
 
   for (const request of requests) {
-    if (!request.academicYear || !request.hostelId || !request.hostelCategoryId) continue;
-    academicYears.add(String(request.academicYear).trim());
+    const academicYear = String(request.academicYear || request.academic_year || '').trim();
+    const hostelId = request.hostelId;
+    const hostelCategoryId = request.hostelCategoryId;
+    if (!academicYear || !hostelId || !hostelCategoryId) continue;
+    academicYears.add(academicYear);
 
-    const studentYear = request.sdmsYearOfStudy || student.current_year || 1;
+    const studentYear = request.sdmsYearOfStudy || request.yearOfStudy || student.current_year || 1;
     const structure = await findHostelFeeStructure(
       hostelConnection,
-      request,
+      {
+        ...request,
+        academicYear
+      },
       student,
       studentYear
     );
     if (!structure) continue;
 
     const [hostel, category] = await Promise.all([
-      hostels.findOne({ _id: request.hostelId }, { projection: { name: 1 } }),
-      categories.findOne({ _id: request.hostelCategoryId }, { projection: { name: 1 } })
+      hostels.findOne({ _id: hostelId }, { projection: { name: 1 } }),
+      categories.findOne({ _id: hostelCategoryId }, { projection: { name: 1 } })
     ]);
 
     const amount = Math.max(
@@ -706,7 +750,7 @@ const syncHostelFees = async (student, admissionNo) => {
     const remarks = buildHostelRemarks(
       hostel?.name || 'Hostel',
       category?.name || 'Category',
-      request.academicYear
+      academicYear
     );
 
     const result = await upsertStudentFeeDemand({
@@ -722,6 +766,65 @@ const syncHostelFees = async (student, admissionNo) => {
     });
     created += result.created;
     updated += result.updated;
+  }
+
+  // Drop any hostel demands for this student that do not match the current approved request.
+  const existingHostelFees = await StudentFee.find({
+    studentId: admissionNo,
+    feeHead: hostelFeeHead._id
+  });
+
+  // Group approved requests by academic year
+  const approvedHostelByYear = new Map();
+  for (const req of requests) {
+    const ay = String(req.academicYear || req.academic_year || '').trim();
+    if (ay && !approvedHostelByYear.has(ay)) {
+      approvedHostelByYear.set(ay, req);
+    }
+  }
+
+  for (const fee of existingHostelFees) {
+    const feeAy = String(fee.academicYear || '').trim();
+    const approvedReq = approvedHostelByYear.get(feeAy);
+    let shouldDelete = false;
+
+    if (!approvedReq) {
+      shouldDelete = true;
+    } else {
+      // Request exists, verify remarks (hostel & category name)
+      const [hostel, category] = await Promise.all([
+        hostels.findOne({ _id: approvedReq.hostelId }, { projection: { name: 1 } }),
+        categories.findOne({ _id: approvedReq.hostelCategoryId }, { projection: { name: 1 } })
+      ]);
+      const expectedRemarks = buildHostelRemarks(
+        hostel?.name || 'Hostel',
+        category?.name || 'Category',
+        feeAy
+      );
+      const feeRemarks = String(fee.remarks || '').trim();
+      const feeBase = feeRemarks.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+      const expectedBase = expectedRemarks.replace(/\s*\(\d{4}-\d{4}\)\s*$/, '').trim();
+      
+      if (feeRemarks !== expectedRemarks && feeBase !== expectedBase) {
+        shouldDelete = true;
+      }
+    }
+
+    if (shouldDelete) {
+      const txs = await Transaction.find({
+        studentId: admissionNo,
+        feeHead: hostelFeeHead._id,
+        studentYear: String(fee.studentYear),
+        status: { $ne: 'cancelled' },
+        transactionType: 'DEBIT'
+      }).lean();
+      const paid = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      if (paid === 0) {
+        await StudentFee.deleteOne({ _id: fee._id });
+        updated += 1;
+        console.log(`[HostelSync] Cleaned up orphaned/obsolete demand ID: ${fee._id} (AY: ${feeAy}, amount: ${fee.amount})`);
+      }
+    }
   }
 
   return {
