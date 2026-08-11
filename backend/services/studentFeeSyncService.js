@@ -515,10 +515,6 @@ const syncTransportFees = async (student, admissionNo) => {
     .sort({ updated_at: -1 })
     .toArray();
 
-  if (requests.length === 0) {
-    return { created, updated, requestsMatched: 0, academicYears: [] };
-  }
-
   const transportFeeHead = await findTransportFeeHead();
   if (!transportFeeHead) {
     return { created, updated, requestsMatched: requests.length, academicYears: [] };
@@ -532,45 +528,47 @@ const syncTransportFees = async (student, admissionNo) => {
     if (!latestByYear.has(academicYear)) latestByYear.set(academicYear, request);
   }
 
-  for (const request of latestByYear.values()) {
-    const academicYear = String(request.academicYear || request.academic_year || '').trim();
-    const yearKey = academicYear;
-    academicYears.add(yearKey);
+  if (requests.length > 0) {
+    for (const request of latestByYear.values()) {
+      const academicYear = String(request.academicYear || request.academic_year || '').trim();
+      const yearKey = academicYear;
+      academicYears.add(yearKey);
 
-    // Amount source of truth = transport request fare only (never stage/structure amount).
-    const fare = request.fare !== undefined ? request.fare : request.amount;
-    if (fare === null || fare === undefined || fare === '') {
-      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: missing fare/amount on request`);
-      continue;
+      // Amount source of truth = transport request fare only (never stage/structure amount).
+      const fare = request.fare !== undefined ? request.fare : request.amount;
+      if (fare === null || fare === undefined || fare === '') {
+        console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: missing fare/amount on request`);
+        continue;
+      }
+      const amount = Number(fare);
+      if (!Number.isFinite(amount) || amount < 0) {
+        console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: invalid fare`, fare);
+        continue;
+      }
+
+      const studentYear = Number(request.year_of_study || request.yearOfStudy || student.current_year || 1) || 1;
+      const semester = Number(request.semester_number || request.semesterNumber || student.current_semester || 1) || 1;
+      const routeName = request.route_name || request.routeName || '';
+      const stageName = request.stage_name || request.stageName || '';
+      const remarks = buildTransportRemarks(routeName, stageName, academicYear);
+
+      if (!expectedRemarksByYear.has(yearKey)) expectedRemarksByYear.set(yearKey, new Set());
+      expectedRemarksByYear.get(yearKey).add(remarks);
+
+      const result = await upsertStudentFeeDemand({
+        admissionNo,
+        student,
+        feeHeadId: transportFeeHead._id,
+        academicYear: yearKey,
+        studentYear,
+        semester,
+        amount,
+        remarks,
+        matchByRemarks: true
+      });
+      created += result.created;
+      updated += result.updated;
     }
-    const amount = Number(fare);
-    if (!Number.isFinite(amount) || amount < 0) {
-      console.warn(`[TransportSync] Skipping ${admissionNo} AY ${yearKey}: invalid fare`, fare);
-      continue;
-    }
-
-    const studentYear = Number(request.year_of_study || request.yearOfStudy || student.current_year || 1) || 1;
-    const semester = Number(request.semester_number || request.semesterNumber || student.current_semester || 1) || 1;
-    const routeName = request.route_name || request.routeName || '';
-    const stageName = request.stage_name || request.stageName || '';
-    const remarks = buildTransportRemarks(routeName, stageName, academicYear);
-
-    if (!expectedRemarksByYear.has(yearKey)) expectedRemarksByYear.set(yearKey, new Set());
-    expectedRemarksByYear.get(yearKey).add(remarks);
-
-    const result = await upsertStudentFeeDemand({
-      admissionNo,
-      student,
-      feeHeadId: transportFeeHead._id,
-      academicYear: yearKey,
-      studentYear,
-      semester,
-      amount,
-      remarks,
-      matchByRemarks: true
-    });
-    created += result.created;
-    updated += result.updated;
   }
 
   // Drop any transport demands for this student that do not match the current approved request or its remarks.
@@ -711,61 +709,59 @@ const syncHostelFees = async (student, admissionNo) => {
     .sort({ updatedAt: -1 })
     .toArray();
 
-  if (requests.length === 0) {
-    return { created, updated, requestsMatched: 0, academicYears: [] };
-  }
-
   const hostelFeeHead = await findHostelFeeHead();
   const hostels = hostelConnection.db.collection('hostels');
   const categories = hostelConnection.db.collection('hostelcategories');
 
-  for (const request of requests) {
-    const academicYear = String(request.academicYear || request.academic_year || '').trim();
-    const hostelId = request.hostelId;
-    const hostelCategoryId = request.hostelCategoryId;
-    if (!academicYear || !hostelId || !hostelCategoryId) continue;
-    academicYears.add(academicYear);
+  if (requests.length > 0) {
+    for (const request of requests) {
+      const academicYear = String(request.academicYear || request.academic_year || '').trim();
+      const hostelId = request.hostelId;
+      const hostelCategoryId = request.hostelCategoryId;
+      if (!academicYear || !hostelId || !hostelCategoryId) continue;
+      academicYears.add(academicYear);
 
-    const studentYear = request.sdmsYearOfStudy || request.yearOfStudy || student.current_year || 1;
-    const structure = await findHostelFeeStructure(
-      hostelConnection,
-      {
-        ...request,
+      const studentYear = request.sdmsYearOfStudy || request.yearOfStudy || student.current_year || 1;
+      const structure = await findHostelFeeStructure(
+        hostelConnection,
+        {
+          ...request,
+          academicYear
+        },
+        student,
+        studentYear
+      );
+      if (!structure) continue;
+
+      const [hostel, category] = await Promise.all([
+        hostels.findOne({ _id: hostelId }, { projection: { name: 1 } }),
+        categories.findOne({ _id: hostelCategoryId }, { projection: { name: 1 } })
+      ]);
+
+      const amount = Math.max(
+        0,
+        (Number(structure.amount) || 0) - (Number(request.concession) || 0)
+      );
+      const remarks = buildHostelRemarks(
+        hostel?.name || 'Hostel',
+        category?.name || 'Category',
         academicYear
-      },
-      student,
-      studentYear
-    );
-    if (!structure) continue;
+      );
 
-    const [hostel, category] = await Promise.all([
-      hostels.findOne({ _id: hostelId }, { projection: { name: 1 } }),
-      categories.findOne({ _id: hostelCategoryId }, { projection: { name: 1 } })
-    ]);
-
-    const amount = Math.max(
-      0,
-      (Number(structure.amount) || 0) - (Number(request.concession) || 0)
-    );
-    const remarks = buildHostelRemarks(
-      hostel?.name || 'Hostel',
-      category?.name || 'Category',
-      academicYear
-    );
-
-    const result = await upsertStudentFeeDemand({
-      admissionNo,
-      student,
-      feeHeadId: hostelFeeHead._id,
-      academicYear: request.academicYear,
-      studentYear,
-      semester: student.current_semester || 1,
-      amount,
-      remarks,
-      matchByRemarks: true
-    });
-    created += result.created;
-    updated += result.updated;
+      const result = await upsertStudentFeeDemand({
+        admissionNo,
+        student,
+        feeHeadId: hostelFeeHead._id,
+        academicYear: request.academicYear,
+        studentYear,
+        semester: student.current_semester || 1,
+        amount,
+        remarks,
+        matchByRemarks: true
+      });
+      created += result.created;
+      updated += result.updated;
+    }
   }
 
   // Drop any hostel demands for this student that do not match the current approved request.
