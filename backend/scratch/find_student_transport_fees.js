@@ -5,9 +5,9 @@ const MONGO_URI = "mongodb+srv://durgaprasad:durga2144@cluster0.i5iew6d.mongodb.
 const MONGO_TRANSPORT_URI = "mongodb+srv://durgaprasad:durga2144@cluster0.i5iew6d.mongodb.net/pydah_transport";
 
 const studentDetails = {
-  name: "NARLA NAGA RATNA SIREESHA",
-  adm: "20240031",
-  pin: "24320-CM-042"
+  name: "PANDIRI KUMARASWAMY",
+  adm: "20240018",
+  pin: "24320-CM-044"
 };
 
 async function run() {

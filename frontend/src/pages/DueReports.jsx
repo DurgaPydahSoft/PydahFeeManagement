@@ -81,6 +81,7 @@ const DueReports = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
     const [expandedRow, setExpandedRow] = useState(null);
+    const [activeTab, setActiveTab] = useState('report');
 
     const maxTerms = React.useMemo(() => {
         if (!reportData || reportData.length === 0) return 1;
@@ -480,7 +481,24 @@ const DueReports = () => {
                             </button>
                         </div>
                     </header>
-                    <div className="max-w-[1600px] mx-auto space-y-4">
+                    {/* Tabs Switcher */}
+                    <div className="flex border-b border-gray-200 mb-6 shrink-0 bg-white p-1 rounded-lg">
+                        <button
+                            onClick={() => setActiveTab('report')}
+                            className={`pb-2.5 pt-2 px-4 font-bold text-xs border-b-2 transition ${activeTab === 'report' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                        >
+                            Dues Report Grid
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('guide')}
+                            className={`pb-2.5 pt-2 px-4 font-bold text-xs border-b-2 transition ${activeTab === 'guide' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                        >
+                            Dues Calculation Guide
+                        </button>
+                    </div>
+
+                    {activeTab === 'report' ? (
+                        <div className="max-w-[1600px] mx-auto space-y-4">
 
                         {/* Stats Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -508,6 +526,23 @@ const DueReports = () => {
                                     </div>
                                 </div>
                             </div>
+                     {/* Total Collected */}
+                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                       <div className="flex items-center justify-between">
+                         <div>
+                           <p className="text-xs text-gray-600 uppercase font-semibold">Total Collected</p>
+                           <p className="text-2xl font-bold text-gray-900 mt-1">
+                             ₹{(totalCollected / 100000).toFixed(1)}L
+                           </p>
+                           <p className="text-[10px] text-gray-500 mt-1">
+                             ₹{totalCollected.toLocaleString('en-IN')}
+                           </p>
+                         </div>
+                         <div className="bg-green-100 p-3 rounded-lg">
+                           <DollarSign className="text-green-600" size={24} />
+                         </div>
+                       </div>
+                     </div>
 
                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
                                 <div className="flex items-center justify-between">
@@ -538,11 +573,18 @@ const DueReports = () => {
 
                         {/* Term-wise Outstanding Balances Stats Bar */}
                         {maxTerms > 0 && (
-                            <div className="bg-blue-50/20 border border-blue-100/50 rounded-lg p-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 {termBalances.map((bal, idx) => (
-                                    <div key={idx} className="bg-white border border-gray-150 rounded p-2 text-center shadow-xs">
-                                        <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">T{idx + 1} Balance</span>
-                                        <span className="block text-sm font-bold text-gray-800 mt-0.5">₹{bal.toLocaleString('en-IN')}</span>
+                                    <div key={idx} className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-xs text-gray-600 uppercase font-semibold">Term {idx + 1} Balance</p>
+                                                <p className="text-2xl font-bold text-gray-900 mt-1">₹{bal.toLocaleString('en-IN')}</p>
+                                            </div>
+                                            <div className="bg-indigo-100 p-3 rounded-lg">
+                                                <DollarSign className="text-indigo-600" size={24} />
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -916,6 +958,9 @@ const DueReports = () => {
                             )}
                         </div>
                     </div>
+                    ) : (
+                        <DueCalculationGuide />
+                    )}
 
                     {/* Print Options Modal */}
                     {showPrintModal && (
@@ -977,6 +1022,125 @@ const DueReports = () => {
                         </div>
                     )}
                 </main>
+            </div>
+        </div>
+    );
+};
+
+const DueCalculationGuide = () => {
+    return (
+        <div className="max-w-[1200px] mx-auto bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden font-sans p-8 space-y-8 animate-in fade-in duration-200">
+            <div>
+                <h2 className="text-xl font-bold text-gray-800">Complete Guide: Dues & Semester-Reference Term Calculations</h2>
+                <p className="text-xs text-gray-500 mt-1 font-medium">Understand the logic, configuration, and calculations that drive outstanding balances and term schedules.</p>
+            </div>
+
+            {/* Grid 1: Total Due vs Active Due */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Total Due Info Card */}
+                <div className="bg-red-50/20 border border-red-100 rounded-xl p-5 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <span className="p-2 bg-red-100 text-red-700 rounded-lg font-bold text-sm">₹</span>
+                        <h3 className="font-bold text-gray-855 text-sm">Total Due</h3>
+                    </div>
+                    <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                        <strong>Definition:</strong> The overall outstanding balance accumulated by the student across all assigned fees (Academic, Hostel, Transport).
+                    </p>
+                    <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                        <strong>Formula:</strong> <code>Total Fee - Paid Amount</code> (cannot go below 0).
+                    </p>
+                    <div className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200/50 font-medium">
+                        <strong>Note:</strong> Total Due is completely independent of dates or payment term schedules. It simply shows the absolute remainder of unpaid balance for the academic year.
+                    </div>
+                </div>
+
+                {/* Active Due Info Card */}
+                <div className="bg-amber-50/20 border border-amber-100 rounded-xl p-5 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <span className="p-2 bg-amber-100 text-amber-700 rounded-lg font-bold text-sm">⏰</span>
+                        <h3 className="font-bold text-gray-855 text-sm">Active Due</h3>
+                    </div>
+                    <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                        <strong>Definition:</strong> The amount that is <strong>currently due or overdue</strong> as of today's date.
+                    </p>
+                    <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                        <strong>Formula:</strong> The sum of unpaid balances for all terms whose active date trigger has been reached.
+                    </p>
+                    <div className="text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200/50 font-medium">
+                        <strong>Warning Window:</strong> A term's balance becomes "active" (due) <strong>15 days before</strong> its resolved due date, or as soon as the associated semester starts.
+                    </div>
+                </div>
+
+            </div>
+
+            {/* Section 2: Semester-Reference Term Columns Alignment */}
+            <div className="space-y-4">
+                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
+                    <span>📊</span> Semester-Reference Term Columns Alignment (T1, T2, T3)
+                </h3>
+                <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                    To keep all fee categories aligned in a unified report grid, term balances are dynamically mapped to columns based on their **Semester Reference** instead of raw sequential indices. This ensures columns represent standard semester-based payment windows (T1 & T2 for Semester 1, T3 for Semester 2).
+                </p>
+
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-gray-50 border-b border-gray-200 font-semibold text-gray-600">
+                            <tr>
+                                <th className="p-3 w-1/4">Category</th>
+                                <th className="p-3 w-1/4">T1 Column (Sem 1)</th>
+                                <th className="p-3 w-1/4">T2 Column (Sem 1)</th>
+                                <th className="p-3 w-1/4">T3 Column (Sem 2)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-gray-700">
+                            <tr>
+                                <td className="p-3 font-semibold text-gray-900 bg-gray-50/50">Academic Fees</td>
+                                <td className="p-3 font-medium">Term 1 (Semester 1 Reference)</td>
+                                <td className="p-3 font-medium">Term 2 (Semester 1 Reference)</td>
+                                <td className="p-3 font-medium">Term 3 (Semester 2 Reference)</td>
+                            </tr>
+                            <tr>
+                                <td className="p-3 font-semibold text-gray-900 bg-gray-50/50">Transport Fees</td>
+                                <td className="p-3 font-medium">Term 1 (Semester 1 Reference)</td>
+                                <td className="p-3 font-medium text-gray-400 bg-gray-50/20">₹0 (No second Semester 1 term)</td>
+                                <td className="p-3 font-medium">Term 2 (Semester 2 Reference)</td>
+                            </tr>
+                            <tr>
+                                <td className="p-3 font-semibold text-gray-900 bg-gray-50/50">Hostel Fees</td>
+                                <td className="p-3 font-medium">Term 1 (Semester 1 Reference)</td>
+                                <td className="p-3 font-medium text-gray-400 bg-gray-50/20">₹0 (No second Semester 1 term)</td>
+                                <td className="p-3 font-medium">Term 2 (Semester 2 Reference)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Section 3: Due Dates Calculation Logic */}
+            <div className="space-y-4">
+                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
+                    <span>⚙️</span> How Due Dates Are Resolved
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-gray-600 leading-relaxed font-medium">
+                    <div className="p-4 bg-gray-50 border border-gray-100 rounded-xl space-y-2">
+                        <strong className="text-gray-800 block text-xs">1. Fixed Due Dates</strong>
+                        <p>
+                            If a term's mode is set to <strong>Fixed</strong>, the system uses the exact date entered in the fee structure (e.g., <code>2024-10-15</code>).
+                        </p>
+                    </div>
+                    <div className="p-4 bg-gray-50 border border-gray-100 rounded-xl space-y-2">
+                        <strong className="text-gray-800 block text-xs">2. Offset-Based Due Dates</strong>
+                        <p>
+                            If a term's mode is set to <strong>Offset</strong>, the due date is calculated dynamically:
+                            <br />
+                            <code>Semester Start Date + Due Offset Days</code>.
+                        </p>
+                        <p className="text-[10px] text-gray-500 font-medium">
+                            *Semester calendar start dates are defined under the Academic Calendar setup for each batch, course, branch, and college.
+                        </p>
+                    </div>
+                </div>
             </div>
         </div>
     );
