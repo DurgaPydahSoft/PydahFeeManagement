@@ -45,6 +45,49 @@ const resolveCollectionTimestamps = (req, paymentDateInput) => {
   return { paymentDate: chosen, createdAt: chosen, updatedAt: chosen };
 };
 
+const sanitizeField = (val) => {
+  if (val === undefined || val === null) return undefined;
+  const s = String(val).trim();
+  if (s === '' || s === 'undefined' || s === 'null') return undefined;
+  return s;
+};
+
+const resolveStudentMaster = async (sId, payload = {}) => {
+  let college = sanitizeField(payload.college);
+  let collegeId = payload.collegeId;
+  let course = sanitizeField(payload.course);
+  let courseId = payload.courseId;
+  let branch = sanitizeField(payload.branch);
+  let branchId = payload.branchId;
+  let pinNo = sanitizeField(payload.pinNo);
+  let studentYear = sanitizeField(payload.studentYear);
+  let studentName = sanitizeField(payload.studentName);
+
+  if (sId && (!college || !course || !branch || !pinNo || !studentYear || !studentName || !collegeId || !courseId || !branchId)) {
+    try {
+      const [rows] = await db.query(
+        'SELECT student_name, college, course, branch, pin_no, current_year, college_id, course_id, branch_id FROM students WHERE admission_number = ? OR pin_no = ?',
+        [sId, sId]
+      );
+      if (rows && rows.length > 0) {
+        const s = rows[0];
+        if (!college && s.college) college = s.college;
+        if (!course && s.course) course = s.course;
+        if (!branch && s.branch) branch = s.branch;
+        if (!pinNo && s.pin_no) pinNo = s.pin_no;
+        if (!studentYear && s.current_year) studentYear = s.current_year;
+        if (!collegeId && s.college_id) collegeId = s.college_id;
+        if (!courseId && s.course_id) courseId = s.course_id;
+        if (!branchId && s.branch_id) branchId = s.branch_id;
+        if (!studentName && s.student_name) studentName = s.student_name;
+      }
+    } catch (e) {
+      console.error('Error resolving student master info:', e);
+    }
+  }
+
+  return { college, collegeId, course, courseId, branch, branchId, pinNo, studentYear, studentName };
+};
 
 // Helper to determine the current financial year (e.g. 2026-27)
 const calculateFinancialYear = (date, resetMonth = 4, resetDay = 1) => {
@@ -308,17 +351,25 @@ const addTransaction = async (req, res) => {
 
     const receiptNumber = await generateReceiptNumber(sanitizeObjectId(feeHeadId));
     const timestamps = resolveCollectionTimestamps(req, paymentDate);
+    const master = await resolveStudentMaster(studentId, req.body);
 
     const transactionDoc = new Transaction({
       studentId,
-      studentName,
+      studentName: master.studentName || studentName,
+      college: master.college,
+      collegeId: master.collegeId,
+      course: master.course,
+      courseId: master.courseId,
+      branch: master.branch,
+      branchId: master.branchId,
+      pinNo: master.pinNo,
+      studentYear: master.studentYear || studentYear,
       feeHead: sanitizeObjectId(feeHeadId),
       amount,
       paymentMode: finalPaymentMode || 'Cash',
       transactionType: transactionType || 'DEBIT',
       remarks,
       semester,
-      studentYear,
       receiptNumber,
       collectedBy,
       collectedByName,

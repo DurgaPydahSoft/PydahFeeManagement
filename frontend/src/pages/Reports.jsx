@@ -1299,6 +1299,8 @@ const Reports = () => {
     const [selectedCollege, setSelectedCollege] = useState('');
     const { campuses } = useCampuses();
 
+    const [modalDateRange, setModalDateRange] = useState({ start: '', end: '' });
+
     const modalPrintRef = useRef(null);
     const handleModalPrint = async () => {
         if (!printModalData) return;
@@ -1310,13 +1312,20 @@ const Reports = () => {
                 return;
             }
 
+            const effectiveDateRange = {
+                start: modalDateRange.start || startDate,
+                end: modalDateRange.end || endDate,
+                startDate: modalDateRange.start || startDate,
+                endDate: modalDateRange.end || endDate
+            };
+
             const response = await api.post('/print', {
                 template,
                 data: {
                     displayData: printModalData.isAll ? printModalData.rows : printModalData.row,
                     cashierData: printModalData.isAll ? printModalData.rows : printModalData.row,
                     options,
-                    dateRange: printModalData.dateRange,
+                    dateRange: effectiveDateRange,
                     hideGeneratedInfo: true
                 }
             });
@@ -1473,14 +1482,20 @@ const Reports = () => {
     }, [activeTab, startDate, endDate, selectedCampusId, selectedCollege]);
 
     useEffect(() => {
-        if (printModalData && activeTab === 'account') {
-            const isGlobal = printModalData.row
-                ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
-                : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()));
-            if (isGlobal) {
-                setPrintOptions(prev => ({ ...prev, includeCash: false, includeBank: true }));
-            } else {
-                setPrintOptions(prev => ({ ...prev, includeCash: true, includeBank: true }));
+        if (printModalData) {
+            setModalDateRange({
+                start: printModalData.dateRange?.start || printModalData.dateRange?.startDate || startDate,
+                end: printModalData.dateRange?.end || printModalData.dateRange?.endDate || endDate
+            });
+            if (activeTab === 'account') {
+                const isGlobal = printModalData.row
+                    ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
+                    : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()));
+                if (isGlobal) {
+                    setPrintOptions(prev => ({ ...prev, includeCash: false, includeBank: true }));
+                } else {
+                    setPrintOptions(prev => ({ ...prev, includeCash: true, includeBank: true }));
+                }
             }
         }
     }, [printModalData, activeTab]);
@@ -1559,6 +1574,37 @@ const Reports = () => {
 
                                     <div className="space-y-6">
 
+                                         {/* Report Date Range Selection */}
+                                         <div className="space-y-2">
+                                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                                 <Calendar size={12} className="text-blue-600" /> Report Date Range
+                                             </label>
+                                             <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                                                 <div>
+                                                     <label className="text-[10px] font-bold text-gray-500 block mb-1">From Date</label>
+                                                     <input
+                                                         type="date"
+                                                         value={modalDateRange.start}
+                                                         onChange={e => setModalDateRange(prev => ({ ...prev, start: e.target.value }))}
+                                                         onKeyDown={e => e.preventDefault()}
+                                                         onClick={e => e.target.showPicker?.()}
+                                                         className="w-full px-2.5 py-1.5 text-xs font-bold text-gray-800 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                                                     />
+                                                 </div>
+                                                 <div>
+                                                     <label className="text-[10px] font-bold text-gray-500 block mb-1">To Date</label>
+                                                     <input
+                                                         type="date"
+                                                         value={modalDateRange.end}
+                                                         onChange={e => setModalDateRange(prev => ({ ...prev, end: e.target.value }))}
+                                                         onKeyDown={e => e.preventDefault()}
+                                                         onClick={e => e.target.showPicker?.()}
+                                                         className="w-full px-2.5 py-1.5 text-xs font-bold text-gray-800 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                                                     />
+                                                 </div>
+                                             </div>
+                                         </div>
+
                                          {/* Printing Options Checkboxes */}
                                          <div className="space-y-3">
                                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Print Sections</label>
@@ -1633,10 +1679,14 @@ const Reports = () => {
                                      {(activeTab === 'account' || activeTab === 'cashier') && (
                                          <button
                                              onClick={() => {
+                                                 const effectiveRange = {
+                                                     start: modalDateRange.start || startDate,
+                                                     end: modalDateRange.end || endDate
+                                                 };
                                                  if (activeTab === 'account') {
-                                                     downloadAccountExcel(printModalData.row, buildPrintOptions(), printModalData.dateRange);
+                                                     downloadAccountExcel(printModalData.row, buildPrintOptions(), effectiveRange);
                                                  } else {
-                                                     downloadCashierExcel(printModalData, buildPrintOptions(), printModalData.dateRange);
+                                                     downloadCashierExcel(printModalData, buildPrintOptions(), effectiveRange);
                                                  }
                                              }}
                                              className="flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"

@@ -18,6 +18,8 @@ const formatLocalDate = (date) => {
     return `${year}-${month}-${day}`;
 };
 
+const cleanReportField = (val) => (val && val !== 'undefined' && val !== 'null' && String(val).trim() !== '') ? String(val).trim() : null;
+
 // Helper to filter transactions by user's scoped colleges using cached fields directly
 const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
     const collegeNames = await collegeScope.getEffectiveCollegeNames(user, campusId);
@@ -165,7 +167,11 @@ const getTransactionReports = async (req, res) => {
             const studentIds = new Set();
             const feeHeadIds = new Set();
             transactions.forEach(tx => {
-                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                const cCol = cleanReportField(tx.college);
+                const cCou = cleanReportField(tx.course);
+                const cBra = cleanReportField(tx.branch);
+                const cPin = cleanReportField(tx.pinNo);
+                if (tx.studentId && (!cCol || !cCou || !cBra || !cPin)) {
                     studentIds.add(String(tx.studentId).trim());
                 }
                 if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
@@ -220,7 +226,7 @@ const getTransactionReports = async (req, res) => {
                 const cashierUsername = tx.collectedBy || 'Unknown';
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
-                const college = tx.college || (collegeData ? collegeData.college : 'Unknown');
+                const college = cleanReportField(tx.college) || (collegeData ? cleanReportField(collegeData.college) : null) || 'Unknown';
 
                 if (hasCollegeScope && !collegeScope.isCollegeAllowed(college, allowedColleges)) {
                     return;
@@ -375,7 +381,11 @@ const getTransactionReports = async (req, res) => {
             // SQL student enrichment (only for uncached transactions)
             const fhStudentIds = new Set();
             transactions.forEach(tx => {
-                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                const cCol = cleanReportField(tx.college);
+                const cCou = cleanReportField(tx.course);
+                const cBra = cleanReportField(tx.branch);
+                const cPin = cleanReportField(tx.pinNo);
+                if (tx.studentId && (!cCol || !cCou || !cBra || !cPin)) {
                     fhStudentIds.add(String(tx.studentId).trim());
                 }
             });
@@ -416,7 +426,7 @@ const getTransactionReports = async (req, res) => {
                 const isCancelled = tx.status === 'cancelled';
                 const sId = String(tx.studentId || '').trim();
                 const sData = fhStudentDataMap[sId] || fhStudentDataMap[sId.toLowerCase()] || {};
-                const studentCollege = tx.college || sData.college || 'Unknown';
+                const studentCollege = cleanReportField(tx.college) || (sData ? cleanReportField(sData.college) : null) || 'Unknown';
 
                 // Apply college query filter if specified
                 if (collegeFilter && collegeFilter !== studentCollege) {
@@ -507,7 +517,11 @@ const getTransactionReports = async (req, res) => {
             const studentIds = new Set();
             const feeHeadIds = new Set();
             transactions.forEach(tx => {
-                if (tx.studentId && (!tx.college || !tx.course || !tx.branch || !tx.pinNo)) {
+                const cCol = cleanReportField(tx.college);
+                const cCou = cleanReportField(tx.course);
+                const cBra = cleanReportField(tx.branch);
+                const cPin = cleanReportField(tx.pinNo);
+                if (tx.studentId && (!cCol || !cCou || !cBra || !cPin)) {
                     studentIds.add(String(tx.studentId).trim());
                 }
                 if (tx.feeHead) feeHeadIds.add(tx.feeHead.toString());
@@ -560,7 +574,7 @@ const getTransactionReports = async (req, res) => {
             transactions.forEach(tx => {
                 const sId = String(tx.studentId).trim();
                 const collegeData = collegeMap[sId] || collegeMap[sId.toLowerCase()];
-                const collegeName = tx.college || (collegeData ? collegeData.college : 'Unknown');
+                const collegeName = cleanReportField(tx.college) || (collegeData ? cleanReportField(collegeData.college) : null) || 'Unknown';
 
                 // Apply college query filter if specified
                 if (collegeFilter && collegeFilter !== collegeName) {

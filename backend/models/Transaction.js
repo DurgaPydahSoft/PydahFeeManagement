@@ -11,11 +11,20 @@ const transactionSchema = mongoose.Schema({
   college: {
     type: String, // Snapshot of college
   },
+  collegeId: {
+    type: Number, // SQL college_id
+  },
   course: {
     type: String, // Snapshot of course
   },
+  courseId: {
+    type: Number, // SQL course_id
+  },
   branch: {
     type: String, // Snapshot of branch
+  },
+  branchId: {
+    type: Number, // SQL branch_id
   },
   pinNo: {
     type: String, // Snapshot of PIN number
@@ -122,14 +131,15 @@ transactionSchema.index({ studentId: 1 });
 transactionSchema.index({ paymentDate: -1 });
 transactionSchema.index({ status: 1 });
 transactionSchema.index({ college: 1 });
+transactionSchema.index({ collegeId: 1 });
 
 // Middleware to cache core student metadata on save (single document)
 transactionSchema.pre('save', async function (next) {
-  if (this.studentId && (!this.college || !this.course || !this.branch || !this.pinNo || !this.admissionNumber || !this.studentName || !this.studentYear)) {
+  if (this.studentId && (!this.college || !this.course || !this.branch || !this.pinNo || !this.admissionNumber || !this.studentName || !this.studentYear || !this.collegeId || !this.courseId || !this.branchId)) {
     try {
       const db = require('../config/sqlDb');
       const [studentRows] = await db.query(
-        'SELECT student_name, college, course, branch, pin_no, admission_number, current_year FROM students WHERE admission_number = ? OR pin_no = ?',
+        'SELECT student_name, college, course, branch, pin_no, admission_number, current_year, college_id, course_id, branch_id FROM students WHERE admission_number = ? OR pin_no = ?',
         [this.studentId, this.studentId]
       );
       if (studentRows && studentRows.length > 0) {
@@ -141,6 +151,9 @@ transactionSchema.pre('save', async function (next) {
         if (!this.pinNo && s.pin_no) this.pinNo = s.pin_no;
         if (!this.admissionNumber && s.admission_number) this.admissionNumber = s.admission_number;
         if (!this.studentYear && s.current_year) this.studentYear = String(s.current_year);
+        if (!this.collegeId && s.college_id) this.collegeId = s.college_id;
+        if (!this.courseId && s.course_id) this.courseId = s.course_id;
+        if (!this.branchId && s.branch_id) this.branchId = s.branch_id;
       }
     } catch (err) {
       console.error('[Transaction Pre-Save Metadata Cache Failed]', err);
@@ -158,7 +171,7 @@ transactionSchema.pre('insertMany', async function (next, docs) {
     if (studentIds.length > 0) {
       const idPlaceholders = studentIds.map(() => '?').join(',');
       const [studentRows] = await db.query(
-        `SELECT admission_number, pin_no, student_name, college, course, branch, current_year FROM students WHERE admission_number IN (${idPlaceholders}) OR pin_no IN (${idPlaceholders})`,
+        `SELECT admission_number, pin_no, student_name, college, course, branch, current_year, college_id, course_id, branch_id FROM students WHERE admission_number IN (${idPlaceholders}) OR pin_no IN (${idPlaceholders})`,
         [...studentIds, ...studentIds]
       );
       
@@ -171,7 +184,10 @@ transactionSchema.pre('insertMany', async function (next, docs) {
           branch: s.branch,
           pinNo: s.pin_no,
           admissionNumber: s.admission_number,
-          studentYear: String(s.current_year)
+          studentYear: String(s.current_year),
+          collegeId: s.college_id,
+          courseId: s.course_id,
+          branchId: s.branch_id
         };
         if (s.admission_number) {
           studentMap[s.admission_number.trim().toLowerCase()] = data;
@@ -193,6 +209,9 @@ transactionSchema.pre('insertMany', async function (next, docs) {
             if (!doc.pinNo && s.pinNo) doc.pinNo = s.pinNo;
             if (!doc.admissionNumber && s.admissionNumber) doc.admissionNumber = s.admissionNumber;
             if (!doc.studentYear && s.studentYear) doc.studentYear = s.studentYear;
+            if (!doc.collegeId && s.collegeId) doc.collegeId = s.collegeId;
+            if (!doc.courseId && s.courseId) doc.courseId = s.courseId;
+            if (!doc.branchId && s.branchId) doc.branchId = s.branchId;
           }
         }
       });
