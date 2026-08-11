@@ -1634,6 +1634,29 @@ const getDueReports = async (req, res) => {
                 const currentEffectiveTerms = resolveEffectiveTerms(item.terms, item.totalAmount);
                 const structTermsCount = currentEffectiveTerms.length || 1;
                 const defCfg = (defaultConfigs || []).find((c) => Number(c.termsCount) === structTermsCount);
+
+                // Sort currentEffectiveTerms by raw termNumber first
+                const sortedRawTerms = [...currentEffectiveTerms].sort((a, b) => Number(a.termNumber) - Number(b.termNumber));
+                
+                // Group by reference semester to assign relative index
+                const rawTermToColumnIndexMap = {};
+                const semCounts = { 1: 0, 2: 0 };
+                
+                sortedRawTerms.forEach(t => {
+                    const dt = defCfg ? (defCfg.terms || []).find((x) => Number(x.termNumber) === Number(t.termNumber)) : null;
+                    const refSem = Number(t.referenceSemester || dt?.referenceSemester || 1);
+                    
+                    semCounts[refSem] = (semCounts[refSem] || 0) + 1;
+                    const semRelativeIndex = semCounts[refSem];
+                    
+                    let mappedCol = 1;
+                    if (refSem === 1) {
+                        mappedCol = semRelativeIndex;
+                    } else {
+                        mappedCol = 2 + semRelativeIndex; // Starts at Column 3 (T3)
+                    }
+                    rawTermToColumnIndexMap[Number(t.termNumber)] = mappedCol;
+                });
                 
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
@@ -1703,6 +1726,7 @@ const getDueReports = async (req, res) => {
 
                     return {
                         ...st,
+                        termNumber: rawTermToColumnIndexMap[Number(st.termNumber)] || st.termNumber,
                         dueDate: dueDateVal ? formatLocalDate(dueDateVal) : null,
                         isActiveTerm: isTermActive
                     };
