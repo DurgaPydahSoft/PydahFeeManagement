@@ -1300,10 +1300,113 @@ const Reports = () => {
     const { campuses } = useCampuses();
 
     const [modalDateRange, setModalDateRange] = useState({ start: '', end: '' });
+    const [modalReportData, setModalReportData] = useState(null);
+    const [modalLoading, setModalLoading] = useState(false);
 
     const modalPrintRef = useRef(null);
+
+    useEffect(() => {
+        if (printModalData) {
+            const initialStart = printModalData.dateRange?.start || printModalData.dateRange?.startDate || startDate;
+            const initialEnd = printModalData.dateRange?.end || printModalData.dateRange?.endDate || endDate;
+            setModalDateRange({
+                start: initialStart,
+                end: initialEnd
+            });
+            setModalReportData(printModalData);
+
+            if (activeTab === 'account') {
+                const isGlobal = printModalData.row
+                    ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
+                    : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()));
+                if (isGlobal) {
+                    setPrintOptions(prev => ({ ...prev, includeCash: false, includeBank: true }));
+                } else {
+                    setPrintOptions(prev => ({ ...prev, includeCash: true, includeBank: true }));
+                }
+            }
+        } else {
+            setModalReportData(null);
+        }
+    }, [printModalData, activeTab]);
+
+    useEffect(() => {
+        if (!printModalData || !modalDateRange.start || !modalDateRange.end) return;
+
+        const initStart = printModalData.dateRange?.start || printModalData.dateRange?.startDate || startDate;
+        const initEnd = printModalData.dateRange?.end || printModalData.dateRange?.endDate || endDate;
+
+        if (modalDateRange.start === initStart && modalDateRange.end === initEnd) {
+            setModalReportData(printModalData);
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            setModalLoading(true);
+            try {
+                let groupBy = activeTab === 'daily' ? 'day' : activeTab;
+                const res = await api.get('/reports/transactions', {
+                    params: {
+                        startDate: modalDateRange.start,
+                        endDate: modalDateRange.end,
+                        groupBy,
+                        ...(selectedCampusId !== 'all' ? { campusId: selectedCampusId } : {}),
+                        ...(selectedCollege ? { college: selectedCollege } : {}),
+                    }
+                });
+
+                if (printModalData.isAll) {
+                    setModalReportData({
+                        isAll: true,
+                        rows: res.data,
+                        dateRange: modalDateRange
+                    });
+                } else {
+                    const targetId = String(printModalData.row._id || '').trim().toLowerCase();
+                    const targetName = String(printModalData.row.name || '').trim().toLowerCase();
+                    const targetAcc = String(printModalData.row.account_name || '').trim().toLowerCase();
+
+                    const matchedRow = res.data.find(r => {
+                        const rId = String(r._id || '').trim().toLowerCase();
+                        const rName = String(r.name || '').trim().toLowerCase();
+                        const rAcc = String(r.account_name || '').trim().toLowerCase();
+                        return (targetId && rId === targetId) ||
+                               (targetName && rName === targetName) ||
+                               (targetAcc && rAcc === targetAcc);
+                    }) || {
+                        ...printModalData.row,
+                        count: 0,
+                        totalCount: 0,
+                        cashAmount: 0,
+                        bankAmount: 0,
+                        creditAmount: 0,
+                        debitAmount: 0,
+                        totalAmount: 0,
+                        transactions: [],
+                        feeHeads: []
+                    };
+
+                    setModalReportData({
+                        isAll: false,
+                        row: matchedRow,
+                        dateRange: modalDateRange
+                    });
+                }
+            } catch (err) {
+                console.error('Error fetching date range report for modal:', err);
+            } finally {
+                setModalLoading(false);
+            }
+        }, 400);
+
+        return () => clearTimeout(timer);
+    }, [modalDateRange.start, modalDateRange.end, printModalData]);
+
+    const activeModalData = modalReportData || printModalData;
+
     const handleModalPrint = async () => {
-        if (!printModalData) return;
+        const currentData = activeModalData || printModalData;
+        if (!currentData) return;
         try {
             const template = activeTab === 'college' ? 'college-report' : activeTab === 'account' ? 'account-report' : activeTab === 'feeHead' ? 'feehead-report' : 'cashier-report';
             const options = buildPrintOptions();
@@ -1322,8 +1425,8 @@ const Reports = () => {
             const response = await api.post('/print', {
                 template,
                 data: {
-                    displayData: printModalData.isAll ? printModalData.rows : printModalData.row,
-                    cashierData: printModalData.isAll ? printModalData.rows : printModalData.row,
+                    displayData: currentData.isAll ? currentData.rows : currentData.row,
+                    cashierData: currentData.isAll ? currentData.rows : currentData.row,
                     options,
                     dateRange: effectiveDateRange,
                     hideGeneratedInfo: true
@@ -1481,25 +1584,6 @@ const Reports = () => {
         }
     }, [activeTab, startDate, endDate, selectedCampusId, selectedCollege]);
 
-    useEffect(() => {
-        if (printModalData) {
-            setModalDateRange({
-                start: printModalData.dateRange?.start || printModalData.dateRange?.startDate || startDate,
-                end: printModalData.dateRange?.end || printModalData.dateRange?.endDate || endDate
-            });
-            if (activeTab === 'account') {
-                const isGlobal = printModalData.row
-                    ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
-                    : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()));
-                if (isGlobal) {
-                    setPrintOptions(prev => ({ ...prev, includeCash: false, includeBank: true }));
-                } else {
-                    setPrintOptions(prev => ({ ...prev, includeCash: true, includeBank: true }));
-                }
-            }
-        }
-    }, [printModalData, activeTab]);
-
     return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
             <Sidebar />
@@ -1537,10 +1621,11 @@ const Reports = () => {
 
                     {/* Print Options Modal */}
                     {printModalData && (() => {
+                        const currentData = activeModalData || printModalData;
                         const isModalGlobalAccount = activeTab === 'account' && (
-                            printModalData?.row
-                                ? (printModalData.row.is_global || !printModalData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(printModalData.row.college || '').trim()))
-                                : printModalData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()))
+                            currentData?.row
+                                ? (currentData.row.is_global || !currentData.row.college || ['N/A', 'All Colleges', 'All'].includes(String(currentData.row.college || '').trim()))
+                                : currentData?.rows?.some(r => r.is_global || !r.college || ['N/A', 'All Colleges', 'All'].includes(String(r.college || '').trim()))
                         );
 
                         return (
@@ -1559,15 +1644,16 @@ const Reports = () => {
                                             <Printer size={24} />
                                         </div>
                                         <div>
-                                            <h3 className="text-base font-bold text-gray-900">
-                                                {printModalData.isAll 
+                                            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                                                {currentData.isAll 
                                                     ? (activeTab === 'cashier' ? 'Print All Cashier Reports' : activeTab === 'college' ? 'Print All College Reports' : activeTab === 'feeHead' ? 'Print All Fee Head Reports' : 'Print All Account Reports') 
                                                     : (activeTab === 'cashier' ? 'Print Cashier Report' : activeTab === 'college' ? 'Print College Report' : activeTab === 'feeHead' ? 'Print Fee Head Report' : 'Print Account Report')}
+                                                {modalLoading && <span className="text-[10px] text-blue-600 animate-pulse font-semibold">Updating...</span>}
                                             </h3>
                                             <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider">
-                                                {printModalData.isAll 
+                                                {currentData.isAll 
                                                     ? (activeTab === 'cashier' ? 'Combined Cashier Summaries' : activeTab === 'college' ? 'Combined College Summaries' : activeTab === 'feeHead' ? 'Combined Fee Head Summaries' : 'Combined Account Summaries') 
-                                                    : (activeTab === 'cashier' ? `Cashier: ${printModalData.row?._id || 'N/A'}` : activeTab === 'college' ? `College: ${printModalData.row?._id || 'N/A'}` : activeTab === 'feeHead' ? `Fee Head: ${printModalData.row?.name || 'N/A'}` : `Account: ${printModalData.row?.account_name || 'N/A'}`)}
+                                                    : (activeTab === 'cashier' ? `Cashier: ${currentData.row?._id || 'N/A'}` : activeTab === 'college' ? `College: ${currentData.row?._id || 'N/A'}` : activeTab === 'feeHead' ? `Fee Head: ${currentData.row?.name || 'N/A'}` : `Account: ${currentData.row?.account_name || 'N/A'}`)}
                                             </p>
                                         </div>
                                     </div>
@@ -1576,8 +1662,9 @@ const Reports = () => {
 
                                          {/* Report Date Range Selection */}
                                          <div className="space-y-2">
-                                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                                 <Calendar size={12} className="text-blue-600" /> Report Date Range
+                                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center justify-between">
+                                                 <span className="flex items-center gap-1.5"><Calendar size={12} className="text-blue-600" /> Report Date Range</span>
+                                                 {modalLoading && <span className="text-[9px] text-blue-600 animate-pulse font-normal">Loading data for date range...</span>}
                                              </label>
                                              <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
                                                  <div>
@@ -1683,23 +1770,25 @@ const Reports = () => {
                                                      start: modalDateRange.start || startDate,
                                                      end: modalDateRange.end || endDate
                                                  };
+                                                 const curData = activeModalData || printModalData;
                                                  if (activeTab === 'account') {
-                                                     downloadAccountExcel(printModalData.row, buildPrintOptions(), effectiveRange);
+                                                     downloadAccountExcel(curData.row, buildPrintOptions(), effectiveRange);
                                                  } else {
-                                                     downloadCashierExcel(printModalData, buildPrintOptions(), effectiveRange);
+                                                     downloadCashierExcel(curData, buildPrintOptions(), effectiveRange);
                                                  }
                                              }}
-                                             className="flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                                             disabled={modalLoading}
+                                             className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 ${modalLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                                          >
                                              <FileSpreadsheet size={16} /> Excel Download
                                          </button>
                                      )}
                                      <button
                                          onClick={handleModalPrint}
-                                         disabled={(!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
-                                         className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${((!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                         disabled={modalLoading || (!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
+                                         className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${(modalLoading || (!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
                                      >
-                                         <Printer size={16} /> Generate Print
+                                         <Printer size={16} /> {modalLoading ? 'Updating Data...' : 'Generate Print'}
                                      </button>
                                  </div>
                             </div>
@@ -1709,34 +1798,34 @@ const Reports = () => {
 
                     {/* Hidden template for the modal print */}
                     <div className="hidden">
-                        {printModalData && (
+                        {activeModalData && (
                             activeTab === 'college' ? (
                                 <CollegeReportTemplate
                                     ref={modalPrintRef}
-                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    data={activeModalData.isAll ? activeModalData.rows : activeModalData.row}
                                     options={buildPrintOptions()}
-                                    dateRange={printModalData.dateRange}
+                                    dateRange={{ start: modalDateRange.start || startDate, end: modalDateRange.end || endDate }}
                                 />
                             ) : activeTab === 'account' ? (
                                 <AccountReportTemplate
                                     ref={modalPrintRef}
-                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    data={activeModalData.isAll ? activeModalData.rows : activeModalData.row}
                                     options={buildPrintOptions()}
-                                    dateRange={printModalData.dateRange}
+                                    dateRange={{ start: modalDateRange.start || startDate, end: modalDateRange.end || endDate }}
                                 />
                             ) : activeTab === 'feeHead' ? (
                                 <FeeHeadReportTemplate
                                     ref={modalPrintRef}
-                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    data={activeModalData.isAll ? activeModalData.rows : activeModalData.row}
                                     options={buildPrintOptions()}
-                                    dateRange={printModalData.dateRange}
+                                    dateRange={{ start: modalDateRange.start || startDate, end: modalDateRange.end || endDate }}
                                 />
                             ) : (
                                 <CashierReportTemplate
                                     ref={modalPrintRef}
-                                    data={printModalData.isAll ? printModalData.rows : printModalData.row}
+                                    data={activeModalData.isAll ? activeModalData.rows : activeModalData.row}
                                     options={buildPrintOptions()}
-                                    dateRange={printModalData.dateRange}
+                                    dateRange={{ start: modalDateRange.start || startDate, end: modalDateRange.end || endDate }}
                                 />
                             )
                         )}
