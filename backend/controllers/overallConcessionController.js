@@ -26,18 +26,40 @@ const getOverallConcessions = async (req, res) => {
     try {
         const { college, course, branch, batch, search } = req.query;
 
+        // Enforce user colleges scope
+        const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user);
+        
         // 1. Query students matching filters
         let sqlQuery = `SELECT admission_number, pin_no, student_name, college, course, branch, batch, current_year, current_semester, stud_type, student_status FROM students WHERE 1=1`;
         const params = [];
 
         if (college) {
-            sqlQuery += ` AND college = ?`;
-            params.push(college);
+            const requested = college.split(',').map(c => c.trim()).filter(Boolean);
+            const scoped = collegeScope.intersectCollegeNames(requested, allowedColleges);
+            if (scoped.length > 0) {
+                sqlQuery += ` AND college IN (${scoped.map(() => '?').join(',')})`;
+                params.push(...scoped);
+            } else {
+                return res.json([]);
+            }
+        } else if (allowedColleges && allowedColleges.length > 0) {
+            sqlQuery += ` AND college IN (${allowedColleges.map(() => '?').join(',')})`;
+            params.push(...allowedColleges);
         }
+
+        // Filter by user's assigned courses if specified
+        const userAllowedCourses = req.user.courses || [];
         if (course) {
+            if (userAllowedCourses.length > 0 && !userAllowedCourses.includes(course)) {
+                return res.json([]);
+            }
             sqlQuery += ` AND course = ?`;
             params.push(course);
+        } else if (userAllowedCourses.length > 0) {
+            sqlQuery += ` AND course IN (${userAllowedCourses.map(() => '?').join(',')})`;
+            params.push(...userAllowedCourses);
         }
+
         if (branch) {
             sqlQuery += ` AND branch = ?`;
             params.push(branch);
