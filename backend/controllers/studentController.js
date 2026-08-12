@@ -116,7 +116,12 @@ const getStudentMetadata = async (req, res) => {
 
     const hierarchy = {};
     const collegeCodes = {};
+    const allowedCourses = req.user.courses || [];
     rows.forEach(row => {
+      // Filter by course assignment if specified for the user
+      if (allowedCourses.length > 0 && !allowedCourses.includes(row.course)) {
+        return;
+      }
       if (row.college && row.collegeCode) {
         collegeCodes[row.college] = row.collegeCode.toUpperCase().trim();
       }
@@ -134,12 +139,24 @@ const getStudentMetadata = async (req, res) => {
       }
     });
 
-    // Course → total_years from courses table (SQL schema: courses.total_years) – dynamic per course
-    const [courseRows] = await db.query(
-      'SELECT name, total_years FROM courses WHERE is_active = 1 AND name IS NOT NULL AND name != ""'
-    );
+    // Course → total_years from courses table (SQL schema: courses.total_years) – dynamic per course (scoped to allowed colleges)
+    let courseQuery = `
+      SELECT c.name, c.total_years 
+      FROM courses c
+      JOIN colleges cl ON c.college_id = cl.id
+      WHERE c.is_active = 1 AND cl.is_active = 1 AND c.name IS NOT NULL AND c.name != ""
+    `;
+    const courseParams = [];
+    if (allowedColleges && allowedColleges.length > 0) {
+      courseQuery += ` AND cl.name IN (${allowedColleges.map(() => '?').join(',')})`;
+      courseParams.push(...allowedColleges);
+    }
+    const [courseRows] = await db.query(courseQuery, courseParams);
     const courseYears = {};
     courseRows.forEach((r) => {
+      if (allowedCourses.length > 0 && !allowedCourses.includes(r.name)) {
+        return;
+      }
       const years = r.total_years != null ? Number(r.total_years) : 4;
       if (r.name && !(r.name in courseYears)) courseYears[r.name] = Math.max(1, Math.min(years, 10));
     });
@@ -157,6 +174,9 @@ const getStudentMetadata = async (req, res) => {
     
     const categoryMapping = {};
     categoryRows.forEach(row => {
+      if (allowedCourses.length > 0 && !allowedCourses.includes(row.course)) {
+        return;
+      }
       // Normalize values for key matching (lowercase and trimmed)
       const college = String(row.college || '').trim().toLowerCase();
       const course = String(row.course || '').trim().toLowerCase();
