@@ -27,9 +27,22 @@ const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
     if (collegeNames.length === 0) {
         return { ...query, college: { $in: ['__none__'] } };
     }
+    const scopeCondition = {
+        $or: [
+            { college: { $in: collegeNames } },
+            { college: { $exists: false } },
+            { college: 'undefined' },
+            { college: null }
+        ]
+    };
+    if (query.$and && Array.isArray(query.$and)) {
+        query.$and.push(scopeCondition);
+        return query;
+    }
+    const { college, ...restQuery } = query;
     return {
-        ...query,
-        college: { $in: collegeNames }
+        ...restQuery,
+        $and: [scopeCondition]
     };
 };
 
