@@ -25,7 +25,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/fee-heads',
-    permissions: ['/fee-config', '/fee-collection'],
+    permissions: ['/fee-config', '/fee-collection', '/concessions', '/overall-concessions'],
   },
   {
     prefix: '/api/fee-groups',
