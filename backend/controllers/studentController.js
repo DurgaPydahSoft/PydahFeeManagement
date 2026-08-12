@@ -116,12 +116,7 @@ const getStudentMetadata = async (req, res) => {
 
     const hierarchy = {};
     const collegeCodes = {};
-    const allowedCourses = req.user.courses || [];
     rows.forEach(row => {
-      // Filter by course assignment if specified for the user
-      if (allowedCourses.length > 0 && !allowedCourses.includes(row.course)) {
-        return;
-      }
       if (row.college && row.collegeCode) {
         collegeCodes[row.college] = row.collegeCode.toUpperCase().trim();
       }
@@ -154,9 +149,6 @@ const getStudentMetadata = async (req, res) => {
     const [courseRows] = await db.query(courseQuery, courseParams);
     const courseYears = {};
     courseRows.forEach((r) => {
-      if (allowedCourses.length > 0 && !allowedCourses.includes(r.name)) {
-        return;
-      }
       const years = r.total_years != null ? Number(r.total_years) : 4;
       if (r.name && !(r.name in courseYears)) courseYears[r.name] = Math.max(1, Math.min(years, 10));
     });
@@ -174,9 +166,6 @@ const getStudentMetadata = async (req, res) => {
     
     const categoryMapping = {};
     categoryRows.forEach(row => {
-      if (allowedCourses.length > 0 && !allowedCourses.includes(row.course)) {
-        return;
-      }
       // Normalize values for key matching (lowercase and trimmed)
       const college = String(row.college || '').trim().toLowerCase();
       const course = String(row.course || '').trim().toLowerCase();
