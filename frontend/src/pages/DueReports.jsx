@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
-import { Filter, Download, ArrowRight, DollarSign, Search, ChevronLeft, ChevronRight, FileText, Printer, X } from 'lucide-react';
+import { Filter, Download, ArrowRight, DollarSign, Search, ChevronLeft, ChevronRight, FileText, Printer, X, Users, BookOpen, Percent, Wallet, AlertCircle, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useCampuses, getCollegeNamesForCampuses } from '../hooks/useCampuses';
 import { printHtmlDocument } from '../utils/printService';
@@ -76,12 +76,12 @@ const DueReports = () => {
     const [loading, setLoading] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
 
-    // Search & Pagination
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
     const [expandedRow, setExpandedRow] = useState(null);
     const [activeTab, setActiveTab] = useState('report');
+    const [excludeScholarship, setExcludeScholarship] = useState(false);
 
     const maxTerms = React.useMemo(() => {
         if (!reportData || reportData.length === 0) return 1;
@@ -406,8 +406,74 @@ const DueReports = () => {
         });
     }, [reportData, sortField, sortDir]);
 
-    // Filter Logic - Now Server Side, so we just use reportData
-    const filteredData = sortedData;
+    // Recalculate student amounts based on whether scholarship-eligible records are excluded
+    const processedData = React.useMemo(() => {
+        if (!excludeScholarship) {
+            return sortedData;
+        }
+        return sortedData.map(student => {
+            let totalFee = 0;
+            let paidAmount = 0;
+            let concessionAmount = 0;
+            let activeDue = 0;
+            const studentTermDues = {};
+
+            const isStudentScholarEligible = String(student.scholarshipStatus).toLowerCase() === 'eligible';
+
+            (student.rawGroupedData || []).forEach(item => {
+                // If student is scholarship eligible AND the fee is scholarship applicable, exclude it
+                const shouldExclude = isStudentScholarEligible && item.isScholarshipApplicable;
+
+                if (!shouldExclude) {
+                    totalFee += (item.totalAmount || 0);
+                    paidAmount += (item.paidAmount || 0);
+                    concessionAmount += (item.concessionAmount || 0);
+
+                    // Re-sum term dues
+                    // Note: Here we approximate the term balances split by terms count for the remaining due
+                    const itemBalance = Math.max(0, (item.totalAmount || 0) - (item.paidAmount || 0) - (item.concessionAmount || 0));
+                    const termsCount = item.terms?.length || 1;
+                    if (itemBalance > 0) {
+                        for (let i = 1; i <= termsCount; i++) {
+                            if (!studentTermDues[i]) studentTermDues[i] = 0;
+                            // Simplistic allocation or proportional allocation based on original terms structure
+                            const termObj = item.terms?.find(t => Number(t.termNumber) === i);
+                            if (termObj) {
+                                // If specific term layout matches, assign proportional balance
+                                const termTarget = termObj.amount || 0;
+                                const originalTotal = item.totalAmount || 1;
+                                const ratio = termTarget / originalTotal;
+                                studentTermDues[i] += itemBalance * ratio;
+                            } else {
+                                studentTermDues[i] += itemBalance / termsCount;
+                            }
+                        }
+                    }
+                }
+            });
+
+            const maxTermNum = Math.max(1, ...Object.keys(studentTermDues).map(Number));
+            const termDues = [];
+            for (let i = 1; i <= maxTermNum; i++) {
+                termDues.push(studentTermDues[i] || 0);
+            }
+
+            const dueAmount = Math.max(0, totalFee - paidAmount - concessionAmount);
+
+            return {
+                ...student,
+                totalFee,
+                paidAmount,
+                concessionAmount,
+                dueAmount,
+                activeDue: dueAmount, // Fallback active due to total remaining due
+                termDues
+            };
+        });
+    }, [sortedData, excludeScholarship]);
+
+    // Filter Logic - Now Server Side, so we just use processedData
+    const filteredData = processedData;
 
     // Pagination Logic
     const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -420,7 +486,12 @@ const DueReports = () => {
     const totalCollected = filteredData.reduce((acc, curr) => acc + (curr.paidAmount || 0), 0);
     const totalActiveDue = filteredData.reduce((acc, curr) => acc + (curr.activeDue || 0), 0);
     const totalFee = filteredData.reduce((acc, curr) => acc + (curr.totalFee || 0), 0);
+    const totalConcession = filteredData.reduce((acc, curr) => acc + (curr.concessionAmount || 0), 0);
     const totalStudents = filteredData.length;
+
+    // Scholarship counts for the selected year dataset
+    const scholarshipEligibleCount = filteredData.filter(s => String(s.scholarshipStatus).toLowerCase() === 'eligible').length;
+    const scholarshipIneligibleCount = totalStudents - scholarshipEligibleCount;
 
     const termBalances = React.useMemo(() => {
         const totals = Array.from({ length: maxTerms }, () => 0);
@@ -500,76 +571,75 @@ const DueReports = () => {
                     {activeTab === 'report' ? (
                         <div className="max-w-[1600px] mx-auto space-y-4">
 
-                        {/* Stats Cards */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-xs text-gray-600 uppercase font-semibold">Total Students</p>
-                                        <p className="text-2xl font-bold text-gray-900 mt-1">{totalStudents}</p>
-                                    </div>
-                                    <div className="bg-blue-100 p-3 rounded-lg">
-                                        <FileText className="text-blue-600" size={24} />
-                                    </div>
-                                </div>
-                            </div>
+                         {/* Stats Cards */}
+                         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                 <div>
+                                     <div className="flex items-center gap-1.5">
+                                         <Users className="text-blue-600" size={14} />
+                                         <p className="text-xs text-gray-600 uppercase font-semibold">Total Students</p>
+                                     </div>
+                                     <p className="text-2xl font-bold text-gray-900 mt-1">{totalStudents}</p>
+                                     <p className="text-[10px] text-gray-500 mt-1 font-semibold">
+                                          Sch: <span className="text-blue-600 font-bold">{scholarshipEligibleCount}</span> | Non-Sch: <span className="text-gray-700 font-bold">{scholarshipIneligibleCount}</span>
+                                      </p>
+                                 </div>
+                             </div>
 
-                            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-xs text-gray-600 uppercase font-semibold">Total Fee</p>
-                                        <p className="text-2xl font-bold text-gray-900 mt-1">₹{(totalFee / 100000).toFixed(1)}L</p>
-                                        <p className="text-[10px] text-gray-500 mt-1">₹{totalFee.toLocaleString('en-IN')}</p>
-                                    </div>
-                                    <div className="bg-purple-100 p-3 rounded-lg">
-                                        <DollarSign className="text-purple-600" size={24} />
-                                    </div>
-                                </div>
-                            </div>
-                     {/* Total Collected */}
-                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
-                       <div className="flex items-center justify-between">
-                         <div>
-                           <p className="text-xs text-gray-600 uppercase font-semibold">Total Collected</p>
-                           <p className="text-2xl font-bold text-gray-900 mt-1">
-                             ₹{(totalCollected / 100000).toFixed(1)}L
-                           </p>
-                           <p className="text-[10px] text-gray-500 mt-1">
-                             ₹{totalCollected.toLocaleString('en-IN')}
-                           </p>
+                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                 <div>
+                                     <div className="flex items-center gap-1.5">
+                                         <BookOpen className="text-purple-600" size={14} />
+                                         <p className="text-xs text-gray-600 uppercase font-semibold">Total Fee</p>
+                                     </div>
+                                     <p className="text-2xl font-bold text-gray-900 mt-1">₹{totalFee.toLocaleString('en-IN')}</p>
+                                 </div>
+                              </div>
+
+                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                 <div>
+                                     <div className="flex items-center gap-1.5">
+                                         <Percent className="text-amber-600" size={14} />
+                                         <p className="text-xs text-gray-600 uppercase font-semibold">Concessions</p>
+                                     </div>
+                                     <p className="text-2xl font-bold text-gray-900 mt-1">
+                                         ₹{totalConcession.toLocaleString('en-IN')}
+                                     </p>
+                                 </div>
+                             </div>
+
+                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                 <div>
+                                     <div className="flex items-center gap-1.5">
+                                         <Wallet className="text-green-600" size={14} />
+                                         <p className="text-xs text-gray-600 uppercase font-semibold">Total Collected</p>
+                                     </div>
+                                     <p className="text-2xl font-bold text-gray-900 mt-1">
+                                         ₹{totalCollected.toLocaleString('en-IN')}
+                                     </p>
+                                 </div>
+                              </div>
+
+                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                 <div>
+                                     <div className="flex items-center gap-1.5">
+                                         <Clock className="text-amber-600" size={14} />
+                                         <p className="text-xs text-gray-600 uppercase font-semibold">Active Due</p>
+                                     </div>
+                                     <p className="text-2xl font-bold text-amber-600 mt-1">₹{totalActiveDue.toLocaleString('en-IN')}</p>
+                                 </div>
+                             </div>
+
+                             <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
+                                 <div>
+                                     <div className="flex items-center gap-1.5">
+                                         <AlertCircle className="text-red-600" size={14} />
+                                         <p className="text-xs text-gray-600 uppercase font-semibold">Total Due</p>
+                                     </div>
+                                     <p className="text-2xl font-bold text-red-600 mt-1">₹{totalDue.toLocaleString('en-IN')}</p>
+                                 </div>
+                             </div>
                          </div>
-                         <div className="bg-green-100 p-3 rounded-lg">
-                           <DollarSign className="text-green-600" size={24} />
-                         </div>
-                       </div>
-                     </div>
-
-                            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-xs text-gray-600 uppercase font-semibold">Active Due</p>
-                                        <p className="text-2xl font-bold text-amber-600 mt-1">₹{(totalActiveDue / 100000).toFixed(1)}L</p>
-                                        <p className="text-[10px] text-gray-500 mt-1">₹{totalActiveDue.toLocaleString('en-IN')}</p>
-                                    </div>
-                                    <div className="bg-amber-100 p-3 rounded-lg">
-                                        <DollarSign className="text-amber-600" size={24} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-xs text-gray-600 uppercase font-semibold">Total Due</p>
-                                        <p className="text-2xl font-bold text-red-600 mt-1">₹{(totalDue / 100000).toFixed(1)}L</p>
-                                        <p className="text-[10px] text-gray-500 mt-1">₹{totalDue.toLocaleString('en-IN')}</p>
-                                    </div>
-                                    <div className="bg-red-100 p-3 rounded-lg">
-                                        <DollarSign className="text-red-600" size={24} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
 
                         {/* Term-wise Outstanding Balances Stats Bar */}
                         {maxTerms > 0 && (
@@ -657,6 +727,20 @@ const DueReports = () => {
                                     <div className="w-px h-8 bg-gray-200 mx-1 hidden xl:block"></div>
 
                                     <div className="relative flex-1 xl:w-64 flex gap-2">
+                                        {/* Exclude Scholarship Dues Checkbox */}
+                                        <div className="flex items-center gap-1.5 px-2 bg-gray-50 border border-gray-300 rounded shrink-0 select-none">
+                                            <input
+                                                id="exclude-scholarship"
+                                                type="checkbox"
+                                                className="w-3.5 h-3.5 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                                checked={excludeScholarship}
+                                                onChange={e => setExcludeScholarship(e.target.checked)}
+                                            />
+                                            <label htmlFor="exclude-scholarship" className="text-[10px] text-gray-700 font-bold cursor-pointer whitespace-nowrap">
+                                                Without Scholarship Dues
+                                            </label>
+                                        </div>
+
                                         {/* Items Per Page */}
                                         <select
                                             className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-16 p-2"

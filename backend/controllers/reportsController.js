@@ -1135,7 +1135,7 @@ const getTransactionReports = async (req, res) => {
 
 const getDueReports = async (req, res) => {
     try {
-        const { college, course, branch, batch, search, campusId, year } = req.query;
+        const { college, course, branch, batch, search, campusId, year, quota } = req.query;
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
 
         // 1. Build SQL Query for Students
@@ -1159,6 +1159,10 @@ const getDueReports = async (req, res) => {
         if (branch) {
             sqlQuery += ` AND branch = ?`;
             params.push(branch);
+        }
+        if (quota) {
+            sqlQuery += ` AND stud_type = ?`;
+            params.push(quota);
         }
         // Parse Academic Year start year from batch query param (e.g. "2024-2025" -> 2024)
         let ayStartYear = null;
@@ -1563,6 +1567,7 @@ const getDueReports = async (req, res) => {
                             ? serviceTerms.length > 1
                             : (fee.isTermsDivided !== undefined ? fee.isTermsDivided : (matchedStructure ? matchedStructure.isTermsDivided : false)),
                         studentScholarStatus: getScholarshipStatus(student.id, year, fee.semester) || 'not_eligible',
+                        isScholarshipApplicable: fee.isScholarshipApplicable || matchedStructure?.isScholarshipApplicable || false,
                         terms: resolveEffectiveTerms(effectiveTerms, fee.amount || matchedStructure?.amount || 0)
                     };
                 }
@@ -1597,6 +1602,7 @@ const getDueReports = async (req, res) => {
                             dueAmount: 0,
                             isActive: true,
                             studentScholarStatus: getScholarshipStatus(student.id, year, t.semester) || 'not_eligible',
+                            isScholarshipApplicable: matchedStructure?.isScholarshipApplicable || false,
                             terms: resolveEffectiveTerms(matchedStructure?.terms, matchedStructure?.amount || 0)
                         };
                     }
@@ -1802,6 +1808,22 @@ const getDueReports = async (req, res) => {
                 hostel: finalizeCategory(hostelSummary),
                 transport: finalizeCategory(transportSummary)
             };
+            student.rawGroupedData = Object.values(groupedData).map(item => ({
+                feeHeadId: item.feeHeadId,
+                feeHeadName: item.feeHeadName,
+                feeHeadCode: item.feeHeadCode,
+                totalAmount: item.totalAmount,
+                paidAmount: item.paidAmount,
+                concessionAmount: item.concessionAmount,
+                dueAmount: item.dueAmount,
+                studentScholarStatus: item.studentScholarStatus,
+                isScholarshipApplicable: item.isScholarshipApplicable,
+                terms: (item.terms || []).map(t => ({
+                    termNumber: t.termNumber,
+                    percentage: t.percentage,
+                    amount: t.amount
+                }))
+            }));
 
             let activeDue = 0;
             const studentTermDues = {};
@@ -1833,7 +1855,9 @@ const getDueReports = async (req, res) => {
             student.termDues = termDues;
             student.termDueDates = termDueDates;
             student.activeDue = activeDue;
-            student.dueAmount = Math.max(0, student.totalFee - student.paidAmount);
+            student.concessionAmount = (academicSummary.concession || 0) + (hostelSummary.concession || 0) + (transportSummary.concession || 0);
+            student.dueAmount = Math.max(0, student.totalFee - student.paidAmount - student.concessionAmount);
+            student.scholarshipStatus = getScholarshipStatus(student.id, targetStudentYear || student.current_year) || 'not_eligible';
 
             student.feeDetailsArray = Object.keys(student.feeDetails).map(fid => {
                 const detail = student.feeDetails[fid];
