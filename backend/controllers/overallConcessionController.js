@@ -3,6 +3,7 @@ const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
 const FeeStructure = require('../models/FeeStructure');
 const OverallConcessionRequest = require('../models/OverallConcessionRequest');
+const collegeScope = require('../utils/collegeScope');
 const {
   formatConcessionEntry,
   mapStoredEntryForResponse,
