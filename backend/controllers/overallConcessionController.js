@@ -49,7 +49,7 @@ const getOverallConcessions = async (req, res) => {
         }
 
         // Filter by user's assigned courses if specified
-        const userAllowedCourses = req.user.courses || [];
+        const userAllowedCourses = (req.user.courses || []).map(c => c.includes('|') ? c.split('|')[1] : c);
         if (course) {
             if (userAllowedCourses.length > 0 && !userAllowedCourses.includes(course)) {
                 return res.json([]);

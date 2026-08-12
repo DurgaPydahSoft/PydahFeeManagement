@@ -197,7 +197,7 @@ const OverallConcession = () => {
                 const [metaRes, headsRes] = await Promise.all(calls);
                 const meta = metaRes.data.hierarchy || metaRes.data;
                 setMetadata(meta);
-                setColleges(Object.keys(meta));
+                setColleges(Object.keys(meta || {}));
                 setBatches(metaRes.data.batches || []);
                 setFeeHeads(headsRes.data || []);
                 setCourseYears(metaRes.data.courseYears || {});

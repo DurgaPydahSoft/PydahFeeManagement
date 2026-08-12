@@ -116,7 +116,13 @@ const getStudentMetadata = async (req, res) => {
 
     const hierarchy = {};
     const collegeCodes = {};
+    
+    // Scoping down course mapping by courses array if user profile has restricted courses (e.g. Diploma user)
+    const userCourses = (req.user.courses || []).map(c => c.includes('|') ? c.split('|')[1] : c);
     rows.forEach(row => {
+      if (userCourses.length > 0 && !userCourses.includes(row.course)) {
+        return;
+      }
       if (row.college && row.collegeCode) {
         collegeCodes[row.college] = row.collegeCode.toUpperCase().trim();
       }
@@ -149,6 +155,9 @@ const getStudentMetadata = async (req, res) => {
     const [courseRows] = await db.query(courseQuery, courseParams);
     const courseYears = {};
     courseRows.forEach((r) => {
+      if (userCourses.length > 0 && !userCourses.includes(r.name)) {
+        return;
+      }
       const years = r.total_years != null ? Number(r.total_years) : 4;
       if (r.name && !(r.name in courseYears)) courseYears[r.name] = Math.max(1, Math.min(years, 10));
     });
@@ -166,6 +175,9 @@ const getStudentMetadata = async (req, res) => {
     
     const categoryMapping = {};
     categoryRows.forEach(row => {
+      if (userCourses.length > 0 && !userCourses.includes(row.course)) {
+        return;
+      }
       // Normalize values for key matching (lowercase and trimmed)
       const college = String(row.college || '').trim().toLowerCase();
       const course = String(row.course || '').trim().toLowerCase();
