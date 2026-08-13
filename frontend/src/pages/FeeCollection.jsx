@@ -1595,6 +1595,11 @@ const FeeCollection = () => {
                                                                                     Sch
                                                                                 </span>
                                                                             )}
+                                                                            {fee.extraDemandAmount > 0 && (
+                                                                                <span title="Extra Demand Added" className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded border border-red-200 font-bold uppercase tracking-wider whitespace-nowrap">
+                                                                                    +{fmtAmount(fee.extraDemandAmount)} Demand
+                                                                                </span>
+                                                                            )}
                                                                         </div>
                                                                         <div className="text-[9px] text-gray-400">Year {fee.studentYear} • Sem {fee.semester || '-'}</div>
                                                                     </td>

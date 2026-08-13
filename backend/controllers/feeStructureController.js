@@ -500,6 +500,7 @@ const getStudentFeeDetails = async (req, res) => {
           concessionAmount: 0,
           declarationConcessionAmount: 0,
           applicationConcessionAmount: 0,
+          extraDemandAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
           isActive: fee.isActive !== false,
@@ -547,6 +548,7 @@ const getStudentFeeDetails = async (req, res) => {
           concessionAmount: 0,
           declarationConcessionAmount: 0,
           applicationConcessionAmount: 0,
+          extraDemandAmount: 0,
           paidAmount: 0,
           dueAmount: 0,
           isActive: true,
@@ -585,6 +587,7 @@ const getStudentFeeDetails = async (req, res) => {
             concessionAmount: 0,
             declarationConcessionAmount: 0,
             applicationConcessionAmount: 0,
+            extraDemandAmount: 0,
             paidAmount: 0,
             dueAmount: 0,
             isActive: true,
@@ -597,7 +600,12 @@ const getStudentFeeDetails = async (req, res) => {
           };
         }
         if (t.transactionType === 'DEBIT') {
-          groupedData[key].paidAmount += (t.amount || 0);
+          if (t.remarks === 'Extra Demand as per declaration') {
+            groupedData[key].extraDemandAmount = (groupedData[key].extraDemandAmount || 0) + (t.amount || 0);
+            groupedData[key].totalAmount += (t.amount || 0);
+          } else {
+            groupedData[key].paidAmount += (t.amount || 0);
+          }
         } else if (t.transactionType === 'CREDIT') {
           const amt = t.amount || 0;
           groupedData[key].concessionAmount += amt;

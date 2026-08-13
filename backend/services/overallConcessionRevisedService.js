@@ -111,14 +111,6 @@ const validateRevisedEntriesAgainstStructures = async ({
     const structure = structureMap[key];
 
     if (!structure) continue;
-
-    const structureAmount = Number(structure.amount) || 0;
-    if (revisedAmount > structureAmount) {
-      warnings.push(
-        `Fee structure for ${label} (Year ${studentYear}) is lower than the revised fee ` +
-        `(structure: ${structureAmount}, revised: ${revisedAmount}).`
-      );
-    }
   }
 
   return {
@@ -288,6 +280,95 @@ const upsertDeclarationConcessionTransactionWithExisting = async ({
   return { cancelled: 0, created: 1, updated: 0 };
 };
 
+const upsertDeclarationDemandTransactionWithExisting = async ({
+  admissionNumber,
+  studentName,
+  feeHeadId,
+  studentYear,
+  semester,
+  amount,
+  collectedBy,
+  collectedByName,
+  existingDoc // Mongoose document or null
+}) => {
+  const existing = existingDoc;
+
+  if (amount <= 0) {
+    if (existing) {
+      existing.status = 'cancelled';
+      existing.cancellationReason = 'Revised fee no longer requires extra demand';
+      existing.cancelledAt = new Date();
+      existing.cancelledBy = collectedBy || 'system';
+      existing.cancelledByName = collectedByName || 'System';
+      await existing.save();
+      return { cancelled: 1, created: 0, updated: 0 };
+    }
+    return { cancelled: 0, created: 0, updated: 0 };
+  }
+
+  const sem = normalizeSemester(semester);
+  const semValue = sem === null ? null : String(sem);
+
+  if (existing) {
+    let changed = false;
+    if (Number(existing.amount) !== Number(amount)) { existing.amount = amount; changed = true; }
+    if (existing.paymentMode !== 'Adjustment') { existing.paymentMode = 'Adjustment'; changed = true; }
+    if (normalizeSemester(existing.semester) !== sem) { existing.semester = semValue; changed = true; }
+    if (collectedBy && existing.collectedBy !== collectedBy) { existing.collectedBy = collectedBy; changed = true; }
+    if (collectedByName && existing.collectedByName !== collectedByName) { existing.collectedByName = collectedByName; changed = true; }
+    if (changed) await existing.save();
+    return { cancelled: 0, created: 0, updated: changed ? 1 : 0 };
+  }
+
+  const timestamp = Date.now().toString().slice(-6);
+  const random = Math.floor(100 + Math.random() * 900).toString();
+  await Transaction.create({
+    studentId: admissionNumber,
+    studentName: studentName || '',
+    feeHead: feeHeadId,
+    amount,
+    transactionType: 'DEBIT',
+    paymentMode: 'Adjustment',
+    receiptNumber: `DEMD${timestamp}${random}`,
+    paymentDate: new Date(),
+    remarks: 'Extra Demand as per declaration',
+    studentYear: String(studentYear),
+    semester: semValue,
+    collectedBy: collectedBy || 'system',
+    collectedByName: collectedByName || 'System'
+  });
+  return { cancelled: 0, created: 1, updated: 0 };
+};
+
+const upsertDeclarationDemandTransaction = async ({
+  admissionNumber,
+  feeHeadId,
+  studentYear,
+  semester,
+  amount,
+  collectedBy,
+  collectedByName
+}) => {
+  const existing = await Transaction.findOne({
+    studentId: admissionNumber,
+    feeHead: feeHeadId,
+    studentYear: String(studentYear),
+    transactionType: 'DEBIT',
+    remarks: 'Extra Demand as per declaration',
+    status: { $ne: 'cancelled' }
+  });
+  return upsertDeclarationDemandTransactionWithExisting({
+    admissionNumber,
+    feeHeadId,
+    studentYear,
+    semester,
+    amount,
+    collectedBy,
+    collectedByName,
+    existingDoc: existing
+  });
+};
+
 const applyRevisedConcessionTransactions = async ({
   admissionNumber,
   studentName,
@@ -339,7 +420,7 @@ const applyRevisedConcessionTransactions = async ({
     }
   }
 
-  // ── Batch-fetch all existing DECL transactions for this student ──
+  // ── Batch-fetch all existing DECL credit transactions for this student ──
   const existingTxns = await Transaction.find({
     studentId: admissionNumber,
     feeHead: { $in: feeHeadIds },
@@ -352,6 +433,21 @@ const applyRevisedConcessionTransactions = async ({
   for (const t of existingTxns) {
     const key = `${t.feeHead}_${t.studentYear}`;
     txnMap[key] = t;
+  }
+
+  // ── Batch-fetch all existing Extra Demand debit transactions for this student ──
+  const existingDemandTxns = await Transaction.find({
+    studentId: admissionNumber,
+    feeHead: { $in: feeHeadIds },
+    transactionType: 'DEBIT',
+    remarks: 'Extra Demand as per declaration',
+    status: { $ne: 'cancelled' }
+  }).lean();
+
+  const demandTxnMap = {};
+  for (const t of existingDemandTxns) {
+    const key = `${t.feeHead}_${t.studentYear}`;
+    demandTxnMap[key] = t;
   }
 
   // ── Batch-fetch StudentFee demands for fallback (no structure case) ──
@@ -397,11 +493,6 @@ const applyRevisedConcessionTransactions = async ({
       continue;
     }
 
-    if (revisedAmount > structureAmount) {
-      skipped += 1;
-      continue;
-    }
-
     // Align txn semester with the live StudentFee demand
     let effectiveSemester = semester;
     if (effectiveSemester === null || effectiveSemester === undefined || effectiveSemester === '') {
@@ -412,11 +503,18 @@ const applyRevisedConcessionTransactions = async ({
       }
     }
 
-    const concessionAmount = Math.max(0, structureAmount - revisedAmount);
+    let concessionAmount = 0;
+    let extraDemandAmount = 0;
 
-    // Use in-memory txn map instead of a DB query per entry
+    if (revisedAmount > structureAmount) {
+      extraDemandAmount = revisedAmount - structureAmount;
+    } else {
+      concessionAmount = structureAmount - revisedAmount;
+    }
+
+    // Upsert credit concession transaction
     const existingTxn = txnMap[`${feeHeadId}_${String(studentYear)}`];
-    const result = await upsertDeclarationConcessionTransactionWithExisting({
+    const resultCredit = await upsertDeclarationConcessionTransactionWithExisting({
       admissionNumber,
       studentName,
       feeHeadId,
@@ -428,9 +526,23 @@ const applyRevisedConcessionTransactions = async ({
       existingDoc: existingTxn ? await Transaction.findById(existingTxn._id) : null
     });
 
-    created += result.created;
-    updated += result.updated;
-    cancelled += result.cancelled;
+    // Upsert debit extra demand transaction
+    const existingDemandTxn = demandTxnMap[`${feeHeadId}_${String(studentYear)}`];
+    const resultDebit = await upsertDeclarationDemandTransactionWithExisting({
+      admissionNumber,
+      studentName,
+      feeHeadId,
+      studentYear,
+      semester: effectiveSemester,
+      amount: extraDemandAmount,
+      collectedBy,
+      collectedByName,
+      existingDoc: existingDemandTxn ? await Transaction.findById(existingDemandTxn._id) : null
+    });
+
+    created += resultCredit.created + resultDebit.created;
+    updated += resultCredit.updated + resultDebit.updated;
+    cancelled += resultCredit.cancelled + resultDebit.cancelled;
   }
 
   return { created, updated, cancelled, skipped };
@@ -455,7 +567,7 @@ const cancelDeclarationConcessionTransactions = async ({
     const feeHeadId = resolveFeeHeadId(entry, maps) || String(entry.feeHeadId || '');
     if (!feeHeadId) continue;
 
-    const result = await upsertDeclarationConcessionTransaction({
+    const resCredit = await upsertDeclarationConcessionTransaction({
       admissionNumber,
       feeHeadId,
       studentYear: Number(entry.studentYear),
@@ -464,19 +576,29 @@ const cancelDeclarationConcessionTransactions = async ({
       collectedBy,
       collectedByName
     });
-    cancelled += result.cancelled;
+
+    const resDebit = await upsertDeclarationDemandTransaction({
+      admissionNumber,
+      feeHeadId,
+      studentYear: Number(entry.studentYear),
+      semester: entry.semester,
+      amount: 0,
+      collectedBy,
+      collectedByName
+    });
+
+    cancelled += resCredit.cancelled + resDebit.cancelled;
   }
   return { cancelled };
 };
 
-/** Permanently delete DECL "Concession as per declaration" credits for a student. */
+/** Permanently delete DECL concessions and extra demands for a student. */
 const cancelAllDeclarationConcessionTransactions = async ({
   admissionNumber
 }) => {
   const result = await Transaction.deleteMany({
     studentId: admissionNumber,
-    transactionType: 'CREDIT',
-    remarks: DECLARATION_CONCESSION_REMARKS
+    remarks: { $in: [DECLARATION_CONCESSION_REMARKS, 'Extra Demand as per declaration'] }
   });
 
   return { cancelled: result.deletedCount || 0, deleted: result.deletedCount || 0 };

@@ -56,10 +56,10 @@ const getTransactionReports = async (req, res) => {
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
         const hasCollegeScope = Array.isArray(allowedColleges) && allowedColleges.length > 0;
 
-        // Base matching condition — always exclude cancelled transactions and overall concessions from reports
+        // Base matching condition — always exclude cancelled transactions, overall concessions, and extra demands from reports
         let matchStage = { 
             status: { $ne: 'cancelled' },
-            remarks: { $ne: 'Concession as per declaration' }
+            remarks: { $nin: ['Concession as per declaration', 'Extra Demand as per declaration'] }
         };
         matchStage = await applyTransactionScopeFilter(req.user, campusId, matchStage);
         if (matchStage.studentId?.$in?.[0] === '__none__' || matchStage.college?.$in?.[0] === '__none__') {
@@ -1651,7 +1651,11 @@ const getDueReports = async (req, res) => {
                         };
                     }
                     if (t.transactionType === 'DEBIT') {
-                        groupedData[key].paidAmount += (t.amount || 0);
+                        if (t.remarks === 'Extra Demand as per declaration') {
+                            groupedData[key].totalAmount += (t.amount || 0);
+                        } else {
+                            groupedData[key].paidAmount += (t.amount || 0);
+                        }
                     } else if (t.transactionType === 'CREDIT') {
                         const amt = t.amount || 0;
                         groupedData[key].concessionAmount += amt;
@@ -1963,6 +1967,9 @@ const getDashboardStats = async (req, res) => {
         // Build composite filters using $and to avoid key collision ($or overrides)
         const getCompositeFilter = (baseMatch = {}, customDateFilter = dateFilter) => {
             const matchObj = { ...baseMatch };
+            if (matchObj.transactionType === 'DEBIT') {
+                matchObj.remarks = { $ne: 'Extra Demand as per declaration' };
+            }
             const andConditions = [];
             if (Object.keys(customDateFilter).length > 0) {
                 andConditions.push(customDateFilter);
