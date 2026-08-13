@@ -264,7 +264,8 @@ const createConfig = async (req, res) => {
             smsRecipients: normalizedSmsRecipients,
             quotas: Array.isArray(quotas) ? quotas.filter(Boolean) : [],
             colleges: Array.isArray(colleges) ? colleges.filter(Boolean) : [],
-            courses: Array.isArray(courses) ? courses.filter(Boolean) : []
+            courses: Array.isArray(courses) ? courses.filter(Boolean) : [],
+            isActive: req.body.isActive !== undefined ? !!req.body.isActive : true
         });
         res.status(201).json(newConfig);
     } catch (error) {
@@ -325,7 +326,8 @@ const updateConfig = async (req, res) => {
             smsRecipients: normalizedSmsRecipients,
             quotas: Array.isArray(quotas) ? quotas.filter(Boolean) : [],
             colleges: Array.isArray(colleges) ? colleges.filter(Boolean) : [],
-            courses: Array.isArray(courses) ? courses.filter(Boolean) : []
+            courses: Array.isArray(courses) ? courses.filter(Boolean) : [],
+            isActive: req.body.isActive !== undefined ? !!req.body.isActive : true
         }, { new: true });
 
         if (!updatedConfig) return res.status(404).json({ message: 'Config not found' });

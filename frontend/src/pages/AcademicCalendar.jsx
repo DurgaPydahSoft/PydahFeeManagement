@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import api from '../lib/api';
-import { Calendar, Loader2, Activity, Plus, Pencil, Trash2, X, AlertCircle, Printer } from 'lucide-react';
+import { Calendar, Loader2, Activity, Plus, Pencil, Trash2, X, AlertCircle, Printer, Save } from 'lucide-react';
 import { printHtmlDocument } from '../utils/printService';
 
 /** Format MySQL DATE without UTC shift (avoids off-by-one in IST). */
@@ -105,6 +105,51 @@ const AcademicCalendar = () => {
     const [editingId, setEditingId] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
+
+    // Term Dates Modal States
+    const [isTermModalOpen, setIsTermModalOpen] = useState(false);
+    const [editingTermCohort, setEditingTermCohort] = useState(null);
+    const [termFormDates, setTermFormDates] = useState([]);
+    const [isSavingTerms, setIsSavingTerms] = useState(false);
+
+    const handleOpenTermEditModal = (group, yearObj, cat) => {
+        setEditingTermCohort({
+            college: group.college_name,
+            course: group.course_name,
+            batch: group.batch,
+            year_of_study: yearObj.year_of_study,
+            year_label: yearObj.year_label,
+            categoryName: cat.categoryName
+        });
+
+        // Load only the terms that are actually configured!
+        const initialFormDates = (cat.terms || []).map(t => ({
+            termNumber: Number(t.termNumber),
+            rawDate: t.rawDate || ''
+        }));
+        setTermFormDates(initialFormDates);
+        setIsTermModalOpen(true);
+    };
+
+    const handleTermDatesSave = async () => {
+        setIsSavingTerms(true);
+        try {
+            const payload = {
+                ...editingTermCohort,
+                terms: termFormDates
+            };
+
+            await api.put('/academic-calendar/term-dates', payload);
+            alert('Term dates updated successfully!');
+            setIsTermModalOpen(false);
+            fetchTermDates();
+        } catch (error) {
+            console.error('Failed to update term dates', error);
+            alert(error?.response?.data?.message || 'Failed to update term dates');
+        } finally {
+            setIsSavingTerms(false);
+        }
+    };
     
     // Permission Check
     const user = JSON.parse(localStorage.getItem('user')) || {};
@@ -1027,6 +1072,7 @@ const AcademicCalendar = () => {
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 1</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 2</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 3</th>
+                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -1041,6 +1087,7 @@ const AcademicCalendar = () => {
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
+                                                        <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-10 ml-auto"></div></td>
                                                     </tr>
                                                 ))
                                             ) : groupedTermDates.length > 0 ? (
@@ -1108,6 +1155,15 @@ const AcademicCalendar = () => {
                                                                     <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
                                                                         {getTermText(3)}
                                                                     </td>
+                                                                    <td className="px-4 py-3 text-right">
+                                                                        <button 
+                                                                            onClick={() => handleOpenTermEditModal(group, yearObj, cat)}
+                                                                            className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
+                                                                            title="Edit Term Dates"
+                                                                        >
+                                                                            <Pencil size={15} />
+                                                                        </button>
+                                                                    </td>
                                                                 </tr>
                                                             );
                                                         });
@@ -1115,7 +1171,7 @@ const AcademicCalendar = () => {
                                                 })
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="8" className="px-6 py-16 text-center text-gray-400 italic">
+                                                    <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
                                                         <div className="flex flex-col items-center justify-center gap-2">
                                                             <Calendar size={36} className="text-gray-300" />
                                                             <span>No term dates found. Make sure academic calendar semesters are configured.</span>
@@ -1282,6 +1338,80 @@ const AcademicCalendar = () => {
                                         <><Loader2 size={18} className="animate-spin" /> Saving...</>
                                     ) : (
                                         <><Calendar size={18} /> {editingId ? 'Update Session' : 'Create Session'}</>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Term Dates Edit Modal */}
+                {isTermModalOpen && (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                                <div>
+                                    <h2 className="text-xl font-bold text-slate-800">
+                                        Edit Term Due Dates
+                                    </h2>
+                                    <p className="text-xs text-slate-500 font-bold mt-0.5">
+                                        {editingTermCohort?.course} ({editingTermCohort?.batch}) - Year {editingTermCohort?.year_of_study}
+                                    </p>
+                                    <p className="text-[10px] text-indigo-600 font-semibold uppercase mt-0.5">
+                                        {editingTermCohort?.categoryName}
+                                    </p>
+                                </div>
+                                <button 
+                                    onClick={() => setIsTermModalOpen(false)}
+                                    className="p-2 hover:bg-white rounded-full text-slate-400 hover:text-red-500 transition-all shadow-sm border border-transparent hover:border-slate-200"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-5">
+                                <div className="grid grid-cols-1 gap-5">
+                                    {termFormDates.map((tf, index) => (
+                                        <div key={tf.termNumber} className="space-y-1.5">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">
+                                                Term {tf.termNumber} Due Date
+                                            </label>
+                                            <input 
+                                                type="date"
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                value={tf.rawDate}
+                                                onChange={(e) => {
+                                                    const updated = [...termFormDates];
+                                                    updated[index].rawDate = e.target.value;
+                                                    setTermFormDates(updated);
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
+                                    {termFormDates.length === 0 && (
+                                        <p className="text-xs text-slate-400 italic text-center py-4">
+                                            No terms configured for this category.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex gap-3">
+                                <button 
+                                    onClick={() => setIsTermModalOpen(false)}
+                                    className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-white transition-all text-sm cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={handleTermDatesSave}
+                                    disabled={isSavingTerms}
+                                    className="flex-[2] py-3 px-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-70 disabled:shadow-none cursor-pointer"
+                                >
+                                    {isSavingTerms ? (
+                                        <><Loader2 size={18} className="animate-spin" /> Saving...</>
+                                    ) : (
+                                        <><Save size={18} /> Save Dates</>
                                     )}
                                 </button>
                             </div>

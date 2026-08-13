@@ -21,7 +21,8 @@ const EMPTY_CONFIG_FORM = {
     smsRecipients: ['student'],
     quotas: [],
     colleges: [],
-    courses: []
+    courses: [],
+    isActive: true
 };
 
 const VALID_SMS_RECIPIENTS = ['student', 'parent', 'guardian'];
@@ -51,7 +52,7 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
     };
 
     const handleConfigSubmit = async () => {
-        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas, colleges: selectedColleges, courses: selectedCourses } = configForm;
+        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas, colleges: selectedColleges, courses: selectedCourses, isActive } = configForm;
 
         if (!academicYear || !dueSourceType || offsets.length === 0) {
             return alert("Academic Year, Due Source Type, and at least ONE Offset are required.");
@@ -89,7 +90,8 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
                 smsRecipients: enableSMS ? smsRecipients : [],
                 quotas: quotas || [], 
                 colleges: selectedColleges || [],
-                courses: ruleScope === 'COURSE' ? (selectedCourses || []) : []
+                courses: ruleScope === 'COURSE' ? (selectedCourses || []) : [],
+                isActive: isActive !== undefined ? isActive : true
             };
 
             if (editingConfigId) {
@@ -140,8 +142,37 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
             smsRecipients: cfg.smsRecipients?.length ? cfg.smsRecipients : ['student'],
             quotas: cfg.quotas || [],
             colleges: cfg.colleges || [],
-            courses: cfg.courses || []
+            courses: cfg.courses || [],
+            isActive: cfg.isActive !== undefined ? cfg.isActive : true
         });
+    };
+
+    const handleToggleRuleActive = async (cfg) => {
+        try {
+            const nextActiveState = cfg.isActive === false ? true : false;
+            setConfigs(prev => prev.map(c => c._id === cfg._id ? { ...c, isActive: nextActiveState } : c));
+            
+            const payload = {
+                academicYear: cfg.academicYear,
+                dueSourceType: cfg.dueSourceType,
+                triggerType: cfg.triggerType,
+                offsets: cfg.offsets,
+                smsTemplateId: cfg.smsTemplateId?._id || cfg.smsTemplateId || null,
+                emailTemplateId: cfg.emailTemplateId?._id || cfg.emailTemplateId || null,
+                smsRecipients: cfg.smsRecipients || [],
+                quotas: cfg.quotas || [],
+                colleges: cfg.colleges || [],
+                courses: cfg.courses || [],
+                isActive: nextActiveState
+            };
+            
+            await api.put(`/reminders/config/${cfg._id}`, payload);
+            fetchConfigs();
+        } catch (error) {
+            console.error("Failed to toggle rule active state", error);
+            alert("Failed to change active status");
+            fetchConfigs();
+        }
     };
 
     const cancelEdit = () => {
@@ -504,6 +535,19 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
                             </div>
                         )}
                     </div>
+                    
+                    <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <h4 className="text-xs font-black uppercase text-gray-400">Rule Status</h4>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input 
+                                type="checkbox" 
+                                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 bg-white" 
+                                checked={configForm.isActive !== false} 
+                                onChange={e => setConfigForm({ ...configForm, isActive: e.target.checked })} 
+                            />
+                            <span className="text-xs font-bold text-gray-700">Active (sends automatic reminders)</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div className="px-6 py-4 border-t border-gray-100 flex gap-2 shrink-0 bg-white">
@@ -549,72 +593,83 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
                             .filter(cfg => !ruleFilters.dueSourceType || cfg.dueSourceType === ruleFilters.dueSourceType)
                             .filter(cfg => !ruleFilters.academicYear || cfg.academicYear === ruleFilters.academicYear)
                             .map(cfg => (
-                                <div key={cfg._id} className={`p-4 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:shadow-sm transition group relative flex justify-between items-center ${editingConfigId === cfg._id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-700">
-                                                {cfg.dueSourceType || 'LEGACY'}
-                                            </span>
-                                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
-                                                {(cfg.offsets || []).join(', ')} DAYS {cfg.triggerType}
-                                            </span>
-                                            <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                                                DUE DATE
-                                            </span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
-                                            <div><span className="font-bold text-gray-400">AY:</span> {cfg.academicYear}</div>
-                                            <div><span className="font-bold text-gray-400">Audience:</span> Unpaid only</div>
-                                            {cfg.quotas?.length > 0 && (
-                                                <div className="col-span-2">
-                                                    <span className="font-bold text-gray-400">Quotas: </span>
-                                                    <span className="flex flex-wrap gap-1 mt-0.5">
-                                                        {cfg.quotas.map(q => (
-                                                            <span key={q} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">{q}</span>
-                                                        ))}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {cfg.colleges?.length > 0 && (
-                                                <div className="col-span-2">
-                                                    <span className="font-bold text-gray-400">Colleges: </span>
-                                                    <span className="flex flex-wrap gap-1 mt-0.5">
-                                                        {cfg.colleges.map(c => (
-                                                            <span key={c} className="px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded text-[10px] font-bold">{c}</span>
-                                                        ))}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {cfg.courses?.length > 0 && (
-                                                <div className="col-span-2">
-                                                    <span className="font-bold text-gray-400">Courses: </span>
-                                                    <span className="flex flex-wrap gap-1 mt-0.5">
-                                                        {cfg.courses.map(c => (
-                                                            <span key={c} className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">{c}</span>
-                                                        ))}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-1 flex flex-col gap-0.5 border-t border-gray-50 pt-1">
-                                            {cfg.smsTemplateId && (
-                                                <div>
-                                                    SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name || 'Template'}</span>
-                                                    {cfg.smsRecipients?.length > 0 && (
-                                                        <span className="ml-1.5 text-gray-400">
-                                                            → {cfg.smsRecipients.map(r => ({ student: 'Student', parent: 'Parent', guardian: 'Guardian' }[r] || r)).join(', ')}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {cfg.emailTemplateId && <div>Email: <span className="font-medium text-gray-700">{cfg.emailTemplateId?.name || 'Template'}</span></div>}
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col gap-1 ml-4">
-                                        <button type="button" onClick={() => handleEditConfig(cfg)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="Edit Rule"><Edit size={16} /></button>
-                                        <button type="button" onClick={() => handleDeleteConfig(cfg._id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Delete Rule"><Trash2 size={16} /></button>
-                                    </div>
-                                </div>
+                                 <div key={cfg._id} className={`p-4 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:shadow-sm transition group relative flex justify-between items-center ${editingConfigId === cfg._id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
+                                     <div className="flex-1">
+                                         <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${cfg.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                 {cfg.isActive !== false ? 'Active' : 'Inactive'}
+                                             </span>
+                                             <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-700">
+                                                 {cfg.dueSourceType || 'LEGACY'}
+                                             </span>
+                                             <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
+                                                 {(cfg.offsets || []).join(', ')} DAYS {cfg.triggerType}
+                                             </span>
+                                             <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                                                 DUE DATE
+                                             </span>
+                                         </div>
+                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
+                                             <div><span className="font-bold text-gray-400">AY:</span> {cfg.academicYear}</div>
+                                             <div><span className="font-bold text-gray-400">Audience:</span> Unpaid only</div>
+                                             {cfg.quotas?.length > 0 && (
+                                                 <div className="col-span-2">
+                                                     <span className="font-bold text-gray-400">Quotas: </span>
+                                                     <span className="flex flex-wrap gap-1 mt-0.5">
+                                                         {cfg.quotas.map(q => (
+                                                             <span key={q} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">{q}</span>
+                                                         ))}
+                                                     </span>
+                                                 </div>
+                                             )}
+                                             {cfg.colleges?.length > 0 && (
+                                                 <div className="col-span-2">
+                                                     <span className="font-bold text-gray-400">Colleges: </span>
+                                                     <span className="flex flex-wrap gap-1 mt-0.5">
+                                                         {cfg.colleges.map(c => (
+                                                             <span key={c} className="px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded text-[10px] font-bold">{c}</span>
+                                                         ))}
+                                                     </span>
+                                                 </div>
+                                             )}
+                                             {cfg.courses?.length > 0 && (
+                                                 <div className="col-span-2">
+                                                     <span className="font-bold text-gray-400">Courses: </span>
+                                                     <span className="flex flex-wrap gap-1 mt-0.5">
+                                                         {cfg.courses.map(c => (
+                                                             <span key={c} className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold">{c}</span>
+                                                         ))}
+                                                     </span>
+                                                 </div>
+                                             )}
+                                         </div>
+                                         <div className="text-xs text-gray-500 mt-1 flex flex-col gap-0.5 border-t border-gray-50 pt-1">
+                                             {cfg.smsTemplateId && (
+                                                 <div>
+                                                     SMS: <span className="font-medium text-gray-700">{cfg.smsTemplateId?.name || 'Template'}</span>
+                                                     {cfg.smsRecipients?.length > 0 && (
+                                                         <span className="ml-1.5 text-gray-400">
+                                                             → {cfg.smsRecipients.map(r => ({ student: 'Student', parent: 'Parent', guardian: 'Guardian' }[r] || r)).join(', ')}
+                                                         </span>
+                                                     )}
+                                                 </div>
+                                             )}
+                                             {cfg.emailTemplateId && <div>Email: <span className="font-medium text-gray-700">{cfg.emailTemplateId?.name || 'Template'}</span></div>}
+                                         </div>
+                                     </div>
+                                     <div className="flex flex-col gap-1 ml-4 items-center">
+                                         <button 
+                                             type="button" 
+                                             onClick={() => handleToggleRuleActive(cfg)} 
+                                             className={`p-2 rounded transition ${cfg.isActive !== false ? 'text-green-500 hover:text-green-700 hover:bg-green-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`} 
+                                             title={cfg.isActive !== false ? "Deactivate Rule" : "Activate Rule"}
+                                         >
+                                             {cfg.isActive !== false ? <Activity size={16} /> : <Activity size={16} className="opacity-40" />}
+                                         </button>
+                                         <button type="button" onClick={() => handleEditConfig(cfg)} className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="Edit Rule"><Edit size={16} /></button>
+                                         <button type="button" onClick={() => handleDeleteConfig(cfg._id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Delete Rule"><Trash2 size={16} /></button>
+                                     </div>
+                                 </div>
                             ))
                     )}
                 </div>

@@ -1135,12 +1135,24 @@ const getTransactionReports = async (req, res) => {
 
 const getDueReports = async (req, res) => {
     try {
-        const { college, course, branch, batch, search, campusId, year, quota } = req.query;
+        const { college, course, branch, batch, search, campusId, year, quota, studentStatus } = req.query;
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
 
         // 1. Build SQL Query for Students
-        let sqlQuery = `SELECT id, admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college, stud_type, batch, current_semester FROM students WHERE LOWER(student_status) = 'regular'`;
+        let sqlQuery = `SELECT id, admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college, stud_type, batch, current_semester FROM students WHERE 1=1`;
         const params = [];
+
+        // Filter by student status
+        if (studentStatus) {
+            const statusList = Array.isArray(studentStatus) ? studentStatus : String(studentStatus).split(',').map(s => s.trim()).filter(Boolean);
+            if (statusList.length > 0 && !statusList.some(s => s.toLowerCase() === 'all')) {
+                sqlQuery += ` AND student_status IN (${statusList.map(() => '?').join(',')})`;
+                params.push(...statusList);
+            }
+        } else {
+            // Default to regular
+            sqlQuery += ` AND LOWER(student_status) = 'regular'`;
+        }
 
         if (college) {
             if (allowedColleges && !allowedColleges.includes(college)) {
@@ -1157,16 +1169,21 @@ const getDueReports = async (req, res) => {
             params.push(course);
         }
         if (branch) {
-            sqlQuery += ` AND branch = ?`;
-            params.push(branch);
+            const branchList = Array.isArray(branch) ? branch : String(branch).split(',').map(s => s.trim()).filter(Boolean);
+            if (branchList.length > 0) {
+                sqlQuery += ` AND branch IN (${branchList.map(() => '?').join(',')})`;
+                params.push(...branchList);
+            }
         }
         if (quota) {
-            sqlQuery += ` AND stud_type = ?`;
-            params.push(quota);
+            const quotaList = Array.isArray(quota) ? quota : String(quota).split(',').map(s => s.trim()).filter(Boolean);
+            if (quotaList.length > 0) {
+                sqlQuery += ` AND stud_type IN (${quotaList.map(() => '?').join(',')})`;
+                params.push(...quotaList);
+            }
         }
         // Parse Academic Year start year from batch query param (e.g. "2024-2025" -> 2024)
         let ayStartYear = null;
-        let yearNumber = null;
         if (batch) {
             if (batch.includes('-')) {
                 const ayStartMatch = batch.match(/^(\d{4})/);
@@ -1181,20 +1198,35 @@ const getDueReports = async (req, res) => {
         }
 
         // Filter by Year/Semester (current_year)
+        const yearNumbersList = [];
         if (year) {
-            const yearMatch = year.match(/^(\d+)/);
-            if (yearMatch) {
-                yearNumber = parseInt(yearMatch[1], 10);
-                if (ayStartYear !== null) {
-                    // Both Academic Year and Student Year are specified:
-                    // Student batch = (ayStartYear - yearNumber + 1)
-                    const targetBatch = String(ayStartYear - yearNumber + 1);
-                    sqlQuery += ` AND batch = ? AND current_year = ?`;
-                    params.push(targetBatch, yearNumber);
-                } else {
-                    sqlQuery += ` AND current_year = ?`;
-                    params.push(yearNumber);
+            const yearList = Array.isArray(year) ? year : String(year).split(',').map(s => s.trim()).filter(Boolean);
+            const batchConditions = [];
+            const batchParams = [];
+            const directYearNumbers = [];
+
+            yearList.forEach(yr => {
+                const yearMatch = yr.match(/^(\d+)/);
+                if (yearMatch) {
+                    const yrNum = parseInt(yearMatch[1], 10);
+                    yearNumbersList.push(yrNum);
+                    if (ayStartYear !== null) {
+                        // Student batch = (ayStartYear - yrNum + 1)
+                        const targetBatch = String(ayStartYear - yrNum + 1);
+                        batchConditions.push('batch = ?');
+                        batchParams.push(targetBatch);
+                    } else {
+                        directYearNumbers.push(yrNum);
+                    }
                 }
+            });
+
+            if (ayStartYear !== null && batchConditions.length > 0) {
+                sqlQuery += ` AND (${batchConditions.join(' OR ')})`;
+                params.push(...batchParams);
+            } else if (directYearNumbers.length > 0) {
+                sqlQuery += ` AND current_year IN (${directYearNumbers.map(() => '?').join(',')})`;
+                params.push(...directYearNumbers);
             }
         } else if (ayStartYear !== null) {
             // Only Academic Year is specified (All student years):
@@ -1459,8 +1491,8 @@ const getDueReports = async (req, res) => {
             const identifiers = [student.admission_number, student.pin_no].map(id => String(id || '').trim().toLowerCase()).filter(Boolean);
             
             let targetStudentYear = null;
-            if (yearNumber !== null) {
-                targetStudentYear = yearNumber;
+            if (yearNumbersList && yearNumbersList.length === 1) {
+                targetStudentYear = yearNumbersList[0];
             } else if (ayStartYear !== null) {
                 const studentBatch = parseInt(student.batch, 10);
                 if (!isNaN(studentBatch)) {
@@ -1472,7 +1504,13 @@ const getDueReports = async (req, res) => {
             identifiers.forEach(id => {
                 if (studentDemandsMap[id]) {
                     studentDemandsMap[id].forEach(fee => {
-                        if (targetStudentYear === null || Number(fee.studentYear) === targetStudentYear) {
+                        const feeYear = Number(fee.studentYear);
+                        const isYearMatched = 
+                            yearNumbersList && yearNumbersList.length > 0 
+                                ? yearNumbersList.includes(feeYear)
+                                : (targetStudentYear === null || feeYear === targetStudentYear);
+
+                        if (isYearMatched) {
                             sDemands.push(fee);
                         }
                     });
@@ -1491,7 +1529,13 @@ const getDueReports = async (req, res) => {
             identifiers.forEach(id => {
                 if (studentTransactionsMap[id]) {
                     studentTransactionsMap[id].forEach(t => {
-                        if (targetStudentYear === null || Number(t.studentYear) === targetStudentYear) {
+                        const txnYear = Number(t.studentYear);
+                        const isYearMatched = 
+                            yearNumbersList && yearNumbersList.length > 0 
+                                ? yearNumbersList.includes(txnYear)
+                                : (targetStudentYear === null || txnYear === targetStudentYear);
+
+                        if (isYearMatched) {
                             sTransactions.push(t);
                         }
                     });

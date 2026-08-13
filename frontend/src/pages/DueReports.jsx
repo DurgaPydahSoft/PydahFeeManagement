@@ -6,6 +6,92 @@ import * as XLSX from 'xlsx';
 import { useCampuses, getCollegeNamesForCampuses } from '../hooks/useCampuses';
 import { printHtmlDocument } from '../utils/printService';
 
+const MultiSelectDropdown = ({ label, options, selectedValues, onChange, disabled }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleOption = (val) => {
+        if (selectedValues.includes(val)) {
+            onChange(selectedValues.filter(x => x !== val));
+        } else {
+            onChange([...selectedValues, val]);
+        }
+    };
+
+    const toggleAll = () => {
+        if (selectedValues.length === options.length) {
+            onChange([]);
+        } else {
+            onChange([...options]);
+        }
+    };
+
+    return (
+        <div className="relative w-full text-left" ref={dropdownRef}>
+            <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">{label}</label>
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 block p-2.5 font-semibold flex justify-between items-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                <span className="truncate">
+                    {selectedValues.length === 0 
+                        ? `Select ${label}` 
+                        : selectedValues.length === options.length 
+                        ? `All ${label}s` 
+                        : `${selectedValues.length} Selected`}
+                </span>
+                <span className="ml-2 text-gray-500 text-[10px]">▼</span>
+            </button>
+
+            {isOpen && (
+                <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto p-2 space-y-1">
+                    {options.length > 0 ? (
+                        <>
+                            <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer select-none font-bold text-[11px] border-b border-gray-100 pb-2">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedValues.length === options.length && options.length > 0}
+                                    onChange={toggleAll}
+                                    className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                />
+                                <span>Select All</span>
+                            </label>
+                            {options.map(opt => {
+                                const isChecked = selectedValues.includes(opt);
+                                return (
+                                    <label key={opt} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer select-none text-[11px] font-medium text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => toggleOption(opt)}
+                                            className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                        />
+                                        <span>{opt}</span>
+                                    </label>
+                                );
+                            })}
+                        </>
+                    ) : (
+                        <div className="text-[11px] text-gray-400 p-2 italic text-center">No options available</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const DueReports = () => {
     const [metadata, setMetadata] = useState({});
     const [colleges, setColleges] = useState([]);
@@ -15,6 +101,7 @@ const DueReports = () => {
     const [quotas, setQuotas] = useState([]);
     const [academicYears, setAcademicYears] = useState([]);
     const [currentAcademicYear, setCurrentAcademicYear] = useState('');
+    const [studentStatuses, setStudentStatuses] = useState([]);
 
     // Generate Academic Years (current year ± 6 years)
     const generateAcademicYears = () => {
@@ -53,10 +140,11 @@ const DueReports = () => {
         campusId: 'all',
         college: '',
         course: '',
-        branch: '',
+        branch: [],
         batch: '',
-        quota: '',
-        year: ''
+        quota: [],
+        year: [],
+        studentStatus: 'Regular'
     });
     const [sortField, setSortField] = useState('');
     const [sortDir, setSortDir] = useState('asc');
@@ -106,12 +194,14 @@ const DueReports = () => {
                 const batchList = response.data.batches || [];
                 const quotaList = response.data.quotas || response.data.categories || [];
                 const courseYearsData = response.data.courseYears || {};
+                const statusList = response.data.statuses || ['Regular', 'Detached', 'Discontinued', 'Detained', 'Completed'];
                 
                 setMetadata(meta);
                 setBatches(batchList);
                 setQuotas(quotaList || []);
                 setCourseYears(courseYearsData);
                 setColleges(Object.keys(meta));
+                setStudentStatuses(statusList);
                 
                 // Generate academic years on load
                 const years = generateAcademicYears();
@@ -142,7 +232,7 @@ const DueReports = () => {
     const handleTopCampusChange = (e) => {
         const campusId = e.target.value;
         setTopFilters({ campusId, batch: '' });
-        setFilters({ campusId, college: '', course: '', branch: '', batch: '', quota: '', year: '' });
+        setFilters({ campusId, college: '', course: '', branch: [], batch: topFilters.batch, quota: [], year: [], studentStatus: 'Regular' });
         if (campusId === 'all') {
             setColleges(Object.keys(metadata));
         } else {
@@ -162,7 +252,7 @@ const DueReports = () => {
 
     const handleCampusChange = (e) => {
         const campusId = e.target.value;
-        setFilters({ campusId, college: '', course: '', branch: '', batch: topFilters.batch, quota: '', year: '' });
+        setFilters({ campusId, college: '', course: '', branch: [], batch: topFilters.batch, quota: [], year: [], studentStatus: 'Regular' });
         if (campusId === 'all') {
             setColleges(Object.keys(metadata));
         } else {
@@ -176,7 +266,7 @@ const DueReports = () => {
 
     const handleCollegeChange = (e) => {
         const college = e.target.value;
-        setFilters({ ...filters, college, course: '', branch: '', quota: '', year: '' });
+        setFilters({ ...filters, college, course: '', branch: [], quota: [], year: [] });
         setCourses(college ? Object.keys(metadata[college] || {}) : []);
         setBranches([]);
         setAvailableYears([]);
@@ -184,7 +274,7 @@ const DueReports = () => {
 
     const handleCourseChange = (e) => {
         const course = e.target.value;
-        const newFilters = { ...filters, course, branch: '', quota: '', year: '' };
+        const newFilters = { ...filters, course, branch: [], quota: [], year: [] };
 
         if (course && filters.college) {
             const courseData = metadata[filters.college][course];
@@ -231,13 +321,14 @@ const DueReports = () => {
             const params = {
                 college: filters.college,
                 course: filters.course,
-                branch: filters.branch,
+                branch: filters.branch.join(','),
                 batch: filters.batch,
-                year: filters.year,
+                year: filters.year.join(','),
                 search: searchTerm,
+                studentStatus: filters.studentStatus,
                 ...(filters.campusId !== 'all' ? { campusId: filters.campusId } : {}),
                 // Only add quota if it's selected (not empty)
-                ...(filters.quota ? { quota: filters.quota } : {})
+                ...(filters.quota.length > 0 ? { quota: filters.quota.join(',') } : {})
             };
             
             const response = await api.get(`/reports/dues`, { params });
@@ -262,11 +353,12 @@ const DueReports = () => {
                     filters: {
                         college: filters.college,
                         course: filters.course,
-                        branch: filters.branch,
-                        year: filters.year,
-                        quota: filters.quota,
+                        branch: filters.branch.join(','),
+                        year: filters.year.join(','),
+                        quota: filters.quota.join(','),
                         batch: filters.batch || topFilters.batch,
-                        campusId: filters.campusId !== 'all' ? filters.campusId : topFilters.campusId
+                        campusId: filters.campusId !== 'all' ? filters.campusId : topFilters.campusId,
+                        studentStatus: filters.studentStatus
                     },
                     summary: {
                         totalStudents: reportData.length,
@@ -392,10 +484,10 @@ const DueReports = () => {
     const sortedData = React.useMemo(() => {
         if (!sortField) return reportData;
         return [...reportData].sort((a, b) => {
-            let valA = (sortField === 'dueAmount' || sortField === 'activeDue') ? (a[sortField] || 0) : (a[sortField] || '');
-            let valB = (sortField === 'dueAmount' || sortField === 'activeDue') ? (b[sortField] || 0) : (b[sortField] || '');
+            let valA = (sortField === 'dueAmount' || sortField === 'activeDue' || sortField === 'totalFee' || sortField === 'paidAmount') ? (a[sortField] || 0) : (a[sortField] || '');
+            let valB = (sortField === 'dueAmount' || sortField === 'activeDue' || sortField === 'totalFee' || sortField === 'paidAmount') ? (b[sortField] || 0) : (b[sortField] || '');
 
-            if (typeof valA === 'string') {
+            if (typeof valA === 'string' && sortField !== 'totalFee' && sortField !== 'paidAmount' && sortField !== 'dueAmount' && sortField !== 'activeDue') {
                 return sortDir === 'asc'
                     ? String(valA).localeCompare(String(valB))
                     : String(valB).localeCompare(String(valA));
@@ -488,6 +580,19 @@ const DueReports = () => {
     const totalFee = filteredData.reduce((acc, curr) => acc + (curr.totalFee || 0), 0);
     const totalConcession = filteredData.reduce((acc, curr) => acc + (curr.concessionAmount || 0), 0);
     const totalStudents = filteredData.length;
+
+    // Scholarship breakdowns for Fee & Collected amounts
+    const totalFeeSch = filteredData.reduce((acc, curr) => {
+        const isSch = String(curr.scholarshipStatus).toLowerCase() === 'eligible';
+        return acc + (isSch ? (curr.totalFee || 0) : 0);
+    }, 0);
+    const totalFeeNonSch = totalFee - totalFeeSch;
+
+    const totalCollectedSch = filteredData.reduce((acc, curr) => {
+        const isSch = String(curr.scholarshipStatus).toLowerCase() === 'eligible';
+        return acc + (isSch ? (curr.paidAmount || 0) : 0);
+    }, 0);
+    const totalCollectedNonSch = totalCollected - totalCollectedSch;
 
     // Scholarship counts for the selected year dataset
     const scholarshipEligibleCount = filteredData.filter(s => String(s.scholarshipStatus).toLowerCase() === 'eligible').length;
@@ -593,6 +698,9 @@ const DueReports = () => {
                                          <p className="text-xs text-gray-600 uppercase font-semibold">Total Fee</p>
                                      </div>
                                      <p className="text-2xl font-bold text-gray-900 mt-1">₹{totalFee.toLocaleString('en-IN')}</p>
+                                     <p className="text-[10px] text-gray-500 mt-1 font-semibold">
+                                         Sch: <span className="text-purple-600 font-bold">₹{totalFeeSch.toLocaleString('en-IN')}</span> | Non: <span className="text-gray-700 font-bold">₹{totalFeeNonSch.toLocaleString('en-IN')}</span>
+                                     </p>
                                  </div>
                               </div>
 
@@ -616,6 +724,9 @@ const DueReports = () => {
                                      </div>
                                      <p className="text-2xl font-bold text-gray-900 mt-1">
                                          ₹{totalCollected.toLocaleString('en-IN')}
+                                     </p>
+                                     <p className="text-[10px] text-gray-500 mt-1 font-semibold">
+                                         Sch: <span className="text-green-600 font-bold">₹{totalCollectedSch.toLocaleString('en-IN')}</span> | Non: <span className="text-gray-700 font-bold">₹{totalCollectedNonSch.toLocaleString('en-IN')}</span>
                                      </p>
                                  </div>
                               </div>
@@ -664,54 +775,62 @@ const DueReports = () => {
                         <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
                             <div className="flex flex-col xl:flex-row gap-3 items-end">
                                 {/* Filters Group */}
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 w-full xl:w-auto flex-1">
-                                    <select
-                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
-                                        value={filters.college}
-                                        onChange={handleCollegeChange}
-                                    >
-                                        <option value="">Select College</option>
-                                        {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                    <select
-                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                        value={filters.course}
-                                        onChange={handleCourseChange}
-                                        disabled={!filters.college}
-                                    >
-                                        <option value="">Select Course</option>
-                                        {courses.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                    <select
-                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                        value={filters.branch}
-                                        onChange={e => setFilters({ ...filters, branch: e.target.value })}
+                                <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full xl:w-auto flex-1">
+                                    <div className="w-full text-left">
+                                        <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
+                                        <select
+                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
+                                            value={filters.college}
+                                            onChange={handleCollegeChange}
+                                        >
+                                            <option value="">Select College</option>
+                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="w-full text-left">
+                                        <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Course</label>
+                                        <select
+                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                            value={filters.course}
+                                            onChange={handleCourseChange}
+                                            disabled={!filters.college}
+                                        >
+                                            <option value="">Select Course</option>
+                                            {courses.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <MultiSelectDropdown
+                                        label="Branch"
+                                        options={branches}
+                                        selectedValues={filters.branch}
+                                        onChange={val => setFilters({ ...filters, branch: val })}
                                         disabled={!filters.course}
-                                    >
-                                        <option value="">Select Branch</option>
-                                        {branches.map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
-                                    <select
-                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                        value={filters.year}
-                                        onChange={e => setFilters({ ...filters, year: e.target.value })}
+                                    />
+                                    <MultiSelectDropdown
+                                        label="Year"
+                                        options={availableYears}
+                                        selectedValues={filters.year}
+                                        onChange={val => setFilters({ ...filters, year: val })}
                                         disabled={!filters.course || availableYears.length === 0}
-                                    >
-                                        <option value="">Select Year/Semester</option>
-                                        {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                    </select>
-                                    <select
-                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
-                                        value={filters.quota}
-                                        onChange={e => setFilters({ ...filters, quota: e.target.value })}
-                                    >
-                                        <option value="">All Quotas</option>
-                                        {Array.isArray(quotas) && quotas.length > 0 ? (
-                                            quotas.map(q => <option key={q} value={q}>{q}</option>)
-                                        ) : (
-                                            <option disabled>No quotas available</option>
-                                        )}
-                                    </select>
+                                    />
+                                    <MultiSelectDropdown
+                                        label="Quota"
+                                        options={quotas || []}
+                                        selectedValues={filters.quota}
+                                        onChange={val => setFilters({ ...filters, quota: val })}
+                                        disabled={!filters.course}
+                                    />
+                                    <div className="w-full text-left">
+                                        <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Student Status</label>
+                                        <select
+                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
+                                            value={filters.studentStatus}
+                                            onChange={e => setFilters({ ...filters, studentStatus: e.target.value })}
+                                        >
+                                            <option value="all">All Statuses</option>
+                                            {studentStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
 
                                 {/* Actions Group */}
@@ -835,6 +954,18 @@ const DueReports = () => {
                                                     Total Fee {sortField === 'totalFee' && (sortDir === 'asc' ? '▲' : '▼')}
                                                 </div>
                                             </th>
+                                            <th 
+                                                className="p-2 text-right cursor-pointer select-none hover:bg-gray-100 transition"
+                                                onClick={() => {
+                                                    const dir = (sortField === 'paidAmount' && sortDir === 'asc') ? 'desc' : 'asc';
+                                                    setSortField('paidAmount');
+                                                    setSortDir(dir);
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Total Paid {sortField === 'paidAmount' && (sortDir === 'asc' ? '▲' : '▼')}
+                                                </div>
+                                            </th>
                                             {/* Dynamic Term Headers */}
                                             {Array.from({ length: maxTerms }).map((_, i) => (
                                                 <th key={i} className="p-2 text-right text-gray-500 font-semibold bg-blue-50/15 w-24">
@@ -871,10 +1002,10 @@ const DueReports = () => {
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {loading ? (
-                                            <tr><td colSpan={9 + maxTerms} className="text-center py-20 text-gray-500 italic">Processing data...</td></tr>
+                                            <tr><td colSpan={10 + maxTerms} className="text-center py-20 text-gray-500 italic">Processing data...</td></tr>
                                         ) : filteredData.length === 0 ? (
                                             <tr>
-                                                <td colSpan={9 + maxTerms} className="text-center py-32">
+                                                <td colSpan={10 + maxTerms} className="text-center py-32">
                                                     {hasSearched ? (
                                                         <div className="text-gray-500">No records match your search.</div>
                                                     ) : (
@@ -901,8 +1032,18 @@ const DueReports = () => {
                                                             <td className="p-2 text-center text-gray-400">{(currentPage - 1) * itemsPerPage + idx + 1}</td>
                                                             <td className="p-2 font-mono font-medium text-gray-600">{student.pin_no || '-'}</td>
                                                             <td className="p-2 font-mono text-gray-600">{student.admission_number || '-'}</td>
-                                                            <td className="p-2 font-medium text-gray-900">{student.student_name}</td>
+                                                            <td className="p-2 font-medium text-gray-900">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span>{student.student_name}</span>
+                                                                    {String(student.scholarshipStatus).toLowerCase() === 'eligible' && (
+                                                                        <span className="bg-blue-100 text-blue-800 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wide shrink-0" title="Scholarship Eligible">
+                                                                            Sch
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
                                                             <td className="p-2 text-right text-gray-600">₹{(student.totalFee || 0).toLocaleString('en-IN')}</td>
+                                                            <td className="p-2 text-right text-green-600 font-semibold">₹{(student.paidAmount || 0).toLocaleString('en-IN')}</td>
                                                             {/* Dynamic Term Dues */}
                                                             {Array.from({ length: maxTerms }).map((_, i) => {
                                                                 const dueVal = student.termDues?.[i] || 0;
@@ -933,7 +1074,7 @@ const DueReports = () => {
                                                         </tr>
                                                         {isExpanded && (
                                                             <tr className="bg-gray-50">
-                                                                <td colSpan={9 + maxTerms} className="p-4 border-b border-gray-200">
+                                                                <td colSpan={10 + maxTerms} className="p-4 border-b border-gray-200">
                                                                     <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
                                                                         <table className="w-full text-xs text-left border-collapse">
                                                                             <thead>

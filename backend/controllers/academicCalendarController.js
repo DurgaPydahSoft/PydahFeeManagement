@@ -207,12 +207,17 @@ const getTermDates = async (req, res) => {
         const formatTermVal = (term, targetSem, colName, crsName, batchKey, yrStudy, acadYearLabel) => {
             const dateVal = resolveDateHelper(term, targetSem, colName, crsName, batchKey, yrStudy, acadYearLabel);
             if (dateVal) {
-                return dateVal.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                const y = dateVal.getFullYear();
+                const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+                const d = String(dateVal.getDate()).padStart(2, '0');
+                const rawDate = `${y}-${m}-${d}`;
+                const dateText = dateVal.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                return { dateText, rawDate };
             }
             if (term.dueDateMode === 'offset') {
-                return `Sem ${targetSem} start date not in Academic Calendar`;
+                return { dateText: `Sem ${targetSem} start date not in Academic Calendar`, rawDate: null };
             }
-            return '—';
+            return { dateText: '—', rawDate: null };
         };
 
         // 4. Generate unique cohorts from semester calendar rows
@@ -251,9 +256,11 @@ const getTermDates = async (req, res) => {
             const acadTerms = acadStruct ? acadStruct.terms : [];
             const acadResolved = acadTerms.map(t => {
                 const targetSem = Number(t.referenceSemester) || Number(acadStruct?.semester) || 1;
+                const formatted = formatTermVal(t, targetSem, college_name, course_name, batch, year_of_study, year_label);
                 return {
                     termNumber: t.termNumber,
-                    dateText: formatTermVal(t, targetSem, college_name, course_name, batch, year_of_study, year_label)
+                    dateText: formatted.dateText,
+                    rawDate: formatted.rawDate
                 };
             });
 
@@ -278,9 +285,11 @@ const getTermDates = async (req, res) => {
                         fixedDueDate: rt?.fixedDueDate || dt?.fixedDueDate || null
                     };
                     const targetSem = Number(termConfig.referenceSemester) || 1;
+                    const formatted = formatTermVal(termConfig, targetSem, college_name, course_name, batch, year_of_study, year_label);
                     return {
                         termNumber: termNum,
-                        dateText: formatTermVal(termConfig, targetSem, college_name, course_name, batch, year_of_study, year_label)
+                        dateText: formatted.dateText,
+                        rawDate: formatted.rawDate
                     };
                 });
             };
@@ -310,11 +319,117 @@ const getTermDates = async (req, res) => {
     }
 };
 
+const updateTermDates = async (req, res) => {
+    try {
+        const { college, course, batch, year_of_study, year_label, categoryName, terms } = req.body;
+        if (!college || !course || !batch || !year_of_study || !categoryName || !Array.isArray(terms)) {
+            return res.status(400).json({ message: 'Missing required parameters' });
+        }
+
+        const FeeStructure = require('../models/FeeStructure');
+        const ServiceLateFeeConfig = require('../models/ServiceLateFeeConfig');
+        const DefaultLateFeeConfig = require('../models/DefaultLateFeeConfig');
+
+        if (categoryName === 'Academic Fees') {
+            const matchBatch = String(batch).split('-')[0].trim();
+            const structures = await FeeStructure.find({
+                college,
+                course,
+                studentYear: Number(year_of_study)
+            });
+
+            const targetStructures = structures.filter(fs => 
+                String(fs.batch).split('-')[0].trim() === matchBatch
+            );
+
+            if (targetStructures.length === 0) {
+                return res.status(404).json({ message: 'Fee Structure not found for this cohort' });
+            }
+
+            for (const struct of targetStructures) {
+                let modified = false;
+                terms.forEach(t => {
+                    const termNum = Number(t.termNumber);
+                    const rawDate = t.rawDate;
+                    if (!rawDate) return;
+                    
+                    const existingTerm = struct.terms.find(item => Number(item.termNumber) === termNum);
+                    if (existingTerm) {
+                        existingTerm.dueDateMode = 'fixed';
+                        existingTerm.fixedDueDate = new Date(rawDate);
+                        modified = true;
+                    }
+                });
+                if (modified) {
+                    await struct.save();
+                }
+            }
+
+        } else {
+            const type = categoryName === 'Transport Fee' ? 'TRANSPORT' : 'HOSTEL';
+            const yearStr = String(year_label).slice(0, 4);
+            const svc = await ServiceLateFeeConfig.findOne({
+                type,
+                isActive: { $ne: false },
+                academicYear: { $regex: new RegExp(`^${yearStr}`) }
+            });
+
+            if (!svc) {
+                return res.status(404).json({ message: `Service Late Fee Config not found for type ${type} and year ${yearStr}` });
+            }
+
+            const termsCount = Number(svc.defaultTermsCount) || (svc.defaultTerms || []).length || 1;
+            let rule = (svc.lateFeeRules || []).find((r) => Number(r.termsCount) === termsCount);
+            if (!rule) {
+                const fallbackDefault = await DefaultLateFeeConfig.findOne({ isActive: true, termsCount });
+                const newTermsList = [];
+                for (let i = 1; i <= termsCount; i++) {
+                    const dt = fallbackDefault?.terms?.find(item => Number(item.termNumber) === i);
+                    newTermsList.push({
+                        termNumber: i,
+                        dueDateMode: dt?.dueDateMode || 'offset',
+                        referenceSemester: dt?.referenceSemester || 1,
+                        dueOffsetDays: dt?.dueOffsetDays !== undefined ? Number(dt.dueOffsetDays) : 0,
+                        fixedDueDate: dt?.fixedDueDate || null
+                    });
+                }
+                
+                svc.lateFeeRules.push({
+                    termsCount,
+                    terms: newTermsList
+                });
+                rule = svc.lateFeeRules[svc.lateFeeRules.length - 1];
+            }
+
+            terms.forEach(t => {
+                const termNum = Number(t.termNumber);
+                const rawDate = t.rawDate;
+                if (!rawDate) return;
+
+                const ruleTerm = rule.terms.find(item => Number(item.termNumber) === termNum);
+                if (ruleTerm) {
+                    ruleTerm.dueDateMode = 'fixed';
+                    ruleTerm.fixedDueDate = new Date(rawDate);
+                }
+            });
+
+            svc.markModified('lateFeeRules');
+            await svc.save();
+        }
+
+        res.json({ message: 'Term dates updated successfully' });
+    } catch (err) {
+        console.error('Error updating term dates:', err);
+        res.status(500).json({ message: 'Error updating term dates', error: err.message });
+    }
+};
+
 module.exports = {
     getAcademicYears,
     getCalendarMetadata,
     createAcademicYear,
     updateAcademicYear,
     deleteAcademicYear,
-    getTermDates
+    getTermDates,
+    updateTermDates
 };

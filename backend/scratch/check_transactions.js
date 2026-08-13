@@ -13,14 +13,26 @@ const cleanStr = (val) => {
   return s;
 };
 
+const isDryRun = !process.argv.includes('--apply');
+const userArg = process.argv.find(arg => arg.startsWith('--user='))?.split('=')[1];
+// Default filter keyword if specified via CLI or if user asks for specific user
+const filterKeyword = userArg !== undefined ? userArg : 'sastry';
+
 const run = async () => {
   try {
+    console.log(`=== RUNNING IN ${isDryRun ? 'DRY-RUN MODE (No database changes will be made)' : 'LIVE MODE (Applying changes)'} ===`);
+    if (filterKeyword) {
+      console.log(`=== FILTERING BY COLLECTED BY USER: "${filterKeyword}" ===\n`);
+    } else {
+      console.log(`=== NO USER FILTER APPLIED (Inspecting all users) ===\n`);
+    }
+
     const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://localhost:27017/fee_management';
     console.log('Connecting to MongoDB...');
     await mongoose.connect(mongoUri);
     console.log('Connected to MongoDB successfully.\n');
 
-    const allTxs = await Transaction.find({
+    let allTxs = await Transaction.find({
       $or: [
         { collegeId: { $exists: false } },
         { courseId: { $exists: false } },
@@ -32,12 +44,21 @@ const run = async () => {
         { course: null },
         { branch: null }
       ]
-    }).lean();
+    }).populate('feeHead', 'name code').lean();
 
-    console.log(`Found ${allTxs.length} existing transactions to inspect and backfill.\n`);
+    if (filterKeyword) {
+      const kw = filterKeyword.toLowerCase().trim();
+      allTxs = allTxs.filter(tx => {
+        const cBy = (tx.collectedBy || '').toLowerCase();
+        const cByName = (tx.collectedByName || '').toLowerCase();
+        return cBy.includes(kw) || cByName.includes(kw);
+      });
+    }
+
+    console.log(`Found ${allTxs.length} matching existing transactions to inspect and backfill.\n`);
 
     if (allTxs.length === 0) {
-      console.log('All existing transactions are already fully synced with SQL IDs and metadata!');
+      console.log('No transactions matching the criteria were found!');
       return;
     }
 
@@ -75,6 +96,7 @@ const run = async () => {
 
     let updatedCount = 0;
     let bulkOps = [];
+    const detailedReport = [];
 
     for (const tx of allTxs) {
       const sKey = String(tx.studentId || '').trim().toLowerCase();
@@ -109,22 +131,61 @@ const run = async () => {
           }
         });
         updatedCount++;
+
+        const feeHeadName = typeof tx.feeHead === 'object' && tx.feeHead !== null ? (tx.feeHead.name || tx.feeHead.code) : (tx.feeHead || 'N/A');
+        const collectedByStr = tx.collectedByName ? `${tx.collectedByName} (${tx.collectedBy || 'N/A'})` : (tx.collectedBy || 'N/A');
+
+        const issuesList = [];
+        if (!tx.college || tx.college === 'undefined' || tx.college === 'null') {
+          issuesList.push("Missing 'college' (Excludes transaction from report college scope filter)");
+        }
+        if (!tx.course || tx.course === 'undefined' || tx.course === 'null') {
+          issuesList.push("Missing 'course'");
+        }
+        if (!tx.branch || tx.branch === 'undefined' || tx.branch === 'null') {
+          issuesList.push("Missing 'branch'");
+        }
+        if (!tx.collegeId) issuesList.push("Missing 'collegeId'");
+        if (!tx.courseId) issuesList.push("Missing 'courseId'");
+        if (!tx.branchId) issuesList.push("Missing 'branchId'");
+        if (!tx.pinNo || tx.pinNo === 'undefined' || tx.pinNo === 'null') issuesList.push("Missing 'pinNo'");
+
+        detailedReport.push({
+          'Tx ID': String(tx._id),
+          'Student ID': tx.studentId || 'N/A',
+          'Student Name': newName || 'N/A',
+          'Collected By': collectedByStr,
+          'Fee Head': feeHeadName,
+          'Amount': tx.amount !== undefined ? tx.amount : 'N/A',
+          'Exact Issue (Why Missing from Reports)': issuesList.join(' | ') || 'Missing SQL structure IDs',
+          'Fields To Backfill': JSON.stringify(setPayload)
+        });
       }
     }
 
-    if (bulkOps.length > 0) {
-      console.log(`Executing bulk backfill for ${bulkOps.length} transactions...`);
+    if (detailedReport.length > 0) {
+      console.log(`\n================ TRANSACTION ISSUES & DIAGNOSTICS (${detailedReport.length} records) ================`);
+      console.table(detailedReport);
+    }
+
+    if (isDryRun) {
+      console.log(`\n====================================================`);
+      console.log(`  DRY RUN COMPLETE: ${updatedCount} transactions WOULD be updated.`);
+      console.log(`  No changes were saved to MongoDB.`);
+      console.log(`  To apply these changes, run the script with --apply`);
+      console.log(`====================================================\n`);
+    } else if (bulkOps.length > 0) {
+      console.log(`\nExecuting bulk backfill for ${bulkOps.length} transactions...`);
       // Execute bulkWrite in batches of 1000
       for (let i = 0; i < bulkOps.length; i += 1000) {
         const opBatch = bulkOps.slice(i, i + 1000);
         await Transaction.bulkWrite(opBatch);
       }
+      console.log(`\n====================================================`);
+      console.log(`  BACKFILL COMPLETE: SUCCESSFULLY UPDATED ${updatedCount} TRANSACTIONS`);
+      console.log(`  Added collegeId, courseId, branchId & synced text metadata.`);
+      console.log(`====================================================\n`);
     }
-
-    console.log(`\n====================================================`);
-    console.log(`  BACKFILL COMPLETE: SUCCESSFULLY UPDATED ${updatedCount} TRANSACTIONS`);
-    console.log(`  Added collegeId, courseId, branchId & synced text metadata.`);
-    console.log(`====================================================\n`);
 
   } catch (err) {
     console.error('Error running backfill script:', err);

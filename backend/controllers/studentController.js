@@ -114,6 +114,9 @@ const getStudentMetadata = async (req, res) => {
     const [castes] = await db.query(`SELECT DISTINCT caste FROM students WHERE caste IS NOT NULL AND caste != '' ORDER BY caste`);
     const casteList = castes.map(c => c.caste);
 
+    const [statusRows] = await db.query(`SELECT DISTINCT student_status FROM students WHERE student_status IS NOT NULL AND student_status != '' ORDER BY student_status`);
+    const statusList = statusRows.map(s => s.student_status);
+
     const hierarchy = {};
     const collegeCodes = {};
     
@@ -165,41 +168,42 @@ const getStudentMetadata = async (req, res) => {
     // Fetch mapping of Categories per College, Course, Batch
     const [categoryRows] = await db.query(`
       SELECT DISTINCT 
-        TRIM(college) as college, 
-        TRIM(course) as course, 
-        TRIM(batch) as batch, 
-        stud_type as category 
-      FROM students 
-      WHERE stud_type IS NOT NULL AND stud_type != '' AND student_status = 'Regular'
-    `);
-    
-    const categoryMapping = {};
-    categoryRows.forEach(row => {
-      if (userCourses.length > 0 && !userCourses.includes(row.course)) {
-        return;
-      }
-      // Normalize values for key matching (lowercase and trimmed)
-      const college = String(row.college || '').trim().toLowerCase();
-      const course = String(row.course || '').trim().toLowerCase();
-      const batch = String(row.batch || '').trim().toLowerCase();
-      const key = `${college}|${course}|${batch}`;
-      
-      if (!categoryMapping[key]) categoryMapping[key] = [];
-      if (!categoryMapping[key].includes(row.category)) {
-        categoryMapping[key].push(row.category);
-      }
-    });
-
-    res.json({
-      hierarchy,
-      batches: batchList,
-      categories: categoryList,
-      castes: casteList,
-      categoryMapping,
-      courseYears,
-      collegeCodes,
-      scopedColleges: allowedColleges,
-    });
+         TRIM(college) as college, 
+         TRIM(course) as course, 
+         TRIM(batch) as batch, 
+         stud_type as category 
+       FROM students 
+       WHERE stud_type IS NOT NULL AND stud_type != '' AND student_status = 'Regular'
+     `);
+     
+     const categoryMapping = {};
+     categoryRows.forEach(row => {
+       if (userCourses.length > 0 && !userCourses.includes(row.course)) {
+         return;
+       }
+       // Normalize values for key matching (lowercase and trimmed)
+       const college = String(row.college || '').trim().toLowerCase();
+       const course = String(row.course || '').trim().toLowerCase();
+       const batch = String(row.batch || '').trim().toLowerCase();
+       const key = `${college}|${course}|${batch}`;
+       
+       if (!categoryMapping[key]) categoryMapping[key] = [];
+       if (!categoryMapping[key].includes(row.category)) {
+         categoryMapping[key].push(row.category);
+       }
+     });
+ 
+     res.json({
+       hierarchy,
+       batches: batchList,
+       categories: categoryList,
+       castes: casteList,
+       statuses: statusList,
+       categoryMapping,
+       courseYears,
+       collegeCodes,
+       scopedColleges: allowedColleges,
+     });
   } catch (error) {
     console.error('Error fetching metadata:', error);
     res.status(500).json({ message: 'Failed to fetch metadata' });
