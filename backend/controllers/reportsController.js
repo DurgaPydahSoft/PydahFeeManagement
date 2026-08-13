@@ -1768,24 +1768,16 @@ const getDueReports = async (req, res) => {
                         if (timingTerm.fixedDueDate) {
                             const fixedDate = new Date(timingTerm.fixedDueDate);
                             fixedDate.setHours(0, 0, 0, 0);
-                            const warnWindow = new Date(fixedDate);
-                            warnWindow.setDate(warnWindow.getDate() - 15);
-                            isTermActive = today >= warnWindow;
+                            isTermActive = today >= fixedDate;
                         } else {
                             isTermActive = true;
                         }
                     } else {
-                        // Offset mode: active as soon as semester starts, or fallback to 15-day warning before due date
-                        if (semMatch && semMatch.start_date) {
-                            const startDate = new Date(semMatch.start_date);
-                            startDate.setHours(0, 0, 0, 0);
-                            isTermActive = today >= startDate;
-                        } else if (dueDateVal) {
+                        // Offset mode: active only after the actual due date has passed
+                        if (dueDateVal) {
                             const dueDate = new Date(dueDateVal);
                             dueDate.setHours(0, 0, 0, 0);
-                            const warnWindow = new Date(dueDate);
-                            warnWindow.setDate(warnWindow.getDate() - 15);
-                            isTermActive = today >= warnWindow;
+                            isTermActive = today >= dueDate;
                         } else {
                             isTermActive = true;
                         }

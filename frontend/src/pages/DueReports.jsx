@@ -1293,7 +1293,7 @@ const DueCalculationGuide = () => {
                         <strong>Formula:</strong> The sum of unpaid balances for all terms whose active date trigger has been reached.
                     </p>
                     <div className="text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200/50 font-medium">
-                        <strong>Warning Window:</strong> A term's balance becomes "active" (due) <strong>15 days before</strong> its resolved due date, or as soon as the associated semester starts.
+                        <strong>Due Date Trigger:</strong> A term's balance becomes "active" (due) only <strong>on or after</strong> its resolved due date.
                     </div>
                 </div>
 
