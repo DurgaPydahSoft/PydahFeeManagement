@@ -1825,7 +1825,7 @@ const FeeConfiguration = () => {
                             <form onSubmit={activeHeadSubmit} className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <input className="w-full border p-2 rounded" placeholder="Name (e.g. Tuition)" value={headForm.name} onChange={e => setHeadForm({ ...headForm, name: e.target.value })} required />
-                                    <input className="w-full border p-2 rounded" placeholder="Code (e.g. TUI01)" value={headForm.code} onChange={e => setHeadForm({ ...headForm, code: e.target.value })} />
+                                    <input className="w-full border p-2 rounded disabled:bg-gray-100 disabled:text-gray-400" placeholder="Code (e.g. TUI01)" value={headForm.code} onChange={e => setHeadForm({ ...headForm, code: e.target.value })} disabled={!!editHeadId} />
                                 </div>
                                 <textarea className="w-full border p-2 rounded" placeholder="Description" value={headForm.description} onChange={e => setHeadForm({ ...headForm, description: e.target.value })} />
                                 <button className={`w-full text-white py-2 rounded ${editHeadId ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
@@ -2753,7 +2753,7 @@ const FeeConfiguration = () => {
                                                                                                                             onChange={e => updateColumnInActiveQuota(quotaName, col.id, 'feeHeadId', e.target.value)}
                                                                                                                         >
                                                                                                                             <option value="">Select Fee Head</option>
-                                                                                                                            {feeHeads.filter(h => ((h.isActive !== false && !((h.name || '').toLowerCase().includes('hostel') || (h.name || '').toLowerCase().includes('transport') || (h.code || '').toLowerCase().includes('hostel') || (h.code || '').toLowerCase().includes('transport') || (h.code || '').toLowerCase() === 'hst01' || (h.code || '').toLowerCase() === 'trn' || (h.code || '').toLowerCase() === 'trn01')) || h._id === col.feeHeadId)).map(h => (
+                                                                                                                            {feeHeads.filter(h => ((h.isActive !== false && !['HST01', 'TRN01'].includes(String(h.code || '').trim().toUpperCase())) || h._id === col.feeHeadId)).map(h => (
                                                                                                                                 <option key={h._id} value={h._id} disabled={currentConfig.columns.some(c => c.id !== col.id && c.feeHeadId === h._id)}>
                                                                                                                                     {h.name}
                                                                                                                                 </option>

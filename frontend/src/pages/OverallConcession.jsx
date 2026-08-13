@@ -359,7 +359,8 @@ const OverallConcession = () => {
                         studentYear: rf.studentYear,
                         semester: rf.semester ?? null,
                         amount: amt,
-                        concessionType: normalizeConcessionType(rf.concessionType)
+                        concessionType: normalizeConcessionType(rf.concessionType),
+                        remarks: rf.remarks || ''
                     };
                 })
                 // Avoid printing empty/0 concessions. The report grid will show dashes anyway.
@@ -1279,6 +1280,32 @@ const OverallConcession = () => {
                             return viewSortDir === 'asc' ? (valA > valB ? 1 : -1) : (valB > valA ? 1 : -1);
                         });
 
+                        // Calculate global popularity of fee heads across loaded students
+                        const feeHeadPopularity = {};
+                        const unionFeeHeads = [];
+                        sortedViewStudents.forEach(s => {
+                            (s.revisedFees || []).forEach(rf => {
+                                const fhId = resolveRevisedFeeHeadId(rf) || normalizeFeeHeadId(rf.feeHeadId);
+                                if (fhId) {
+                                    feeHeadPopularity[fhId] = (feeHeadPopularity[fhId] || 0) + 1;
+                                    if (!unionFeeHeads.includes(fhId)) {
+                                        unionFeeHeads.push(fhId);
+                                    }
+                                }
+                            });
+                        });
+
+                        unionFeeHeads.sort((a, b) => {
+                            const countA = feeHeadPopularity[a] || 0;
+                            const countB = feeHeadPopularity[b] || 0;
+                            if (countA !== countB) {
+                                return countB - countA;
+                            }
+                            const nameA = getFeeHeadName(a);
+                            const nameB = getFeeHeadName(b);
+                            return nameA.localeCompare(nameB);
+                        });
+
                         return (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-fadeIn">
                             <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -1402,20 +1429,18 @@ const OverallConcession = () => {
                                                     byHead[fhId].years[yr] = {
                                                         amount: Number(rf.amount ?? rf.revisedAmount ?? 0),
                                                         type: rf.concessionType || 'REVISED',
-                                                        id: rf.id
+                                                        id: rf.id,
+                                                        remarks: rf.remarks || ''
                                                     };
                                                     byHead[fhId].type = rf.concessionType || byHead[fhId].type;
                                                 });
 
-                                                const headEntries = Object.entries(byHead).sort((a, b) =>
-                                                    String(a[1].name).localeCompare(String(b[1].name))
-                                                );
                                                 const years = [...yearsSet].sort((a, b) => a - b);
                                                 const courseDur = courseYears[s.course] || (years.length ? Math.max(...years) : 0);
                                                 const displayYears = courseDur > 0
                                                     ? Array.from({ length: courseDur }, (_, i) => i + 1)
                                                     : years;
-                                                const hasConcessions = headEntries.length > 0;
+                                                const hasConcessions = (s.revisedFees || []).length > 0;
 
                                                 return (
                                                     <tr key={s.admission_number} className="hover:bg-slate-50/30 align-top">
@@ -1426,42 +1451,54 @@ const OverallConcession = () => {
                                                         <td className="p-4">
                                                             {hasConcessions ? (
                                                                 <div className="overflow-x-auto">
-                                                                    <table className="w-full text-[11px] border-collapse border border-slate-200 rounded-lg overflow-hidden">
+                                                                    <table className="w-full text-[11px] border-collapse border border-slate-200 rounded-lg overflow-hidden table-fixed min-w-[600px]">
                                                                         <thead>
                                                                             <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase">
-                                                                                <th className="px-3 py-2 text-left font-bold border border-slate-200 min-w-[100px]">Academic Year</th>
-                                                                                {headEntries.map(([fhId, row]) => (
-                                                                                    <th key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap min-w-[120px]">
-                                                                                        {row.name}
+                                                                                <th className="px-3 py-2 text-left font-bold border border-slate-200 w-[120px] min-w-[120px]">Academic Year</th>
+                                                                                {unionFeeHeads.map(fhId => (
+                                                                                    <th key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap w-[150px] min-w-[150px] truncate" title={getFeeHeadName(fhId)}>
+                                                                                        {getFeeHeadName(fhId)}
                                                                                     </th>
                                                                                 ))}
+                                                                                <th className="px-3 py-2 text-left font-bold border border-slate-200 w-[200px] min-w-[200px]">Remarks</th>
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody>
-                                                                            {displayYears.map(yr => (
-                                                                                <tr key={yr} className="bg-white">
-                                                                                    <td className="px-3 py-2 font-semibold text-slate-800 border border-slate-200 whitespace-nowrap text-left">
-                                                                                        {getYearSuffix(yr)} Year
-                                                                                    </td>
-                                                                                    {headEntries.map(([fhId, row]) => {
-                                                                                        const cell = row.years[yr];
-                                                                                        return (
-                                                                                            <td key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap">
-                                                                                                {cell ? (
-                                                                                                    <span className={cell.type === 'CONCESSION' ? 'text-amber-700' : 'text-emerald-700'}>
-                                                                                                        {cell.type === 'CONCESSION' ? '-' : ''}₹{Number(cell.amount).toLocaleString('en-IN')}
-                                                                                                        <span className={`ml-1 px-1 py-0.5 rounded text-[8px] font-bold border ${cell.type === 'CONCESSION' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-                                                                                                            {cell.type === 'CONCESSION' ? 'Conc.' : 'Rev.'}
+                                                                            {displayYears.map(yr => {
+                                                                                // Get remarks for this year from concessions by looking at union fee heads
+                                                                                const yrRemarks = unionFeeHeads
+                                                                                    .map(fhId => byHead[fhId]?.years?.[yr]?.remarks)
+                                                                                    .filter(Boolean);
+                                                                                const displayRemark = yrRemarks.length > 0 ? yrRemarks[0] : '—';
+
+                                                                                return (
+                                                                                    <tr key={yr} className="bg-white">
+                                                                                        <td className="px-3 py-2 font-semibold text-slate-800 border border-slate-200 whitespace-nowrap text-left w-[120px] min-w-[120px]">
+                                                                                            {getYearSuffix(yr)} Year
+                                                                                        </td>
+                                                                                        {unionFeeHeads.map(fhId => {
+                                                                                            const cell = byHead[fhId]?.years?.[yr];
+                                                                                            return (
+                                                                                                <td key={fhId} className="px-3 py-2 text-center font-bold border border-slate-200 whitespace-nowrap w-[150px] min-w-[150px]">
+                                                                                                    {cell ? (
+                                                                                                        <span className={cell.type === 'CONCESSION' ? 'text-amber-700' : 'text-emerald-700'} title={cell.remarks || undefined}>
+                                                                                                            {cell.type === 'CONCESSION' ? '-' : ''}₹{Number(cell.amount).toLocaleString('en-IN')}
+                                                                                                            <span className={`ml-1 px-1 py-0.5 rounded text-[8px] font-bold border ${cell.type === 'CONCESSION' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                                                                                                {cell.type === 'CONCESSION' ? 'Conc.' : 'Rev.'}
+                                                                                                            </span>
                                                                                                         </span>
-                                                                                                    </span>
-                                                                                                ) : (
-                                                                                                    <span className="text-slate-300 font-normal">—</span>
-                                                                                                )}
-                                                                                            </td>
-                                                                                        );
-                                                                                    })}
-                                                                                </tr>
-                                                                            ))}
+                                                                                                    ) : (
+                                                                                                        <span className="text-slate-300 font-normal">—</span>
+                                                                                                    )}
+                                                                                                </td>
+                                                                                            );
+                                                                                        })}
+                                                                                        <td className="px-3 py-2 text-left text-slate-600 border border-slate-200 max-w-[200px] truncate w-[200px] min-w-[200px]" title={displayRemark}>
+                                                                                            {displayRemark}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
                                                                         </tbody>
                                                                     </table>
                                                                 </div>

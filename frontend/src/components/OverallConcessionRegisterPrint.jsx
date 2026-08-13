@@ -33,8 +33,9 @@ const SingleStudentPrint = ({ request }) => {
     // All distinct years across all fee heads
     const years = [...new Set(concessions.map(c => Number(c.studentYear)))].sort((a, b) => a - b);
 
-    // Group concessions by fee head
+    // Group concessions by fee head and collect remarks
     const byHead = {};
+    const remarksByYear = {};
     concessions.forEach(c => {
         const key = c.feeHeadId;
         if (!byHead[key]) {
@@ -48,6 +49,9 @@ const SingleStudentPrint = ({ request }) => {
         byHead[key].years[Number(c.studentYear)] = Number(c.amount ?? 0);
         byHead[key].type = c.concessionType;
         if (c.feeHeadName) byHead[key].name = c.feeHeadName;
+        if (c.remarks) {
+            remarksByYear[Number(c.studentYear)] = c.remarks;
+        }
     });
 
     // Fee components become columns; academic years become rows
@@ -103,6 +107,7 @@ const SingleStudentPrint = ({ request }) => {
                                 {row.name}
                             </th>
                         ))}
+                        <th style={th('left', { width: '140px' })}>Remarks</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -114,6 +119,7 @@ const SingleStudentPrint = ({ request }) => {
                                     {row.years[yr] !== undefined ? `₹${fmt(row.years[yr])}` : '—'}
                                 </td>
                             ))}
+                            <td style={td('left')}>{remarksByYear[yr] || '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -169,9 +175,25 @@ const AllStudentsPrint = ({ requests, filters }) => {
         });
     });
 
-    const feeHeadEntries = [...feeHeadMap.entries()].sort((a, b) =>
-        String(a[1].name || '').localeCompare(String(b[1].name || ''))
-    );
+    // Calculate global popularity of fee heads across printed students
+    const feeHeadPopularity = {};
+    sortedReqs.forEach((req) => {
+        (req.concessions || []).forEach((c) => {
+            const hid = String(c.feeHeadId);
+            if (hid) {
+                feeHeadPopularity[hid] = (feeHeadPopularity[hid] || 0) + 1;
+            }
+        });
+    });
+
+    const feeHeadEntries = [...feeHeadMap.entries()].sort((a, b) => {
+        const countA = feeHeadPopularity[a[0]] || 0;
+        const countB = feeHeadPopularity[b[0]] || 0;
+        if (countA !== countB) {
+            return countB - countA;
+        }
+        return String(a[1].name || '').localeCompare(String(b[1].name || ''));
+    });
 
     // Prefer courseYears from filters if provided; otherwise use concession years
     const courseYearsHint = Number(filters?.courseYears);
@@ -182,16 +204,21 @@ const AllStudentsPrint = ({ requests, filters }) => {
         years = [1, 2, 3, 4];
     }
 
-    // Per-student lookup: admissionNumber → feeHeadId → year → amount
+    // Per-student lookup: admissionNumber → feeHeadId → year → amount, and student remarks
     const amountLookup = {};
+    const remarksLookup = {};
     sortedReqs.forEach((req) => {
         const adm = String(req.admissionNumber || '');
         if (!amountLookup[adm]) amountLookup[adm] = {};
+        if (!remarksLookup[adm]) remarksLookup[adm] = {};
         (req.concessions || []).forEach((c) => {
             const hid = String(c.feeHeadId);
             const yr = Number(c.studentYear);
             if (!amountLookup[adm][hid]) amountLookup[adm][hid] = {};
             amountLookup[adm][hid][yr] = Number(c.amount ?? 0);
+            if (c.remarks) {
+                remarksLookup[adm][yr] = c.remarks;
+            }
         });
     });
 
@@ -239,6 +266,7 @@ const AllStudentsPrint = ({ requests, filters }) => {
                                     {row.name}
                                 </th>
                             ))}
+                            <th style={{ ...headBorder, width: '120px', textAlign: 'left' }}>Remarks</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -267,6 +295,9 @@ const AllStudentsPrint = ({ requests, filters }) => {
                                             </td>
                                         );
                                     })}
+                                    <td style={{ ...cellBorder, textAlign: 'left' }}>
+                                        {remarksLookup[adm]?.[yr] || '—'}
+                                    </td>
                                 </tr>
                             ));
                         })}

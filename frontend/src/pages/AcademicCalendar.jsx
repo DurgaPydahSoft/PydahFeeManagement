@@ -725,7 +725,6 @@ const AcademicCalendar = () => {
                     rowsHtml += `
                         <tr>
                             ${collegeTd}${courseTd}${batchTd}${yearNumTd}
-                            <td style="border:1.5px solid #000;padding:5px 8px;font-weight:700">${cat.categoryName}</td>
                             <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px;text-align:center">${getTermText(1)}</td>
                             <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px;text-align:center">${getTermText(2)}</td>
                             <td style="border:1.5px solid #000;padding:5px 8px;font-family:monospace;font-size:10px;text-align:center">${getTermText(3)}</td>
@@ -758,7 +757,6 @@ const AcademicCalendar = () => {
         <th>College Code</th><th>Course</th>
         <th style="text-align:center">Batch</th>
         <th style="text-align:center">Year</th>
-        <th>Category</th>
         <th style="text-align:center">Term 1</th>
         <th style="text-align:center">Term 2</th>
         <th style="text-align:center">Term 3</th>
@@ -1068,11 +1066,10 @@ const AcademicCalendar = () => {
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Course</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Batch</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Year</th>
-                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider">Category</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 1</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 2</th>
                                                 <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-center">Term 3</th>
-                                                <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th>
+                                                {/* <th className="px-4 py-3.5 font-bold uppercase text-gray-600 tracking-wider text-right">Actions</th> */}
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -1083,11 +1080,10 @@ const AcademicCalendar = () => {
                                                         <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
                                                         <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-16"></div></td>
                                                         <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
-                                                        <td className="px-4 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
                                                         <td className="px-4 py-4 text-center"><div className="h-4 bg-slate-100 rounded w-16 mx-auto"></div></td>
-                                                        <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-10 ml-auto"></div></td>
+                                                        {/* <td className="px-4 py-4 text-right"><div className="h-7 bg-slate-200 rounded-lg w-10 ml-auto"></div></td> */}
                                                     </tr>
                                                 ))
                                             ) : groupedTermDates.length > 0 ? (
@@ -1143,9 +1139,6 @@ const AcademicCalendar = () => {
                                                                         </td>
                                                                     )}
 
-                                                                    <td className="px-4 py-3 font-medium text-gray-700 border-r border-gray-100">
-                                                                        {cat.categoryName}
-                                                                    </td>
                                                                     <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
                                                                         {getTermText(1)}
                                                                     </td>
@@ -1155,7 +1148,7 @@ const AcademicCalendar = () => {
                                                                     <td className="px-4 py-3 text-center text-gray-600 font-medium bg-blue-50/5">
                                                                         {getTermText(3)}
                                                                     </td>
-                                                                    <td className="px-4 py-3 text-right">
+                                                                    {/* <td className="px-4 py-3 text-right">
                                                                         <button 
                                                                             onClick={() => handleOpenTermEditModal(group, yearObj, cat)}
                                                                             className="p-1.5 text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
@@ -1163,7 +1156,7 @@ const AcademicCalendar = () => {
                                                                         >
                                                                             <Pencil size={15} />
                                                                         </button>
-                                                                    </td>
+                                                                    </td> */}
                                                                 </tr>
                                                             );
                                                         });
@@ -1171,7 +1164,7 @@ const AcademicCalendar = () => {
                                                 })
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="9" className="px-6 py-16 text-center text-gray-400 italic">
+                                                    <td colSpan="7" className="px-6 py-16 text-center text-gray-400 italic">
                                                         <div className="flex flex-col items-center justify-center gap-2">
                                                             <Calendar size={36} className="text-gray-300" />
                                                             <span>No term dates found. Make sure academic calendar semesters are configured.</span>
