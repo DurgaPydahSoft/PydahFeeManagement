@@ -403,7 +403,7 @@ const processLateFees = async (req, res) => {
         // Fetch Students matching the context
         log(`[DEBUG] Querying students for term ${term.termNumber} with params: college="${firstStruct.college}", course="${firstStruct.course}", branch="${firstStruct.branch}", batch="${firstStruct.batch}", current_year=${firstStruct.studentYear}, category="${firstStruct.category}"`);
         const studentQuery = `
-          SELECT id, admission_number, student_name, college, course, branch, batch, stud_type
+          SELECT id, admission_number, student_name, college, course, branch, batch, stud_type, is_scholar_applicable
           FROM students
           WHERE college = ? AND course = ? AND branch = ? AND batch = ? 
           AND current_year = ?
@@ -421,27 +421,62 @@ const processLateFees = async (req, res) => {
         const [scholarships] = studentIds.length > 0 ? await db.query(`
           SELECT student_id, student_year, student_semester, eligible 
           FROM student_scholarship 
-          WHERE student_id IN (?) AND student_year = ?
-        `, [studentIds, firstStruct.studentYear]) : [[]];
+          WHERE student_id IN (?)
+        `, [studentIds]) : [[]];
 
-        // Map to quickly check if a student is eligible
+        // Map to quickly check if a student is eligible with previous year fallback
         const scholarshipMap = {};
         (scholarships || []).forEach(row => {
-          const semKey = row.student_semester ? String(row.student_semester) : 'yearly';
-          const key = `${row.student_id}_${semKey}`;
-          if (String(row.eligible).toLowerCase() === 'eligible') {
-            scholarshipMap[key] = true;
+          const sId = row.student_id;
+          if (!scholarshipMap[sId]) {
+            scholarshipMap[sId] = [];
           }
+          scholarshipMap[sId].push({
+            year: Number(row.student_year),
+            semester: row.student_semester ? Number(row.student_semester) : null,
+            eligible: String(row.eligible).toLowerCase() === 'eligible'
+          });
         });
 
-        const isScholarshipEligible = (studentId, semester) => {
-          if (semester) {
-            return !!scholarshipMap[`${studentId}_${semester}`];
+        const isScholarshipEligible = (student, targetSem) => {
+          const studentId = student.id;
+          const records = scholarshipMap[studentId] || [];
+          const targetYear = Number(firstStruct.studentYear);
+          const currentYearRecords = records.filter(r => r.year === targetYear);
+
+          if (currentYearRecords.length > 0) {
+            // Student has scholarship status for the current year
+            if (targetSem) {
+              const semMatch = currentYearRecords.find(r => r.semester === Number(targetSem));
+              if (semMatch) {
+                return semMatch.eligible;
+              }
+              // Fallback to yearly record in the current year
+              const yearlyMatch = currentYearRecords.find(r => r.semester === null);
+              if (yearlyMatch) {
+                return yearlyMatch.eligible;
+              }
+              return false;
+            } else {
+              // Yearly lookup: eligible if any record in current year is eligible
+              return currentYearRecords.some(r => r.eligible);
+            }
           } else {
-            const yearlyKey = `${studentId}_yearly`;
-            const sem1Key = `${studentId}_1`;
-            const sem2Key = `${studentId}_2`;
-            return !!(scholarshipMap[yearlyKey] || scholarshipMap[sem1Key] || scholarshipMap[sem2Key]);
+            // No scholarship status for the current year. Check previous year's last semester (sem 2)
+            const prevYear = targetYear - 1;
+            if (prevYear > 0) {
+              const prevYearMatch = records.find(r => r.year === prevYear && r.semester === 2);
+              if (prevYearMatch) {
+                return prevYearMatch.eligible;
+              }
+              // Fallback to yearly record of previous year if no sem 2 record
+              const prevYearYearlyMatch = records.find(r => r.year === prevYear && r.semester === null);
+              if (prevYearYearlyMatch) {
+                return prevYearYearlyMatch.eligible;
+              }
+            }
+            // Check student table flag fallback
+            return !!student.is_scholar_applicable;
           }
         };
 
@@ -479,7 +514,7 @@ const processLateFees = async (req, res) => {
             let anyUnderpaid = false;
             for (const struct of groupStructs) {
               const targetSem = getTermSemester(term, struct, activeTerms.length);
-              if (struct.isScholarshipApplicable && isScholarshipEligible(student.id, targetSem)) {
+              if (struct.isScholarshipApplicable && isScholarshipEligible(student, targetSem)) {
                 log(`[SCHOLARSHIP] Skipping underpayment check for group structure ${struct.feeHead?.name || 'Group Head'} (Year ${struct.studentYear}, Sem ${targetSem || 'Yearly'}, Term ${term.termNumber}) for student ${student.admission_number} due to scholarship eligibility`);
                 continue;
               }
@@ -495,7 +530,7 @@ const processLateFees = async (req, res) => {
           } else {
             let skipDueToCheck = false;
             const targetSem = getTermSemester(term, firstStruct, activeTerms.length);
-            if (firstStruct.isScholarshipApplicable && isScholarshipEligible(student.id, targetSem)) {
+            if (firstStruct.isScholarshipApplicable && isScholarshipEligible(student, targetSem)) {
               log(`[SCHOLARSHIP] Skipping underpayment check for structure ${firstStruct.feeHead?.name || 'Head'} (Year ${firstStruct.studentYear}, Sem ${targetSem || 'Yearly'}, Term ${term.termNumber}) for student ${student.admission_number} due to scholarship eligibility`);
               skipDueToCheck = true;
             }

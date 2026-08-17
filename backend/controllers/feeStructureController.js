@@ -343,7 +343,7 @@ const getStudentFeeDetails = async (req, res) => {
 
   try {
     // 1. Fetch Student Info (to get current batch and year)
-    const [students] = await db.query('SELECT id, student_name, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type FROM students WHERE admission_number = ?', [admissionNo]);
+    const [students] = await db.query('SELECT id, student_name, current_year, batch, current_semester, scholar_status, college, course, branch, stud_type, is_scholar_applicable FROM students WHERE admission_number = ?', [admissionNo]);
     const student = students[0];
 
     // Fetch scholarship records for semester-wise lookup
@@ -360,18 +360,42 @@ const getStudentFeeDetails = async (req, res) => {
     const getScholarshipStatus = (year, semester) => {
         if (!student) return null;
         const yr = Number(year);
-        if (semester) {
-            const sem = Number(semester);
-            const match = scholarshipRows.find(s => 
-                Number(s.student_year) === yr && 
-                Number(s.student_semester) === sem
-            );
-            return match ? match.eligible : null;
+        const currentYearRecords = scholarshipRows.filter(s => Number(s.student_year) === yr);
+
+        if (currentYearRecords.length > 0) {
+            if (semester) {
+                const sem = Number(semester);
+                const match = currentYearRecords.find(s => Number(s.student_semester) === sem);
+                if (match) return match.eligible;
+                // Fallback to yearly record in current year
+                const yearlyMatch = currentYearRecords.find(s => !s.student_semester);
+                if (yearlyMatch) return yearlyMatch.eligible;
+                return null;
+            } else {
+                const hasEligible = currentYearRecords.some(s => String(s.eligible).toLowerCase() === 'eligible');
+                return hasEligible ? 'eligible' : currentYearRecords[0].eligible;
+            }
         } else {
-            const eligibleMatches = scholarshipRows.filter(s => Number(s.student_year) === yr);
-            if (eligibleMatches.length === 0) return null;
-            const hasEligible = eligibleMatches.some(s => String(s.eligible).toLowerCase() === 'eligible');
-            return hasEligible ? 'eligible' : eligibleMatches[0].eligible;
+            // Fallback to previous year last semester
+            const prevYear = yr - 1;
+            if (prevYear > 0) {
+                const prevYearMatch = scholarshipRows.find(s => 
+                    Number(s.student_year) === prevYear && 
+                    Number(s.student_semester) === 2
+                );
+                if (prevYearMatch) {
+                    return prevYearMatch.eligible;
+                }
+                const prevYearYearlyMatch = scholarshipRows.find(s => 
+                    Number(s.student_year) === prevYear && 
+                    !s.student_semester
+                );
+                if (prevYearYearlyMatch) {
+                    return prevYearYearlyMatch.eligible;
+                }
+            }
+            // Fallback to student table flag
+            return (student && student.is_scholar_applicable) ? 'eligible' : null;
         }
     };
     const currentYear = (student && student.current_year) ? Number(student.current_year) : (Number(queryYear) || 1);

@@ -1866,7 +1866,7 @@ const FeeCollection = () => {
                                                         // Build the merged options list:
                                                         // 1. All configured fees for the student (displayedFees)
                                                         // 2. Any global fee heads NOT already covered by configured fees
-                                                        const configuredFeeHeadIds = new Set(feeDetails.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
+                                                        const configuredFeeHeadIds = new Set(displayedFees.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
                                                         const extraGlobalHeads = globalFeeHeads.filter(h => h.isActive !== false && !configuredFeeHeadIds.has(h._id));
 
                                                         return (

@@ -1139,7 +1139,7 @@ const getDueReports = async (req, res) => {
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
 
         // 1. Build SQL Query for Students
-        let sqlQuery = `SELECT id, admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college, stud_type, batch, current_semester FROM students WHERE 1=1`;
+        let sqlQuery = `SELECT id, admission_number, student_name, course, branch, current_year, student_mobile, pin_no, college, stud_type, batch, current_semester, is_scholar_applicable FROM students WHERE 1=1`;
         const params = [];
 
         // Filter by student status
@@ -1250,6 +1250,10 @@ const getDueReports = async (req, res) => {
 
         const studentMap = {};
         const idToStudentMap = {}; // Helper to resolve any ID (Pin or Adm) to the Student Object
+        const scholarFlagMap = {};
+        students.forEach(s => {
+            scholarFlagMap[s.id] = !!s.is_scholar_applicable;
+        });
 
         // Initialize details map
         students.forEach(s => {
@@ -1452,18 +1456,42 @@ const getDueReports = async (req, res) => {
         const getScholarshipStatus = (studentId, year, semester) => {
             const yr = Number(year);
             const sScholarships = scholarshipMap[studentId] || [];
-            if (semester) {
-                const sem = Number(semester);
-                const match = sScholarships.find(s => 
-                    Number(s.student_year) === yr && 
-                    Number(s.student_semester) === sem
-                );
-                return match ? match.eligible : null;
+            const currentYearRecords = sScholarships.filter(s => Number(s.student_year) === yr);
+
+            if (currentYearRecords.length > 0) {
+                if (semester) {
+                    const sem = Number(semester);
+                    const match = currentYearRecords.find(s => Number(s.student_semester) === sem);
+                    if (match) return match.eligible;
+                    // Fallback to yearly record in current year
+                    const yearlyMatch = currentYearRecords.find(s => !s.student_semester);
+                    if (yearlyMatch) return yearlyMatch.eligible;
+                    return null;
+                } else {
+                    const hasEligible = currentYearRecords.some(s => String(s.eligible).toLowerCase() === 'eligible');
+                    return hasEligible ? 'eligible' : currentYearRecords[0].eligible;
+                }
             } else {
-                const eligibleMatches = sScholarships.filter(s => Number(s.student_year) === yr);
-                if (eligibleMatches.length === 0) return null;
-                const hasEligible = eligibleMatches.some(s => String(s.eligible).toLowerCase() === 'eligible');
-                return hasEligible ? 'eligible' : eligibleMatches[0].eligible;
+                // Fallback to previous year last semester
+                const prevYear = yr - 1;
+                if (prevYear > 0) {
+                    const prevYearMatch = sScholarships.find(s => 
+                        Number(s.student_year) === prevYear && 
+                        Number(s.student_semester) === 2
+                    );
+                    if (prevYearMatch) {
+                        return prevYearMatch.eligible;
+                    }
+                    const prevYearYearlyMatch = sScholarships.find(s => 
+                        Number(s.student_year) === prevYear && 
+                        !s.student_semester
+                    );
+                    if (prevYearYearlyMatch) {
+                        return prevYearYearlyMatch.eligible;
+                    }
+                }
+                // Fallback to student table flag
+                return scholarFlagMap[studentId] ? 'eligible' : null;
             }
         };
 
