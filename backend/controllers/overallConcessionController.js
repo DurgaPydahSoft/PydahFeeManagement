@@ -163,6 +163,20 @@ const saveOverallConcession = async (req, res) => {
         const sem = normalizeSemester(semester);
         const numericAmount = Number(concessionAmount);
 
+        // Fetch student's actual parameters from SQL database to resolve any misconfigurations
+        const [studentRows] = await db.query(
+            'SELECT college, course, branch, batch, stud_type, student_name, pin_no FROM students WHERE admission_number = ?',
+            [admissionNumber]
+        );
+        const sqlStudent = studentRows[0];
+        const resolvedCollege = sqlStudent?.college || college;
+        const resolvedCourse = sqlStudent?.course || course;
+        const resolvedBranch = sqlStudent?.branch || branch;
+        const resolvedBatch = sqlStudent?.batch || batch;
+        const resolvedCategory = sqlStudent?.stud_type || category || 'Regular';
+        const resolvedStudentName = sqlStudent?.student_name || studentName;
+        const resolvedPinNo = sqlStudent?.pin_no || pinNo || '-';
+
         const feeHead = await FeeHead.findById(feeHeadId).lean();
         const feeHeadCode = feeHead ? feeHead.code : '';
 
@@ -179,11 +193,12 @@ const saveOverallConcession = async (req, res) => {
         if (normalizeConcessionType(storedEntry.concessionType) === 'REVISED') {
             const validation = await validateRevisedEntriesAgainstStructures({
                 entries: [storedEntry],
-                college,
-                course,
-                branch,
-                batch,
-                category: category || 'Regular'
+                college: resolvedCollege,
+                course: resolvedCourse,
+                branch: resolvedBranch,
+                batch: resolvedBatch,
+                category: resolvedCategory,
+                admissionNumber
             });
             if (!validation.ok) {
                 return res.status(400).json({ message: validation.message, warnings: validation.warnings });
@@ -217,26 +232,26 @@ const saveOverallConcession = async (req, res) => {
         // 3. Upsert in MongoDB OverallConcessionRequest table
         if (approvedRequest) {
             approvedRequest.concessions = revisedFees;
-            approvedRequest.studentName = studentName || approvedRequest.studentName;
-            approvedRequest.pinNo       = pinNo || approvedRequest.pinNo;
-            approvedRequest.college     = college || approvedRequest.college;
-            approvedRequest.course      = course || approvedRequest.course;
-            approvedRequest.branch      = branch || approvedRequest.branch;
-            approvedRequest.batch       = batch || approvedRequest.batch;
-            approvedRequest.category    = category || approvedRequest.category;
+            approvedRequest.studentName = resolvedStudentName || approvedRequest.studentName;
+            approvedRequest.pinNo       = resolvedPinNo || approvedRequest.pinNo;
+            approvedRequest.college     = resolvedCollege || approvedRequest.college;
+            approvedRequest.course      = resolvedCourse || approvedRequest.course;
+            approvedRequest.branch      = resolvedBranch || approvedRequest.branch;
+            approvedRequest.batch       = resolvedBatch || approvedRequest.batch;
+            approvedRequest.category    = resolvedCategory || approvedRequest.category;
             approvedRequest.approvedBy  = req.user?.username || approvedRequest.approvedBy || 'system';
             approvedRequest.approvedByName = req.user?.name || approvedRequest.approvedByName || 'System';
             await approvedRequest.save();
         } else {
             approvedRequest = await OverallConcessionRequest.create({
                 admissionNumber,
-                pinNo:           pinNo || '-',
-                studentName:     studentName || '',
-                college:         college || '',
-                course:          course || '',
-                branch:          branch || '',
-                batch:           batch || '',
-                category:        category || 'Regular',
+                pinNo:           resolvedPinNo || '-',
+                studentName:     resolvedStudentName || '',
+                college:         resolvedCollege || '',
+                course:          resolvedCourse || '',
+                branch:          resolvedBranch || '',
+                batch:           resolvedBatch || '',
+                category:        resolvedCategory || 'Regular',
                 concessions:     revisedFees,
                 status:          'APPROVED',
                 requestedBy:     req.user?.username || 'system',
@@ -251,18 +266,18 @@ const saveOverallConcession = async (req, res) => {
         // 4. Propagate to MongoDB StudentFee collection immediately (only if standard fees already exist for this student and batch)
         const standardFeesApplied = await StudentFee.exists({
             studentId: admissionNumber,
-            academicYear: batch,
+            academicYear: resolvedBatch,
             $or: [{ remarks: { $exists: false } }, { remarks: null }, { remarks: '' }]
         });
 
         if (standardFeesApplied) {
             const standardFee = await FeeStructure.findOne({
                 feeHead: feeHeadId,
-                college,
-                course,
-                branch,
-                batch,
-                category: category || 'Regular',
+                college: resolvedCollege,
+                course: resolvedCourse,
+                branch: resolvedBranch,
+                batch: resolvedBatch,
+                category: resolvedCategory,
                 studentYear: sYear,
                 semester: sem
             }).lean();
@@ -274,20 +289,20 @@ const saveOverallConcession = async (req, res) => {
                 {
                     studentId: admissionNumber,
                     feeHead: feeHeadId,
-                    academicYear: batch,
+                    academicYear: resolvedBatch,
                     studentYear: sYear,
                     semester: sem
                 },
                 {
                     $set: {
-                        studentName: studentName,
-                        college: college || 'ANY',
-                        course: course,
-                        branch: branch,
+                        studentName: resolvedStudentName,
+                        college: resolvedCollege || 'ANY',
+                        course: resolvedCourse,
+                        branch: resolvedBranch,
                         amount: targetAmt,
                         semester: sem,
-                        batch: batch,
-                        stud_type: category || 'Regular',
+                        batch: resolvedBatch,
+                        stud_type: resolvedCategory,
                         isScholarshipApplicable: false,
                         isTermsDivided: isTermsDivided || false,
                         remarks: storedEntry.remarks || undefined
@@ -298,12 +313,12 @@ const saveOverallConcession = async (req, res) => {
 
             await applyRevisedConcessionTransactions({
                 admissionNumber,
-                studentName,
-                college,
-                course,
-                branch,
-                batch,
-                category: category || 'Regular',
+                studentName: resolvedStudentName,
+                college: resolvedCollege,
+                course: resolvedCourse,
+                branch: resolvedBranch,
+                batch: resolvedBatch,
+                category: resolvedCategory,
                 entries: [storedEntry],
                 collectedBy: req.user?.username || 'system',
                 collectedByName: req.user?.name || 'System'
@@ -381,6 +396,34 @@ const _saveStudentConcessions = async ({
     admissionNumber, pinNo, studentName, college, course, branch, batch,
     category, concessions, feeHeads, codeMap, user
 }) => {
+    // Fetch student's actual parameters from SQL database to resolve any misconfigurations
+    let resolvedCollege = college;
+    let resolvedCourse = course;
+    let resolvedBranch = branch;
+    let resolvedBatch = batch;
+    let resolvedCategory = category || 'Regular';
+    let resolvedStudentName = studentName;
+    let resolvedPinNo = pinNo;
+
+    try {
+        const [studentRows] = await db.query(
+            'SELECT college, course, branch, batch, stud_type, student_name, pin_no FROM students WHERE admission_number = ?',
+            [admissionNumber]
+        );
+        if (studentRows && studentRows.length > 0) {
+            const sqlStudent = studentRows[0];
+            resolvedCollege = sqlStudent.college || college;
+            resolvedCourse = sqlStudent.course || course;
+            resolvedBranch = sqlStudent.branch || branch;
+            resolvedBatch = sqlStudent.batch || batch;
+            resolvedCategory = sqlStudent.stud_type || category || 'Regular';
+            resolvedStudentName = sqlStudent.student_name || studentName;
+            resolvedPinNo = sqlStudent.pin_no || pinNo;
+        }
+    } catch (err) {
+        console.error('[ConcessionSync] Error fetching student SQL fallback in _saveStudentConcessions:', err);
+    }
+
     // Normalize one entry. For REVISED type, amount=0 means "student pays ₹0" (full waiver).
     // We keep amount=0 in the stored entry so that applyRevisedConcessionTransactions
     // correctly computes concessionCredit = structureAmount - 0 = full structure amount.
@@ -404,8 +447,14 @@ const _saveStudentConcessions = async ({
     const updatedConcessions = await Promise.all(concessions.map(normalizeIncomingEntry));
 
     const validation = await validateRevisedEntriesAgainstStructures({
-        entries: updatedConcessions, college, course, branch, batch,
-        category: category || 'Regular', codeMap
+        entries: updatedConcessions,
+        college: resolvedCollege,
+        course: resolvedCourse,
+        branch: resolvedBranch,
+        batch: resolvedBatch,
+        category: resolvedCategory,
+        admissionNumber,
+        codeMap
     });
     if (!validation.ok) {
         return { ok: false, message: validation.message, warnings: validation.warnings };
@@ -425,26 +474,26 @@ const _saveStudentConcessions = async ({
     } else {
         if (approvedRequest) {
             approvedRequest.concessions = updatedConcessions;
-            approvedRequest.studentName = studentName || approvedRequest.studentName;
-            approvedRequest.pinNo       = pinNo || approvedRequest.pinNo;
-            approvedRequest.college     = college || approvedRequest.college;
-            approvedRequest.course      = course || approvedRequest.course;
-            approvedRequest.branch      = branch || approvedRequest.branch;
-            approvedRequest.batch       = batch || approvedRequest.batch;
-            approvedRequest.category    = category || approvedRequest.category;
+            approvedRequest.studentName = resolvedStudentName || approvedRequest.studentName;
+            approvedRequest.pinNo       = resolvedPinNo || approvedRequest.pinNo;
+            approvedRequest.college     = resolvedCollege || approvedRequest.college;
+            approvedRequest.course      = resolvedCourse || approvedRequest.course;
+            approvedRequest.branch      = resolvedBranch || approvedRequest.branch;
+            approvedRequest.batch       = resolvedBatch || approvedRequest.batch;
+            approvedRequest.category    = resolvedCategory || approvedRequest.category;
             approvedRequest.approvedBy  = user?.username || approvedRequest.approvedBy || 'system';
             approvedRequest.approvedByName = user?.name || approvedRequest.approvedByName || 'System';
             await approvedRequest.save();
         } else {
             await OverallConcessionRequest.create({
                 admissionNumber,
-                pinNo:           pinNo || '-',
-                studentName:     studentName || '',
-                college:         college || '',
-                course:          course || '',
-                branch:          branch || '',
-                batch:           batch || '',
-                category:        category || 'Regular',
+                pinNo:           resolvedPinNo || '-',
+                studentName:     resolvedStudentName || '',
+                college:         resolvedCollege || '',
+                course:          resolvedCourse || '',
+                branch:          resolvedBranch || '',
+                batch:           resolvedBatch || '',
+                category:        resolvedCategory || 'Regular',
                 concessions:     updatedConcessions,
                 status:          'APPROVED',
                 requestedBy:     user?.username || 'system',
@@ -755,25 +804,35 @@ const getConcessionRequests = async (req, res) => {
         feeHeads.forEach(fh => { fhMap[fh._id.toString()] = fh.name; });
 
         const admissionNos = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
-        const quotaMap = {};
+        const studentMap = {};
         if (admissionNos.length > 0) {
             const [studentRows] = await db.query(
-                `SELECT admission_number, stud_type FROM students WHERE admission_number IN (?)`,
+                `SELECT admission_number, stud_type, college, course, branch, batch, student_name, pin_no 
+                 FROM students WHERE admission_number IN (?)`,
                 [admissionNos]
             );
             studentRows.forEach(s => {
-                quotaMap[s.admission_number] = s.stud_type || '';
+                studentMap[s.admission_number] = s;
             });
         }
 
-        const enriched = requests.map(r => ({
-            ...r,
-            studentQuota: quotaMap[r.admissionNumber] || '',
-            concessions: r.concessions.map(c => ({
-                ...c,
-                feeHeadName: fhMap[c.feeHeadId] || c.feeHeadCode || 'Unknown'
-            }))
-        }));
+        const enriched = requests.map(r => {
+            const student = studentMap[r.admissionNumber];
+            return {
+                ...r,
+                college: student?.college || r.college,
+                course: student?.course || r.course,
+                branch: student?.branch || r.branch,
+                batch: student?.batch || r.batch,
+                studentName: student?.student_name || r.studentName,
+                pinNo: student?.pin_no || r.pinNo,
+                studentQuota: student?.stud_type || '',
+                concessions: r.concessions.map(c => ({
+                    ...c,
+                    feeHeadName: fhMap[c.feeHeadId] || c.feeHeadCode || 'Unknown'
+                }))
+            };
+        });
 
         res.json(enriched);
     } catch (error) {
@@ -956,6 +1015,7 @@ const updateConcessionRequestEntries = async (req, res) => {
             branch: student?.branch || request.branch,
             batch: student?.batch || request.batch,
             category: student?.stud_type || request.category || 'Regular',
+            admissionNumber: request.admissionNumber,
             codeMap
         });
         if (!validation.ok) {
@@ -963,6 +1023,13 @@ const updateConcessionRequestEntries = async (req, res) => {
         }
 
         request.concessions = normalizedEntries;
+        if (student) {
+            request.college = student.college || request.college;
+            request.course = student.course || request.course;
+            request.branch = student.branch || request.branch;
+            request.batch = student.batch || request.batch;
+            request.category = student.stud_type || request.category || 'Regular';
+        }
         await request.save();
 
         const enriched = {

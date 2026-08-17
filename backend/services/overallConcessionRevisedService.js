@@ -55,8 +55,35 @@ const validateRevisedEntriesAgainstStructures = async ({
   branch,
   batch,
   category,
+  admissionNumber,
   codeMap = {}
 }) => {
+  let resolvedCollege = college;
+  let resolvedCourse = course;
+  let resolvedBranch = branch;
+  let resolvedBatch = batch;
+  let resolvedCategory = category || 'Regular';
+
+  if (admissionNumber) {
+    try {
+      const db = require('../config/sqlDb');
+      const [studentRows] = await db.query(
+        'SELECT college, course, branch, batch, stud_type FROM students WHERE admission_number = ?',
+        [admissionNumber]
+      );
+      if (studentRows && studentRows.length > 0) {
+        const sqlStudent = studentRows[0];
+        resolvedCollege = sqlStudent.college || college;
+        resolvedCourse = sqlStudent.course || course;
+        resolvedBranch = sqlStudent.branch || branch;
+        resolvedBatch = sqlStudent.batch || batch;
+        resolvedCategory = sqlStudent.stud_type || category || 'Regular';
+      }
+    } catch (err) {
+      console.error('[ConcessionSync] Error fetching student SQL fallback in validateRevisedEntriesAgainstStructures:', err);
+    }
+  }
+
   const warnings = [];
   const revisedEntries = (entries || []).filter(
     (e) => normalizeConcessionType(e.concessionType) === 'REVISED'
@@ -74,11 +101,11 @@ const validateRevisedEntriesAgainstStructures = async ({
 
   const structures = await FeeStructure.find({
     feeHead: { $in: feeHeadIds },
-    college,
-    course,
-    branch,
-    batch,
-    category: category || 'Regular',
+    college: resolvedCollege,
+    course: resolvedCourse,
+    branch: resolvedBranch,
+    batch: resolvedBatch,
+    category: resolvedCategory || 'Regular',
     studentYear: { $in: studentYears }
   }).lean();
 
@@ -382,6 +409,30 @@ const applyRevisedConcessionTransactions = async ({
   collectedByName,
   codeMap = null
 }) => {
+  let resolvedCollege = college;
+  let resolvedCourse = course;
+  let resolvedBranch = branch;
+  let resolvedBatch = batch;
+  let resolvedCategory = category || 'Regular';
+
+  try {
+    const db = require('../config/sqlDb');
+    const [studentRows] = await db.query(
+      'SELECT college, course, branch, batch, stud_type FROM students WHERE admission_number = ?',
+      [admissionNumber]
+    );
+    if (studentRows && studentRows.length > 0) {
+      const sqlStudent = studentRows[0];
+      resolvedCollege = sqlStudent.college || college;
+      resolvedCourse = sqlStudent.course || course;
+      resolvedBranch = sqlStudent.branch || branch;
+      resolvedBatch = sqlStudent.batch || batch;
+      resolvedCategory = sqlStudent.stud_type || category || 'Regular';
+    }
+  } catch (err) {
+    console.error('[ConcessionSync] Error fetching student SQL fallback in applyRevisedConcessionTransactions:', err);
+  }
+
   let maps = codeMap;
   if (!maps) {
     const feeHeads = await FeeHead.find({}).lean();
@@ -402,11 +453,11 @@ const applyRevisedConcessionTransactions = async ({
 
   const allStructures = await FeeStructure.find({
     feeHead: { $in: feeHeadIds },
-    college,
-    course,
-    branch,
-    batch,
-    category: category || 'Regular',
+    college: resolvedCollege,
+    course: resolvedCourse,
+    branch: resolvedBranch,
+    batch: resolvedBatch,
+    category: resolvedCategory || 'Regular',
     studentYear: { $in: studentYears }
   }).lean();
 
