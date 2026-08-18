@@ -14,6 +14,22 @@ const {
     applyVariableMap
 } = require('../utils/reminderVariables');
 
+const getNormalizedOffsets = (config) => {
+  if (!config.offsets || config.offsets.length === 0) return [];
+  return config.offsets.map(o => {
+    if (typeof o === 'number') {
+      return { value: o, triggerType: config.triggerType || 'BEFORE' };
+    }
+    if (o && typeof o === 'object') {
+      return {
+        value: Number(o.value) || 0,
+        triggerType: o.triggerType || config.triggerType || 'BEFORE'
+      };
+    }
+    return null;
+  }).filter(Boolean);
+};
+
 // ==========================================
 // CORE LOGIC (Helper)
 // ==========================================
@@ -230,10 +246,10 @@ const sendReminders = async (req, res) => {
 const VALID_SMS_RECIPIENTS = ['student', 'parent', 'guardian'];
 
 const createConfig = async (req, res) => {
-    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients, quotas, colleges, courses } = req.body;
+    const { name, academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients, quotas, colleges, courses } = req.body;
 
-    if (!academicYear || !dueSourceType || !triggerType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
-        return res.status(400).json({ message: 'Missing required fields: academicYear, dueSourceType, triggerType, offsets' });
+    if (!academicYear || !dueSourceType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
+        return res.status(400).json({ message: 'Missing required fields: academicYear, dueSourceType, offsets' });
     }
 
     if (!['ACADEMIC', 'HOSTEL', 'TRANSPORT'].includes(dueSourceType)) {
@@ -255,10 +271,20 @@ const createConfig = async (req, res) => {
 
     try {
         const newConfig = await ReminderConfig.create({
+            name: name ? String(name).trim() : undefined,
             academicYear: String(academicYear).trim(),
             dueSourceType,
-            triggerType,
-            offsets: offsets.map(Number).filter((n) => !Number.isNaN(n) && n >= 0),
+            triggerType: triggerType || 'BEFORE',
+            offsets: offsets.map((o) => {
+                if (typeof o === 'number' || typeof o === 'string') {
+                    return { value: Number(o), triggerType: triggerType || 'BEFORE', name: '' };
+                }
+                return {
+                    value: Number(o.value),
+                    triggerType: o.triggerType || triggerType || 'BEFORE',
+                    name: o.name ? String(o.name).trim() : ''
+                };
+            }).filter(o => !Number.isNaN(o.value) && o.value >= 0),
             smsTemplateId: smsTemplateId || undefined,
             emailTemplateId: emailTemplateId || undefined,
             smsRecipients: normalizedSmsRecipients,
@@ -297,9 +323,9 @@ const deleteConfig = async (req, res) => {
 
 const updateConfig = async (req, res) => {
     const { id } = req.params;
-    const { academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients, quotas, colleges, courses } = req.body;
+    const { name, academicYear, dueSourceType, smsTemplateId, emailTemplateId, triggerType, offsets, smsRecipients, quotas, colleges, courses } = req.body;
 
-    if (!academicYear || !dueSourceType || !triggerType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
+    if (!academicYear || !dueSourceType || !offsets || !Array.isArray(offsets) || offsets.length === 0) {
         return res.status(400).json({ message: 'Missing required configuration fields or invalid offsets' });
     }
 
@@ -317,10 +343,20 @@ const updateConfig = async (req, res) => {
 
     try {
         const updatedConfig = await ReminderConfig.findByIdAndUpdate(id, {
+            name: name ? String(name).trim() : null,
             academicYear: String(academicYear).trim(),
             dueSourceType,
-            triggerType,
-            offsets: offsets.map(Number).filter((n) => !Number.isNaN(n) && n >= 0),
+            triggerType: triggerType || 'BEFORE',
+            offsets: offsets.map((o) => {
+                if (typeof o === 'number' || typeof o === 'string') {
+                    return { value: Number(o), triggerType: triggerType || 'BEFORE', name: '' };
+                }
+                return {
+                    value: Number(o.value),
+                    triggerType: o.triggerType || triggerType || 'BEFORE',
+                    name: o.name ? String(o.name).trim() : ''
+                };
+            }).filter(o => !Number.isNaN(o.value) && o.value >= 0),
             smsTemplateId: smsTemplateId || null,
             emailTemplateId: emailTemplateId || null,
             smsRecipients: normalizedSmsRecipients,
@@ -450,8 +486,7 @@ const getUpcomingReminders = async (req, res) => {
 
         // 4. Map active rules
         for (const config of activeConfigs) {
-            const offsets = config.offsets || [];
-            const triggerType = config.triggerType; // BEFORE, AFTER
+            const offsets = getNormalizedOffsets(config);
             const quotasFilter = config.quotas?.length > 0 ? new Set(config.quotas) : null;
             const collegesFilter = config.colleges?.length > 0 ? new Set(config.colleges) : null;
             const coursesFilter = config.courses?.length > 0 ? new Set(config.courses) : null;
@@ -510,12 +545,13 @@ const getUpcomingReminders = async (req, res) => {
 
                         if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
 
-                        for (const offset of offsets) {
+                        for (const offsetObj of offsets) {
+                            const { value: offsetVal, triggerType: offsetTriggerType } = offsetObj;
                             const triggerDate = new Date(dueDate);
-                            if (triggerType === 'BEFORE') {
-                                triggerDate.setDate(triggerDate.getDate() - offset);
+                            if (offsetTriggerType === 'BEFORE') {
+                                triggerDate.setDate(triggerDate.getDate() - offsetVal);
                             } else {
-                                triggerDate.setDate(triggerDate.getDate() + offset);
+                                triggerDate.setDate(triggerDate.getDate() + offsetVal);
                             }
                             triggerDate.setHours(0, 0, 0, 0);
 
@@ -532,8 +568,8 @@ const getUpcomingReminders = async (req, res) => {
                                     triggerDate,
                                     dueSource: 'ACADEMIC',
                                     templateName: config.smsTemplateId?.name || config.emailTemplateId?.name || 'Academic Reminder',
-                                    triggerType,
-                                    offset,
+                                    triggerType: offsetTriggerType,
+                                    offset: offsetVal,
                                     dueDate,
                                     cohort: `${struct.college} - ${struct.course} - Year ${struct.studentYear} (${struct.category})`,
                                     estimatedRecipients: count
@@ -607,12 +643,13 @@ const getUpcomingReminders = async (req, res) => {
 
                         if (!dueDate || Number.isNaN(dueDate.getTime())) continue;
 
-                        for (const offset of offsets) {
+                        for (const offsetObj of offsets) {
+                            const { value: offsetVal, triggerType: offsetTriggerType } = offsetObj;
                             const triggerDate = new Date(dueDate);
-                            if (triggerType === 'BEFORE') {
-                                triggerDate.setDate(triggerDate.getDate() - offset);
+                            if (offsetTriggerType === 'BEFORE') {
+                                triggerDate.setDate(triggerDate.getDate() - offsetVal);
                             } else {
-                                triggerDate.setDate(triggerDate.getDate() + offset);
+                                triggerDate.setDate(triggerDate.getDate() + offsetVal);
                             }
                             triggerDate.setHours(0, 0, 0, 0);
 
@@ -635,8 +672,8 @@ const getUpcomingReminders = async (req, res) => {
                                     triggerDate,
                                     dueSource: type,
                                     templateName: config.smsTemplateId?.name || config.emailTemplateId?.name || `${type} Reminder`,
-                                    triggerType,
-                                    offset,
+                                    triggerType: offsetTriggerType,
+                                    offset: offsetVal,
                                     dueDate,
                                     cohort: `${svc.college}${svc.course ? ` - ${svc.course}` : ''} (${type})`,
                                     estimatedRecipients: count

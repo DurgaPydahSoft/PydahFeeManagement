@@ -9,11 +9,13 @@ const SMS_RECIPIENT_OPTIONS = [
 ];
 
 const EMPTY_CONFIG_FORM = {
+    name: '',
     academicYear: '',
     dueSourceType: 'ACADEMIC',
     triggerType: 'BEFORE',
     offsets: [],
     currentOffsetInput: '',
+    currentOffsetNameInput: '',
     smsTemplateId: '',
     emailTemplateId: '',
     enableSMS: true,
@@ -52,7 +54,7 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
     };
 
     const handleConfigSubmit = async () => {
-        const { academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas, colleges: selectedColleges, courses: selectedCourses, isActive } = configForm;
+        const { name, academicYear, dueSourceType, offsets, enableSMS, enableEmail, smsTemplateId, emailTemplateId, triggerType, smsRecipients, quotas, colleges: selectedColleges, courses: selectedCourses, isActive } = configForm;
 
         if (!academicYear || !dueSourceType || offsets.length === 0) {
             return alert("Academic Year, Due Source Type, and at least ONE Offset are required.");
@@ -81,6 +83,7 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
         setIsScheduling(true);
         try {
             const payload = {
+                name: name ? name.trim() : '',
                 academicYear,
                 dueSourceType,
                 triggerType,
@@ -130,11 +133,16 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
         const scope = cfg.courses?.length > 0 ? 'COURSE' : 'COLLEGE';
         setRuleScope(scope);
         setConfigForm({
+            name: cfg.name || '',
             academicYear: cfg.academicYear || '',
             dueSourceType: cfg.dueSourceType || 'ACADEMIC',
             triggerType: cfg.triggerType || 'BEFORE',
-            offsets: cfg.offsets || [],
+            offsets: (cfg.offsets || []).map(o => {
+                if (typeof o === 'object') return { value: o.value, triggerType: o.triggerType, name: o.name || '' };
+                return { value: o, triggerType: cfg.triggerType || 'BEFORE', name: '' };
+            }),
             currentOffsetInput: '',
+            currentOffsetNameInput: '',
             smsTemplateId: cfg.smsTemplateId?._id || cfg.smsTemplateId || '',
             emailTemplateId: cfg.emailTemplateId?._id || cfg.emailTemplateId || '',
             enableSMS: !!cfg.smsTemplateId,
@@ -153,6 +161,7 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
             setConfigs(prev => prev.map(c => c._id === cfg._id ? { ...c, isActive: nextActiveState } : c));
             
             const payload = {
+                name: cfg.name || '',
                 academicYear: cfg.academicYear,
                 dueSourceType: cfg.dueSourceType,
                 triggerType: cfg.triggerType,
@@ -222,19 +231,40 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
     }, [academicYears]);
 
     const addOffset = () => {
-        if (configForm.currentOffsetInput !== '' && !configForm.offsets.includes(Number(configForm.currentOffsetInput))) {
-            setConfigForm(prev => ({
-                ...prev,
-                offsets: [...prev.offsets, Number(prev.currentOffsetInput)].sort((a, b) => a - b),
-                currentOffsetInput: ''
-            }));
+        if (configForm.currentOffsetInput !== '') {
+            const val = Number(configForm.currentOffsetInput);
+            if (Number.isNaN(val) || val < 0) return;
+            const trigger = configForm.triggerType || 'BEFORE';
+            const offsetName = (configForm.currentOffsetNameInput || '').trim();
+            
+            const exists = configForm.offsets.some(o => 
+                (typeof o === 'object' ? o.value === val && o.triggerType === trigger : o === val && trigger === 'BEFORE')
+            );
+            
+            if (!exists) {
+                setConfigForm(prev => ({
+                    ...prev,
+                    offsets: [...prev.offsets, { value: val, triggerType: trigger, name: offsetName }].sort((a, b) => {
+                        const aVal = typeof a === 'object' ? a.value : a;
+                        const bVal = typeof b === 'object' ? b.value : b;
+                        return aVal - bVal;
+                    }),
+                    currentOffsetInput: '',
+                    currentOffsetNameInput: ''
+                }));
+            }
         }
     };
 
-    const removeOffset = (val) => {
+    const removeOffset = (val, trigger) => {
         setConfigForm(prev => ({
             ...prev,
-            offsets: prev.offsets.filter(o => o !== val)
+            offsets: prev.offsets.filter(o => {
+                if (typeof o === 'object') {
+                    return !(o.value === val && o.triggerType === trigger);
+                }
+                return !(o === val && trigger === 'BEFORE');
+            })
         }));
     };
 
@@ -249,6 +279,16 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
                 </h2>
                 <div className="space-y-5 flex-1 min-h-0 overflow-y-auto px-6 pb-2">
                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="mb-3">
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Rule Name</label>
+                            <input
+                                type="text"
+                                className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
+                                placeholder="e.g. Academic Term 1 Reminder"
+                                value={configForm.name || ''}
+                                onChange={e => setConfigForm({ ...configForm, name: e.target.value })}
+                            />
+                        </div>
                         <div className="flex gap-3">
                             <div className="flex-1">
                                 <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Academic Year</label>
@@ -438,41 +478,60 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
 
                     <div className="space-y-4">
                         <h4 className="text-xs font-black uppercase text-gray-400">When to Send</h4>
-                        <div className="flex gap-2 items-end">
-                            <div className="flex-1">
-                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Add Offset (Days)</label>
-                                <div className="flex gap-1">
+                        <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Offset Name / Label</label>
                                     <input
-                                        type="number"
-                                        min="0"
-                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm font-bold"
-                                        placeholder="e.g. 3"
-                                        value={configForm.currentOffsetInput}
-                                        onChange={e => setConfigForm({ ...configForm, currentOffsetInput: e.target.value })}
-                                        onKeyDown={e => e.key === 'Enter' && addOffset()}
+                                        type="text"
+                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
+                                        placeholder="e.g. First Warning"
+                                        value={configForm.currentOffsetNameInput || ''}
+                                        onChange={e => setConfigForm({ ...configForm, currentOffsetNameInput: e.target.value })}
                                     />
-                                    <button type="button" onClick={addOffset} className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-3 font-bold">+</button>
                                 </div>
                             </div>
-                            <div className="w-28 shrink-0">
-                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Relative to Due</label>
-                                <select
-                                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
-                                    value={configForm.triggerType}
-                                    onChange={e => setConfigForm({ ...configForm, triggerType: e.target.value })}
-                                >
-                                    <option value="BEFORE">BEFORE</option>
-                                    <option value="AFTER">AFTER</option>
-                                </select>
+                            <div className="flex gap-2 items-end">
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Days Offset</label>
+                                    <div className="flex gap-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            className="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm font-bold"
+                                            placeholder="e.g. 3"
+                                            value={configForm.currentOffsetInput}
+                                            onChange={e => setConfigForm({ ...configForm, currentOffsetInput: e.target.value })}
+                                            onKeyDown={e => e.key === 'Enter' && addOffset()}
+                                        />
+                                        <button type="button" onClick={addOffset} className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg px-3 font-bold">+</button>
+                                    </div>
+                                </div>
+                                <div className="w-28 shrink-0">
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Relative to Due</label>
+                                    <select
+                                        className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold"
+                                        value={configForm.triggerType}
+                                        onChange={e => setConfigForm({ ...configForm, triggerType: e.target.value })}
+                                    >
+                                        <option value="BEFORE">BEFORE</option>
+                                        <option value="AFTER">AFTER</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {configForm.offsets.map(offset => (
-                                <span key={offset} className="px-3 py-1 bg-gray-800 text-white rounded-full text-xs font-bold flex items-center gap-1.5">
-                                    {offset} Days {configForm.triggerType}
-                                    <button type="button" onClick={() => removeOffset(offset)} className="bg-gray-600 rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-500 text-[9px] transition">×</button>
-                                </span>
-                            ))}
+                            {configForm.offsets.map((offset, idx) => {
+                                const val = typeof offset === 'object' ? offset.value : offset;
+                                const trigger = typeof offset === 'object' ? offset.triggerType : configForm.triggerType;
+                                const oName = typeof offset === 'object' ? offset.name : '';
+                                return (
+                                    <span key={idx} className="px-3 py-1 bg-gray-800 text-white rounded-full text-xs font-bold flex flex-wrap items-center gap-1.5">
+                                        {oName ? `"${oName}": ` : ''}{val} Days {trigger}
+                                        <button type="button" onClick={() => removeOffset(val, trigger)} className="bg-gray-600 rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-500 text-[9px] transition shrink-0">×</button>
+                                    </span>
+                                );
+                            })}
                             {configForm.offsets.length === 0 && <span className="text-xs text-gray-400 italic">No offsets added.</span>}
                         </div>
                         <div className="text-[10px] text-gray-500 leading-tight bg-blue-50 p-2 rounded border border-blue-100 italic">
@@ -595,6 +654,9 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
                             .map(cfg => (
                                  <div key={cfg._id} className={`p-4 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:shadow-sm transition group relative flex justify-between items-center ${editingConfigId === cfg._id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
                                      <div className="flex-1">
+                                         {cfg.name && (
+                                             <h4 className="text-sm font-bold text-gray-800 mb-1.5">{cfg.name}</h4>
+                                         )}
                                          <div className="flex items-center gap-2 mb-2 flex-wrap">
                                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${cfg.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                  {cfg.isActive !== false ? 'Active' : 'Inactive'}
@@ -603,7 +665,12 @@ const ReminderRules = ({ templates, colleges, metadata, academicYears, quotaOpti
                                                  {cfg.dueSourceType || 'LEGACY'}
                                              </span>
                                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
-                                                 {(cfg.offsets || []).join(', ')} DAYS {cfg.triggerType}
+                                                 {(cfg.offsets || []).map(o => {
+                                                     if (typeof o === 'object') {
+                                                         return o.name ? `${o.name} (${o.value}d ${o.triggerType})` : `${o.value}d ${o.triggerType}`;
+                                                     }
+                                                     return `${o}d ${cfg.triggerType}`;
+                                                 }).join(', ')}
                                              </span>
                                              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                                                  DUE DATE

@@ -7,6 +7,10 @@ const mongoose = require('mongoose');
  * Audience: students with unpaid balance through that term only.
  */
 const reminderConfigSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        trim: true
+    },
     academicYear: {
         type: String, // e.g. "2025-2026"
         required: true,
@@ -21,11 +25,11 @@ const reminderConfigSchema = new mongoose.Schema({
     triggerType: {
         type: String,
         enum: ['BEFORE', 'AFTER'],
-        required: true
+        required: false
     },
-    /** Day offsets relative to due date, e.g. [1, 3, 7] */
+    /** Day offsets relative to due date, e.g. [1, 3, 7] or [{ value: 3, triggerType: 'BEFORE' }] */
     offsets: {
-        type: [Number],
+        type: [mongoose.Schema.Types.Mixed],
         default: []
     },
     smsTemplateId: {

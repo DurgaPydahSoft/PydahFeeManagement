@@ -15,6 +15,22 @@ const { formatDueDate } = require('../utils/reminderVariables');
 
 const sameDay = (a, b) => a && b && a.getTime() === b.getTime();
 
+const getNormalizedOffsets = (config) => {
+  if (!config.offsets || config.offsets.length === 0) return [];
+  return config.offsets.map(o => {
+    if (typeof o === 'number') {
+      return { value: o, triggerType: config.triggerType || 'BEFORE' };
+    }
+    if (o && typeof o === 'object') {
+      return {
+        value: Number(o.value) || 0,
+        triggerType: o.triggerType || config.triggerType || 'BEFORE'
+      };
+    }
+    return null;
+  }).filter(Boolean);
+};
+
 const triggerDateFor = (dueDate, triggerType, offsetDays) => {
   const d = new Date(dueDate);
   d.setHours(0, 0, 0, 0);
@@ -282,7 +298,7 @@ const toRecipient = (student, computed, offsetDays) => ({
  * Collect unpaid recipients for an academic rule whose due date matches today±offset.
  * If config.quotas is non-empty, only structures whose category is in that list are processed.
  */
-const collectAcademicRecipients = async (config, today, matchedOffset) => {
+const collectAcademicRecipients = async (config, today, matchedOffset, triggerType) => {
   const recipients = [];
   const seen = new Set();
 
@@ -368,7 +384,7 @@ const collectAcademicRecipients = async (config, today, matchedOffset) => {
       const dueDate = await resolveAcademicDueDate(term, firstStruct, config.academicYear);
       if (!dueDate) continue;
 
-      const trigger = triggerDateFor(dueDate, config.triggerType, matchedOffset);
+      const trigger = triggerDateFor(dueDate, triggerType || config.triggerType, matchedOffset);
       if (!sameDay(trigger, today)) continue;
 
       const [students] = await db.query(
@@ -429,7 +445,7 @@ const collectAcademicRecipients = async (config, today, matchedOffset) => {
   return recipients;
 };
 
-const collectServiceRecipients = async (config, today, matchedOffset) => {
+const collectServiceRecipients = async (config, today, matchedOffset, triggerType) => {
   const recipients = [];
   const seen = new Set();
   const type = config.dueSourceType; // HOSTEL | TRANSPORT
@@ -575,7 +591,7 @@ const collectServiceRecipients = async (config, today, matchedOffset) => {
         );
         if (!dueDate) continue;
 
-        const trigger = triggerDateFor(dueDate, config.triggerType, matchedOffset);
+        const trigger = triggerDateFor(dueDate, triggerType || config.triggerType, matchedOffset);
         if (!sameDay(trigger, today)) continue;
 
         if (!isUnderpaidThroughTerm(allocation, term.termNumber)) continue;
@@ -650,29 +666,31 @@ const executeTimelyReminderConfig = async (config, today = new Date()) => {
   const day = new Date(today);
   day.setHours(0, 0, 0, 0);
 
-  if (!config.offsets?.length) return { sent: 0 };
+  const normalizedOffsets = getNormalizedOffsets(config);
+  if (!normalizedOffsets.length) return { sent: 0 };
 
   const dayKey = day.toISOString().slice(0, 10);
   const runKeys = new Set(config.lastRunKeys || []);
   let totalSent = 0;
 
-  for (const offset of config.offsets) {
-    const key = `${dayKey}:${offset}`;
+  for (const offsetObj of normalizedOffsets) {
+    const { value: offsetVal, triggerType } = offsetObj;
+    const key = `${dayKey}:${offsetVal}:${triggerType}`;
     if (runKeys.has(key)) {
-      console.log(`[TimelyReminder] Rule ${config._id} offset ${offset} already ran on ${dayKey}, skipping`);
+      console.log(`[TimelyReminder] Rule ${config._id} offset ${offsetVal} ${triggerType} already ran on ${dayKey}, skipping`);
       continue;
     }
 
     let recipients = [];
     if (config.dueSourceType === 'ACADEMIC') {
-      recipients = await collectAcademicRecipients(config, day, offset);
+      recipients = await collectAcademicRecipients(config, day, offsetVal, triggerType);
     } else if (config.dueSourceType === 'HOSTEL' || config.dueSourceType === 'TRANSPORT') {
-      recipients = await collectServiceRecipients(config, day, offset);
+      recipients = await collectServiceRecipients(config, day, offsetVal, triggerType);
     }
 
     console.log(
       `[TimelyReminder] Rule ${config._id} (${config.dueSourceType} ${config.academicYear}) ` +
-      `offset ${offset} ${config.triggerType}: ${recipients.length} unpaid recipients`
+      `offset ${offsetVal} ${triggerType}: ${recipients.length} unpaid recipients`
     );
 
     if (recipients.length) {
