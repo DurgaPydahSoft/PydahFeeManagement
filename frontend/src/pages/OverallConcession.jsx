@@ -75,7 +75,7 @@ const OverallConcession = () => {
     const [requests,          setRequests]          = useState([]);
     const [requestsLoading,   setRequestsLoading]   = useState(false);
     const [reqStatusFilter,   setReqStatusFilter]   = useState('PENDING');
-    const [reqFilters,        setReqFilters]        = useState({ college: '', course: '', branch: '', batch: '' });
+    const [reqFilters,        setReqFilters]        = useState({ college: '', course: '', branch: '', batch: '', quota: '' });
     const [reqCourses,        setReqCourses]        = useState([]);
     const [reqBranches,       setReqBranches]       = useState([]);
     const [reqSearchTerm,     setReqSearchTerm]     = useState('');
@@ -232,7 +232,8 @@ const OverallConcession = () => {
                     college: reqFilters.college || undefined,
                     course: reqFilters.course || undefined,
                     branch: reqFilters.branch || undefined,
-                    batch: reqFilters.batch || undefined
+                    batch: reqFilters.batch || undefined,
+                    category: reqFilters.quota || undefined
                 }
             });
             setRequests(res.data);
@@ -540,7 +541,7 @@ const OverallConcession = () => {
 
     const handleReqCollegeChange = (e) => {
         const college = e.target.value;
-        setReqFilters({ college, course: '', branch: '', batch: reqFilters.batch });
+        setReqFilters({ ...reqFilters, college, course: '', branch: '' });
         setReqCourses(college ? Object.keys(metadata[college] || {}) : []);
         setReqBranches([]);
     };
@@ -1562,7 +1563,7 @@ const OverallConcession = () => {
                                         ))}
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
                                         <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
@@ -1593,6 +1594,14 @@ const OverallConcession = () => {
                                             value={reqFilters.branch} onChange={e => setReqFilters({ ...reqFilters, branch: e.target.value })} disabled={!reqFilters.course}>
                                             <option value="">All Branches</option>
                                             {reqBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Quota</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={reqFilters.quota} onChange={e => setReqFilters({ ...reqFilters, quota: e.target.value })}>
+                                            <option value="">All Quotas</option>
+                                            {quotaOptions.map(q => <option key={q} value={q}>{q}</option>)}
                                         </select>
                                     </div>
                                 </div>

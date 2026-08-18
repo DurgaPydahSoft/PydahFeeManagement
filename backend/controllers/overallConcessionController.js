@@ -774,13 +774,14 @@ const submitConcessionRequest = async (req, res) => {
 // @route   GET /api/overall-concessions/requests
 const getConcessionRequests = async (req, res) => {
     try {
-        const { status, college, course, branch, batch, admissionNumber, search } = req.query;
+        const { status, college, course, branch, batch, admissionNumber, search, category } = req.query;
         const filter = {};
         if (status)          filter.status = status.toUpperCase();
         if (college)         filter.college = college;
         if (course)          filter.course = course;
         if (branch)          filter.branch = branch;
         if (batch)           filter.batch = batch;
+        if (category)        filter.category = category;
         if (admissionNumber) filter.admissionNumber = admissionNumber;
 
         const q = String(search || '').trim();
