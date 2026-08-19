@@ -177,6 +177,31 @@ const DueReports = () => {
         return Math.max(1, ...counts);
     }, [reportData]);
 
+    const termHeaderDates = React.useMemo(() => {
+        if (!reportData || reportData.length === 0) return [];
+        const dateCounts = {};
+        reportData.forEach(st => {
+            (st.termDueDates || []).forEach((d, i) => {
+                if (!d) return;
+                const termIdx = i + 1;
+                if (!dateCounts[termIdx]) dateCounts[termIdx] = {};
+                const key = new Date(d).toISOString().slice(0, 10);
+                dateCounts[termIdx][key] = (dateCounts[termIdx][key] || 0) + 1;
+            });
+        });
+        const result = [];
+        for (let i = 1; i <= maxTerms; i++) {
+            if (dateCounts[i]) {
+                const best = Object.entries(dateCounts[i]).sort((a, b) => b[1] - a[1])[0];
+                const dt = new Date(best[0]);
+                result.push(!isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null);
+            } else {
+                result.push(null);
+            }
+        }
+        return result;
+    }, [reportData, maxTerms]);
+
     // Print Options Modal State
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [includePrintDetails, setIncludePrintDetails] = useState(false);
@@ -962,8 +987,11 @@ const DueReports = () => {
                                             </th>
                                             {/* Dynamic Term Headers */}
                                             {Array.from({ length: maxTerms }).map((_, i) => (
-                                                <th key={i} className="p-2 text-right text-gray-500 font-semibold bg-blue-50/15 w-24">
-                                                    T{i + 1} Due
+                                                <th key={i} className="p-2 text-right text-gray-500 font-semibold bg-blue-50/15 w-28">
+                                                    <div>T{i + 1} Due</div>
+                                                    {termHeaderDates[i] && (
+                                                        <div className="text-[9px] font-normal text-gray-400 mt-0.5">{termHeaderDates[i]}</div>
+                                                    )}
                                                 </th>
                                             ))}
                                             <th 
@@ -1076,7 +1104,12 @@ const DueReports = () => {
                                                                                     <th className="pb-2">Fee Category</th>
                                                                                     <th className="pb-2 text-right">Total</th>
                                                                                     {Array.from({ length: maxTerms }).map((_, i) => (
-                                                                                        <th key={i} className="pb-2 text-right text-gray-500 bg-blue-50/15 w-24">T{i + 1} Due</th>
+                                                                                        <th key={i} className="pb-2 text-right text-gray-500 bg-blue-50/15 w-28">
+                                                                                            <div>T{i + 1} Due</div>
+                                                                                            {termHeaderDates[i] && (
+                                                                                                <div className="text-[9px] font-normal text-gray-400 mt-0.5">{termHeaderDates[i]}</div>
+                                                                                            )}
+                                                                                        </th>
                                                                                     ))}
                                                                                     <th className="pb-2 text-right">Active Due</th>
                                                                                     <th className="pb-2 text-right">Concession</th>
