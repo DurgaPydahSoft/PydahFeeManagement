@@ -6,6 +6,7 @@ const User = require('../models/User');
 const { processLateFees, processServiceLateFees } = require('../controllers/lateFeeController');
 const { syncAllRegularStudentFees } = require('./studentFeeSyncService');
 const { executeTimelyReminderConfig } = require('./timelyReminderService');
+const { processNightlyProceedingTransactions } = require('../controllers/proceedingController');
 
 // Track the currently scheduled payment-reset job so we can reschedule if settings change
 let paymentResetJob = null;
@@ -102,6 +103,7 @@ const initScheduler = async () => {
             await runSafe('Student fee structure sync', () => processStudentFeeStructureSync());
             await runSafe('Academic late fees', () => processLateFees());
             await runSafe('Hostel/Transport late fees', () => processServiceLateFees());
+            await runSafe('Proceeding transaction generation', () => processNightlyProceedingTransactions());
         } catch (fatal) {
             // Belts-and-suspenders: runSafe should never throw, but never let cron crash the server
             console.error('[Scheduler] Unexpected nightly runner failure (non-fatal):', fatal?.message || fatal);

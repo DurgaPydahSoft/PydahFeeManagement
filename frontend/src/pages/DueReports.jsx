@@ -169,7 +169,7 @@ const DueReports = () => {
     const [itemsPerPage, setItemsPerPage] = useState(20);
     const [expandedRow, setExpandedRow] = useState(null);
     const [activeTab, setActiveTab] = useState('report');
-    const [excludeScholarship, setExcludeScholarship] = useState(false);
+    const [excludeScholarship, setExcludeScholarship] = useState(true);
 
     const maxTerms = React.useMemo(() => {
         if (!reportData || reportData.length === 0) return 1;
@@ -342,13 +342,13 @@ const DueReports = () => {
     };
 
     const handleOverallPrint = async (includeDetails = false) => {
-        if (!reportData || reportData.length === 0) return;
+        if (!filteredData || filteredData.length === 0) return;
         try {
             const response = await api.post('/print', {
                 template: 'due-report',
                 data: {
                     type: 'overall',
-                    reportData,
+                    reportData: filteredData,
                     includeDetails,
                     filters: {
                         college: filters.college,
@@ -361,10 +361,10 @@ const DueReports = () => {
                         studentStatus: filters.studentStatus
                     },
                     summary: {
-                        totalStudents: reportData.length,
-                        totalFee: reportData.reduce((sum, s) => sum + Number(s.totalFee || 0), 0),
-                        totalCollected: reportData.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0),
-                        totalDue: reportData.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0),
+                        totalStudents: filteredData.length,
+                        totalFee: filteredData.reduce((sum, s) => sum + Number(s.totalFee || 0), 0),
+                        totalCollected: filteredData.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0),
+                        totalDue: filteredData.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0),
                     }
                 }
             });
@@ -399,11 +399,11 @@ const DueReports = () => {
     };
 
     const exportToExcel = () => {
-        if (!reportData || reportData.length === 0) return;
+        if (!filteredData || filteredData.length === 0) return;
 
         // 1. Identify all Unique Fee Heads dynamically
         const allFeeHeads = new Set();
-        reportData.forEach(r => {
+        filteredData.forEach(r => {
             if (r.feeDetailsArray) {
                 r.feeDetailsArray.forEach(d => allFeeHeads.add(d.headName));
             }
@@ -427,7 +427,7 @@ const DueReports = () => {
         });
 
         // 4. Build Data Rows
-        const dataRows = reportData.map(r => {
+        const dataRows = filteredData.map(r => {
             const row = [
                 r.admission_number,
                 r.pin_no,
@@ -507,14 +507,30 @@ const DueReports = () => {
             let totalFee = 0;
             let paidAmount = 0;
             let concessionAmount = 0;
-            let activeDue = 0;
             const studentTermDues = {};
+            const feeDetailsMap = {};
+            const newGroupedFeeDetails = {
+                academic: null,
+                hostel: null,
+                transport: null
+            };
+            const catSums = {
+                academic: { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} },
+                hostel: { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} },
+                transport: { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} }
+            };
 
-            const isStudentScholarEligible = String(student.scholarshipStatus).toLowerCase() === 'eligible';
+            const getCategoryKey = (item) => {
+                const code = String(item.feeHeadCode || '').toUpperCase();
+                const name = String(item.feeHeadName || '').toLowerCase();
+                if (code === 'HST01' || name.includes('hostel')) return 'hostel';
+                if (code === 'TRN' || code === 'TRN01' || name.includes('transport')) return 'transport';
+                return 'academic';
+            };
 
             (student.rawGroupedData || []).forEach(item => {
-                // If student is scholarship eligible AND the fee is scholarship applicable, exclude it
-                const shouldExclude = isStudentScholarEligible && item.isScholarshipApplicable;
+                const isItemScholarEligible = ['eligible', 'yes', 'true'].includes(String(item.studentScholarStatus || '').toLowerCase());
+                const shouldExclude = isItemScholarEligible && item.isScholarshipApplicable;
 
                 if (!shouldExclude) {
                     totalFee += (item.totalAmount || 0);
@@ -522,16 +538,13 @@ const DueReports = () => {
                     concessionAmount += (item.concessionAmount || 0);
 
                     // Re-sum term dues
-                    // Note: Here we approximate the term balances split by terms count for the remaining due
                     const itemBalance = Math.max(0, (item.totalAmount || 0) - (item.paidAmount || 0) - (item.concessionAmount || 0));
                     const termsCount = item.terms?.length || 1;
                     if (itemBalance > 0) {
                         for (let i = 1; i <= termsCount; i++) {
                             if (!studentTermDues[i]) studentTermDues[i] = 0;
-                            // Simplistic allocation or proportional allocation based on original terms structure
                             const termObj = item.terms?.find(t => Number(t.termNumber) === i);
                             if (termObj) {
-                                // If specific term layout matches, assign proportional balance
                                 const termTarget = termObj.amount || 0;
                                 const originalTotal = item.totalAmount || 1;
                                 const ratio = termTarget / originalTotal;
@@ -539,6 +552,49 @@ const DueReports = () => {
                             } else {
                                 studentTermDues[i] += itemBalance / termsCount;
                             }
+                        }
+                    }
+
+                    // Update feeDetailsMap for Excel / PDF details
+                    const headIdStr = String(item.feeHeadId || 'unknown');
+                    if (!feeDetailsMap[headIdStr]) {
+                        feeDetailsMap[headIdStr] = { total: 0, paid: 0, due: 0 };
+                    }
+                    feeDetailsMap[headIdStr].total += (item.totalAmount || 0);
+                    feeDetailsMap[headIdStr].paid += (item.paidAmount || 0);
+                    feeDetailsMap[headIdStr].due += itemBalance;
+
+                    // Rebuild category summaries
+                    const catKey = getCategoryKey(item);
+                    const catSum = catSums[catKey];
+
+                    catSum.total += (item.totalAmount || 0);
+                    catSum.paid += (item.paidAmount || 0);
+                    catSum.concession += (item.concessionAmount || 0);
+                    catSum.due += itemBalance;
+
+                    for (let i = 1; i <= termsCount; i++) {
+                        if (!catSum.termsMap[i]) {
+                            catSum.termsMap[i] = {
+                                termNumber: i,
+                                termTarget: 0,
+                                balance: 0,
+                                dueDate: null,
+                                isActiveTerm: false
+                            };
+                        }
+                        const termObj = item.terms?.find(t => Number(t.termNumber) === i);
+                        const termTarget = termObj ? (termObj.amount || 0) : 0;
+                        const originalTotal = item.totalAmount || 1;
+                        const ratio = termObj ? (termTarget / originalTotal) : (1 / termsCount);
+
+                        catSum.termsMap[i].termTarget += termTarget;
+                        catSum.termsMap[i].balance += itemBalance * ratio;
+
+                        const origTerm = student.groupedFeeDetails?.[catKey]?.terms?.find(t => Number(t.termNumber) === i);
+                        if (origTerm) {
+                            catSum.termsMap[i].dueDate = origTerm.dueDate;
+                            catSum.termsMap[i].isActiveTerm = origTerm.isActiveTerm;
                         }
                     }
                 }
@@ -552,14 +608,57 @@ const DueReports = () => {
 
             const dueAmount = Math.max(0, totalFee - paidAmount - concessionAmount);
 
+            // Rebuild feeDetailsArray
+            const feeDetailsArray = (student.feeDetailsArray || []).map(originalDetail => {
+                const headIdStr = String(originalDetail.headId);
+                const updated = feeDetailsMap[headIdStr];
+                if (updated) {
+                    return {
+                        ...originalDetail,
+                        total: updated.total,
+                        paid: updated.paid,
+                        due: updated.due
+                    };
+                }
+                return {
+                    ...originalDetail,
+                    total: 0,
+                    paid: 0,
+                    due: 0
+                };
+            });
+
+            // Rebuild groupedFeeDetails
+            let activeDue = 0;
+            Object.keys(catSums).forEach(catKey => {
+                const sum = catSums[catKey];
+                if (sum.total > 0 || sum.paid > 0 || sum.concession > 0 || sum.due > 0) {
+                    newGroupedFeeDetails[catKey] = {
+                        total: sum.total,
+                        paid: sum.paid,
+                        concession: sum.concession,
+                        due: sum.due,
+                        terms: Object.values(sum.termsMap).sort((a, b) => a.termNumber - b.termNumber)
+                    };
+
+                    (newGroupedFeeDetails[catKey].terms || []).forEach(t => {
+                        if (t.isActiveTerm) {
+                            activeDue += (t.balance || 0);
+                        }
+                    });
+                }
+            });
+
             return {
                 ...student,
                 totalFee,
                 paidAmount,
                 concessionAmount,
                 dueAmount,
-                activeDue: dueAmount, // Fallback active due to total remaining due
-                termDues
+                activeDue,
+                termDues,
+                feeDetailsArray,
+                groupedFeeDetails: newGroupedFeeDetails
             };
         });
     }, [sortedData, excludeScholarship]);
@@ -856,7 +955,7 @@ const DueReports = () => {
                                                 onChange={e => setExcludeScholarship(e.target.checked)}
                                             />
                                             <label htmlFor="exclude-scholarship" className="text-[10px] text-gray-700 font-bold cursor-pointer whitespace-nowrap">
-                                                Without Scholarship Dues
+                                                With Scholarship
                                             </label>
                                         </div>
 

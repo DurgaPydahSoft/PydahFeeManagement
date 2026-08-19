@@ -11,11 +11,15 @@ const proceedingSchema = mongoose.Schema({
     },
     amount: {
         type: Number,
-        required: true
+        default: 0
+    },
+    bankCreditedAmount: {
+        type: Number,
+        default: 0
     },
     bankAccount: {
-        type: String, // Can be account name or bank name from PaymentConfig
-        required: true
+        type: String,
+        default: ''
     },
     bankCreditedDate: {
         type: Date
@@ -24,9 +28,18 @@ const proceedingSchema = mongoose.Schema({
         type: String,
         required: true
     },
+    collegeId: {
+        type: Number
+    },
     course: {
         type: String,
         required: true
+    },
+    courseId: {
+        type: Number
+    },
+    branchId: {
+        type: Number
     },
     caste: {
         type: String
@@ -37,10 +50,18 @@ const proceedingSchema = mongoose.Schema({
     academicYear: {
         type: String
     },
+    feeHead: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'FeeHead'
+    },
     status: {
         type: String,
         enum: ['Pending', 'Active', 'Completed', 'Cancelled'],
         default: 'Pending'
+    },
+    transactionsGenerated: {
+        type: Boolean,
+        default: false
     },
     requestedBy: {
         type: String,
