@@ -645,6 +645,20 @@ const updateTransactionPaymentMode = async (req, res) => {
       return res.status(404).json({ message: 'Transaction not found' });
     }
 
+    // 30-hour edit window check (superadmin bypasses)
+    if (req.user?.role !== 'superadmin') {
+      const createdAt = new Date(transaction.createdAt);
+      const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+      const EDIT_WINDOW_HOURS = 30;
+      if (hoursSinceCreation > EDIT_WINDOW_HOURS) {
+        const hoursAgo = Math.floor(hoursSinceCreation);
+        return res.status(403).json({
+          message: `Edit window expired. This transaction was created ${hoursAgo} hours ago and can only be edited within ${EDIT_WINDOW_HOURS} hours of creation. Please cancel this transaction and create a new one instead.`,
+          code: 'EDIT_WINDOW_EXPIRED'
+        });
+      }
+    }
+
     // Update ONLY payment mode related fields and remarks
     transaction.paymentMode = paymentMode !== undefined ? paymentMode : transaction.paymentMode;
     transaction.bankName = bankName !== undefined ? bankName : transaction.bankName;

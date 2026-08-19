@@ -970,7 +970,8 @@ const FeeCollection = () => {
 
         } catch (error) {
             console.error(error);
-            showToastMessage('Payment Failed', 'error');
+            const msg = error.response?.data?.message || 'Payment Failed';
+            showToastMessage(msg, 'error');
         } finally {
             setIsProcessing(false);
         }
