@@ -169,7 +169,7 @@ const DueReports = () => {
     const [itemsPerPage, setItemsPerPage] = useState(20);
     const [expandedRow, setExpandedRow] = useState(null);
     const [activeTab, setActiveTab] = useState('report');
-    const [excludeScholarship, setExcludeScholarship] = useState(false);
+    const [excludeScholarship, setExcludeScholarship] = useState(true);
 
     const maxTerms = React.useMemo(() => {
         if (!reportData || reportData.length === 0) return 1;
@@ -504,34 +504,28 @@ const DueReports = () => {
             return sortedData;
         }
         return sortedData.map(student => {
-            let totalFee = 0;
             let paidAmount = 0;
             let concessionAmount = 0;
-            let activeDue = 0;
             const studentTermDues = {};
 
             const isStudentScholarEligible = String(student.scholarshipStatus).toLowerCase() === 'eligible';
 
             (student.rawGroupedData || []).forEach(item => {
-                // If student is scholarship eligible AND the fee is scholarship applicable, exclude it
-                const shouldExclude = isStudentScholarEligible && item.isScholarshipApplicable;
+                const feeCode = String(item.feeHeadCode || '').toUpperCase();
+                const isServiceFee = feeCode === 'HST01' || feeCode === 'TRN' || feeCode === 'TRN01';
+                const shouldExclude = isStudentScholarEligible && item.isScholarshipApplicable && !isServiceFee;
 
                 if (!shouldExclude) {
-                    totalFee += (item.totalAmount || 0);
                     paidAmount += (item.paidAmount || 0);
                     concessionAmount += (item.concessionAmount || 0);
 
-                    // Re-sum term dues
-                    // Note: Here we approximate the term balances split by terms count for the remaining due
                     const itemBalance = Math.max(0, (item.totalAmount || 0) - (item.paidAmount || 0) - (item.concessionAmount || 0));
                     const termsCount = item.terms?.length || 1;
                     if (itemBalance > 0) {
                         for (let i = 1; i <= termsCount; i++) {
                             if (!studentTermDues[i]) studentTermDues[i] = 0;
-                            // Simplistic allocation or proportional allocation based on original terms structure
                             const termObj = item.terms?.find(t => Number(t.termNumber) === i);
                             if (termObj) {
-                                // If specific term layout matches, assign proportional balance
                                 const termTarget = termObj.amount || 0;
                                 const originalTotal = item.totalAmount || 1;
                                 const ratio = termTarget / originalTotal;
@@ -550,15 +544,14 @@ const DueReports = () => {
                 termDues.push(studentTermDues[i] || 0);
             }
 
-            const dueAmount = Math.max(0, totalFee - paidAmount - concessionAmount);
+            const dueAmount = Math.max(0, student.totalFee - paidAmount - concessionAmount);
 
             return {
                 ...student,
-                totalFee,
                 paidAmount,
                 concessionAmount,
                 dueAmount,
-                activeDue: dueAmount, // Fallback active due to total remaining due
+                activeDue: dueAmount,
                 termDues
             };
         });
@@ -846,18 +839,19 @@ const DueReports = () => {
                                     <div className="w-px h-8 bg-gray-200 mx-1 hidden xl:block"></div>
 
                                     <div className="relative flex-1 xl:w-64 flex gap-2">
-                                        {/* Exclude Scholarship Dues Checkbox */}
-                                        <div className="flex items-center gap-1.5 px-2 bg-gray-50 border border-gray-300 rounded shrink-0 select-none">
-                                            <input
-                                                id="exclude-scholarship"
-                                                type="checkbox"
-                                                className="w-3.5 h-3.5 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                                                checked={excludeScholarship}
-                                                onChange={e => setExcludeScholarship(e.target.checked)}
-                                            />
-                                            <label htmlFor="exclude-scholarship" className="text-[10px] text-gray-700 font-bold cursor-pointer whitespace-nowrap">
-                                                Without Scholarship Dues
-                                            </label>
+                                        {/* Scholarship Toggle */}
+                                        <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-300 rounded shrink-0 select-none">
+                                            <span className={`text-[10px] font-bold whitespace-nowrap transition-colors ${!excludeScholarship ? 'text-blue-700' : 'text-gray-400'}`}>With Sch</span>
+                                            <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={excludeScholarship}
+                                                onClick={() => setExcludeScholarship(prev => !prev)}
+                                                className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 ${excludeScholarship ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                            >
+                                                <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transform transition-transform ${excludeScholarship ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                            </button>
+                                            <span className={`text-[10px] font-bold whitespace-nowrap transition-colors ${excludeScholarship ? 'text-blue-700' : 'text-gray-400'}`}>Without Sch</span>
                                         </div>
 
                                         {/* Items Per Page */}
