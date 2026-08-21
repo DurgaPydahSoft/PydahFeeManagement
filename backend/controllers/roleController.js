@@ -22,6 +22,7 @@ const allPermissions = [
   'fee_collection_concession',
   'fee_collection_edit',
   'proceedings_approve',
+  'proceedings_verify',
   'proceedings_edit',
   'proceedings_view',
   'reports_daily_collection',

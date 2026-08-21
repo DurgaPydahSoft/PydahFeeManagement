@@ -316,10 +316,11 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
-            {/* Individual Transactions for this College — Cash first, then Bank */}
+            {/* Individual Transactions for this College — Cash, Bank, then RTF */}
             {showDetails && activeTransactions.length > 0 && (() => {
                 const cashTxs = activeTransactions.filter(tx => tx.paymentMode === 'Cash');
-                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash');
+                const rtfTxs = activeTransactions.filter(tx => tx.paymentMode === 'RTF' || tx.proceedingId);
+                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash' && tx.paymentMode !== 'RTF' && !tx.proceedingId);
                 const txTableHead = (
                     <thead>
                         <tr>
@@ -350,6 +351,38 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         </td>
                     </tr>
                 );
+                const rtfTableHead = (
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Proceeding #</th>
+                            <th>Receipt #</th>
+                            <th>Student Name</th>
+                            <th>Pin No</th>
+                            <th>Course/Branch</th>
+                            <th>Year</th>
+                            <th>Fee Head</th>
+                            <th>Approved By</th>
+                            <th style={{ textAlign: 'right' }}>Amount</th>
+                        </tr>
+                    </thead>
+                );
+                const rtfRow = (tx, idx) => (
+                    <tr key={idx} className="compact-row">
+                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                        <td style={{ fontWeight: 'bold' }}>{tx.proceedingNumber || tx.referenceNo || '-'}</td>
+                        <td>{tx.receiptNo}</td>
+                        <td>{tx.studentName}</td>
+                        <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                        <td>{tx.course} - {tx.branch}</td>
+                        <td>{tx.studentYear}</td>
+                        <td>{tx.feeHead}</td>
+                        <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy} {tx.empNo && `(${tx.empNo})`}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                            ₹{Number(tx.amount).toLocaleString('en-IN')}
+                        </td>
+                    </tr>
+                );
                 return (
                     <div style={{ marginTop: '20px' }}>
                         {showCash && cashTxs.length > 0 && (
@@ -371,6 +404,17 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                 <table className="print-table" style={{ fontSize: '7.5px' }}>
                                     {txTableHead}
                                     <tbody>{bankTxs.map(txRow)}</tbody>
+                                </table>
+                            </div>
+                        )}
+                        {showBank && rtfTxs.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '6px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                                    RTF / Proceeding Transactions ({rtfTxs.length}) — ₹{rtfTxs.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
+                                </h3>
+                                <table className="print-table" style={{ fontSize: '7.5px' }}>
+                                    {rtfTableHead}
+                                    <tbody>{rtfTxs.map(rtfRow)}</tbody>
                                 </table>
                             </div>
                         )}

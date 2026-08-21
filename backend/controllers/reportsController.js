@@ -20,6 +20,31 @@ const formatLocalDate = (date) => {
 
 const cleanReportField = (val) => (val && val !== 'undefined' && val !== 'null' && String(val).trim() !== '') ? String(val).trim() : null;
 
+/** Attach proceedingNumber onto lean transaction docs (for RTF report tables). */
+const attachProceedingNumbers = async (transactions) => {
+    if (!Array.isArray(transactions) || transactions.length === 0) return transactions;
+    const Proceeding = require('../models/Proceeding');
+    const ids = [
+        ...new Set(
+            transactions
+                .filter((t) => t.proceedingId)
+                .map((t) => String(t.proceedingId))
+        )
+    ];
+    const map = {};
+    if (ids.length > 0) {
+        const procs = await Proceeding.find({ _id: { $in: ids } }).select('proceedingNumber').lean();
+        procs.forEach((p) => {
+            map[String(p._id)] = p.proceedingNumber || '';
+        });
+    }
+    transactions.forEach((tx) => {
+        const fromProc = tx.proceedingId ? map[String(tx.proceedingId)] : '';
+        tx.proceedingNumber = fromProc || (tx.paymentMode === 'RTF' ? (tx.referenceNo || '') : '') || '';
+    });
+    return transactions;
+};
+
 // Helper to filter transactions by user's scoped colleges using cached fields directly
 const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
     const collegeNames = await collegeScope.getEffectiveCollegeNames(user, campusId);
@@ -136,6 +161,7 @@ const getTransactionReports = async (req, res) => {
                 matchStageWithCancelled.$and = [...matchStage.$and];
             }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            await attachProceedingNumbers(transactions);
             transactions.forEach(tx => mapCashierInfo(tx));
 
             if (!transactions.length) {
@@ -319,7 +345,10 @@ const getTransactionReports = async (req, res) => {
                     cancelledAt: tx.cancelledAt,
                     cancellationReason: tx.cancellationReason,
                     createdAt: tx.createdAt,
-                    updatedAt: tx.updatedAt
+                    updatedAt: tx.updatedAt,
+                    paymentDate: tx.paymentDate || tx.createdAt,
+                    proceedingId: tx.proceedingId || null,
+                    proceedingNumber: tx.proceedingNumber || ''
                 });
 
                 if (!isCancelled && isDebit) {
@@ -378,6 +407,7 @@ const getTransactionReports = async (req, res) => {
                 matchStageWithCancelled.$and = [...matchStage.$and];
             }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            await attachProceedingNumbers(transactions);
             transactions.forEach(tx => mapCashierInfo(tx));
 
             // Resolve fee head names
@@ -469,7 +499,9 @@ const getTransactionReports = async (req, res) => {
                     collectedBy: tx.collectedBy || '',
                     collectedByName: tx.collectedByName || '',
                     paymentDate: tx.paymentDate || tx.createdAt,
-                    createdAt: tx.createdAt
+                    createdAt: tx.createdAt,
+                    proceedingId: tx.proceedingId || null,
+                    proceedingNumber: tx.proceedingNumber || ''
                 });
             });
 
@@ -486,6 +518,7 @@ const getTransactionReports = async (req, res) => {
                 matchStageWithCancelled.$and = [...matchStage.$and];
             }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            await attachProceedingNumbers(transactions);
             transactions.forEach(tx => mapCashierInfo(tx));
 
             if (!transactions.length) {
@@ -665,7 +698,10 @@ const getTransactionReports = async (req, res) => {
                     cancelledAt: tx.cancelledAt,
                     cancellationReason: tx.cancellationReason,
                     createdAt: tx.createdAt,
-                    updatedAt: tx.updatedAt
+                    updatedAt: tx.updatedAt,
+                    paymentDate: tx.paymentDate || tx.createdAt,
+                    proceedingId: tx.proceedingId || null,
+                    proceedingNumber: tx.proceedingNumber || ''
                 });
 
                 // cashier breakdown inside this college
@@ -760,6 +796,7 @@ const getTransactionReports = async (req, res) => {
                 matchStageWithCancelled.$and = [...matchStage.$and];
             }
             const transactions = await Transaction.find(matchStageWithCancelled).lean();
+            await attachProceedingNumbers(transactions);
             transactions.forEach(tx => mapCashierInfo(tx));
 
             const PaymentConfig = require('../models/PaymentConfig');
@@ -972,7 +1009,10 @@ const getTransactionReports = async (req, res) => {
                     collectedByName: tx.collectedByName || 'Unknown',
                     empNo: empNo,
                     createdAt: tx.createdAt,
-                    updatedAt: tx.updatedAt
+                    updatedAt: tx.updatedAt,
+                    paymentDate: tx.paymentDate || tx.createdAt,
+                    proceedingId: tx.proceedingId || null,
+                    proceedingNumber: tx.proceedingNumber || ''
                 });
             });
 
@@ -1034,12 +1074,17 @@ const getTransactionReports = async (req, res) => {
                                 paymentMode: "$paymentMode",
                                 transactionType: "$transactionType",
                                 feeHead: "$feeHead",
-                                semester: "$semester",      // Include semester
-                                studentYear: "$studentYear", // Include year
+                                semester: "$semester",
+                                studentYear: "$studentYear",
                                 college: "$college",
                                 course: "$course",
                                 branch: "$branch",
-                                pinNo: "$pinNo"
+                                pinNo: "$pinNo",
+                                collectedBy: "$collectedBy",
+                                collectedByName: "$collectedByName",
+                                paymentDate: { $ifNull: ["$paymentDate", "$createdAt"] },
+                                proceedingId: "$proceedingId",
+                                referenceNo: "$referenceNo"
                             }
                         }
                     }
@@ -1048,6 +1093,13 @@ const getTransactionReports = async (req, res) => {
             ];
 
             const dailyStats = await Transaction.aggregate(pipeline);
+
+            // Attach proceeding numbers for RTF tables
+            const allDailyTxs = [];
+            dailyStats.forEach((day) => {
+                (day.transactions || []).forEach((tx) => allDailyTxs.push(tx));
+            });
+            await attachProceedingNumbers(allDailyTxs);
 
             // --- SQL Enrichment Start ---
             // Extract all studentIds (Admission Numbers) that lack cached metadata

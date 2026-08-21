@@ -332,10 +332,12 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     const course = tx.course || 'Unknown Course';
                     if (!grouped[col]) grouped[col] = {};
                     if (!grouped[col][course]) {
-                        grouped[col][course] = { cash: [], bank: [] };
+                        grouped[col][course] = { cash: [], bank: [], rtf: [] };
                     }
                     if (tx.paymentMode === 'Cash') {
                         grouped[col][course].cash.push(tx);
+                    } else if (tx.paymentMode === 'RTF' || tx.proceedingId) {
+                        grouped[col][course].rtf.push(tx);
                     } else {
                         grouped[col][course].bank.push(tx);
                     }
@@ -387,11 +389,12 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                     </div>
                                     
                                     {sortedCourses.map((courseName) => {
-                                        const { cash, bank } = courses[courseName];
+                                        const { cash, bank, rtf = [] } = courses[courseName];
                                         const hasCash = showCash && cash.length > 0;
                                         const hasBank = showBank && bank.length > 0;
+                                        const hasRtf = showBank && rtf.length > 0;
 
-                                        if (!hasCash && !hasBank) return null;
+                                        if (!hasCash && !hasBank && !hasRtf) return null;
 
                                         return (
                                             <div key={courseName} style={{ paddingLeft: '12px', marginBottom: '12px' }}>
@@ -422,6 +425,47 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                                                         <table className="print-table" style={{ fontSize: '7.5px' }}>
                                                             {txTableHead}
                                                             <tbody>{bank.map(txRow)}</tbody>
+                                                        </table>
+                                                    </div>
+                                                )}
+
+                                                {/* RTF / Proceeding Subtable */}
+                                                {hasRtf && (
+                                                    <div style={{ marginBottom: '8px', paddingLeft: '8px' }}>
+                                                        <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#000', marginBottom: '4px', textTransform: 'uppercase' }}>
+                                                            * RTF / Proceeding Transactions ({rtf.length}) — Subtotal: ₹{rtf.reduce((s, t) => s + (t.amount || 0), 0).toLocaleString('en-IN')}
+                                                        </div>
+                                                        <table className="print-table" style={{ fontSize: '7.5px' }}>
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>S.No</th>
+                                                                    <th>Proceeding #</th>
+                                                                    <th>Receipt #</th>
+                                                                    <th>Student Name</th>
+                                                                    <th>Pin No</th>
+                                                                    <th>Course/Branch</th>
+                                                                    <th>Year</th>
+                                                                    <th>Fee Head</th>
+                                                                    <th>Approved By</th>
+                                                                    <th style={{ textAlign: 'right' }}>Amount</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {rtf.map((tx, idx) => (
+                                                                    <tr key={idx} className="compact-row">
+                                                                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                                                        <td style={{ fontWeight: 'bold' }}>{tx.proceedingNumber || tx.referenceNo || '-'}</td>
+                                                                        <td>{tx.receiptNo}</td>
+                                                                        <td>{tx.studentName}</td>
+                                                                        <td>{(!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo}</td>
+                                                                        <td>{tx.course} - {tx.branch}</td>
+                                                                        <td>{tx.studentYear}</td>
+                                                                        <td>{tx.feeHead}</td>
+                                                                        <td style={{ textTransform: 'uppercase' }}>{tx.collectedByName || tx.collectedBy}</td>
+                                                                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(tx.amount).toLocaleString('en-IN')}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
                                                         </table>
                                                     </div>
                                                 )}

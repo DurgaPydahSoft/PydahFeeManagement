@@ -76,17 +76,19 @@ const SingleFeeHeadReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     const TxTable = ({ txns, snoStart = 1 }) => {
         const debit  = txns.filter(t => t.transactionType !== 'CREDIT');
         const subtotal = debit.reduce((s, t) => s + (t.amount || 0), 0);
+        const hasRtf = txns.some(t => t.paymentMode === 'RTF' || t.proceedingId || t.proceedingNumber);
         return (
             <table className="print-table" style={{ marginBottom: '10px' }}>
                 <thead>
                     <tr>
                         <th style={{ width: '4%'  }}>S.No</th>
                         <th style={{ width: '9%'  }}>Date</th>
-                        <th style={{ width: '13%' }}>Receipt No</th>
-                        <th style={{ width: '20%' }}>Student Name</th>
-                        <th style={{ width: '10%' }}>PIN</th>
+                        {hasRtf && <th style={{ width: '10%' }}>Proceeding #</th>}
+                        <th style={{ width: '12%' }}>Receipt No</th>
+                        <th style={{ width: '18%' }}>Student Name</th>
+                        <th style={{ width: '9%'  }}>PIN</th>
                         <th style={{ width: '5%'  }}>Yr</th>
-                        <th style={{ width: '9%'  }}>Mode</th>
+                        <th style={{ width: '8%'  }}>Mode</th>
                         <th style={{ width: '10%', textAlign: 'right' }}>Amount</th>
                     </tr>
                 </thead>
@@ -95,6 +97,11 @@ const SingleFeeHeadReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         <tr key={i} style={tx.transactionType === 'CREDIT' ? { backgroundColor: '#fdf4ff' } : {}}>
                             <td style={{ textAlign: 'center' }}>{snoStart + i}</td>
                             <td style={{ fontSize: '8.5px' }}>{formatDate(tx.paymentDate || tx.createdAt)}</td>
+                            {hasRtf && (
+                                <td style={{ fontSize: '8.5px', fontWeight: 'bold' }}>
+                                    {tx.proceedingNumber || (tx.paymentMode === 'RTF' ? (tx.referenceNo || '-') : '-')}
+                                </td>
+                            )}
                             <td style={{ fontFamily: 'monospace', fontSize: '8.5px' }}>{tx.receiptNo || '-'}</td>
                             <td style={{ fontWeight: 'bold' }}>{tx.studentName || '-'}</td>
                             <td style={{ fontFamily: 'monospace', fontSize: '8.5px' }}>{tx.pinNo || '-'}</td>
@@ -106,7 +113,7 @@ const SingleFeeHeadReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                         </tr>
                     ))}
                     <tr style={{ backgroundColor: '#f0f0f0', fontWeight: 'bold' }}>
-                        <td colSpan="7" style={{ textTransform: 'uppercase', fontSize: '9px' }}>Sub Total</td>
+                        <td colSpan={hasRtf ? 8 : 7} style={{ textTransform: 'uppercase', fontSize: '9px' }}>Sub Total</td>
                         <td style={{ textAlign: 'right', fontSize: '10px' }}>{formatCurrency(subtotal)}</td>
                     </tr>
                 </tbody>

@@ -73,6 +73,14 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { name: 'Late Fees',     hash: 'latefees' },
     ];
 
+    // Proceedings sub-items (hash-based; filtered by permission)
+    const PROCEEDINGS_SUB_ITEMS = [
+        { name: 'All Proceedings', hash: 'list',   perm: 'view' },
+        { name: 'Pending Queue',   hash: 'pending', perm: 'view' },
+        { name: 'Create Proceeding', hash: 'create', perm: 'edit' },
+        { name: 'Guide',           hash: 'guide',  perm: 'view' },
+    ];
+
     // Reminder Configuration sub-items (hash-based navigation within /reminders)
     const REMINDER_CONFIG_SUB_ITEMS = [
         { name: 'Templates',      hash: 'templates' },
@@ -88,6 +96,9 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     const isFeeConfigActive = location.pathname === '/fee-config';
     const [feeConfigExpanded, setFeeConfigExpanded] = React.useState(isFeeConfigActive);
 
+    const isProceedingsActive = location.pathname === '/proceedings';
+    const [proceedingsExpanded, setProceedingsExpanded] = React.useState(isProceedingsActive);
+
     const isReminderConfigActive = location.pathname === '/reminders';
     const [reminderConfigExpanded, setReminderConfigExpanded] = React.useState(isReminderConfigActive);
 
@@ -101,8 +112,26 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     }, [isFeeConfigActive]);
 
     React.useEffect(() => {
+        if (isProceedingsActive) setProceedingsExpanded(true);
+    }, [isProceedingsActive]);
+
+    React.useEffect(() => {
         if (isReminderConfigActive) setReminderConfigExpanded(true);
     }, [isReminderConfigActive]);
+
+    const canViewProceedings = role === 'superadmin' || role === 'admin'
+        || permissions.includes('/proceedings')
+        || permissions.includes('proceedings_view')
+        || permissions.includes('proceedings_edit')
+        || permissions.includes('proceedings_verify')
+        || permissions.includes('proceedings_approve');
+    const canEditProceedings = role === 'superadmin' || role === 'admin'
+        || permissions.includes('proceedings_edit');
+
+    const visibleProceedingsSubs = PROCEEDINGS_SUB_ITEMS.filter(sub => {
+        if (sub.perm === 'edit') return canEditProceedings;
+        return canViewProceedings;
+    });
 
     const settingsIcon = <svg className="w-5 h-5 icon-settings transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
@@ -119,7 +148,7 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { section: 'Fee Operations', name: 'Concessions (Declaration)', path: '/overall-concessions', icon: icons.Concession },
         { section: 'Fee Operations', name: 'Concessions (Application)', path: '/concessions', icon: icons.ConcessionApproval },
         { section: 'Fee Operations', name: 'Bulk Fee Upload', path: '/bulk-fee-upload', icon: icons.BulkUpload },
-        { section: 'Fee Operations', name: 'Proceedings', path: '/proceedings', icon: <svg className="w-5 h-5 icon-proceedings transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l5 5v9a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3v5h5" /></svg> },
+        { section: 'Fee Operations', name: '__PROCEEDINGS__', path: '/proceedings', icon: <svg className="w-5 h-5 icon-proceedings transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l5 5v9a2 2 0 01-2 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3v5h5" /></svg> },
 
         // Reports
         { section: 'Reports', name: 'Reports & Analytics', path: '/reports', icon: icons.Reports },
@@ -144,9 +173,14 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         : allMenuItems.filter(item =>
             permissions.includes(item.path) ||
             item.path === '/user-profile' ||
+            (item.path === '/proceedings' && (
+                permissions.includes('proceedings_view') ||
+                permissions.includes('proceedings_edit') ||
+                permissions.includes('proceedings_verify') ||
+                permissions.includes('proceedings_approve')
+            )) ||
             (item.path === '/transaction-dates' && (permissions.includes('fee_collection_edit') || permissions.includes('fee_collection_delete')))
         );
-
 
     // Group items by section
     const groupedItems = visibleMenuItems.reduce((acc, item) => {
@@ -287,6 +321,59 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
                                                             <Link
                                                                 key={sub.hash}
                                                                 to={`/fee-config#${sub.hash}`}
+                                                                className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                                                    subActive
+                                                                        ? 'bg-blue-50 text-blue-700 font-bold'
+                                                                        : 'text-slate-500 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                                }`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full mr-2 shrink-0 ${subActive ? 'bg-blue-600' : 'bg-slate-300'}`}></span>
+                                                                {sub.name}
+                                                            </Link>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }
+
+                                // ── Special: Proceedings expandable group ──
+                                if (item.name === '__PROCEEDINGS__') {
+                                    const isActive = isProceedingsActive;
+                                    const defaultHash = visibleProceedingsSubs[0]?.hash || 'list';
+                                    return (
+                                        <div key={index}>
+                                            <button
+                                                onClick={() => {
+                                                    if (isCollapsed) {
+                                                        expandSidebar();
+                                                    }
+                                                    setProceedingsExpanded(prev => !prev);
+                                                }}
+                                                className={`sidebar-link w-full flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                                    isActive
+                                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-100'
+                                                        : 'text-slate-700 hover:bg-indigo-50/50 hover:text-indigo-600'
+                                                } ${isCollapsed ? 'justify-center' : ''}`}
+                                                title={isCollapsed ? 'Proceedings' : ''}
+                                            >
+                                                <span className={`text-xl shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`}>{item.icon}</span>
+                                                {!isCollapsed && (
+                                                    <>
+                                                        <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Proceedings</span>
+                                                        <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${proceedingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+                                                    </>
+                                                )}
+                                            </button>
+                                            {!isCollapsed && proceedingsExpanded && (
+                                                <div className="ml-3 mt-0.5 pl-3 border-l border-indigo-100 space-y-0.5">
+                                                    {visibleProceedingsSubs.map(sub => {
+                                                        const subActive = isProceedingsActive && (location.hash === `#${sub.hash}` || (!location.hash && sub.hash === defaultHash));
+                                                        return (
+                                                            <Link
+                                                                key={sub.hash}
+                                                                to={`/proceedings#${sub.hash}`}
                                                                 className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                                                                     subActive
                                                                         ? 'bg-blue-50 text-blue-700 font-bold'

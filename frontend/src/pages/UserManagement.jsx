@@ -356,7 +356,7 @@ const UserManagement = () => {
                 currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary' && p !== 'reports_account_wise');
             }
             if (path === '/proceedings') {
-                currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_edit' && p !== 'proceedings_view');
+                currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_verify' && p !== 'proceedings_edit' && p !== 'proceedings_view');
             }
         } else {
             currentPermissions = [...currentPermissions, path];
@@ -1210,7 +1210,7 @@ const UserManagement = () => {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'reports_daily_collection' && p !== 'reports_cashier_summary' && p !== 'reports_fee_head_summary' && p !== 'reports_account_wise');
                                                                         }
                                                                         if (path === '/proceedings') {
-                                                                            currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_edit' && p !== 'proceedings_view');
+                                                                            currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_verify' && p !== 'proceedings_edit' && p !== 'proceedings_view');
                                                                         }
                                                                     } else {
                                                                         currentPermissions = [...currentPermissions, path];
@@ -1355,6 +1355,23 @@ const UserManagement = () => {
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
                                                                 <span className="text-xs text-gray-600">Enable Edit/Create</span>
+                                                            </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('proceedings_verify')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('proceedings_verify')) p = p.filter(x => x !== 'proceedings_verify');
+                                                                            else p = [...p, 'proceedings_verify'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Verify</span>
                                                             </label>
                                                             <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                                 <input
@@ -1645,7 +1662,7 @@ const UserManagement = () => {
                                                 {/* Sub-Permissions for Proceedings */}
                                                 {page.path === '/proceedings' && (roleFormData.permissions || []).includes('/proceedings') && (
                                                     <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                        {['proceedings_view', 'proceedings_edit', 'proceedings_approve'].map(sub => (
+                                                        {['proceedings_view', 'proceedings_edit', 'proceedings_verify', 'proceedings_approve'].map(sub => (
                                                             <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
                                                                 <input
                                                                     type="checkbox"
@@ -1911,7 +1928,7 @@ const UserManagement = () => {
 
                                                             {page.path === '/proceedings' && (
                                                                 <div className="mt-1.5 ml-2 space-y-1">
-                                                                    {['proceedings_view', 'proceedings_edit', 'proceedings_approve'].map(sub => (
+                                                                    {['proceedings_view', 'proceedings_edit', 'proceedings_verify', 'proceedings_approve'].map(sub => (
                                                                         (viewPermissionsModal.user.permissions || []).includes(sub) && (
                                                                             <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
                                                                                 <span className="text-green-600">✓</span>

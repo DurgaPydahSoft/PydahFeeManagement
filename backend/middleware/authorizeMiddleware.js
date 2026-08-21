@@ -182,6 +182,14 @@ const authorize = (req, res, next) => {
     return res.status(403).json({ message: 'Forbidden: proceedings approve permission required' });
   }
 
+  // Restrict proceeding verify to proceedings_verify
+  if (path.match(/^\/api\/proceedings\/[^/]+\/verify$/) && req.method === 'PUT') {
+    if (hasPermission(user, ['proceedings_verify'])) {
+      return next();
+    }
+    return res.status(403).json({ message: 'Forbidden: proceedings verify permission required' });
+  }
+
   // Restrict proceeding changes (POST/PUT/DELETE) to proceedings_edit
   if (path.startsWith('/api/proceedings') && (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE')) {
     if (hasPermission(user, ['proceedings_edit'])) {
