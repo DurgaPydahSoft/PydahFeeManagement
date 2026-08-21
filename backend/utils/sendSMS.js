@@ -5,8 +5,11 @@ const BULKSMS_SENDER_ID = process.env.BULKSMS_SENDER_ID;
 // API URLs based on BulkSMS documentation
 // For English SMS (regular)
 const BULKSMS_ENGLISH_API_URL = process.env.BULKSMS_ENGLISH_API_URL;
-// For Unicode/Non-English SMS (Telugu)
+// For Unicode/Non-English SMS (Telugu, etc.) — requires coding=3
 const BULKSMS_UNICODE_API_URL = process.env.BULKSMS_UNICODE_API_URL;
+
+/** True if message contains non-ASCII (Telugu / other languages). */
+const containsUnicode = (text) => /[^\u0000-\u007F]/.test(String(text || ''));
 
 // Helper function to check if response is valid
 const isValidSMSResponse = (responseData) => {
@@ -58,6 +61,7 @@ const sendSMSPost = async (params, isUnicode = false) => {
 
     try {
         // Try POST method first (recommended for BulkSMS)
+        // axios encodes query/params (spaces, @, -, unicode, etc.)
         const response = await axios.post(apiUrl, null, {
             params: params,
             timeout: 30000,
@@ -88,7 +92,13 @@ const sendSMS = async (phoneNumber, message, templateParams = {}) => {
             throw new Error('SMS service configuration missing');
         }
 
-        // Generic Implementation that accepts DLT ID
+        // Prefer explicit template flag; fall back to auto-detect non-ASCII in body
+        const isUnicode = Boolean(
+            templateParams.isUnicode === true ||
+            templateParams.unicode === true ||
+            containsUnicode(message)
+        );
+
         let params = {
             apikey: BULKSMS_API_KEY,
             sender: BULKSMS_SENDER_ID,
@@ -96,15 +106,20 @@ const sendSMS = async (phoneNumber, message, templateParams = {}) => {
             message: message,
         };
 
+        // Unicode / Non-English SMS API requires coding=3
+        if (isUnicode) {
+            params.coding = 3;
+        }
+
         // Attach DLT Template ID if provided (CRITICAL for Database-fetched templates)
         if (templateParams.templateId || templateParams.dltTemplateId) {
             params.templateid = templateParams.templateId || templateParams.dltTemplateId;
         }
 
-        console.log('SMS API params:', params);
+        console.log('SMS API params:', { ...params, message: `[${String(message).length} chars]`, isUnicode });
 
         // Send Request
-        const response = await sendSMSPost(params, false);
+        const response = await sendSMSPost(params, isUnicode);
 
         console.log('SMS API response:', response.data);
 
@@ -114,7 +129,8 @@ const sendSMS = async (phoneNumber, message, templateParams = {}) => {
             if (messageId) {
                 return {
                     success: true,
-                    messageId: messageId
+                    messageId: messageId,
+                    isUnicode
                 };
             }
         }
@@ -146,5 +162,5 @@ const checkBalance = async () => {
 module.exports = {
     sendSMS,
     checkBalance,
-    // Export others if needed but sendSMS is the main dynamic one
+    containsUnicode,
 };

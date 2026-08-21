@@ -8,8 +8,12 @@ const EMPTY_TEMPLATE_FORM = {
     templateId: '',
     senderId: '',
     body: '',
+    isUnicode: false,
     variableMap: []
 };
+
+/** Detect non-English / non-ASCII content (Telugu, Hindi, etc.). */
+const containsUnicode = (text) => /[^\u0000-\u007F]/.test(String(text || ''));
 
 /** Sync dropdown rows from {#var#} (positional) and {{named}} placeholders. */
 const syncVariableMapFromBody = (body, existingMap = []) => {
@@ -60,6 +64,7 @@ const ReminderTemplates = ({ templates, fetchTemplates, variableSources }) => {
                 _id: editingTemplate?._id,
                 type: activeTab,
                 ...formData,
+                isUnicode: activeTab === 'SMS' ? Boolean(formData.isUnicode) : false,
                 variableMap: map
             });
             fetchTemplates();
@@ -96,6 +101,7 @@ const ReminderTemplates = ({ templates, fetchTemplates, variableSources }) => {
             templateId: tpl.templateId || '',
             senderId: tpl.senderId || '',
             body: tpl.body,
+            isUnicode: Boolean(tpl.isUnicode) || containsUnicode(tpl.body),
             variableMap: syncVariableMapFromBody(tpl.body, tpl.variableMap || [])
         });
         setActiveTab(tpl.type);
@@ -107,6 +113,7 @@ const ReminderTemplates = ({ templates, fetchTemplates, variableSources }) => {
             return {
                 ...prev,
                 body,
+                isUnicode: containsUnicode(body) ? true : prev.isUnicode,
                 variableMap: syncVariableMapFromBody(body, prev.variableMap)
             };
         });
@@ -116,6 +123,8 @@ const ReminderTemplates = ({ templates, fetchTemplates, variableSources }) => {
         setFormData(prev => ({
             ...prev,
             body,
+            // Auto-enable when non-English text is pasted/typed; keep manual ON otherwise
+            isUnicode: containsUnicode(body) ? true : prev.isUnicode,
             variableMap: syncVariableMapFromBody(body, prev.variableMap)
         }));
     };
@@ -175,6 +184,11 @@ const ReminderTemplates = ({ templates, fetchTemplates, variableSources }) => {
                                     <Trash2 size={12} />
                                 </button>
                             </div>
+                            {tpl.type === 'SMS' && tpl.isUnicode && (
+                                <span className={`inline-block mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${editingTemplate?._id === tpl._id ? 'bg-white/20 text-white' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                                    Unicode
+                                </span>
+                            )}
                             <p className={`text-[10px] mt-0.5 truncate ${editingTemplate?._id === tpl._id ? 'text-blue-100' : 'text-gray-400'}`}>
                                 {tpl.body}
                             </p>
@@ -200,16 +214,41 @@ const ReminderTemplates = ({ templates, fetchTemplates, variableSources }) => {
                         />
                     </div>
                     {activeTab === 'SMS' && (
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">DLT Template ID</label>
-                            <input
-                                type="text"
-                                className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                                placeholder="DLT Template ID"
-                                value={formData.templateId}
-                                onChange={e => setFormData({ ...formData, templateId: e.target.value })}
-                            />
-                        </div>
+                        <>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">DLT Template ID</label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                                    placeholder="DLT Template ID"
+                                    value={formData.templateId}
+                                    onChange={e => setFormData({ ...formData, templateId: e.target.value })}
+                                />
+                            </div>
+                            <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50">
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold text-gray-700">Unicode (Non-English) SMS</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">
+                                        Required for Telugu / other languages. Auto-detected when you paste non-English text. Sends with <code className="bg-white px-1 rounded border">coding=3</code>.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={formData.isUnicode}
+                                    onClick={() => setFormData(prev => ({ ...prev, isUnicode: !prev.isUnicode }))}
+                                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 ${formData.isUnicode ? 'bg-amber-500' : 'bg-gray-300'}`}
+                                >
+                                    <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transform transition-transform ${formData.isUnicode ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                </button>
+                            </div>
+                            {formData.isUnicode && (
+                                <div className="text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                    Unicode mode is ON — message will use BulkSMS Unicode API.
+                                    {containsUnicode(formData.body) ? ' Non-English characters detected in body.' : ' No non-English characters detected yet (you can still force Unicode).'}
+                                </div>
+                            )}
+                        </>
                     )}
                     {activeTab === 'EMAIL' && (
                         <div className="flex gap-4">

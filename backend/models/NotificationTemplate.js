@@ -27,6 +27,14 @@ const NotificationTemplateSchema = new mongoose.Schema({
         required: true
     },
     /**
+     * When true, SMS is sent via BulkSMS Unicode API (coding=3)
+     * for non-English / multi-language content (e.g. Telugu).
+     */
+    isUnicode: {
+        type: Boolean,
+        default: false
+    },
+    /**
      * Maps body placeholders to data sources.
      * DLT SMS: key = var_1, var_2, … (left-to-right {#var#} order)
      * Named: key = student_name for {{student_name}}

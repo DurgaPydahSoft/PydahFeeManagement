@@ -152,7 +152,10 @@ const processRemindersBatch = async (templateId, recipients, { smsRecipients } =
             const messageBody = applyVariableMap(template.body, variableMap, recipient);
 
             try {
-                await sendSMS(mobile, messageBody, { templateId: template.templateId });
+                await sendSMS(mobile, messageBody, {
+                    templateId: template.templateId,
+                    isUnicode: Boolean(template.isUnicode)
+                });
                 await logSentReminder(recipient, 'SMS', template, 'success', 'SMS sent successfully', messageBody, '', mobile);
                 return { admission_number: recipient.admission_number, status: 'success', message: 'SMS sent successfully' };
             } catch (smsError) {
@@ -189,7 +192,7 @@ const getTemplates = async (req, res) => {
 };
 
 const saveTemplate = async (req, res) => {
-    const { _id, type, name, subject, body, templateId, senderId, variableMap } = req.body;
+    const { _id, type, name, subject, body, templateId, senderId, variableMap, isUnicode } = req.body;
     if (!type || !name || !body) return res.status(400).json({ message: 'Please provide type, name and body' });
 
     // Sync map from {#var#} / {{named}} in body; keep user-selected sources
@@ -202,17 +205,18 @@ const saveTemplate = async (req, res) => {
             message: `Map a source for every variable: ${missing.map((m) => m.key).join(', ')}`
         });
     }
+    const unicodeFlag = type === 'SMS' ? Boolean(isUnicode) : false;
     try {
         if (_id) {
             const updatedTemplate = await NotificationTemplate.findByIdAndUpdate(
                 _id,
-                { type, name, subject, body, templateId, senderId, variableMap: map },
+                { type, name, subject, body, templateId, senderId, variableMap: map, isUnicode: unicodeFlag },
                 { new: true }
             );
             return res.json(updatedTemplate);
         } else {
             const newTemplate = await NotificationTemplate.create({
-                type, name, subject, body, templateId, senderId, variableMap: map
+                type, name, subject, body, templateId, senderId, variableMap: map, isUnicode: unicodeFlag
             });
             return res.json(newTemplate);
         }
