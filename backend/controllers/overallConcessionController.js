@@ -775,46 +775,111 @@ const submitConcessionRequest = async (req, res) => {
 const getConcessionRequests = async (req, res) => {
     try {
         const { status, college, course, branch, batch, admissionNumber, search, category } = req.query;
-        const filter = {};
-        if (status)          filter.status = status.toUpperCase();
-        if (college)         filter.college = college;
-        if (course)          filter.course = course;
-        if (branch)          filter.branch = branch;
-        if (batch)           filter.batch = batch;
-        if (category)        filter.category = category;
-        if (admissionNumber) filter.admissionNumber = admissionNumber;
+        const mongoFilter = {};
+        if (status) mongoFilter.status = status.toUpperCase();
+        if (admissionNumber) mongoFilter.admissionNumber = admissionNumber;
 
-        const q = String(search || '').trim();
-        if (q) {
-            const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const rx = new RegExp(escaped, 'i');
-            filter.$or = [
-                { studentName: rx },
-                { admissionNumber: rx },
-                { pinNo: rx }
-            ];
+        const searchTerm = String(search || '').trim();
+        const hasExplicitStudentFilters = !!(college || course || branch || batch || category || searchTerm);
+
+        const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user);
+        const userAllowedCourses = (req.user.courses || []).map(c => c.includes('|') ? c.split('|')[1] : c);
+        const needsSqlScope = hasExplicitStudentFilters
+            || (allowedColleges && allowedColleges.length > 0)
+            || userAllowedCourses.length > 0;
+
+        let studentMap = {};
+
+        if (needsSqlScope) {
+            let sqlQuery = `SELECT admission_number, stud_type, college, course, branch, batch, student_name, pin_no
+                            FROM students WHERE 1=1`;
+            const params = [];
+
+            if (college) {
+                const requested = college.split(',').map(c => c.trim()).filter(Boolean);
+                const scoped = collegeScope.intersectCollegeNames(requested, allowedColleges);
+                if (scoped.length === 0) {
+                    return res.json([]);
+                }
+                sqlQuery += ` AND college IN (${scoped.map(() => '?').join(',')})`;
+                params.push(...scoped);
+            } else if (allowedColleges && allowedColleges.length > 0) {
+                sqlQuery += ` AND college IN (${allowedColleges.map(() => '?').join(',')})`;
+                params.push(...allowedColleges);
+            }
+
+            if (course) {
+                if (userAllowedCourses.length > 0 && !userAllowedCourses.includes(course)) {
+                    return res.json([]);
+                }
+                sqlQuery += ` AND course = ?`;
+                params.push(course);
+            } else if (userAllowedCourses.length > 0) {
+                sqlQuery += ` AND course IN (${userAllowedCourses.map(() => '?').join(',')})`;
+                params.push(...userAllowedCourses);
+            }
+
+            if (branch) {
+                sqlQuery += ` AND branch = ?`;
+                params.push(branch);
+            }
+            if (batch) {
+                sqlQuery += ` AND batch = ?`;
+                params.push(batch);
+            }
+            if (category) {
+                sqlQuery += ` AND stud_type = ?`;
+                params.push(category);
+            }
+            if (searchTerm) {
+                sqlQuery += ` AND (student_name LIKE ? OR admission_number LIKE ? OR pin_no LIKE ?)`;
+                const searchPattern = `%${searchTerm}%`;
+                params.push(searchPattern, searchPattern, searchPattern);
+            }
+
+            const [studentRows] = await db.query(sqlQuery, params);
+            if (hasExplicitStudentFilters && studentRows.length === 0) {
+                return res.json([]);
+            }
+
+            studentRows.forEach(s => {
+                studentMap[s.admission_number] = s;
+            });
+
+            const scopedAdmissionNumbers = studentRows.map(s => s.admission_number);
+            if (scopedAdmissionNumbers.length === 0) {
+                return res.json([]);
+            }
+
+            if (admissionNumber) {
+                if (!scopedAdmissionNumbers.includes(admissionNumber)) {
+                    return res.json([]);
+                }
+            } else {
+                mongoFilter.admissionNumber = { $in: scopedAdmissionNumbers };
+            }
         }
 
-        const requests = await OverallConcessionRequest.find(filter)
+        const requests = await OverallConcessionRequest.find(mongoFilter)
             .sort({ createdAt: -1 })
             .lean();
 
-        // Enrich with fee head names + live student quota (stud_type)
         const feeHeads = await FeeHead.find({}).lean();
         const fhMap = {};
         feeHeads.forEach(fh => { fhMap[fh._id.toString()] = fh.name; });
 
-        const admissionNos = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
-        const studentMap = {};
-        if (admissionNos.length > 0) {
-            const [studentRows] = await db.query(
-                `SELECT admission_number, stud_type, college, course, branch, batch, student_name, pin_no 
-                 FROM students WHERE admission_number IN (?)`,
-                [admissionNos]
-            );
-            studentRows.forEach(s => {
-                studentMap[s.admission_number] = s;
-            });
+        if (Object.keys(studentMap).length === 0) {
+            const admissionNos = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
+            if (admissionNos.length > 0) {
+                const [studentRows] = await db.query(
+                    `SELECT admission_number, stud_type, college, course, branch, batch, student_name, pin_no
+                     FROM students WHERE admission_number IN (?)`,
+                    [admissionNos]
+                );
+                studentRows.forEach(s => {
+                    studentMap[s.admission_number] = s;
+                });
+            }
         }
 
         const enriched = requests.map(r => {
