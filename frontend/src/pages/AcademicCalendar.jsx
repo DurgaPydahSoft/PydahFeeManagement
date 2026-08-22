@@ -122,9 +122,9 @@ const AcademicCalendar = () => {
             categoryName: cat.categoryName
         });
 
-        // Load only the terms that are actually configured!
+        // Prefer raw fee-structure term numbers for edits (display uses semester-mapped columns)
         const initialFormDates = (cat.terms || []).map(t => ({
-            termNumber: Number(t.termNumber),
+            termNumber: Number(t.rawTermNumber != null ? t.rawTermNumber : t.termNumber),
             rawDate: t.rawDate || ''
         }));
         setTermFormDates(initialFormDates);

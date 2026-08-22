@@ -220,6 +220,25 @@ const getTermDates = async (req, res) => {
             return { dateText: '—', rawDate: null };
         };
 
+        // Same column map as Due Reports: Sem1 → T1/T2, Sem2 → T3+
+        const mapTermsToSemesterColumns = (resolvedTerms) => {
+            const sorted = [...resolvedTerms].sort((a, b) => Number(a.rawTermNumber) - Number(b.rawTermNumber));
+            const semCounts = { 1: 0, 2: 0 };
+            return sorted.map((t) => {
+                const refSem = Number(t.referenceSemester) || 1;
+                semCounts[refSem] = (semCounts[refSem] || 0) + 1;
+                const semRelativeIndex = semCounts[refSem];
+                const mappedCol = refSem === 1 ? semRelativeIndex : (2 + semRelativeIndex);
+                return {
+                    termNumber: mappedCol,
+                    rawTermNumber: t.rawTermNumber,
+                    referenceSemester: refSem,
+                    dateText: t.dateText,
+                    rawDate: t.rawDate
+                };
+            });
+        };
+
         // 4. Generate unique cohorts from semester calendar rows
         const cohortKeys = new Set();
         const cohorts = [];
@@ -254,15 +273,17 @@ const getTermDates = async (req, res) => {
             );
 
             const acadTerms = acadStruct ? acadStruct.terms : [];
-            const acadResolved = acadTerms.map(t => {
+            const acadResolvedRaw = acadTerms.map(t => {
                 const targetSem = Number(t.referenceSemester) || Number(acadStruct?.semester) || 1;
                 const formatted = formatTermVal(t, targetSem, college_name, course_name, batch, year_of_study, year_label);
                 return {
-                    termNumber: t.termNumber,
+                    rawTermNumber: Number(t.termNumber) || 1,
+                    referenceSemester: targetSem,
                     dateText: formatted.dateText,
                     rawDate: formatted.rawDate
                 };
             });
+            const acadResolved = mapTermsToSemesterColumns(acadResolvedRaw);
 
             // Resolve Service terms (Transport & Hostel)
             const getServiceResolved = (type) => {
@@ -272,7 +293,7 @@ const getTermDates = async (req, res) => {
                 const rule = (svc.lateFeeRules || []).find((r) => Number(r.termsCount) === termsCount);
                 const fallbackDefault = defaultConfigs.find((c) => Number(c.termsCount) === termsCount);
 
-                return (svc.defaultTerms || []).map((t, idx) => {
+                const resolvedRaw = (svc.defaultTerms || []).map((t, idx) => {
                     const termNum = Number(t.termNumber) || idx + 1;
                     const rt = rule?.terms?.find(item => Number(item.termNumber) === termNum);
                     const dt = fallbackDefault?.terms?.find(item => Number(item.termNumber) === termNum);
@@ -287,11 +308,13 @@ const getTermDates = async (req, res) => {
                     const targetSem = Number(termConfig.referenceSemester) || 1;
                     const formatted = formatTermVal(termConfig, targetSem, college_name, course_name, batch, year_of_study, year_label);
                     return {
-                        termNumber: termNum,
+                        rawTermNumber: termNum,
+                        referenceSemester: targetSem,
                         dateText: formatted.dateText,
                         rawDate: formatted.rawDate
                     };
                 });
+                return mapTermsToSemesterColumns(resolvedRaw);
             };
 
             const transportResolved = getServiceResolved('TRANSPORT');
