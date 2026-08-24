@@ -28,6 +28,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       #################################################
       # Build frontend on GitHub Actions
@@ -102,13 +104,23 @@ jobs:
           #################################################
           # BACKEND PART (UNCHANGED)
           #################################################
-          echo "==> Installing backend dependencies..."
+          echo "==> Checking backend dependencies..."
           cd "${PROJECT_DIR}/backend"
 
-          if [ -f package-lock.json ]; then
-            npm ci --omit=dev
+          LOCK_HASH_FILE="${PROJECT_DIR}/backend/.npm-ci-lockhash"
+          CURRENT_HASH="$(sha256sum package-lock.json package.json 2>/dev/null | sha256sum | awk '{print $1}')"
+          PREV_HASH="$(cat "${LOCK_HASH_FILE}" 2>/dev/null || true)"
+
+          if [ ! -d node_modules ] || [ "${CURRENT_HASH}" != "${PREV_HASH}" ]; then
+            echo "==> Installing backend dependencies (lockfile changed or node_modules missing)..."
+            if [ -f package-lock.json ]; then
+              npm ci --omit=dev
+            else
+              npm install --omit=dev
+            fi
+            echo "${CURRENT_HASH}" > "${LOCK_HASH_FILE}"
           else
-            npm install --omit=dev
+            echo "==> Backend dependencies unchanged, skipping npm ci"
           fi
 
           #################################################
