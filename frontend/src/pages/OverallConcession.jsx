@@ -5,6 +5,73 @@ import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clo
 import { printHtmlDocument } from '../utils/printService';
 
 // ─── Status badge helper ───────────────────────────────────────────────────
+const requestRecency = (req) => {
+    const created = new Date(req?.createdAt || 0).getTime();
+    const updated = new Date(req?.updatedAt || 0).getTime();
+    return Number.isFinite(updated) && updated > created ? updated : created;
+};
+
+const compareRequestsNewestFirst = (a, b) => requestRecency(b) - requestRecency(a);
+
+const concessionEntryKey = (entry) => {
+    const fhId = String(entry?.feeHeadId ?? '').trim();
+    const year = Number(entry?.studentYear);
+    const sem = entry?.semester === undefined || entry?.semester === null || entry?.semester === ''
+        ? 'null'
+        : Number(entry.semester);
+    return `${fhId}_${year}_${sem}`;
+};
+
+/** One row per student: latest request metadata, latest value wins for the same fee head/year. */
+const mergeRequestsByStudent = (list) => {
+    const groups = new Map();
+    (list || []).forEach((req) => {
+        const key = String(req.admissionNumber || '').trim().toLowerCase() || `__id_${req._id}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(req);
+    });
+
+    const merged = [];
+    groups.forEach((items) => {
+        const sorted = [...items].sort(compareRequestsNewestFirst);
+        const nonRejected = sorted.filter((r) => r.status !== 'REJECTED');
+        const pool = nonRejected.length > 0 ? nonRejected : sorted;
+        const pending = pool.filter((r) => r.status === 'PENDING');
+        const primary = pending[0] || pool[0];
+
+        if (sorted.length === 1) {
+            merged.push({
+                ...primary,
+                mergedRequestCount: 1,
+                editableConcessions: primary.concessions || []
+            });
+            return;
+        }
+
+        const concessionMap = new Map();
+        [...pool].reverse().forEach((req) => {
+            (req.concessions || []).forEach((entry) => {
+                concessionMap.set(concessionEntryKey(entry), { ...entry });
+            });
+        });
+
+        merged.push({
+            ...primary,
+            concessions: [...concessionMap.values()],
+            editableConcessions: primary.concessions || [],
+            mergedRequestCount: sorted.length,
+            mergedSources: sorted.map((r) => ({
+                _id: r._id,
+                status: r.status,
+                createdAt: r.createdAt,
+                requestedByName: r.requestedByName || r.requestedBy
+            }))
+        });
+    });
+
+    return merged.sort(compareRequestsNewestFirst);
+};
+
 const StatusBadge = ({ status }) => {
     const map = {
         PENDING:  { cls: 'bg-amber-50 text-amber-700 border-amber-200',   icon: <Clock size={11} />,        label: 'Pending'  },
@@ -243,9 +310,8 @@ const OverallConcession = () => {
 
     const filteredRequests = (() => {
         const q = reqSearchTerm.trim().toLowerCase();
-        if (!q) return requests;
         const clean = q.replace(/[^a-z0-9]/g, '');
-        return requests.filter(r => {
+        const searched = !q ? requests : requests.filter(r => {
             const name = String(r.studentName || '').toLowerCase();
             const adm = String(r.admissionNumber || '').toLowerCase();
             const pin = String(r.pinNo || '').toLowerCase();
@@ -257,6 +323,7 @@ const OverallConcession = () => {
                 || (clean && cleanAdm.includes(clean))
                 || (clean && cleanPin.includes(clean));
         });
+        return mergeRequestsByStudent(searched);
     })();
 
     useEffect(() => {
@@ -437,7 +504,7 @@ const OverallConcession = () => {
     // ── edit request entries inside the modal ─────────────────────────────
     const buildEditRowsFromRequest = (req) => {
         const grouped = new Map();
-        (req.concessions || []).forEach(c => {
+        (req.editableConcessions || req.concessions || []).forEach(c => {
             const fhId = normalizeFeeHeadId(c.feeHeadId);
             if (!grouped.has(fhId)) {
                 grouped.set(fhId, {
@@ -1650,7 +1717,12 @@ const OverallConcession = () => {
                                                             </span>
                                                         </td>
                                                         <td className="px-4 py-3 text-slate-600">{req.requestedByName || req.requestedBy}</td>
-                                                        <td className="px-4 py-3 text-center font-bold text-slate-800">{req.concessions?.length || 0}</td>
+                                                        <td className="px-4 py-3 text-center font-bold text-slate-800">
+                                                            {req.concessions?.length || 0}
+                                                            {req.mergedRequestCount > 1 && (
+                                                                <div className="text-[10px] font-medium text-slate-400">{req.mergedRequestCount} requests</div>
+                                                            )}
+                                                        </td>
                                                         <td className="px-4 py-3 text-center"><StatusBadge status={req.status} /></td>
                                                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                                                             {new Date(req.createdAt).toLocaleString('en-IN', {
@@ -1743,6 +1815,9 @@ const OverallConcession = () => {
                                                             day: '2-digit', month: 'short', year: 'numeric',
                                                             hour: '2-digit', minute: '2-digit', hour12: true
                                                         })}
+                                                        {req.mergedRequestCount > 1 && (
+                                                            <> · Combined from {req.mergedRequestCount} requests; latest value kept for the same fee head</>
+                                                        )}
                                                     </p>
                                                     {req.status === 'APPROVED' && (
                                                         <p className="text-[10px] text-emerald-600 mt-0.5">
