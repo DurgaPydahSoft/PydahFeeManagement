@@ -113,8 +113,8 @@ const Landing = () => {
                                     <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                                 </span>
                             </Link>
-                            <Link to="/docs" className="px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 bg-white text-slate-700 border border-gray-200 rounded-lg md:rounded-xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center text-xs sm:text-sm md:text-base">
-                                View Documentation
+                            <Link to="/about" className="px-4 sm:px-5 md:px-6 py-1.5 sm:py-2 md:py-2.5 bg-white text-slate-700 border border-gray-200 rounded-lg md:rounded-xl font-bold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center text-xs sm:text-sm md:text-base">
+                                About
                             </Link>
                         </div>
 

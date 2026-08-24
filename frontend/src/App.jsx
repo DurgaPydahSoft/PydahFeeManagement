@@ -3,7 +3,7 @@ import { useState, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
-import Documentation from './pages/Documentation';
+import About from './pages/About';
 import Dashboard from './pages/Dashboard';
 import FeeConfiguration from './pages/FeeConfiguration';
 import Students from './pages/Students';
@@ -97,7 +97,8 @@ function App() {
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
-          <Route path="/docs" element={<Documentation />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/docs" element={<Navigate to="/about" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/public/verify-receipt/:receiptNumber" element={<VerifyReceipt />} />
 
