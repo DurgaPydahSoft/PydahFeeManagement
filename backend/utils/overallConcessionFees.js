@@ -26,12 +26,14 @@ const formatConcessionEntry = ({ feeHeadId, feeHeadCode, studentYear, semester, 
 });
 
 const resolveFeeHeadId = (entry, codeMap = {}) => {
-  let resolvedId = entry.feeHeadId ? String(entry.feeHeadId) : '';
-  const codeKey = entry.feeHeadCode ? entry.feeHeadCode.trim().toUpperCase() : '';
+  // Prefer feeHeadCode (business id, e.g. OTH1) over feeHeadId (Mongo ObjectId)
+  // when both are present — stored ObjectIds can point at a different head than the code.
+  const codeKey = entry?.feeHeadCode ? String(entry.feeHeadCode).trim().toUpperCase() : '';
   if (codeKey && codeMap[codeKey]) {
-    resolvedId = codeMap[codeKey];
+    return codeMap[codeKey];
   }
-  return resolvedId;
+  const directId = entry?.feeHeadId ? String(entry.feeHeadId).trim() : '';
+  return directId || '';
 };
 
 const buildConcessionLookupKey = (feeHeadId, studentYear, semester) =>

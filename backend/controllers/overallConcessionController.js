@@ -865,8 +865,13 @@ const getConcessionRequests = async (req, res) => {
             .lean();
 
         const feeHeads = await FeeHead.find({}).lean();
-        const fhMap = {};
-        feeHeads.forEach(fh => { fhMap[fh._id.toString()] = fh.name; });
+        const fhById = {};
+        const fhByCode = {};
+        feeHeads.forEach(fh => {
+            fhById[fh._id.toString()] = fh;
+            const code = String(fh.code || '').trim().toUpperCase();
+            if (code) fhByCode[code] = fh;
+        });
 
         if (Object.keys(studentMap).length === 0) {
             const admissionNos = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
@@ -893,10 +898,19 @@ const getConcessionRequests = async (req, res) => {
                 studentName: student?.student_name || r.studentName,
                 pinNo: student?.pin_no || r.pinNo,
                 studentQuota: student?.stud_type || '',
-                concessions: r.concessions.map(c => ({
-                    ...c,
-                    feeHeadName: fhMap[c.feeHeadId] || c.feeHeadCode || 'Unknown'
-                }))
+                // Prefer feeHeadCode (business id) over feeHeadId (ObjectId) for display
+                concessions: r.concessions.map(c => {
+                    const codeKey = String(c.feeHeadCode || '').trim().toUpperCase();
+                    const byCode = codeKey ? fhByCode[codeKey] : null;
+                    const byId = fhById[String(c.feeHeadId || '')];
+                    const fh = byCode || byId;
+                    return {
+                        ...c,
+                        feeHeadId: fh ? fh._id.toString() : c.feeHeadId,
+                        feeHeadName: fh?.name || c.feeHeadCode || 'Unknown',
+                        feeHeadCode: fh?.code || c.feeHeadCode || ''
+                    };
+                })
             };
         });
 
@@ -936,8 +950,23 @@ const approveConcessionRequest = async (req, res) => {
         const feeHeads = await FeeHead.find({}).lean();
         const { codeMap } = buildFeeHeadMaps(feeHeads);
 
+        // Prefer feeHeadCode over stored ObjectId, then persist matching catalog id+code
+        const normalizedConcessions = (concessions || []).map(c => {
+            const resolvedId = resolveFeeHeadId(c, codeMap);
+            const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+            return formatConcessionEntry({
+                feeHeadId:      resolvedId || c.feeHeadId,
+                feeHeadCode:    resolvedFh ? resolvedFh.code : (c.feeHeadCode || ''),
+                studentYear:    Number(c.studentYear),
+                semester:       normalizeSemester(c.semester),
+                amount:         c.amount,
+                concessionType: c.concessionType,
+                remarks:        c.remarks
+            });
+        }).filter(e => e.feeHeadId && e.studentYear);
+
         const validation = await validateRevisedEntriesAgainstStructures({
-            entries: concessions,
+            entries: normalizedConcessions,
             college: effectiveCollege,
             course: effectiveCourse,
             branch: effectiveBranch,
@@ -960,20 +989,23 @@ const approveConcessionRequest = async (req, res) => {
         // Merge: request entries override matching keys, preserve others
         const mergedMap = {};
         existingFees.forEach(e => {
-            const key = `${e.feeHeadId}_${Number(e.studentYear)}_${normalizeSemester(e.semester) ?? 'null'}`;
-            mergedMap[key] = e;
-        });
-        concessions.forEach(c => {
-            const key = `${c.feeHeadId}_${Number(c.studentYear)}_${normalizeSemester(c.semester) ?? 'null'}`;
-            mergedMap[key] = formatConcessionEntry({
-                feeHeadId:      c.feeHeadId,
-                feeHeadCode:    c.feeHeadCode || '',
-                studentYear:    Number(c.studentYear),
-                semester:       normalizeSemester(c.semester),
-                amount:         c.amount,
-                concessionType: c.concessionType,
-                remarks:        c.remarks
+            const resolvedId = resolveFeeHeadId(e, codeMap) || String(e.feeHeadId || '');
+            const resolvedFh = feeHeads.find(fh => fh._id.toString() === resolvedId);
+            const normalizedExisting = formatConcessionEntry({
+                feeHeadId:      resolvedId,
+                feeHeadCode:    resolvedFh ? resolvedFh.code : (e.feeHeadCode || ''),
+                studentYear:    Number(e.studentYear),
+                semester:       normalizeSemester(e.semester),
+                amount:         e.amount,
+                concessionType: e.concessionType,
+                remarks:        e.remarks
             });
+            const key = `${normalizedExisting.feeHeadId}_${Number(normalizedExisting.studentYear)}_${normalizeSemester(normalizedExisting.semester) ?? 'null'}`;
+            mergedMap[key] = normalizedExisting;
+        });
+        normalizedConcessions.forEach(c => {
+            const key = `${c.feeHeadId}_${Number(c.studentYear)}_${normalizeSemester(c.semester) ?? 'null'}`;
+            mergedMap[key] = c;
         });
         const mergedFees = Object.values(mergedMap);
 
@@ -996,7 +1028,7 @@ const approveConcessionRequest = async (req, res) => {
             branch: effectiveBranch,
             batch: effectiveBatch,
             category: effectiveQuota,
-            entries: concessions,
+            entries: normalizedConcessions,
             collectedBy: req.user?.username || 'system',
             collectedByName: req.user?.name || 'System',
             codeMap

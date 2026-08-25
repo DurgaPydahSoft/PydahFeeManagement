@@ -202,17 +202,18 @@ const OverallConcession = () => {
         normalizeConcessionType(concessionTypes[normalizeFeeHeadId(fhId)] || 'CONCESSION');
 
     const resolveRevisedFeeHeadId = useCallback((rf) => {
+        // Prefer feeHeadCode (business id) over Mongo ObjectId when both exist
+        const code = (rf.feeHeadCode || '').trim().toUpperCase();
+        if (code) {
+            const byCode = feeHeads.find(h => (h.code || '').trim().toUpperCase() === code);
+            if (byCode) return normalizeFeeHeadId(byCode._id);
+        }
         const directId = normalizeFeeHeadId(rf.feeHeadId);
         if (directId) {
             const matched = feeHeads.find(h => normalizeFeeHeadId(h._id) === directId);
             return matched ? normalizeFeeHeadId(matched._id) : directId;
         }
-        const code = (rf.feeHeadCode || '').trim().toUpperCase();
-        if (!code) return '';
-        const byCode = feeHeads.find(h => (h.code || '').trim().toUpperCase() === code);
-        // Fall back to the raw feeHeadId even if we can't match by code — never return ''
-        // when we have a valid stored id, otherwise zero-amount entries get silently skipped.
-        return byCode ? normalizeFeeHeadId(byCode._id) : directId;
+        return '';
     }, [feeHeads]);
 
     const buildDraftKey = (feeHeadId, studentYear) =>
@@ -225,9 +226,44 @@ const OverallConcession = () => {
     };
 
     const getFeeHeadName = (id, code = '') => {
+        // Prefer code (business fee-head id) over ObjectId
+        if (code) {
+            const byCode = feeHeads.find(h => String(h.code || '').trim().toUpperCase() === String(code).trim().toUpperCase());
+            if (byCode) return byCode.name;
+        }
         let fh = feeHeads.find(h => normalizeFeeHeadId(h._id) === normalizeFeeHeadId(id));
-        if (!fh && code) fh = feeHeads.find(h => h.code === code);
         return fh ? fh.name : (code || 'Unknown Fee Component');
+    };
+
+    /** Prefer feeHeadCode (business id, e.g. OTH1) over feeHeadId (Mongo ObjectId). */
+    const resolveFeeHeadDisplay = (entry) => {
+        const storedCode = String(entry?.feeHeadCode || '').trim();
+        const byCode = storedCode
+            ? feeHeads.find(h => String(h.code || '').trim().toUpperCase() === storedCode.toUpperCase())
+            : null;
+        if (byCode) {
+            return {
+                feeHeadId: normalizeFeeHeadId(byCode._id),
+                name: byCode.name || storedCode,
+                code: byCode.code || storedCode
+            };
+        }
+        const id = normalizeFeeHeadId(entry?.feeHeadId);
+        const matched = id
+            ? feeHeads.find(h => normalizeFeeHeadId(h._id) === id)
+            : null;
+        if (matched) {
+            return {
+                feeHeadId: id,
+                name: matched.name || entry?.feeHeadName || matched.code || id,
+                code: matched.code || ''
+            };
+        }
+        return {
+            feeHeadId: id || storedCode || '',
+            name: entry?.feeHeadName || storedCode || id || 'Unknown Fee Component',
+            code: storedCode
+        };
     };
 
     const getYearSuffix = (yr) => {
@@ -1744,20 +1780,21 @@ const OverallConcession = () => {
                                 const reqYears = [...new Set(req.concessions.map(c => c.studentYear))].sort((a, b) => a - b);
                                 const byHead = {};
                                 req.concessions.forEach(c => {
-                                    const key = c.feeHeadId;
-                                    const matchedHead = feeHeads.find(h => normalizeFeeHeadId(h._id) === normalizeFeeHeadId(c.feeHeadId));
-                                    const code = c.feeHeadCode || matchedHead?.code || '';
+                                    const resolved = resolveFeeHeadDisplay(c);
+                                    const key = resolved.feeHeadId || normalizeFeeHeadId(c.feeHeadId);
                                     if (!byHead[key]) {
                                         byHead[key] = {
-                                            name: c.feeHeadName || matchedHead?.name || code || c.feeHeadId,
-                                            code,
+                                            name: resolved.name,
+                                            code: resolved.code,
                                             concessionType: c.concessionType,
                                             years: {}
                                         };
                                     }
                                     byHead[key].years[c.studentYear] = c.amount;
                                     byHead[key].concessionType = c.concessionType;
-                                    if (code && !byHead[key].code) byHead[key].code = code;
+                                    // Keep ObjectId-resolved catalog fields; do not let stale stored code overwrite
+                                    byHead[key].name = resolved.name;
+                                    byHead[key].code = resolved.code;
                                 });
 
                                 const structureYears = [...new Set(modalStructures.map(s => Number(s.studentYear)).filter(Boolean))]
@@ -2281,11 +2318,20 @@ const OverallConcession = () => {
                                                     const years = [...new Set(concessions.map(c => Number(c.studentYear)))].sort((a, b) => a - b);
                                                     const byHead = {};
                                                     concessions.forEach(c => {
-                                                        const k = c.feeHeadId;
-                                                        if (!byHead[k]) byHead[k] = { name: c.feeHeadName || c.feeHeadCode || k, code: c.feeHeadCode || '', type: c.concessionType, years: {} };
+                                                        const resolved = resolveFeeHeadDisplay(c);
+                                                        const k = resolved.feeHeadId || normalizeFeeHeadId(c.feeHeadId);
+                                                        if (!byHead[k]) {
+                                                            byHead[k] = {
+                                                                name: resolved.name,
+                                                                code: resolved.code,
+                                                                type: c.concessionType,
+                                                                years: {}
+                                                            };
+                                                        }
                                                         byHead[k].years[Number(c.studentYear)] = Number(c.amount ?? 0);
                                                         byHead[k].type = c.concessionType;
-                                                        if (c.feeHeadName) byHead[k].name = c.feeHeadName;
+                                                        byHead[k].name = resolved.name;
+                                                        byHead[k].code = resolved.code;
                                                     });
                                                     const getYrSfx = yr => yr === 1 ? '1st' : yr === 2 ? '2nd' : yr === 3 ? '3rd' : `${yr}th`;
                                                     const fmt = n => Number(n ?? 0).toLocaleString('en-IN');
