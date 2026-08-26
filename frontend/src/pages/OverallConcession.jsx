@@ -884,7 +884,8 @@ const OverallConcession = () => {
     };
 
     const duration   = (selectedStudent?.course && courseYears[selectedStudent.course]) || 4;
-    const yearsArray = Array.from({ length: duration }, (_, i) => i + 1);
+    const isLateralStudent = ['LATER', 'LSPOT'].includes(String(selectedStudent?.stud_type || '').trim().toUpperCase());
+    const yearsArray = Array.from({ length: duration }, (_, i) => i + 1).filter(yr => !(isLateralStudent && yr === 1));
 
     const buildConcessionsPayload = (heads, drafts, types) => {
         const payload = [];
