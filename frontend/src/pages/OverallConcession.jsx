@@ -161,6 +161,14 @@ const OverallConcession = () => {
     const [editNewHeadId,     setEditNewHeadId]     = useState('');
     const [approveSuccess,    setApproveSuccess]    = useState(null); // { studentName, admissionNumber } | null
 
+    // Pagination for Concession Requests Tab
+    const [reqCurrentPage, setReqCurrentPage] = useState(1);
+    const [reqPerPage, setReqPerPage] = useState(10);
+
+    useEffect(() => {
+        setReqCurrentPage(1);
+    }, [reqSearchTerm, reqStatusFilter, reqFilters]);
+
     // ── register tab state ────────────────────────────────────────────────
     const [regRequests,        setRegRequests]        = useState([]);
     const [regLoading,         setRegLoading]         = useState(false);
@@ -324,24 +332,35 @@ const OverallConcession = () => {
         return () => document.removeEventListener('mousedown', handleOutsideClick);
     }, []);
 
-    // ── fetch requests (for requests tab) ────────────────────────────────
     const fetchRequests = useCallback(async () => {
         if (!isAdminRole) return;
         setRequestsLoading(true);
         try {
-            const res = await api.get('/overall-concessions/requests', {
-                params: {
-                    status: reqStatusFilter || undefined,
-                    college: reqFilters.college || undefined,
-                    course: reqFilters.course || undefined,
-                    branch: reqFilters.branch || undefined,
-                    batch: reqFilters.batch || undefined,
-                    category: reqFilters.quota || undefined
-                }
+            const baseParams = {
+                status: reqStatusFilter || undefined,
+                college: reqFilters.college || undefined,
+                course: reqFilters.course || undefined,
+                branch: reqFilters.branch || undefined,
+                batch: reqFilters.batch || undefined,
+                category: reqFilters.quota || undefined
+            };
+
+            // 1. Fast load: first 50 requests
+            const firstRes = await api.get('/overall-concessions/requests', {
+                params: { ...baseParams, limit: 50 }
             });
-            setRequests(res.data);
-        } catch (err) { console.error('Error fetching requests', err); }
-        finally { setRequestsLoading(false); }
+            setRequests(firstRes.data);
+            setRequestsLoading(false); // Turn off main spinner immediately
+
+            // 2. Background load: fetch the rest
+            const fullRes = await api.get('/overall-concessions/requests', {
+                params: baseParams
+            });
+            setRequests(fullRes.data);
+        } catch (err) {
+            console.error('Error fetching requests', err);
+            setRequestsLoading(false);
+        }
     }, [isAdminRole, reqStatusFilter, reqFilters]);
 
     const filteredRequests = (() => {
@@ -361,6 +380,10 @@ const OverallConcession = () => {
         });
         return mergeRequestsByStudent(searched);
     })();
+
+    const totalRequestsCount = filteredRequests.length;
+    const totalPagesCount = Math.ceil(totalRequestsCount / reqPerPage) || 1;
+    const paginatedRequests = filteredRequests.slice((reqCurrentPage - 1) * reqPerPage, reqCurrentPage * reqPerPage);
 
     useEffect(() => {
         if (activeTab === 'requests') fetchRequests();
@@ -1729,13 +1752,13 @@ const OverallConcession = () => {
                                                     <th className="px-4 py-3 text-left">Batch</th>
                                                     <th className="px-4 py-3 text-left">Quota</th>
                                                     <th className="px-4 py-3 text-left">Requested By</th>
+                                                    <th className="px-4 py-3 text-left">Approved By</th>
                                                     <th className="px-4 py-3 text-center">Entries</th>
                                                     <th className="px-4 py-3 text-center">Status</th>
-                                                    <th className="px-4 py-3 text-left">Date</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {filteredRequests.map(req => (
+                                                {paginatedRequests.map(req => (
                                                     <tr key={req._id}
                                                         onClick={() => openRequestModal(req)}
                                                         className="hover:bg-blue-50/50 cursor-pointer transition">
@@ -1753,7 +1776,30 @@ const OverallConcession = () => {
                                                                 {req.studentQuota || '—'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600">{req.requestedByName || req.requestedBy}</td>
+                                                        <td className="px-4 py-3 text-slate-700">
+                                                            <div className="font-semibold text-slate-800">{req.requestedByName || req.requestedBy}</div>
+                                                            <div className="text-[10px] text-slate-400 mt-0.5">
+                                                                {new Date(req.createdAt).toLocaleString('en-IN', {
+                                                                    day: '2-digit', month: 'short', year: 'numeric',
+                                                                    hour: '2-digit', minute: '2-digit', hour12: true
+                                                                })}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-700">
+                                                            {req.status === 'PENDING' ? (
+                                                                <span className="text-slate-400 italic font-medium">—</span>
+                                                             ) : (
+                                                                 <>
+                                                                     <div className="font-semibold text-slate-800">{req.approvedByName || req.approvedBy || 'System'}</div>
+                                                                     <div className="text-[10px] text-slate-400 mt-0.5">
+                                                                         {new Date(req.updatedAt || req.createdAt).toLocaleString('en-IN', {
+                                                                             day: '2-digit', month: 'short', year: 'numeric',
+                                                                             hour: '2-digit', minute: '2-digit', hour12: true
+                                                                         })}
+                                                                     </div>
+                                                                 </>
+                                                             )}
+                                                        </td>
                                                         <td className="px-4 py-3 text-center font-bold text-slate-800">
                                                             {req.concessions?.length || 0}
                                                             {req.mergedRequestCount > 1 && (
@@ -1761,16 +1807,82 @@ const OverallConcession = () => {
                                                             )}
                                                         </td>
                                                         <td className="px-4 py-3 text-center"><StatusBadge status={req.status} /></td>
-                                                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                                                            {new Date(req.createdAt).toLocaleString('en-IN', {
-                                                                day: '2-digit', month: 'short', year: 'numeric',
-                                                                hour: '2-digit', minute: '2-digit', hour12: true
-                                                            })}
-                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
                                         </table>
+                                    </div>
+
+                                    {/* Pagination Controls */}
+                                    <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-semibold text-slate-500 select-none">
+                                        <div className="flex items-center gap-1.5">
+                                            <span>Show</span>
+                                            <select
+                                                value={reqPerPage}
+                                                onChange={e => {
+                                                    setReqPerPage(Number(e.target.value));
+                                                    setReqCurrentPage(1);
+                                                }}
+                                                className="border border-slate-300 rounded-lg p-1.5 bg-white font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            >
+                                                <option value="5">5</option>
+                                                <option value="10">10</option>
+                                                <option value="25">25</option>
+                                                <option value="50">50</option>
+                                            </select>
+                                            <span>entries per page</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <span>
+                                                Showing {totalRequestsCount === 0 ? 0 : (reqCurrentPage - 1) * reqPerPage + 1} to{' '}
+                                                {Math.min(reqCurrentPage * reqPerPage, totalRequestsCount)} of {totalRequestsCount} entries
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                disabled={reqCurrentPage === 1}
+                                                onClick={() => setReqCurrentPage(1)}
+                                                className="p-2 border border-slate-300 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition"
+                                                title="First Page"
+                                            >
+                                                First
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={reqCurrentPage === 1}
+                                                onClick={() => setReqCurrentPage(prev => Math.max(prev - 1, 1))}
+                                                className="p-2 border border-slate-300 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition flex items-center justify-center"
+                                                title="Previous Page"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+                                            </button>
+
+                                            <span className="px-3.5 py-1.5 bg-blue-50 text-blue-600 border border-blue-100 rounded-lg font-extrabold font-mono">
+                                                Page {reqCurrentPage} of {totalPagesCount}
+                                            </span>
+
+                                            <button
+                                                type="button"
+                                                disabled={reqCurrentPage === totalPagesCount}
+                                                onClick={() => setReqCurrentPage(prev => Math.min(prev + 1, totalPagesCount))}
+                                                className="p-2 border border-slate-300 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition flex items-center justify-center"
+                                                title="Next Page"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={reqCurrentPage === totalPagesCount}
+                                                onClick={() => setReqCurrentPage(totalPagesCount)}
+                                                className="p-2 border border-slate-300 rounded-lg bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition"
+                                                title="Last Page"
+                                            >
+                                                Last
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             )}

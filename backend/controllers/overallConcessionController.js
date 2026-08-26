@@ -860,9 +860,11 @@ const getConcessionRequests = async (req, res) => {
             }
         }
 
-        const requests = await OverallConcessionRequest.find(mongoFilter)
-            .sort({ createdAt: -1 })
-            .lean();
+        let mongoQuery = OverallConcessionRequest.find(mongoFilter).sort({ createdAt: -1 });
+        if (req.query.limit) {
+            mongoQuery = mongoQuery.limit(Number(req.query.limit));
+        }
+        const requests = await mongoQuery.lean();
 
         const feeHeads = await FeeHead.find({}).lean();
         const fhById = {};
