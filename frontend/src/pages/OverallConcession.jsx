@@ -160,6 +160,16 @@ const OverallConcession = () => {
     const [editSaveBusy,      setEditSaveBusy]      = useState(false);
     const [editNewHeadId,     setEditNewHeadId]     = useState('');
     const [approveSuccess,    setApproveSuccess]    = useState(null); // { studentName, admissionNumber } | null
+    // Reference editor (HRMS employees) inside request modal
+    const [referenceDraft,       setReferenceDraft]       = useState('');
+    const [refSearchTerm,        setRefSearchTerm]        = useState('');
+    const [refSearchResults,     setRefSearchResults]     = useState([]);
+    const [refSearchLoading,     setRefSearchLoading]     = useState(false);
+    const [refDropdownOpen,      setRefDropdownOpen]      = useState(false);
+    const [referenceSaveBusy,    setReferenceSaveBusy]    = useState(false);
+    const [isEditingReference,   setIsEditingReference]   = useState(false);
+    const refSearchTimerRef = useRef(null);
+    const refDropdownRef = useRef(null);
 
     // Pagination for Concession Requests Tab
     const [reqCurrentPage, setReqCurrentPage] = useState(1);
@@ -524,6 +534,13 @@ const OverallConcession = () => {
         setIsEditingRequest(false);
         setEditRows([]);
         setEditNewHeadId('');
+        setReferenceDraft('');
+        setRefSearchTerm('');
+        setRefSearchResults([]);
+        setRefDropdownOpen(false);
+        setReferenceSaveBusy(false);
+        setIsEditingReference(false);
+        if (refSearchTimerRef.current) clearTimeout(refSearchTimerRef.current);
     };
 
     const fetchModalFeeStructures = async (req) => {
@@ -548,6 +565,78 @@ const OverallConcession = () => {
         }
     };
 
+    const loadReferenceEmployees = useCallback(async (term = '') => {
+        setRefSearchLoading(true);
+        try {
+            const q = String(term || '').trim();
+            const res = await api.get('/employees/search', { params: q ? { name: q } : {} });
+            setRefSearchResults(Array.isArray(res.data) ? res.data : []);
+        } catch (err) {
+            console.error('Employee search failed', err);
+            setRefSearchResults([]);
+        } finally {
+            setRefSearchLoading(false);
+        }
+    }, []);
+
+    const handleReferenceSearchChange = (value) => {
+        setRefSearchTerm(value);
+        setRefDropdownOpen(true);
+        if (refSearchTimerRef.current) clearTimeout(refSearchTimerRef.current);
+        refSearchTimerRef.current = setTimeout(() => {
+            void loadReferenceEmployees(value);
+        }, 250);
+    };
+
+    const selectReferenceEmployee = (emp) => {
+        const name = String(emp?.employee_name || '').trim();
+        if (!name) return;
+        setReferenceDraft(name);
+        setRefSearchTerm('');
+        setRefDropdownOpen(false);
+    };
+
+    const saveRequestReference = async () => {
+        if (!selectedRequest?._id) return;
+        const next = String(referenceDraft || '').trim();
+        const current = String(selectedRequest.referenceName || '').trim();
+        if (next === current) return;
+        setReferenceSaveBusy(true);
+        setErrorMessage('');
+        try {
+            const res = await api.put(`/overall-concessions/requests/${selectedRequest._id}/reference`, {
+                referenceName: next
+            });
+            const savedName = String(res.data?.referenceName ?? next).trim();
+            setSelectedRequest((prev) => (prev ? { ...prev, referenceName: savedName } : prev));
+            setRequests((prev) => prev.map((r) => (
+                String(r.admissionNumber || '').trim() === String(selectedRequest.admissionNumber || '').trim()
+                    ? { ...r, referenceName: savedName }
+                    : r
+            )));
+            setReferenceDraft(savedName);
+            setIsEditingReference(false);
+            setRefDropdownOpen(false);
+            setRefSearchTerm('');
+        } catch (err) {
+            console.error('Failed to update reference', err);
+            setErrorMessage(err.response?.data?.message || 'Failed to update reference');
+        } finally {
+            setReferenceSaveBusy(false);
+        }
+    };
+
+    useEffect(() => {
+        const onDocClick = (e) => {
+            if (!refDropdownRef.current) return;
+            if (!refDropdownRef.current.contains(e.target)) {
+                setRefDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, []);
+
     const openRequestModal = (req) => {
         setSelectedRequest(req);
         setModalMode('view');
@@ -557,7 +646,29 @@ const OverallConcession = () => {
         setIsEditingRequest(false);
         setEditRows([]);
         setEditNewHeadId('');
+        setReferenceDraft(String(req?.referenceName || '').trim());
+        setRefSearchTerm('');
+        setRefSearchResults([]);
+        setRefDropdownOpen(false);
+        setIsEditingReference(false);
         fetchModalFeeStructures(req);
+    };
+
+    const startEditingReference = () => {
+        setReferenceDraft(String(selectedRequest?.referenceName || '').trim());
+        setRefSearchTerm('');
+        setIsEditingReference(true);
+        setRefDropdownOpen(true);
+        void loadReferenceEmployees('');
+    };
+
+    const cancelEditingReference = () => {
+        setReferenceDraft(String(selectedRequest?.referenceName || '').trim());
+        setRefSearchTerm('');
+        setRefSearchResults([]);
+        setRefDropdownOpen(false);
+        setIsEditingReference(false);
+        if (refSearchTimerRef.current) clearTimeout(refSearchTimerRef.current);
     };
 
     // ── edit request entries inside the modal ─────────────────────────────
@@ -1962,10 +2073,111 @@ const OverallConcession = () => {
                                                         {req.college} — {req.course} / {req.branch} &nbsp;|&nbsp;
                                                         Batch: <b>{req.batch}</b> &nbsp;|&nbsp;
                                                         Quota: <b className="uppercase">{req.studentQuota || '—'}</b>
-                                                        {req.referenceName ? (
-                                                            <> &nbsp;|&nbsp; Reference: <b>{req.referenceName}</b></>
-                                                        ) : null}
                                                     </p>
+                                                    <div className="mt-2.5 max-w-md" ref={refDropdownRef}>
+                                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                                                            Reference (HRMS Employee)
+                                                        </label>
+                                                        {!isEditingReference ? (
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-800">
+                                                                    {req.referenceName || <span className="text-slate-400">No reference set</span>}
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={startEditingReference}
+                                                                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition"
+                                                                >
+                                                                    <Pencil size={13} />
+                                                                    Edit
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="relative flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg bg-white px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300">
+                                                                        <Search size={14} className="text-slate-400 shrink-0" />
+                                                                        <input
+                                                                            type="text"
+                                                                            value={refDropdownOpen ? refSearchTerm : (referenceDraft || '')}
+                                                                            onChange={(e) => handleReferenceSearchChange(e.target.value)}
+                                                                            onFocus={() => {
+                                                                                setRefDropdownOpen(true);
+                                                                                setRefSearchTerm('');
+                                                                                if (!refSearchResults.length) void loadReferenceEmployees('');
+                                                                            }}
+                                                                            placeholder={referenceDraft || 'Search employee by name or ID…'}
+                                                                            className="w-full text-xs text-slate-800 outline-none bg-transparent placeholder:text-slate-400"
+                                                                            disabled={referenceSaveBusy}
+                                                                            autoFocus
+                                                                        />
+                                                                        <ChevronDown size={14} className="text-slate-400 shrink-0" />
+                                                                    </div>
+                                                                    {refDropdownOpen && (
+                                                                        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                                                                            {refSearchLoading && (
+                                                                                <div className="p-3 text-center text-slate-500 text-xs">Searching…</div>
+                                                                            )}
+                                                                            {!refSearchLoading && refSearchResults.map((emp) => (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    key={emp._id}
+                                                                                    className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-50 last:border-b-0"
+                                                                                    onClick={() => selectReferenceEmployee(emp)}
+                                                                                >
+                                                                                    <p className="text-xs font-bold text-slate-800">
+                                                                                        {emp.employee_name}{' '}
+                                                                                        <span className="font-normal text-slate-500">({emp.emp_no})</span>
+                                                                                    </p>
+                                                                                    <p className="text-[10px] text-slate-400 mt-0.5">
+                                                                                        {emp.designation_id?.designation_name || emp.designation_id?.name || 'N/A'}
+                                                                                        {' · '}
+                                                                                        {emp.department_id?.department_name || emp.department_id?.name || 'N/A'}
+                                                                                    </p>
+                                                                                </button>
+                                                                            ))}
+                                                                            {!refSearchLoading && refSearchResults.length === 0 && (
+                                                                                <div className="p-3 text-center text-slate-500 text-xs">No employees found</div>
+                                                                            )}
+                                                                            {referenceDraft ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="w-full text-left px-3 py-2 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 border-t border-slate-100"
+                                                                                    onClick={() => {
+                                                                                        setReferenceDraft('');
+                                                                                        setRefSearchTerm('');
+                                                                                        setRefDropdownOpen(false);
+                                                                                    }}
+                                                                                >
+                                                                                    Clear reference
+                                                                                </button>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={cancelEditingReference}
+                                                                    disabled={referenceSaveBusy}
+                                                                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={saveRequestReference}
+                                                                    disabled={
+                                                                        referenceSaveBusy
+                                                                        || String(referenceDraft || '').trim() === String(req.referenceName || '').trim()
+                                                                    }
+                                                                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                                                >
+                                                                    <Save size={13} />
+                                                                    {referenceSaveBusy ? 'Saving…' : 'Save'}
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     <p className="text-[10px] text-slate-400 mt-1">
                                                         Requested by <b>{req.requestedByName || req.requestedBy}</b> on{' '}
                                                         {new Date(req.createdAt).toLocaleString('en-IN', {

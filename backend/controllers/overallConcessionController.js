@@ -1184,6 +1184,57 @@ const updateConcessionRequestEntries = async (req, res) => {
     }
 };
 
+// @desc    Update admissions lead reference for a concession request student
+// @route   PUT /api/overall-concessions/requests/:id/reference
+const updateConcessionRequestReference = async (req, res) => {
+    try {
+        const referenceName = String(req.body?.referenceName ?? '').trim();
+        const request = await OverallConcessionRequest.findById(req.params.id).lean();
+        if (!request) return res.status(404).json({ message: 'Request not found' });
+
+        const admissionNumber = String(request.admissionNumber || '').trim();
+        if (!admissionNumber) {
+            return res.status(400).json({ message: 'Request has no admission number' });
+        }
+
+        if (!admissionsDb?.isConfigured) {
+            return res.status(503).json({ message: 'Admissions database is not configured' });
+        }
+
+        const [existing] = await admissionsDb.query(
+            `SELECT id, lead_data FROM admissions WHERE admission_number = ? LIMIT 1`,
+            [admissionNumber]
+        );
+        if (!existing.length) {
+            return res.status(404).json({
+                message: `No admissions record found for admission number ${admissionNumber}`
+            });
+        }
+
+        // Persist into lead_data.reference1 (and dynamicFields.reference1 when present)
+        await admissionsDb.query(
+            `UPDATE admissions
+             SET lead_data = JSON_SET(
+                    COALESCE(lead_data, JSON_OBJECT()),
+                    '$.reference1', ?,
+                    '$.dynamicFields.reference1', ?
+                 ),
+                 updated_at = NOW()
+             WHERE admission_number = ?`,
+            [referenceName, referenceName, admissionNumber]
+        );
+
+        res.json({
+            message: 'Reference updated successfully.',
+            admissionNumber,
+            referenceName
+        });
+    } catch (error) {
+        console.error('Error updating concession request reference:', error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 // @desc    Reject a concession request
 // @route   PUT /api/overall-concessions/requests/:id/reject
 const rejectConcessionRequest = async (req, res) => {
@@ -1216,5 +1267,6 @@ module.exports = {
     getConcessionRequests,
     approveConcessionRequest,
     updateConcessionRequestEntries,
+    updateConcessionRequestReference,
     rejectConcessionRequest
 };
