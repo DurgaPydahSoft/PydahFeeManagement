@@ -1012,6 +1012,133 @@ const bulkUpdateTransactionDates = async (req, res) => {
   }
 };
 
+// @desc    Transfer a transaction to another fee head
+// @route   POST /api/transactions/:id/transfer
+const transferTransaction = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    let { targets, targetFeeHeadId, studentYear, semester, remarks } = req.body;
+    const { id } = req.params;
+
+    const transactionA = await Transaction.findById(id).session(session);
+    if (!transactionA) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    if (transactionA.status !== 'active') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: `Only active transactions can be transferred. Current status is ${transactionA.status}.` });
+    }
+
+    // Build targets array if single values are passed (backward compatibility)
+    if (!targets || !Array.isArray(targets)) {
+      if (!targetFeeHeadId) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: 'Target fee head or targets array is required' });
+      }
+      targets = [{
+        targetFeeHeadId,
+        studentYear: studentYear || transactionA.studentYear,
+        semester: semester || transactionA.semester,
+        amount: transactionA.amount
+      }];
+    }
+
+    // Validate targets total amount matches source transaction amount exactly
+    const totalTargetAmt = targets.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    if (Math.abs(totalTargetAmt - transactionA.amount) > 0.01) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: `Total transfer amount (₹${totalTargetAmt}) must exactly match the source transaction amount (₹${transactionA.amount}).`
+      });
+    }
+
+    const FeeHead = require('../models/FeeHead');
+    const sourceFeeHead = await FeeHead.findById(transactionA.feeHead).session(session);
+    const sourceName = sourceFeeHead ? sourceFeeHead.name : 'Unknown Fee Head';
+    const transferDate = new Date();
+    const createdTransactions = [];
+
+    // Loop and insert destination transactions
+    for (const t of targets) {
+      const targetFeeHead = await FeeHead.findById(t.targetFeeHeadId).session(session);
+      if (!targetFeeHead) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ message: `Target fee head not found for ID: ${t.targetFeeHeadId}` });
+      }
+
+      const transactionB = new Transaction({
+        studentId: transactionA.studentId,
+        studentName: transactionA.studentName,
+        college: transactionA.college,
+        collegeId: transactionA.collegeId,
+        course: transactionA.course,
+        courseId: transactionA.courseId,
+        branch: transactionA.branch,
+        branchId: transactionA.branchId,
+        pinNo: transactionA.pinNo,
+        admissionNumber: transactionA.admissionNumber,
+        feeHead: t.targetFeeHeadId,
+        amount: Number(t.amount),
+        paymentDate: transactionA.paymentDate, // Preserve original date
+        transactionType: 'DEBIT',
+        paymentMode: 'Transfer',
+        status: 'active',
+        semester: t.semester || 'All',
+        studentYear: t.studentYear,
+        receiptNumber: transactionA.receiptNumber, // Shared receipt number
+        collectedBy: req.user?.username || 'Unknown',
+        collectedByName: req.user?.name || 'Unknown',
+        remarks: remarks || `Transfer from ${sourceName}`,
+        transferredFromTransactionId: transactionA._id
+      });
+
+      await transactionB.save({ session });
+      createdTransactions.push(transactionB);
+    }
+
+    // Update Transaction A (the source)
+    transactionA.status = 'transferred';
+    transactionA.transferredToFeeHead = targets[0].targetFeeHeadId;
+    transactionA.transferredToTransactionId = createdTransactions[0]._id;
+    transactionA.transferredBy = req.user?.username || 'Unknown';
+    transactionA.transferredByName = req.user?.name || 'Unknown';
+    transactionA.transferredAt = transferDate;
+    transactionA.transferRemarks = remarks || `Transferred to ${createdTransactions.length} head(s)`;
+
+    await transactionA.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Trigger SQL Fee Sync
+    try {
+      const { syncStudentFeesByAdmissionNumber } = require('../services/studentFeeSyncService');
+      await syncStudentFeesByAdmissionNumber(transactionA.studentId);
+    } catch (syncErr) {
+      console.error('[TransferTransaction] Sync failed (non-fatal):', syncErr);
+    }
+
+    res.json({
+      message: 'Transaction transferred successfully',
+      sourceTransaction: transactionA,
+      targetTransactions: createdTransactions
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error('Error transferring transaction:', error);
+    res.status(500).json({ message: 'Error transferring transaction', error: error.message });
+  }
+};
+
 module.exports = {
   addTransaction,
   getStudentTransactions,
@@ -1021,6 +1148,7 @@ module.exports = {
   deleteTransaction,
   cancelTransaction,
   getTransactionsByDate,
-  bulkUpdateTransactionDates
+  bulkUpdateTransactionDates,
+  transferTransaction
 };
 

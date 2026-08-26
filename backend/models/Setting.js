@@ -96,6 +96,11 @@ const settingSchema = mongoose.Schema({
       type: String,
       default: '',
     },
+    excessFeeHead: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FeeHead',
+      default: null,
+    },
   }, {
     timestamps: true,
   });

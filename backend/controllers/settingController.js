@@ -25,7 +25,8 @@ const getSettings = async (req, res) => {
         emailReportEnabled: false,
         emailReportHour: 18,
         emailReportMinute: 0,
-        emailReportRecipients: ''
+        emailReportRecipients: '',
+        excessFeeHead: null
       };
     }
     res.json(settings);
@@ -59,7 +60,8 @@ const updateSettings = async (req, res) => {
     emailReportEnabled,
     emailReportHour,
     emailReportMinute,
-    emailReportRecipients
+    emailReportRecipients,
+    excessFeeHead
   } = req.body;
 
   try {
@@ -87,7 +89,8 @@ const updateSettings = async (req, res) => {
           emailReportEnabled: emailReportEnabled !== undefined ? emailReportEnabled : false,
           emailReportHour: emailReportHour !== undefined ? Number(emailReportHour) : 18,
           emailReportMinute: emailReportMinute !== undefined ? Number(emailReportMinute) : 0,
-          emailReportRecipients: emailReportRecipients || ''
+          emailReportRecipients: emailReportRecipients || '',
+          excessFeeHead: excessFeeHead || null
         }
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }

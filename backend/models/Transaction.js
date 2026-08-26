@@ -51,7 +51,7 @@ const transactionSchema = mongoose.Schema({
   },
   paymentMode: {
     type: String,
-    enum: ['Cash', 'Bank', 'UPI', 'Cheque', 'DD', 'Card', 'Net Banking', 'Adjustment', 'Waiver', 'Refund', 'Credit', 'RTF'],
+    enum: ['Cash', 'Bank', 'UPI', 'Cheque', 'DD', 'Card', 'Net Banking', 'Adjustment', 'Waiver', 'Refund', 'Credit', 'RTF', 'Transfer'],
     default: 'Cash',
   },
   bankName: {
@@ -107,9 +107,25 @@ const transactionSchema = mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['active', 'cancelled'],
+    enum: ['active', 'cancelled', 'transferred'],
     default: 'active',
   },
+  transferredToFeeHead: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FeeHead',
+  },
+  transferredToTransactionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Transaction',
+  },
+  transferredFromTransactionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Transaction',
+  },
+  transferredBy: String,
+  transferredByName: String,
+  transferredAt: Date,
+  transferRemarks: String,
   cancelledBy: {
     type: String, // Username of whoever cancelled
   },

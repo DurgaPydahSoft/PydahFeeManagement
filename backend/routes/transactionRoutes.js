@@ -9,7 +9,8 @@ const {
   deleteTransaction,
   cancelTransaction,
   getTransactionsByDate,
-  bulkUpdateTransactionDates
+  bulkUpdateTransactionDates,
+  transferTransaction
 } = require('../controllers/transactionController');
 
 router.route('/')
@@ -26,6 +27,9 @@ router.route('/bulk-date-update')
 
 router.route('/:id/cancel')
   .put(cancelTransaction);
+
+router.route('/:id/transfer')
+  .post(transferTransaction);
 
 router.route('/:id')
   .put(updateTransactionPaymentMode)

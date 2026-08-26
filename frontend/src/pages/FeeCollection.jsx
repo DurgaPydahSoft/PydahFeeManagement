@@ -125,6 +125,54 @@ const FeeCollection = () => {
     const permissions = user?.permissions || [];
     const canCollectFee = permissions.includes('fee_collection_pay');
     const canEditTransactionDate = isSuperAdmin || permissions.includes('fee_collection_edit');
+    const canTransferFee = isSuperAdmin || permissions.includes('fee_collection_transfer');
+
+    const [actionTab, setActionTab] = useState('collect'); // 'collect' or 'transfer'
+    const [transferForm, setTransferForm] = useState({
+        sourceTxId: '',
+        amount: '',
+        sourceFeeHeadName: '',
+        remarks: ''
+    });
+
+    const [transferRows, setTransferRows] = useState([
+        { id: Date.now(), targetFeeHeadId: '', studentYear: '', semester: 'All', amount: '', targetFeeId: '' }
+    ]);
+
+    const addTransferRow = () => {
+        setTransferRows(prev => [
+            ...prev,
+            { id: Date.now() + Math.random(), targetFeeHeadId: '', studentYear: '', semester: 'All', amount: '', targetFeeId: '' }
+        ]);
+    };
+
+    const removeTransferRow = (id) => {
+        setTransferRows(prev => prev.filter(r => r.id !== id));
+    };
+
+    const updateTransferRow = (id, field, value) => {
+        setTransferRows(prev => prev.map(r => {
+            if (r.id === id) {
+                const updated = { ...r, [field]: value };
+                if (field === 'targetFeeId') {
+                    // Match displayedFee details
+                    const matched = feeDetails.find(f => f._id === value);
+                    if (matched) {
+                        updated.targetFeeHeadId = matched.feeHeadId;
+                        updated.studentYear = matched.studentYear;
+                        updated.semester = matched.semester || 'All';
+                    } else {
+                        // Could be global fee head
+                        updated.targetFeeHeadId = value;
+                        updated.studentYear = '';
+                        updated.semester = 'All';
+                    }
+                }
+                return updated;
+            }
+            return r;
+        }));
+    };
 
     // Reactive paymentAccess — updated after /users/me fetch so the UI re-renders
     const [paymentAccess, setPaymentAccess] = useState(() => {
@@ -654,6 +702,129 @@ const FeeCollection = () => {
             }
         }
     };
+
+    const getExcessPaymentError = () => {
+        const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
+        for (const row of validRows) {
+            const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+            if (selectedFee) {
+                const due = Number(selectedFee.dueAmount) || 0;
+                const entered = Number(row.amount);
+                if (entered > due && !receiptSettings?.excessFeeHead) {
+                    return `Amount entered for ${selectedFee.feeHeadName} (₹${entered.toLocaleString('en-IN')}) exceeds the remaining due demand of ₹${due.toLocaleString('en-IN')}. Please adjust or select an Excess Fee Head in Settings to allow excess payments.`;
+                }
+            }
+        }
+        return null;
+    };
+
+    const getExcessPaymentInfo = () => {
+        const excessFeeHeadId = receiptSettings?.excessFeeHead;
+        if (!excessFeeHeadId) return null;
+
+        const excessHead = globalFeeHeads.find(h => h._id === excessFeeHeadId);
+        const excessHeadName = excessHead ? `${excessHead.name}${excessHead.code ? ` (${excessHead.code})` : ''}` : 'Configured Excess Head';
+
+        const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
+        let totalSurplus = 0;
+        let details = [];
+
+        for (const row of validRows) {
+            const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+            if (selectedFee) {
+                const due = Number(selectedFee.dueAmount) || 0;
+                const entered = Number(row.amount);
+                if (entered > due) {
+                    const surplus = entered - due;
+                    totalSurplus += surplus;
+                    details.push(`₹${surplus.toLocaleString('en-IN')} from ${selectedFee.feeHeadName}`);
+                }
+            }
+        }
+        if (totalSurplus > 0) {
+            return `₹${totalSurplus.toLocaleString('en-IN')} will be added to ${excessHeadName} as excess payment (${details.join(', ')}).`;
+        }
+        return null;
+    };
+
+    const handleTransferFee = async (e) => {
+        e.preventDefault();
+        if (!transferForm.sourceTxId || !transferForm.remarks.trim()) {
+            showToastMessage('Please select a source transaction and enter remarks.', 'error');
+            return;
+        }
+
+        const sourceTx = transactions.find(t => t._id === transferForm.sourceTxId);
+        if (!sourceTx) {
+            showToastMessage('Selected source transaction not found.', 'error');
+            return;
+        }
+
+        // Validate each row
+        for (const row of transferRows) {
+            if (!row.targetFeeHeadId) {
+                showToastMessage('Please select target fee head for all rows.', 'error');
+                return;
+            }
+            if (!row.studentYear) {
+                showToastMessage('Please select a student year for all rows.', 'error');
+                return;
+            }
+            if (!row.amount || Number(row.amount) <= 0) {
+                showToastMessage('Please enter a valid amount greater than 0 for all rows.', 'error');
+                return;
+            }
+
+            if (String(sourceTx.feeHead?._id || sourceTx.feeHead) === String(row.targetFeeHeadId)) {
+                showToastMessage(`Cannot transfer to the same fee head (${sourceTx.feeHead?.name || 'original head'}).`, 'error');
+                return;
+            }
+        }
+
+        const totalRowAmount = transferRows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        if (Math.abs(totalRowAmount - Number(transferForm.amount)) > 0.01) {
+            showToastMessage(`Total split amount (₹${totalRowAmount.toLocaleString('en-IN')}) must exactly match the source transaction amount (₹${Number(transferForm.amount).toLocaleString('en-IN')}).`, 'error');
+            return;
+        }
+
+        const confirmTransfer = window.confirm(
+            `Are you sure you want to execute this ledger transfer for ₹${Number(transferForm.amount).toLocaleString('en-IN')} divided into ${transferRows.length} target head(s)?`
+        );
+        
+        if (!confirmTransfer) return;
+
+        setIsProcessing(true);
+        try {
+            await api.post(`/transactions/${transferForm.sourceTxId}/transfer`, {
+                targets: transferRows.map(r => ({
+                    targetFeeHeadId: r.targetFeeHeadId,
+                    studentYear: r.studentYear,
+                    semester: r.semester || 'All',
+                    amount: Number(r.amount)
+                })),
+                remarks: transferForm.remarks
+            });
+
+            showToastMessage('Payment transferred successfully!', 'success');
+            setTransferForm({
+                sourceTxId: '',
+                amount: '',
+                sourceFeeHeadName: '',
+                remarks: ''
+            });
+            setTransferRows([
+                { id: Date.now(), targetFeeHeadId: '', studentYear: '', semester: 'All', amount: '', targetFeeId: '' }
+            ]);
+
+            // Refresh student data
+            await fetchStudentData(student);
+        } catch (err) {
+            console.error('Transfer failed:', err);
+            showToastMessage(err.response?.data?.message || 'Failed to complete ledger transfer.', 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
     // ----------------------------
 
     // Step 1: Trigger Confirmation
@@ -664,6 +835,10 @@ const FeeCollection = () => {
         const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
         if (validRows.length === 0) {
             showToastMessage('Please select at least one Fee Head and enter a valid amount (0 is accepted).', 'error');
+            return;
+        }
+
+        if (getExcessPaymentError()) {
             return;
         }
 
@@ -747,10 +922,18 @@ const FeeCollection = () => {
         setShowConfirmModal(true);
 
         try {
-            const feeHeadIds = validRows.map(row => {
+            const feeHeadIdsSet = new Set();
+            validRows.forEach(row => {
                 const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                return selectedFee ? selectedFee.feeHeadId : row.feeHeadId;
+                const rowTotal = Number(row.amount);
+                const due = selectedFee ? (Number(selectedFee.dueAmount) || 0) : Infinity;
+                
+                feeHeadIdsSet.add(selectedFee ? selectedFee.feeHeadId : row.feeHeadId);
+                if (selectedFee && rowTotal > due && receiptSettings?.excessFeeHead) {
+                    feeHeadIdsSet.add(receiptSettings.excessFeeHead);
+                }
             });
+            const feeHeadIds = Array.from(feeHeadIdsSet);
 
             const res = await api.post('/transactions/preview-sequence', {
                 studentId: student.admission_number,
@@ -850,6 +1033,7 @@ const FeeCollection = () => {
 
             // Create Batch Array
             let batchTransactions = [];
+            const excessFeeHeadId = receiptSettings?.excessFeeHead;
 
             if (paymentCategory === 'Split') {
                 // Validate per-row split entries
@@ -877,6 +1061,22 @@ const FeeCollection = () => {
                     const rowCashAmount = Number(perRowSplitCash[row.id]) || 0;
                     const rowBankAmount = rowTotal - rowCashAmount;
 
+                    const due = selectedFee ? (Number(selectedFee.dueAmount) || 0) : Infinity;
+                    const isExcess = selectedFee && rowTotal > due;
+                    const surplus = isExcess ? (rowTotal - due) : 0;
+
+                    let targetCash = rowCashAmount;
+                    let targetBank = rowBankAmount;
+                    let excessCash = 0;
+                    let excessBank = 0;
+
+                    if (isExcess && excessFeeHeadId) {
+                        excessCash = Math.min(surplus, rowCashAmount);
+                        excessBank = surplus - excessCash;
+                        targetCash = rowCashAmount - excessCash;
+                        targetBank = rowBankAmount - excessBank;
+                    }
+
                     const baseData = {
                         ...commonData,
                         feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
@@ -887,20 +1087,57 @@ const FeeCollection = () => {
                             : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
                     };
 
-                    // Only push Cash transaction if cash portion > 0
-                    if (rowCashAmount > 0) {
+                    const excessBaseData = (isExcess && excessFeeHeadId) ? {
+                        ...commonData,
+                        feeHeadId: excessFeeHeadId,
+                        remarks: commonData.remarks ? `Excess Payment - ${commonData.remarks}` : 'Excess Payment'
+                    } : null;
+
+                    // Push Target Cash transaction if > 0
+                    if (targetCash > 0) {
                         batchTransactions.push({
                             ...baseData,
-                            amount: rowCashAmount,
+                            amount: targetCash,
                             paymentMode: 'Cash'
                         });
                     }
 
-                    // Only push Bank transaction if bank portion > 0
-                    if (rowBankAmount > 0) {
+                    // Push Target Bank transaction if > 0
+                    if (targetBank > 0) {
                         const bankData = {
                             ...baseData,
-                            amount: rowBankAmount,
+                            amount: targetBank,
+                            paymentMode: paymentForm.paymentMode,
+                            bankName: paymentForm.bankName,
+                            instrumentDate: paymentForm.instrumentDate,
+                            referenceNo: paymentForm.referenceNo,
+                            referenceDate: paymentForm.referenceDate,
+                            paymentConfigId: paymentForm.paymentConfigId
+                        };
+                        const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                        if (selectedConfig) {
+                            bankData.depositedToAccount = selectedConfig.account_name;
+                        }
+                        if (paymentForm.paymentMode === 'RTF') {
+                            bankData.proceedingId = paymentForm.proceedingId;
+                        }
+                        batchTransactions.push(bankData);
+                    }
+
+                    // Push Excess Cash transaction if > 0
+                    if (excessCash > 0 && excessBaseData) {
+                        batchTransactions.push({
+                            ...excessBaseData,
+                            amount: excessCash,
+                            paymentMode: 'Cash'
+                        });
+                    }
+
+                    // Push Excess Bank transaction if > 0
+                    if (excessBank > 0 && excessBaseData) {
+                        const bankData = {
+                            ...excessBaseData,
+                            amount: excessBank,
                             paymentMode: paymentForm.paymentMode,
                             bankName: paymentForm.bankName,
                             instrumentDate: paymentForm.instrumentDate,
@@ -919,19 +1156,35 @@ const FeeCollection = () => {
                     }
                 });
             } else {
-                batchTransactions = validRows.map(row => {
+                validRows.forEach(row => {
                     const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                    const transaction = {
-                        ...commonData,
-                        feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
-                        studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
-                        semester: selectedFee ? selectedFee.semester : commonData.semester,
-                        amount: Number(row.amount),
-                        remarks: commonData.remarks
-                            ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
-                            : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
-                    };
-                    return transaction;
+                    const rowTotal = Number(row.amount);
+                    const due = selectedFee ? (Number(selectedFee.dueAmount) || 0) : Infinity;
+                    const isExcess = selectedFee && rowTotal > due;
+                    const targetAmount = isExcess ? due : rowTotal;
+                    const surplus = isExcess ? (rowTotal - due) : 0;
+
+                    if (targetAmount > 0) {
+                        batchTransactions.push({
+                            ...commonData,
+                            feeHeadId: selectedFee ? selectedFee.feeHeadId : row.feeHeadId,
+                            studentYear: selectedFee ? selectedFee.studentYear : commonData.studentYear,
+                            semester: selectedFee ? selectedFee.semester : commonData.semester,
+                            amount: targetAmount,
+                            remarks: commonData.remarks
+                                ? ((selectedFee && selectedFee.remarks) ? `${selectedFee.remarks} - ${commonData.remarks}` : commonData.remarks)
+                                : ((selectedFee && selectedFee.remarks) ? selectedFee.remarks : '')
+                        });
+                    }
+
+                    if (surplus > 0 && excessFeeHeadId) {
+                        batchTransactions.push({
+                            ...commonData,
+                            feeHeadId: excessFeeHeadId,
+                            amount: surplus,
+                            remarks: commonData.remarks ? `Excess Payment - ${commonData.remarks}` : 'Excess Payment'
+                        });
+                    }
                 });
             }
 
@@ -1810,416 +2063,652 @@ const FeeCollection = () => {
                                                  </button>
                                              </div>
                                         ) : (
-                                            <div className="flex border-b border-gray-100">
-                                                 <div className="flex-1 py-3 text-sm font-bold text-center bg-blue-50/50 text-blue-700 border-b-2 border-blue-600">
+                                            <div className="flex border-b border-gray-100 bg-gray-50">
+                                                 <button
+                                                     type="button"
+                                                     onClick={() => setActionTab('collect')}
+                                                     className={`flex-1 py-3 text-xs font-bold text-center border-b-2 transition-all outline-none ${actionTab === 'collect' ? 'bg-white text-blue-700 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100/50'}`}
+                                                 >
                                                      COLLECT FEE
-                                                 </div>
+                                                 </button>
+                                                 {canTransferFee && (
+                                                     <button
+                                                         type="button"
+                                                         onClick={() => setActionTab('transfer')}
+                                                         className={`flex-1 py-3 text-xs font-bold text-center border-b-2 transition-all outline-none ${actionTab === 'transfer' ? 'bg-white text-blue-700 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100/50'}`}
+                                                     >
+                                                         TRANSFER FEE
+                                                     </button>
+                                                 )}
                                             </div>
                                         )}
 
-                                        <div className="p-4">
-                                            <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                                                <div>
-                                                    <h3 className="text-base font-bold text-gray-800">
-                                                        {isEditMode ? 'Transaction Details' : 'Payment Details'}
-                                                    </h3>
-                                                    {!canEditTransactionDate ? (
-                                                        <p className="text-[11px] text-slate-600 mt-0.5 font-medium">
-                                                            Date: {paymentForm.paymentDate
-                                                                ? new Date(paymentForm.paymentDate + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                                                                : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                            {isEditMode && editingTransaction?.receiptNumber
-                                                                ? ` · Receipt: ${editingTransaction.receiptNumber}`
-                                                                : ''}
-                                                        </p>
-                                                    ) : (
-                                                        <p className="text-[11px] text-gray-400 mt-0.5">
-                                                            {isEditMode ? `Receipt: ${editingTransaction?.receiptNumber}` : 'Add fee heads and amount below'}
-                                                        </p>
+                                            <div className="p-4">
+                                                <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                                                    <div>
+                                                        <h3 className="text-base font-bold text-gray-800">
+                                                            {isEditMode ? 'Transaction Details' : actionTab === 'transfer' ? 'Transfer Details' : 'Payment Details'}
+                                                        </h3>
+                                                        {!canEditTransactionDate ? (
+                                                            <p className="text-[11px] text-slate-600 mt-0.5 font-medium">
+                                                                {actionTab === 'transfer' ? 'Select source and destination fee heads' : `Date: ${paymentForm.paymentDate ? new Date(paymentForm.paymentDate + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                                                                {isEditMode && editingTransaction?.receiptNumber ? ` · Receipt: ${editingTransaction.receiptNumber}` : ''}
+                                                            </p>
+                                                        ) : (
+                                                            <p className="text-[11px] text-gray-400 mt-0.5">
+                                                                {isEditMode ? `Receipt: ${editingTransaction?.receiptNumber}` : actionTab === 'transfer' ? 'Move money between student fee heads' : 'Add fee heads and amount below'}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    {!isEditMode && actionTab === 'collect' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={addFeeRow}
+                                                            className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
+                                                            title="Add Another Fee Head"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                                        </button>
                                                     )}
                                                 </div>
-                                                {!isEditMode && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={addFeeRow}
-                                                        className="bg-gray-100 text-gray-600 p-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition duration-200 border border-gray-200 shadow-sm"
-                                                        title="Add Another Fee Head"
-                                                    >
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                                    </button>
-                                                )}
-                                            </div>
 
-                                            <form onSubmit={handlePrePayment} className="space-y-3">
+                                                {(actionTab === 'collect' || isEditMode) ? (
+                                                    <form onSubmit={handlePrePayment} className="space-y-3">
 
-                                                {/* Dynamic Rows */}
-                                                <div className="space-y-2">
-                                                    {feeRows.map((row, index) => {
-                                                        // Identify already selected fee head IDs in other rows
-                                                        const getTrueFeeHeadId = (rowFeeHeadId) => {
-                                                            const matchedFee = feeDetails.find(f => f._id === rowFeeHeadId);
-                                                            return matchedFee ? matchedFee.feeHeadId : rowFeeHeadId;
-                                                        };
-                                                        const selectedTrueFeeHeadIdsElsewhere = feeRows
-                                                            .filter(r => r.id !== row.id && r.feeHeadId)
-                                                            .map(r => getTrueFeeHeadId(r.feeHeadId));
+                                                        {/* Dynamic Rows */}
+                                                        <div className="space-y-2">
+                                                            {feeRows.map((row, index) => {
+                                                                // Identify already selected fee head IDs in other rows
+                                                                const getTrueFeeHeadId = (rowFeeHeadId) => {
+                                                                    const matchedFee = feeDetails.find(f => f._id === rowFeeHeadId);
+                                                                    return matchedFee ? matchedFee.feeHeadId : rowFeeHeadId;
+                                                                };
+                                                                const selectedTrueFeeHeadIdsElsewhere = feeRows
+                                                                    .filter(r => r.id !== row.id && r.feeHeadId)
+                                                                    .map(r => getTrueFeeHeadId(r.feeHeadId));
 
-                                                        // Build the merged options list:
-                                                        // 1. All configured fees for the student (displayedFees)
-                                                        // 2. Any global fee heads NOT already covered by configured fees
-                                                        const configuredFeeHeadIds = new Set(displayedFees.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
-                                                        const extraGlobalHeads = globalFeeHeads.filter(h => h.isActive !== false && !configuredFeeHeadIds.has(h._id));
+                                                                // Build the merged options list:
+                                                                // 1. All configured fees for the student (displayedFees)
+                                                                // 2. Any global fee heads NOT already covered by configured fees
+                                                                const configuredFeeHeadIds = new Set(displayedFees.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
+                                                                const extraGlobalHeads = globalFeeHeads.filter(h => h.isActive !== false && !configuredFeeHeadIds.has(h._id));
 
-                                                        return (
-                                                            <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
-                                                                <div className="flex gap-2 items-start">
-                                                                    <div className="flex-1">
-                                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
-                                                                        <select
-                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                                                            value={row.feeHeadId}
-                                                                            onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
-                                                                            required
-                                                                            disabled={isEditMode}
-                                                                        >
-                                                                            <option value="">-- Select Fee Head --</option>
+                                                                return (
+                                                                    <div key={row.id} className="flex flex-col gap-2 p-2 rounded-lg bg-gray-50/80 border border-gray-200/60 transition-all hover:border-blue-200 hover:shadow-sm group">
+                                                                        <div className="flex gap-2 items-start">
+                                                                            <div className="flex-1">
+                                                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee</label>
+                                                                                <select
+                                                                                    className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                                                    value={row.feeHeadId}
+                                                                                    onChange={e => updateFeeRow(row.id, 'feeHeadId', e.target.value)}
+                                                                                    required
+                                                                                    disabled={isEditMode}
+                                                                                >
+                                                                                    <option value="">-- Select Fee Head --</option>
 
-                                                                            {/* Configured/Structured Fee Dues */}
-                                                                            {displayedFees.filter(f => f.totalAmount > 0 && !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId)).length > 0 && (
-                                                                                <optgroup label="── Structured Fees ──">
-                                                                                    {displayedFees
-                                                                                        .filter(f => f.totalAmount > 0 && !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
-                                                                                        .map(f => (
-                                                                                            <option key={f._id} value={f._id}>
-                                                                                                [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
-                                                                                            </option>
-                                                                                        ))
-                                                                                    }
-                                                                                </optgroup>
-                                                                            )}
-
-                                                                            {/* All remaining global fee heads */}
-                                                                            {extraGlobalHeads.filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id)).length > 0 && (
-                                                                                <optgroup label="── All Fee Heads ──">
-                                                                                    {extraGlobalHeads
-                                                                                        .filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id))
-                                                                                        .map(h => (
-                                                                                            <option key={h._id} value={h._id}>
-                                                                                                {h.name} {h.code ? `(${h.code})` : ''}
-                                                                                            </option>
-                                                                                        ))
-                                                                                    }
-                                                                                </optgroup>
-                                                                            )}
-                                                                        </select>
-                                                                    </div>
-                                                                <div className="w-24">
-                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
-                                                                    <div className="relative">
-                                                                        <span className="absolute left-2 top-1.5 text-gray-400 text-xs"></span>
-                                                                        <input
-                                                                            type="number"
-                                                                            className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300 disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                                                            value={row.amount}
-                                                                            onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
-                                                                            onWheel={e => e.target.blur()}
-                                                                            required
-                                                                            placeholder="0"
-                                                                            disabled={isEditMode}
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                                {feeRows.length > 1 && !isEditMode && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => removeFeeRow(row.id)}
-                                                                        className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
-                                                                    >
-                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                                </div>
-
-                                                {/* Total Summary */}
-                                                <div className="flex justify-between items-end py-2 border-t border-dashed border-gray-200 mt-1">
-                                                    <span className="text-xs font-medium text-gray-500">Total Amount</span>
-                                                    <span className="text-2xl font-extrabold text-gray-800 tracking-tight">{fmtAmount(totalSelectedAmount)}</span>
-                                                </div>
-
-                                                {/* PAYMENT MODE SELECTION */}
-                                                <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
-                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
-                                                        <div className="grid grid-cols-3 gap-2 mb-3">
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableCashPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} disabled={!effectivePaymentAccess('enableCashPayment')} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
-                                                                <span className={`font-bold text-xs ${paymentCategory === 'Cash' ? 'text-white' : 'text-gray-700'}`}>Cash</span>
-                                                            </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableBankPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} disabled={!effectivePaymentAccess('enableBankPayment')} onChange={() => {
-                                                                    setPaymentCategory('Bank'); 
-                                                                    const newState = { ...paymentForm, paymentMode: 'UPI' };
-                                                                    
-                                                                    // Auto-select if only one config exists for this student's course
-                                                                    if (relevantConfigs.length === 1) {
-                                                                        newState.paymentConfigId = relevantConfigs[0]._id;
-                                                                        newState.bankName = relevantConfigs[0].bank_name;
-                                                                    }
-                                                                    
-                                                                    setPaymentForm(newState);
-                                                                }} />
-                                                                <span className={`font-bold text-xs ${paymentCategory === 'Bank' ? 'text-white' : 'text-gray-700'}`}>Bank</span>
-                                                            </label>
-                                                            <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || !effectivePaymentAccess('enableSplitPayment')) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
-                                                                <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={isEditMode || !effectivePaymentAccess('enableSplitPayment')} onChange={() => {
-                                                                    setPaymentCategory('Split'); 
-                                                                    const newState = { ...paymentForm, paymentMode: 'UPI' };
-                                                                    
-                                                                    // Auto-select if only one config exists
-                                                                    if (relevantConfigs.length === 1) {
-                                                                        newState.paymentConfigId = relevantConfigs[0]._id;
-                                                                        newState.bankName = relevantConfigs[0].bank_name;
-                                                                    }
-                                                                    
-                                                                    setPaymentForm(newState);
-                                                                    setPerRowSplitCash({}); // reset so table shows fresh inputs
-                                                                }} />
-                                                                <span className={`font-bold text-xs ${paymentCategory === 'Split' ? 'text-white' : 'text-gray-700'}`}>Split</span>
-                                                            </label>
-                                                        </div>
-
-                                                        {/* Per-fee-head split input table */}
-                                                        {paymentCategory === 'Split' && (
-                                                            <div className="mb-3 bg-blue-50/50 border border-blue-100 rounded-xl p-3 space-y-2">
-                                                               
-                                                                {feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).map((row) => {
-                                                                    const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
-                                                                    const feeLabel = selectedFee
-                                                                        ? selectedFee.feeHeadName
-                                                                        : (globalFeeHeads.find(h => h._id === row.feeHeadId)?.name || 'Fee');
-                                                                    const rowTotal = Number(row.amount) || 0;
-                                                                    const cashVal = perRowSplitCash[row.id] !== undefined ? perRowSplitCash[row.id] : '';
-                                                                    const bankVal = rowTotal - (Number(cashVal) || 0);
-                                                                    const isOverflow = (Number(cashVal) || 0) > rowTotal;
-                                                                    return (
-                                                                        <div key={row.id} className="bg-white rounded-lg border border-blue-100 p-2 space-y-1">
-                                                                            <div className="flex justify-between items-center">
-                                                                                <span className="text-[11px] font-bold text-gray-700 truncate max-w-[60%]">{feeLabel}</span>
-                                                                                <span className="text-[10px] text-gray-400 font-mono">Total: ₹{fmtAmount(rowTotal)}</span>
-                                                                            </div>
-                                                                            <div className="grid grid-cols-2 gap-2">
-                                                                                <div>
-                                                                                    <label className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider block mb-0.5">Cash</label>
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        className={`w-full border rounded-lg p-1.5 text-xs font-bold outline-none focus:ring-1 transition-colors ${isOverflow ? 'border-red-400 bg-red-50 focus:ring-red-400' : 'border-gray-300 bg-white focus:border-blue-500 focus:ring-blue-300'}`}
-                                                                                        placeholder="0"
-                                                                                        value={cashVal}
-                                                                                        onChange={e => {
-                                                                                            const val = e.target.value;
-                                                                                            setPerRowSplitCash(prev => ({ ...prev, [row.id]: val }));
-                                                                                        }}
-                                                                                        onWheel={e => e.target.blur()}
-                                                                                    />
-                                                                                    {isOverflow && (
-                                                                                        <p className="text-[9px] text-red-500 font-semibold mt-0.5">Exceeds fee amount</p>
+                                                                                    {displayedFees.filter(f => f.totalAmount > 0 && !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId)).length > 0 && (
+                                                                                        <optgroup label="── Structured Fees ──">
+                                                                                            {displayedFees
+                                                                                                .filter(f => f.totalAmount > 0 && !selectedTrueFeeHeadIdsElsewhere.includes(f.feeHeadId))
+                                                                                                .map(f => (
+                                                                                                    <option key={f._id} value={f._id}>
+                                                                                                        [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
+                                                                                                    </option>
+                                                                                                ))
+                                                                                            }
+                                                                                        </optgroup>
                                                                                     )}
-                                                                                </div>
-                                                                                <div>
-                                                                                    <label className="text-[9px] font-bold text-indigo-700 uppercase tracking-wider block mb-0.5">Bank</label>
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        className="w-full border border-gray-200 rounded-lg p-1.5 text-xs font-bold bg-gray-100 text-gray-500 outline-none"
-                                                                                        value={bankVal < 0 ? 0 : bankVal}
-                                                                                        readOnly
-                                                                                    />
-                                                                                </div>
+                                                                                    {/* All remaining global fee heads */}
+                                                                                    {extraGlobalHeads.filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id)).length > 0 && (
+                                                                                        <optgroup label="── All Fee Heads ──">
+                                                                                            {extraGlobalHeads
+                                                                                                .filter(h => !selectedTrueFeeHeadIdsElsewhere.includes(h._id))
+                                                                                                .map(h => (
+                                                                                                    <option key={h._id} value={h._id}>
+                                                                                                        {h.name} {h.code ? `(${h.code})` : ''}
+                                                                                                    </option>
+                                                                                                ))
+                                                                                            }
+                                                                                        </optgroup>
+                                                                                    )}
+                                                                                </select>
+                                                                            </div>
+                                                                        <div className="w-24">
+                                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
+                                                                            <div className="relative">
+                                                                                <span className="absolute left-2 top-1.5 text-gray-400 text-xs"></span>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300 disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                                                    value={row.amount}
+                                                                                    onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
+                                                                                    onWheel={e => e.target.blur()}
+                                                                                    required
+                                                                                    placeholder="0"
+                                                                                    disabled={isEditMode}
+                                                                                />
                                                                             </div>
                                                                         </div>
-                                                                    );
-                                                                })}
-                                                                {feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).length === 0 && (
-                                                                    <p className="text-[11px] text-blue-400 text-center py-2 italic">Select fee heads above to enter split amounts.</p>
-                                                                )}
+                                                                        {feeRows.length > 1 && !isEditMode && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => removeFeeRow(row.id)}
+                                                                                className="mt-6 text-gray-300 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-transparent hover:border-red-100 hover:bg-red-50"
+                                                                            >
+                                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        </div>
+
+                                                        {/* Total Summary */}
+                                                        <div className="flex justify-between items-end py-2 border-t border-dashed border-gray-200 mt-1">
+                                                            <span className="text-xs font-medium text-gray-500">Total Amount</span>
+                                                            <span className="text-2xl font-extrabold text-gray-800 tracking-tight">{fmtAmount(totalSelectedAmount)}</span>
+                                                        </div>
+
+                                                        {getExcessPaymentError() && (
+                                                            <div className="mt-1 p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-800 leading-normal animate-fadeIn flex items-start gap-2">
+                                                                <svg className="w-4 h-4 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                                <span>{getExcessPaymentError()}</span>
                                                             </div>
                                                         )}
 
-                                                        {(paymentCategory === 'Bank' || paymentCategory === 'Split') && (
-                                                            <div className="space-y-2 animate-fadeIn">
-                                                                {/* Instrument Type Selection */}
-                                                                <div className="grid grid-cols-2 gap-2 mb-2">
-                                                                    <div className="col-span-2">
-                                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 text-center border-b border-gray-200 pb-1">Instrument Details</label>
-                                                                    </div>
-                                                                    <select
-                                                                        className="col-span-2 w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none font-bold"
-                                                                        value={paymentForm.paymentMode}
-                                                                        onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
-                                                                    >
-                                                                        <option value="UPI">UPI / QR Scan</option>
-                                                                        <option value="RTF">RTF (Scholarship)</option>
-                                                                    </select>
+                                                        {getExcessPaymentInfo() && (
+                                                            <div className="mt-1 p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs font-semibold text-blue-800 leading-normal animate-fadeIn flex items-start gap-2">
+                                                                <svg className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                                <span>{getExcessPaymentInfo()}</span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* PAYMENT MODE SELECTION */}
+                                                        <div className="bg-gray-50/50 p-3 rounded-xl border border-gray-200/60">
+                                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Payment Method</label>
+                                                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                                                    <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableCashPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Cash' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
+                                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Cash'} disabled={!effectivePaymentAccess('enableCashPayment')} onChange={() => { setPaymentCategory('Cash'); setPaymentForm({ ...paymentForm, paymentMode: 'Cash' }); }} />
+                                                                        <span className={`font-bold text-xs ${paymentCategory === 'Cash' ? 'text-white' : 'text-gray-700'}`}>Cash</span>
+                                                                    </label>
+                                                                    <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${!effectivePaymentAccess('enableBankPayment') ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Bank' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
+                                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Bank'} disabled={!effectivePaymentAccess('enableBankPayment')} onChange={() => {
+                                                                            setPaymentCategory('Bank'); 
+                                                                            const newState = { ...paymentForm, paymentMode: 'UPI' };
+                                                                            
+                                                                            // Auto-select if only one config exists for this student's course
+                                                                            if (relevantConfigs.length === 1) {
+                                                                                newState.paymentConfigId = relevantConfigs[0]._id;
+                                                                                newState.bankName = relevantConfigs[0].bank_name;
+                                                                            }
+                                                                            
+                                                                            setPaymentForm(newState);
+                                                                        }} />
+                                                                        <span className={`font-bold text-xs ${paymentCategory === 'Bank' ? 'text-white' : 'text-gray-700'}`}>Bank</span>
+                                                                    </label>
+                                                                    <label className={`flex items-center justify-center gap-2 p-2 rounded-lg border transition-all ${(isEditMode || !effectivePaymentAccess('enableSplitPayment')) ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'cursor-pointer'} ${paymentCategory === 'Split' ? 'bg-blue-600 border-blue-600 shadow-sm text-white' : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
+                                                                        <input type="radio" className="sr-only" name="cat" checked={paymentCategory === 'Split'} disabled={isEditMode || !effectivePaymentAccess('enableSplitPayment')} onChange={() => {
+                                                                            setPaymentCategory('Split'); 
+                                                                            const newState = { ...paymentForm, paymentMode: 'UPI' };
+                                                                            
+                                                                            // Auto-select if only one config exists
+                                                                            if (relevantConfigs.length === 1) {
+                                                                                newState.paymentConfigId = relevantConfigs[0]._id;
+                                                                                newState.bankName = relevantConfigs[0].bank_name;
+                                                                            }
+                                                                            
+                                                                            setPaymentForm(newState);
+                                                                            setPerRowSplitCash({}); // reset so table shows fresh inputs
+                                                                        }} />
+                                                                        <span className={`font-bold text-xs ${paymentCategory === 'Split' ? 'text-white' : 'text-gray-700'}`}>Split</span>
+                                                                    </label>
                                                                 </div>
 
-                                                                 {paymentForm.paymentMode === 'RTF' && (
-                                                                    <div className="space-y-2 animate-fadeIn">
-                                                                        <div>
-                                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Proceeding *</label>
-                                                                            <select
-                                                                                className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
-                                                                                value={paymentForm.proceedingId || ''}
-                                                                                onChange={e => setPaymentForm({ ...paymentForm, proceedingId: e.target.value })}
-                                                                                required
-                                                                            >
-                                                                                <option value="">-- Select Proceeding --</option>
-                                                                                {availableProceedings.map(p => {
-                                                                                    const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === p._id) ? Number(editingTransaction.amount) : 0;
-                                                                                    const rem = (p.amount || 0) - (p.totalUsed || 0) + existingTxAmount;
-                                                                                    const isExhausted = rem <= 0;
-                                                                                    return (
-                                                                                        <option key={p._id} value={p._id} disabled={isExhausted}>
-                                                                                            {p.proceedingNumber} - Rem: ₹{fmtAmount(Math.max(0, rem))} (Total: ₹{fmtAmount(p.amount)}){isExhausted ? ' - [EXHAUSTED]' : ''}
-                                                                                        </option>
-                                                                                    );
-                                                                                })}
-                                                                                {isFetchingProceedings && <option disabled>Fetching...</option>}
-                                                                                {!isFetchingProceedings && availableProceedings.length === 0 && <option disabled>No proceedings found</option>}
-                                                                            </select>
-
-                                                                            {paymentForm.proceedingId && (() => {
-                                                                                const selProc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
-                                                                                if (!selProc) return null;
-                                                                                const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selProc._id) ? Number(editingTransaction.amount) : 0;
-                                                                                const rem = (selProc.amount || 0) - (selProc.totalUsed || 0) + existingTxAmount;
-                                                                                const isExhausted = rem <= 0;
-
-                                                                                const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
-                                                                                let currentRtfInput = 0;
-                                                                                if (paymentCategory === 'Bank') {
-                                                                                    currentRtfInput = validRows.reduce((sum, r) => sum + Number(r.amount), 0);
-                                                                                } else if (paymentCategory === 'Split') {
-                                                                                    currentRtfInput = validRows.reduce((sum, r) => {
-                                                                                        const rowTotal = Number(r.amount);
-                                                                                        const cashVal = Number(perRowSplitCash[r.id]) || 0;
-                                                                                        return sum + Math.max(0, rowTotal - cashVal);
-                                                                                    }, 0);
-                                                                                }
-
-                                                                                const isExceeding = currentRtfInput > rem;
-
-                                                                                return (
-                                                                                    <div className={`mt-1.5 p-2 rounded-lg text-xs space-y-1 ${isExceeding || isExhausted ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>
-                                                                                        <div className="flex justify-between items-center font-bold">
-                                                                                            <span>Remaining Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
-                                                                                            <span className="text-[10px] font-mono opacity-80">Limit: ₹{fmtAmount(selProc.amount)}</span>
-                                                                                        </div>
-                                                                                        {isExhausted && (
-                                                                                            <p className="text-[10px] font-semibold text-red-600">⚠️ This proceeding balance is exhausted (₹0 remaining).</p>
-                                                                                        )}
-                                                                                        {!isExhausted && isExceeding && (
-                                                                                            <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds remaining balance (₹{fmtAmount(rem)}).</p>
-                                                                                        )}
+                                                                {/* Per-fee-head split input table */}
+                                                                {paymentCategory === 'Split' && (
+                                                                    <div className="mb-3 bg-blue-50/50 border border-blue-100 rounded-xl p-3 space-y-2">
+                                                                       
+                                                                        {feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).map((row) => {
+                                                                            const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                                                                            const feeLabel = selectedFee
+                                                                                ? selectedFee.feeHeadName
+                                                                                : (globalFeeHeads.find(h => h._id === row.feeHeadId)?.name || 'Fee');
+                                                                            const rowTotal = Number(row.amount) || 0;
+                                                                            const cashVal = perRowSplitCash[row.id] !== undefined ? perRowSplitCash[row.id] : '';
+                                                                            const bankVal = rowTotal - (Number(cashVal) || 0);
+                                                                            const isOverflow = (Number(cashVal) || 0) > rowTotal;
+                                                                            return (
+                                                                                <div key={row.id} className="bg-white rounded-lg border border-blue-100 p-2 space-y-1">
+                                                                                    <div className="flex justify-between items-center">
+                                                                                        <span className="text-[11px] font-bold text-gray-700 truncate max-w-[60%]">{feeLabel}</span>
+                                                                                        <span className="text-[10px] text-gray-400 font-mono">Total: ₹{fmtAmount(rowTotal)}</span>
                                                                                     </div>
-                                                                                );
-                                                                            })()}
-                                                                        </div>
+                                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                                        <div>
+                                                                                            <label className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider block mb-0.5">Cash</label>
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                className={`w-full border rounded-lg p-1.5 text-xs font-bold outline-none focus:ring-1 transition-colors ${isOverflow ? 'border-red-400 bg-red-50 focus:ring-red-400' : 'border-gray-300 bg-white focus:border-blue-500 focus:ring-blue-300'}`}
+                                                                                                placeholder="0"
+                                                                                                value={cashVal}
+                                                                                                onChange={e => {
+                                                                                                    const val = e.target.value;
+                                                                                                    setPerRowSplitCash(prev => ({ ...prev, [row.id]: val }));
+                                                                                                }}
+                                                                                                onWheel={e => e.target.blur()}
+                                                                                            />
+                                                                                            {isOverflow && (
+                                                                                                <p className="text-[9px] text-red-500 font-semibold mt-0.5">Exceeds fee amount</p>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        <div>
+                                                                                            <label className="text-[9px] font-bold text-indigo-700 uppercase tracking-wider block mb-0.5">Bank</label>
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                className="w-full border border-gray-200 rounded-lg p-1.5 text-xs font-bold bg-gray-100 text-gray-500 outline-none"
+                                                                                                value={bankVal < 0 ? 0 : bankVal}
+                                                                                                readOnly
+                                                                                            />
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                        {feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0).length === 0 && (
+                                                                            <p className="text-[11px] text-blue-400 text-center py-2 italic">Select fee heads above to enter split amounts.</p>
+                                                                        )}
                                                                     </div>
                                                                 )}
 
-                                                                {/* Target Account Selection */}
-                                                                <div>
-                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Target Account *</label>
+                                                                {(paymentCategory === 'Bank' || paymentCategory === 'Split') && (
+                                                                    <div className="space-y-2 animate-fadeIn">
+                                                                        {/* Instrument Type Selection */}
+                                                                        <div className="grid grid-cols-2 gap-2 mb-2">
+                                                                            <div className="col-span-2">
+                                                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 text-center border-b border-gray-200 pb-1">Instrument Details</label>
+                                                                            </div>
+                                                                            <select
+                                                                                className="col-span-2 w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none font-bold"
+                                                                                value={paymentForm.paymentMode}
+                                                                                onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
+                                                                            >
+                                                                                <option value="UPI">UPI / QR Scan</option>
+                                                                                <option value="RTF">RTF (Scholarship)</option>
+                                                                            </select>
+                                                                        </div>
+
+                                                                         {paymentForm.paymentMode === 'RTF' && (
+                                                                            <div className="space-y-2 animate-fadeIn">
+                                                                                <div>
+                                                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Proceeding *</label>
+                                                                                    <select
+                                                                                        className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
+                                                                                        value={paymentForm.proceedingId || ''}
+                                                                                        onChange={e => setPaymentForm({ ...paymentForm, proceedingId: e.target.value })}
+                                                                                        required
+                                                                                    >
+                                                                                        <option value="">-- Select Proceeding --</option>
+                                                                                        {availableProceedings.map(p => {
+                                                                                            const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === p._id) ? Number(editingTransaction.amount) : 0;
+                                                                                            const rem = (p.amount || 0) - (p.totalUsed || 0) + existingTxAmount;
+                                                                                            const isExhausted = rem <= 0;
+                                                                                            return (
+                                                                                                <option key={p._id} value={p._id} disabled={isExhausted}>
+                                                                                                    {p.proceedingNumber} - Rem: ₹{fmtAmount(Math.max(0, rem))} (Total: ₹{fmtAmount(p.amount)}){isExhausted ? ' - [EXHAUSTED]' : ''}
+                                                                                                </option>
+                                                                                            );
+                                                                                        })}
+                                                                                        {isFetchingProceedings && <option disabled>Fetching...</option>}
+                                                                                        {!isFetchingProceedings && availableProceedings.length === 0 && <option disabled>No proceedings found</option>}
+                                                                                    </select>
+
+                                                                                    {paymentForm.proceedingId && (() => {
+                                                                                        const selProc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
+                                                                                        if (!selProc) return null;
+                                                                                        const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selProc._id) ? Number(editingTransaction.amount) : 0;
+                                                                                        const rem = (selProc.amount || 0) - (selProc.totalUsed || 0) + existingTxAmount;
+                                                                                        const isExhausted = rem <= 0;
+
+                                                                                        const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
+                                                                                        let currentRtfInput = 0;
+                                                                                        if (paymentCategory === 'Bank') {
+                                                                                            currentRtfInput = validRows.reduce((sum, r) => sum + Number(r.amount), 0);
+                                                                                        } else if (paymentCategory === 'Split') {
+                                                                                            currentRtfInput = validRows.reduce((sum, r) => {
+                                                                                                const rowTotal = Number(r.amount);
+                                                                                                const cashVal = Number(perRowSplitCash[r.id]) || 0;
+                                                                                                return sum + Math.max(0, rowTotal - cashVal);
+                                                                                            }, 0);
+                                                                                        }
+
+                                                                                        const isExceeding = currentRtfInput > rem;
+
+                                                                                        return (
+                                                                                            <div className={`mt-1.5 p-2 rounded-lg text-xs space-y-1 ${isExceeding || isExhausted ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>
+                                                                                                <div className="flex justify-between items-center font-bold">
+                                                                                                    <span>Remaining Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
+                                                                                                    <span className="text-[10px] font-mono opacity-80">Limit: ₹{fmtAmount(selProc.amount)}</span>
+                                                                                                </div>
+                                                                                                {isExhausted && (
+                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ This proceeding balance is exhausted (₹0 remaining).</p>
+                                                                                                )}
+                                                                                                {!isExhausted && isExceeding && (
+                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds remaining balance (₹{fmtAmount(rem)}).</p>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        );
+                                                                                    })()}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* Target Account Selection */}
+                                                                        <div>
+                                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Target Account *</label>
+                                                                            <select
+                                                                                className={`w-full border p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none ${(paymentCategory === 'Bank' || paymentCategory === 'Split') && !paymentForm.paymentConfigId ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-300'}`}
+                                                                                value={paymentForm.paymentConfigId}
+                                                                                onChange={e => {
+                                                                                    const selected = paymentConfigs.find(c => c._id === e.target.value);
+                                                                                    setPaymentForm({
+                                                                                        ...paymentForm,
+                                                                                        paymentConfigId: e.target.value,
+                                                                                        bankName: selected ? selected.bank_name : paymentForm.bankName
+                                                                                    });
+                                                                                }}
+                                                                                required
+                                                                            >
+                                                                                <option value="">-- Select Account --</option>
+                                                                                {relevantConfigs.map(c => (
+                                                                                    <option key={c._id} value={c._id}>
+                                                                                        {c.account_name} - {c.account_number} ({c.bank_name})
+                                                                                    </option>
+                                                                                ))}
+                                                                                {relevantConfigs.length === 0 && student && (
+                                                                                    <option disabled className="text-red-500">No accounts linked to {student.course}</option>
+                                                                                )}
+                                                                            </select>
+                                                                        </div>
+                                                                        {paymentForm.paymentMode === 'UPI' && (
+                                                                            <div className="grid grid-cols-2 gap-2">
+                                                                                <div>
+                                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
+                                                                                    <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
+                                                                                </div>
+                                                                                <div>
+                                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1" title="Date the explicit transfer was actually made by the student">Reference Date *</label>
+                                                                                    <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceDate || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceDate: e.target.value })} required />
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                        {canEditTransactionDate && (
+                                                            <div className="mb-3">
+                                                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                                                    Collection / Transaction Date
+                                                                </label>
+                                                                <input
+                                                                    type="date"
+                                                                    className="w-full border rounded-xl p-2.5 text-xs outline-none transition-all border-gray-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
+                                                                    value={paymentForm.paymentDate || ''}
+                                                                    onChange={e => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
+                                                                    title="You can change the transaction date. Backdated payments will not appear in today's report."
+                                                                    required
+                                                                />
+                                                            </div>
+                                                        )}
+
+                                                        <div className="mb-3">
+                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                                                Remarks / Notes (Optional)
+                                                            </label>
+                                                            <textarea
+                                                                className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
+                                                                rows="2"
+                                                                placeholder="Add any additional notes here..."
+                                                                value={paymentForm.remarks || ''}
+                                                                onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
+                                                            ></textarea>
+                                                        </div>
+
+                                                        <div className="pt-2">
+                                                            <button
+                                                                type="submit"
+                                                                disabled={isProcessing}
+                                                                className="w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 bg-blue-600 hover:bg-blue-700 shadow-blue-200 disabled:opacity-50"
+                                                            >
+                                                                {isProcessing ? (isEditMode ? 'Updating...' : 'Processing...') : (isEditMode ? 'Update Payment Details' : 'Confirm Payment')}
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                ) : (
+                                                    <form onSubmit={handleTransferFee} className="space-y-3">
+                                                        {/* Source Transaction Select */}
+                                                        <div className="mb-3">
+                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                                                Select Source Transaction
+                                                            </label>
+                                                            {(() => {
+                                                                const transferableTransactions = transactions.filter(t => t.status === 'active' && t.paymentMode !== 'Transfer' && t.transactionType === 'DEBIT');
+                                                                if (transferableTransactions.length === 0) {
+                                                                    return (
+                                                                        <div className="p-3 text-xs bg-gray-50 border border-gray-100 rounded-xl text-gray-500 font-medium text-center">
+                                                                            No transferable active transactions found for this student.
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return (
                                                                     <select
-                                                                        className={`w-full border p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none ${(paymentCategory === 'Bank' || paymentCategory === 'Split') && !paymentForm.paymentConfigId ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-300'}`}
-                                                                        value={paymentForm.paymentConfigId}
+                                                                        className="w-full border border-gray-300 rounded-xl p-2.5 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                                                        value={transferForm.sourceTxId || ''}
                                                                         onChange={e => {
-                                                                            const selected = paymentConfigs.find(c => c._id === e.target.value);
-                                                                            setPaymentForm({
-                                                                                ...paymentForm,
-                                                                                paymentConfigId: e.target.value,
-                                                                                bankName: selected ? selected.bank_name : paymentForm.bankName
-                                                                            });
+                                                                            const txId = e.target.value;
+                                                                            const found = transferableTransactions.find(t => t._id === txId);
+                                                                            setTransferForm(prev => ({
+                                                                                ...prev,
+                                                                                sourceTxId: txId,
+                                                                                amount: found ? found.amount : '',
+                                                                                sourceFeeHeadName: found?.feeHead?.name || 'Unknown'
+                                                                            }));
                                                                         }}
                                                                         required
                                                                     >
-                                                                        <option value="">-- Select Account --</option>
-                                                                        {relevantConfigs.map(c => (
-                                                                            <option key={c._id} value={c._id}>
-                                                                                {c.account_name} - {c.account_number} ({c.bank_name})
-                                                                            </option>
-                                                                        ))}
-                                                                        {relevantConfigs.length === 0 && student && (
-                                                                            <option disabled className="text-red-500">No accounts linked to {student.course}</option>
-                                                                        )}
+                                                                        <option value="">-- Choose Transaction to Transfer --</option>
+                                                                        {transferableTransactions.map(t => {
+                                                                            const dt = t.paymentDate ? new Date(t.paymentDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+                                                                            return (
+                                                                                <option key={t._id} value={t._id}>
+                                                                                    {dt} › {t.receiptNumber || 'No Rec'} › {t.feeHead?.name || 'Unknown'} (₹{t.amount.toLocaleString('en-IN')})
+                                                                                </option>
+                                                                            );
+                                                                        })}
                                                                     </select>
-                                                                </div>
-                                                                {paymentForm.paymentMode === 'UPI' && (
-                                                                    <div className="grid grid-cols-2 gap-2">
-                                                                        <div>
-                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Reference Number *</label>
-                                                                            <input type="text" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" placeholder="e.g. Transaction ID" value={paymentForm.referenceNo || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceNo: e.target.value })} required />
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1" title="Date the explicit transfer was actually made by the student">Reference Date *</label>
-                                                                            <input type="date" className="w-full border p-2 rounded-lg text-xs bg-white outline-none focus:border-blue-500" value={paymentForm.referenceDate || ''} onChange={e => setPaymentForm({ ...paymentForm, referenceDate: e.target.value })} required />
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
 
-                                                {canEditTransactionDate && (
-                                                    <div className="mb-3">
-                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-                                                            Collection / Transaction Date
-                                                        </label>
-                                                        <input
-                                                            type="date"
-                                                            className="w-full border rounded-xl p-2.5 text-xs outline-none transition-all border-gray-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
-                                                            value={paymentForm.paymentDate || ''}
-                                                            onChange={e => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
-                                                            title="You can change the transaction date. Backdated payments will not appear in today's report."
-                                                            required
-                                                        />
-                                                    </div>
-                                                )}
+                                                        {transferForm.sourceTxId && (
+                                                             <>
+                                                                 {/* Transaction details card */}
+                                                                 <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl space-y-1 text-xs">
+                                                                     <div className="flex justify-between">
+                                                                         <span className="text-gray-500 font-medium">Original Fee Head:</span>
+                                                                         <span className="font-bold text-gray-800">{transferForm.sourceFeeHeadName}</span>
+                                                                     </div>
+                                                                     <div className="flex justify-between">
+                                                                         <span className="text-gray-500 font-medium">Transfer Amount:</span>
+                                                                         <span className="font-bold text-blue-700 font-mono">₹{Number(transferForm.amount).toLocaleString('en-IN')}</span>
+                                                                     </div>
+                                                                 </div>
 
-                                                <div className="mb-3">
-                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                                                        Remarks / Notes (Optional)
-                                                    </label>
-                                                    <textarea
-                                                        className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
-                                                        rows="2"
-                                                        placeholder="Add any additional notes here..."
-                                                        value={paymentForm.remarks || ''}
-                                                        onChange={e => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
-                                                    ></textarea>
-                                                </div>
+                                                                 {/* Split Targets Section */}
+                                                                 <div className="mb-4 mt-3">
+                                                                     <div className="flex justify-between items-center mb-2">
+                                                                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                                                             Transfer Destination(s)
+                                                                         </label>
+                                                                         <button
+                                                                             type="button"
+                                                                             onClick={addTransferRow}
+                                                                             className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-blue-100 transition duration-150 flex items-center gap-1 shadow-sm border border-blue-200"
+                                                                             title="Add Split Target"
+                                                                         >
+                                                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                                                                             Add Split
+                                                                         </button>
+                                                                     </div>
 
-                                                <div className="pt-2">
-                                                    <button
-                                                        type="submit"
-                                                        disabled={isProcessing}
-                                                        className="w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 bg-blue-600 hover:bg-blue-700 shadow-blue-200 disabled:opacity-50"
-                                                    >
-                                                        {isProcessing ? (isEditMode ? 'Updating...' : 'Processing...') : (isEditMode ? 'Update Payment Details' : 'Confirm Payment')}
-                                                    </button>
-                                                </div>
-                                            </form>
+                                                                     <div className="space-y-3">
+                                                                         {transferRows.map((row, index) => {
+                                                                             const configuredFeeHeadIds = new Set(displayedFees.filter(f => f.totalAmount > 0).map(f => f.feeHeadId));
+                                                                             const extraGlobalHeads = globalFeeHeads.filter(h => h.isActive !== false && !configuredFeeHeadIds.has(h._id));
+
+                                                                             const selectedFee = feeDetails.find(f => f._id === row.targetFeeId);
+                                                                             const isGlobalSelected = !selectedFee && row.targetFeeHeadId && globalFeeHeads.some(h => h._id === row.targetFeeHeadId);
+
+                                                                             return (
+                                                                                 <div key={row.id} className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2 relative group">
+                                                                                     {transferRows.length > 1 && (
+                                                                                         <button
+                                                                                             type="button"
+                                                                                             onClick={() => removeTransferRow(row.id)}
+                                                                                             className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors bg-white rounded-full p-0.5 border border-gray-100 shadow-sm"
+                                                                                             title="Remove Row"
+                                                                                         >
+                                                                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                                         </button>
+                                                                                     )}
+
+                                                                                     {/* Select Fee Destination */}
+                                                                                     <div>
+                                                                                         <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Fee Head</label>
+                                                                                         <select
+                                                                                             className="w-full border border-gray-300 rounded-lg p-2 text-xs bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                                                                             value={row.targetFeeId || row.targetFeeHeadId || ''}
+                                                                                             onChange={e => updateTransferRow(row.id, 'targetFeeId', e.target.value)}
+                                                                                             required
+                                                                                         >
+                                                                                             <option value="">-- Choose Target Fee --</option>
+                                                                                             {displayedFees.filter(f => f.totalAmount > 0).length > 0 && (
+                                                                                                 <optgroup label="── Structured Fees ──">
+                                                                                                     {displayedFees
+                                                                                                         .filter(f => f.totalAmount > 0)
+                                                                                                         .map(f => (
+                                                                                                             <option key={f._id} value={f._id}>
+                                                                                                                 [{f.academicYear}] (Yr {f.studentYear}) {f.feeHeadName} (Due: {f.dueAmount})
+                                                                                                             </option>
+                                                                                                         ))
+                                                                                                     }
+                                                                                                 </optgroup>
+                                                                                             )}
+                                                                                             {extraGlobalHeads.length > 0 && (
+                                                                                                 <optgroup label="── Global Fee Heads ──">
+                                                                                                     {extraGlobalHeads.map(h => (
+                                                                                                         <option key={h._id} value={h._id}>
+                                                                                                             {h.name} {h.code ? '(' + h.code + ')' : ''}
+                                                                                                         </option>
+                                                                                                     ))}
+                                                                                                 </optgroup>
+                                                                                             )}
+                                                                                         </select>
+                                                                                     </div>
+
+                                                                                     {/* Year & Semester Fields (If Global Fee Head or manually selected) */}
+                                                                                     {(isGlobalSelected || !row.targetFeeId) && (
+                                                                                         <div className="grid grid-cols-2 gap-2">
+                                                                                             <div>
+                                                                                                 <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Student Year</label>
+                                                                                                 <select
+                                                                                                     className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:border-blue-500 outline-none font-bold"
+                                                                                                     value={row.studentYear || ''}
+                                                                                                     onChange={e => updateTransferRow(row.id, 'studentYear', e.target.value)}
+                                                                                                     required
+                                                                                                 >
+                                                                                                     <option value="">-- Yr --</option>
+                                                                                                     <option value="1">1st Year</option>
+                                                                                                     <option value="2">2nd Year</option>
+                                                                                                     <option value="3">3rd Year</option>
+                                                                                                     <option value="4">4th Year</option>
+                                                                                                 </select>
+                                                                                             </div>
+                                                                                             <div>
+                                                                                                 <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Semester</label>
+                                                                                                 <select
+                                                                                                     className="w-full border border-gray-300 rounded-lg p-1.5 text-xs bg-white focus:border-blue-500 outline-none"
+                                                                                                     value={row.semester || 'All'}
+                                                                                                     onChange={e => updateTransferRow(row.id, 'semester', e.target.value)}
+                                                                                                     required
+                                                                                                 >
+                                                                                                     <option value="All">All</option>
+                                                                                                     <option value="1">1st Sem</option>
+                                                                                                     <option value="2">2nd Sem</option>
+                                                                                                 </select>
+                                                                                             </div>
+                                                                                         </div>
+                                                                                     )}
+
+                                                                                     {/* Amount Field */}
+                                                                                     <div>
+                                                                                         <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Transfer Amount</label>
+                                                                                         <input
+                                                                                             type="number"
+                                                                                             className="w-full border border-gray-300 rounded-lg p-1.5 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none"
+                                                                                             placeholder="₹ Enter amount..."
+                                                                                             value={row.amount || ''}
+                                                                                             onChange={e => updateTransferRow(row.id, 'amount', e.target.value)}
+                                                                                             onWheel={e => e.target.blur()}
+                                                                                             required
+                                                                                         />
+                                                                                     </div>
+                                                                                 </div>
+                                                                             );
+                                                                         })}
+                                                                     </div>
+                                                                 </div>
+
+                                                                 {/* Remarks textarea */}
+                                                                 <div className="mb-3">
+                                                                     <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                                                         Reason / Remarks
+                                                                     </label>
+                                                                     <textarea
+                                                                         className="w-full border border-gray-200 rounded-xl p-3 text-xs bg-gray-50/50 focus:bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
+                                                                         rows="3"
+                                                                         placeholder="Reason for transfer (required)..."
+                                                                         value={transferForm.remarks || ''}
+                                                                         onChange={e => setTransferForm(prev => ({ ...prev, remarks: e.target.value }))}
+                                                                         required
+                                                                     />
+                                                                 </div>
+
+                                                                 {/* Submit button */}
+                                                                 <div className="pt-2">
+                                                                     <button
+                                                                         type="submit"
+                                                                         disabled={isProcessing}
+                                                                         className="w-full py-3 rounded-xl text-white font-bold shadow-md transition-all transform active:scale-95 bg-blue-600 hover:bg-blue-700 shadow-blue-200 disabled:opacity-50"
+                                                                     >
+                                                                         {isProcessing ? 'Processing Transfer...' : 'Execute Transfer'}
+                                                                     </button>
+                                                                 </div>
+                                                             </>
+                                                          )}
+                                                      </form>
+                                                  )}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                    )}
+                                    </div>
                                 )}
-                                </div>
-                            )}
-                        </div>
-                    )
-                )}
+                            </div>
+                        )
+                    )}
 
 
                 {/* Modals placed at root */}

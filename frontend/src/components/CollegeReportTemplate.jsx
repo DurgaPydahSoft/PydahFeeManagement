@@ -504,6 +504,43 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 </div>
             )}
 
+            {/* Table 5: Ledger Transfers (Cashless) */}
+            {data.transfers && data.transfers.length > 0 && (
+                <div style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
+                    <h3 style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', borderLeft: '4px solid #000', paddingLeft: '8px' }}>
+                        Ledger Transfers (Cashless)
+                    </h3>
+                    <table className="print-table">
+                        <thead>
+                            <tr>
+                                <th style={{ textAlign: 'center', width: '5%' }}>S.No</th>
+                                <th style={{ width: '18%' }}>Student</th>
+                                <th style={{ width: '12%' }}>Reg No / PIN</th>
+                                <th style={{ width: '12%' }}>Receipt No</th>
+                                <th style={{ width: '13%' }}>Source Fee</th>
+                                <th style={{ width: '13%' }}>Destination Fee</th>
+                                <th style={{ textAlign: 'right', width: '12%' }}>Amount</th>
+                                <th style={{ width: '15%' }}>Cashier</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {data.transfers.map((t, idx) => (
+                                <tr key={idx} className="compact-row">
+                                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                                    <td style={{ textTransform: 'uppercase' }}>{t.studentName}</td>
+                                    <td>{t.pinNo || t.studentId}</td>
+                                    <td>{t.receiptNumber || '-'}</td>
+                                    <td style={{ color: '#dc2626' }}>{t.sourceFeeHeadName} {t.sourceFeeHeadCode ? `(${t.sourceFeeHeadCode})` : ''}</td>
+                                    <td style={{ color: '#16a34a', fontWeight: 'bold' }}>{t.targetFeeHeadName} {t.targetFeeHeadCode ? `(${t.targetFeeHeadCode})` : ''}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>₹{Number(t.amount || 0).toLocaleString('en-IN')}</td>
+                                    <td>{t.transferredByName}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
             {/* Signatures — hidden on combined "print all" documents */}
             {!hideSignatures && (
                 <div style={{ marginTop: '45px', display: 'flex', justifyContent: 'space-around', fontSize: '11px' }}>

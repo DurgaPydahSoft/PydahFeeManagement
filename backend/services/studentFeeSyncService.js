@@ -89,7 +89,7 @@ const getTransactionsForDemand = async (admissionNo, feeHeadId, studentYear) => 
     studentId: admissionNo,
     feeHead: feeHeadId,
     studentYear: String(studentYear),
-    status: { $ne: 'cancelled' }
+    status: 'active'
   }).sort({ paymentDate: 1 })
 );
 
@@ -609,7 +609,7 @@ const syncTransportFees = async (student, admissionNo) => {
         studentId: admissionNo,
         feeHead: transportFeeHead._id,
         studentYear: String(fee.studentYear),
-        status: { $ne: 'cancelled' },
+        status: 'active',
         transactionType: 'DEBIT'
       }).lean();
       const paid = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
@@ -811,7 +811,7 @@ const syncHostelFees = async (student, admissionNo) => {
         studentId: admissionNo,
         feeHead: hostelFeeHead._id,
         studentYear: String(fee.studentYear),
-        status: { $ne: 'cancelled' },
+        status: 'active',
         transactionType: 'DEBIT'
       }).lean();
       const paid = txs.reduce((s, t) => s + (Number(t.amount) || 0), 0);

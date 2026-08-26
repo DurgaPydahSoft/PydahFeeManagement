@@ -10,6 +10,7 @@ const SECTION_LABELS = {
     sequence:      'Receipt Sequence',
     masking:       'Mask Fee Heads',
     'email-reports': 'Email Reports',
+    'excess-fee':  'Excess Fee Settings',
 };
 
 // ─── reusable Toggle ────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ const Settings = () => {
         emailReportHour: 18,
         emailReportMinute: 0,
         emailReportRecipients: '',
+        excessFeeHead: null,
     });
     const [feeHeads, setFeeHeads] = useState([]);
     const [users, setUsers] = useState([]);
@@ -652,6 +654,34 @@ const Settings = () => {
         </div>
     );
 
+    const renderExcessFee = () => (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-fadeIn">
+            <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-800">Excess Fee Settings</h2>
+                <p className="text-sm text-gray-500 mt-1">Configure which fee head should receive any excess payment amount that exceeds the student's due demand.</p>
+            </div>
+            <div className="p-6 space-y-6">
+                <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Excess Payment Fee Head</label>
+                    <select
+                        className="w-full md:w-1/2 bg-white border border-gray-300 rounded-lg p-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 animate-fadeIn"
+                        value={settings.excessFeeHead || ''}
+                        onChange={e => setSettings(s => ({ ...s, excessFeeHead: e.target.value || null }))}
+                    >
+                        <option value="">-- No Excess Head (Validation strictly blocks excess) --</option>
+                        {feeHeads.map(fh => (
+                            <option key={fh._id} value={fh._id}>{fh.name} {fh.code ? `(${fh.code})` : ''}</option>
+                        ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                        If a fee head is selected, cashier payments in Fee Collection that exceed the current demand for a selected fee head will have the surplus amount automatically credited to this designated excess fee head. If no head is selected, the cashier is strictly blocked from entering payment amounts greater than the remaining due demand.
+                    </p>
+                </div>
+            </div>
+            <SectionFooter section="excess-fee" savingSection={savingSection} onSave={handleSaveSection} label="Save Excess Fee Settings" />
+        </div>
+    );
+
     return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
             <Sidebar />
@@ -672,6 +702,7 @@ const Settings = () => {
                         {activeSection === 'sequence'     && renderSequence()}
                         {activeSection === 'masking'      && renderMasking()}
                         {activeSection === 'email-reports' && renderEmailReports()}
+                        {activeSection === 'excess-fee'   && renderExcessFee()}
                     </div>
                 )}
             </div>

@@ -53,7 +53,7 @@ const buildStudentTermAllocation = async (studentId, struct) => {
     studentId,
     feeHead: feeHeadId,
     studentYear: struct.studentYear,
-    status: { $ne: 'cancelled' }
+    status: 'active'
   };
   // Match semester loosely — null demand vs "1" txns still apply to this year head
   if (struct.semester !== null && struct.semester !== undefined && struct.semester !== '') {
@@ -600,7 +600,7 @@ const processLateFees = async (req, res) => {
                 feeHead: demandHead._id,
                 studentYear: firstStruct.studentYear,
                 semester: firstStruct.semester,
-                status: { $ne: 'cancelled' }
+                status: 'active'
               });
               const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
 
@@ -635,7 +635,7 @@ const processLateFees = async (req, res) => {
                 feeHead: demandHead._id,
                 studentYear: firstStruct.studentYear,
                 semester: firstStruct.semester,
-                status: { $ne: 'cancelled' }
+                status: 'active'
               });
               const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
 
@@ -653,7 +653,7 @@ const processLateFees = async (req, res) => {
                 feeHead: demandHead._id,
                 studentYear: firstStruct.studentYear,
                 semester: firstStruct.semester,
-                status: { $ne: 'cancelled' }
+                status: 'active'
               });
               const lateFeePaid = lateFeePaidTxns.reduce((sum, t) => sum + t.amount, 0);
 
@@ -806,7 +806,7 @@ const buildServiceTermAllocation = async ({
     studentId,
     feeHead: feeHeadId,
     studentYear: String(studentYear),
-    status: { $ne: 'cancelled' }
+    status: 'active'
   };
   const txns = await Transaction.find(txnFilter).lean();
   return allocateServiceTermsFromTxns({ txns, defaultTerms, demandTotal });
@@ -956,7 +956,7 @@ const processServiceLateFees = async (req, res) => {
         studentId: { $in: studentIds },
         feeHead: { $in: [applicableHeadId, demandHeadId] },
         studentYear: { $in: studentYears },
-        status: { $ne: 'cancelled' }
+        status: 'active'
       }).lean();
 
       const applicableTxnMap = new Map(); // studentId|year -> txns

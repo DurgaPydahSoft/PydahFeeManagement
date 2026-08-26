@@ -257,6 +257,45 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     ))}
                                 </div>
                             </div>
+                            
+                            {row.transfers && row.transfers.length > 0 && (
+                                <div className="bg-white rounded-lg border border-blue-100 shadow-sm overflow-hidden mt-4 p-4">
+                                    <h4 className="flex items-center gap-2 text-[11px] font-bold text-blue-900 uppercase tracking-widest mb-4">
+                                        <svg className="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                        Ledger Transfers (Cashless)
+                                    </h4>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-[10px] text-left">
+                                            <thead className="bg-gray-50 text-gray-500 font-semibold border-b border-gray-100">
+                                                <tr>
+                                                    <th className="px-4 py-3 w-[50px]">S.No</th>
+                                                    <th className="px-4 py-3">Student</th>
+                                                    <th className="px-4 py-3">Reg No / PIN</th>
+                                                    <th className="px-4 py-3">Receipt No</th>
+                                                    <th className="px-4 py-3">Source Fee Head</th>
+                                                    <th className="px-4 py-3">Target Fee Head</th>
+                                                    <th className="px-4 py-3 text-right">Amount</th>
+                                                    <th className="px-4 py-3">Remarks</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {row.transfers.map((t, idx) => (
+                                                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                                        <td className="px-4 py-2.5 text-gray-400">{idx + 1}</td>
+                                                        <td className="px-4 py-2.5 font-bold text-gray-800 uppercase">{t.studentName}</td>
+                                                        <td className="px-4 py-2.5 font-mono text-gray-600">{t.pinNo || t.studentId}</td>
+                                                        <td className="px-4 py-2.5 font-mono text-gray-600">{t.receiptNumber || '-'}</td>
+                                                        <td className="px-4 py-2.5 text-red-600 font-medium">{t.sourceFeeHeadName} {t.sourceFeeHeadCode ? `(${t.sourceFeeHeadCode})` : ''}</td>
+                                                        <td className="px-4 py-2.5 text-green-600 font-semibold">{t.targetFeeHeadName} {t.targetFeeHeadCode ? `(${t.targetFeeHeadCode})` : ''}</td>
+                                                        <td className="px-4 py-2.5 text-right font-extrabold text-gray-800">₹{Number(t.amount || 0).toLocaleString('en-IN')}</td>
+                                                        <td className="px-4 py-2.5 text-gray-500 max-w-[200px] truncate" title={t.transferRemarks}>{t.transferRemarks}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </td>
                 </tr>
@@ -367,6 +406,49 @@ const ReportRow = ({ row, idx, activeTab, expandedRows, toggleRow, dateRange, ro
                                     </table>
                                 </div>
                             </div>
+
+                            {row.transfers && row.transfers.length > 0 && (
+                                <div className="bg-white rounded-lg border border-blue-100 shadow-sm overflow-hidden mt-4">
+                                    <div className="bg-blue-50/50 px-4 py-3 border-b border-blue-100">
+                                        <h4 className="flex items-center gap-2 text-[11px] font-bold text-blue-900 uppercase tracking-widest">
+                                            <svg className="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                            Ledger Transfers (Cashless)
+                                        </h4>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-[10px] text-left">
+                                            <thead className="bg-gray-50 text-gray-500 font-semibold border-b border-gray-100">
+                                                <tr>
+                                                    <th className="px-4 py-3 w-[50px]">S.No</th>
+                                                    <th className="px-4 py-3">Student</th>
+                                                    <th className="px-4 py-3">Reg No / PIN</th>
+                                                    <th className="px-4 py-3">Receipt No</th>
+                                                    <th className="px-4 py-3">Source Fee Head</th>
+                                                    <th className="px-4 py-3">Target Fee Head</th>
+                                                    <th className="px-4 py-3 text-right">Amount</th>
+                                                    <th className="px-4 py-3">Cashier</th>
+                                                    <th className="px-4 py-3">Remarks</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {row.transfers.map((t, idx) => (
+                                                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                                        <td className="px-4 py-2.5 text-gray-400">{idx + 1}</td>
+                                                        <td className="px-4 py-2.5 font-bold text-gray-800 uppercase">{t.studentName}</td>
+                                                        <td className="px-4 py-2.5 font-mono text-gray-600">{t.pinNo || t.studentId}</td>
+                                                        <td className="px-4 py-2.5 font-mono text-gray-600">{t.receiptNumber || '-'}</td>
+                                                        <td className="px-4 py-2.5 text-red-600 font-medium">{t.sourceFeeHeadName} {t.sourceFeeHeadCode ? `(${t.sourceFeeHeadCode})` : ''}</td>
+                                                        <td className="px-4 py-2.5 text-green-600 font-semibold">{t.targetFeeHeadName} {t.targetFeeHeadCode ? `(${t.targetFeeHeadCode})` : ''}</td>
+                                                        <td className="px-4 py-2.5 text-right font-extrabold text-gray-800">₹{Number(t.amount || 0).toLocaleString('en-IN')}</td>
+                                                        <td className="px-4 py-2.5 font-medium text-gray-700">{t.transferredByName}</td>
+                                                        <td className="px-4 py-2.5 text-gray-500 max-w-[200px] truncate" title={t.transferRemarks}>{t.transferRemarks}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </td>
                 </tr>

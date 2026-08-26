@@ -63,6 +63,7 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { name: 'Receipt Sequence',        hash: 'sequence' },
         { name: 'Mask Fee Heads',          hash: 'masking' },
         { name: 'Email Reports',           hash: 'email-reports' },
+        { name: 'Excess Fee Settings',     hash: 'excess-fee' },
     ];
 
     // Fee Configuration sub-items (hash-based navigation within /fee-config)

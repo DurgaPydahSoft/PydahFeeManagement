@@ -21,6 +21,8 @@ const allPermissions = [
   'fee_collection_pay',
   'fee_collection_concession',
   'fee_collection_edit',
+  'fee_collection_delete',
+  'fee_collection_transfer',
   'proceedings_approve',
   'proceedings_verify',
   'proceedings_edit',

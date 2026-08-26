@@ -1316,6 +1316,23 @@ const UserManagement = () => {
                                                                 />
                                                                 <span className="text-xs text-gray-600">Enable Delete Transaction</span>
                                                             </label>
+                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(formData.permissions || []).includes('fee_collection_transfer')}
+                                                                    onChange={(() => {
+                                                                        const toggle = () => {
+                                                                            let p = formData.permissions || [];
+                                                                            if (p.includes('fee_collection_transfer')) p = p.filter(x => x !== 'fee_collection_transfer');
+                                                                            else p = [...p, 'fee_collection_transfer'];
+                                                                            setFormData({ ...formData, permissions: p });
+                                                                        };
+                                                                        return toggle;
+                                                                    })()}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">Enable Transfer Transaction</span>
+                                                            </label>
                                                         </div>
                                                     )}
 
@@ -1645,7 +1662,7 @@ const UserManagement = () => {
                                                 {/* Sub-Permissions for Fee Collection */}
                                                 {page.path === '/fee-collection' && (roleFormData.permissions || []).includes('/fee-collection') && (
                                                     <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                        {['fee_collection_pay', 'fee_collection_concession', 'fee_collection_edit', 'fee_collection_delete'].map(sub => (
+                                                        {['fee_collection_pay', 'fee_collection_concession', 'fee_collection_edit', 'fee_collection_delete', 'fee_collection_transfer'].map(sub => (
                                                             <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
                                                                 <input
                                                                     type="checkbox"
@@ -1915,7 +1932,7 @@ const UserManagement = () => {
                                                             {/* Sub-Permissions Display */}
                                                             {page.path === '/fee-collection' && (
                                                                 <div className="mt-1.5 ml-2 space-y-1">
-                                                                    {['fee_collection_pay', 'fee_collection_concession', 'fee_collection_edit', 'fee_collection_delete'].map(sub => (
+                                                                    {['fee_collection_pay', 'fee_collection_concession', 'fee_collection_edit', 'fee_collection_delete', 'fee_collection_transfer'].map(sub => (
                                                                         (viewPermissionsModal.user.permissions || []).includes(sub) && (
                                                                             <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
                                                                                 <span className="text-green-600">✓</span>

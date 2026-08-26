@@ -71,6 +71,81 @@ const applyTransactionScopeFilter = async (user, campusId, query = {}) => {
     };
 };
 
+const fetchTransfersForPeriod = async (matchStage, allowedColleges, hasCollegeScope, collegeFilter) => {
+    const transferMatch = {
+        status: 'transferred'
+    };
+    if (matchStage.paymentDate) {
+        transferMatch.paymentDate = matchStage.paymentDate;
+    }
+    if (matchStage.$and) {
+        transferMatch.$and = [...matchStage.$and];
+    }
+
+    const transfers = await Transaction.find(transferMatch)
+        .populate('feeHead', 'name code')
+        .populate('transferredToFeeHead', 'name code')
+        .lean();
+
+    const studentIds = new Set();
+    transfers.forEach(tx => {
+        if (tx.studentId) studentIds.add(String(tx.studentId).trim());
+    });
+
+    const collegeMap = {};
+    if (studentIds.size > 0) {
+        const idList = Array.from(studentIds).map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+        try {
+            const [students] = await db.query(
+                `SELECT admission_number, college, pin_no, student_name, course, branch, current_year FROM students WHERE admission_number IN (${idList}) OR pin_no IN (${idList})`
+            );
+            students.forEach(s => {
+                collegeMap[String(s.admission_number).trim()] = s;
+                if (s.pin_no) {
+                    collegeMap[String(s.pin_no).trim()] = s;
+                }
+            });
+        } catch (err) {
+            console.error('[Transfers SQL Fetch Error]', err);
+        }
+    }
+
+    const filteredTransfers = [];
+    transfers.forEach(tx => {
+        const sId = String(tx.studentId).trim();
+        const s = collegeMap[sId] || collegeMap[sId.toLowerCase()];
+        const college = tx.college || s?.college || 'Unknown';
+        
+        if (hasCollegeScope && !collegeScope.isCollegeAllowed(college, allowedColleges)) {
+            return;
+        }
+        if (collegeFilter && collegeFilter !== college) {
+            return;
+        }
+
+        filteredTransfers.push({
+            _id: tx._id,
+            studentId: tx.studentId,
+            studentName: tx.studentName || s?.student_name || 'Unknown',
+            pinNo: tx.pinNo || s?.pin_no || '-',
+            college: college,
+            amount: tx.amount,
+            paymentDate: tx.paymentDate,
+            receiptNumber: tx.receiptNumber,
+            sourceFeeHeadName: tx.feeHead?.name || 'Unknown',
+            sourceFeeHeadCode: tx.feeHead?.code || '',
+            targetFeeHeadName: tx.transferredToFeeHead?.name || 'Unknown',
+            targetFeeHeadCode: tx.transferredToFeeHead?.code || '',
+            transferredBy: tx.transferredBy || tx.collectedBy || 'Unknown',
+            transferredByName: tx.transferredByName || tx.collectedByName || 'Unknown',
+            transferredAt: tx.transferredAt || tx.updatedAt || tx.paymentDate,
+            transferRemarks: tx.transferRemarks || tx.remarks || ''
+        });
+    });
+
+    return filteredTransfers;
+};
+
 // @desc    Get Transaction Reports (Daily, Cashier, FeeHead, Mode)
 // @route   GET /api/reports/transactions
 // @access  Public (should be Protected)
@@ -81,9 +156,10 @@ const getTransactionReports = async (req, res) => {
         const allowedColleges = await collegeScope.getEffectiveCollegeNames(req.user, campusId);
         const hasCollegeScope = Array.isArray(allowedColleges) && allowedColleges.length > 0;
 
-        // Base matching condition — always exclude cancelled transactions, overall concessions, and extra demands from reports
+        // Base matching condition — always exclude cancelled / transferred transactions, overall concessions, and extra demands from reports
         let matchStage = { 
-            status: { $ne: 'cancelled' },
+            status: { $nin: ['cancelled', 'transferred'] },
+            paymentMode: { $ne: 'Transfer' },
             remarks: { $nin: ['Concession as per declaration', 'Extra Demand as per declaration'] }
         };
         matchStage = await applyTransactionScopeFilter(req.user, campusId, matchStage);
@@ -374,6 +450,37 @@ const getTransactionReports = async (req, res) => {
                     fhEntry.colleges[college].courses[cName] += amount;
                     fhEntry.colleges[college].total += amount;
                 }
+            });
+
+            // Fetch Transfers and group them
+            const transfersList = await fetchTransfersForPeriod(matchStage, allowedColleges, hasCollegeScope, collegeFilter);
+            transfersList.forEach(t => {
+                const cashier = t.transferredByName || 'Unknown';
+                const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
+                const targetGroupName = Object.keys(cashierGroups).find(name => 
+                    name.replace(/\s+/g, ' ').trim().toLowerCase() === normalizedCashierName
+                ) || cashier;
+
+                if (!cashierGroups[targetGroupName]) {
+                    cashierGroups[targetGroupName] = {
+                        _id: targetGroupName,
+                        empNo: t.transferredBy || targetGroupName,
+                        totalAmount: 0,
+                        debitAmount: 0,
+                        creditAmount: 0,
+                        cashAmount: 0,
+                        bankAmount: 0,
+                        totalCount: 0,
+                        feeHeadsMap: {},
+                        transactions: [],
+                        transfers: []
+                    };
+                }
+
+                if (!cashierGroups[targetGroupName].transfers) {
+                    cashierGroups[targetGroupName].transfers = [];
+                }
+                cashierGroups[targetGroupName].transfers.push(t);
             });
 
             // 6. Format Result Array
@@ -745,6 +852,31 @@ const getTransactionReports = async (req, res) => {
                         cashierEntry.creditAmount += amount;
                     }
                 }
+            });
+
+            // Fetch Transfers and group by College
+            const transfersList = await fetchTransfersForPeriod(matchStage, allowedColleges, hasCollegeScope, collegeFilter);
+            transfersList.forEach(t => {
+                const college = t.college || 'Unknown';
+                if (!collegeGroups[college]) {
+                    collegeGroups[college] = {
+                        _id: college,
+                        totalAmount: 0,
+                        debitAmount: 0,
+                        creditAmount: 0,
+                        cashAmount: 0,
+                        bankAmount: 0,
+                        totalCount: 0,
+                        transactions: [],
+                        cashiersMap: {},
+                        transfers: []
+                    };
+                }
+
+                if (!collegeGroups[college].transfers) {
+                    collegeGroups[college].transfers = [];
+                }
+                collegeGroups[college].transfers.push(t);
             });
 
             // Format results array
