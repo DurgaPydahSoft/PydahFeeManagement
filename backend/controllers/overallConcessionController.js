@@ -1,4 +1,5 @@
 const db = require('../config/sqlDb');
+const admissionsDb = require('../config/admissionsDb');
 const StudentFee = require('../models/StudentFee');
 const FeeHead = require('../models/FeeHead');
 const FeeStructure = require('../models/FeeStructure');
@@ -916,7 +917,39 @@ const getConcessionRequests = async (req, res) => {
             };
         });
 
-        res.json(enriched);
+        // Attach admissions lead reference (lead_data.reference1) by admission number
+        const admissionNosForRef = [...new Set(enriched.map(r => r.admissionNumber).filter(Boolean))];
+        const referenceMap = {};
+        if (admissionNosForRef.length > 0) {
+            try {
+                const [admRows] = await admissionsDb.query(
+                    `SELECT admission_number,
+                            COALESCE(
+                                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(lead_data, '$.reference1')), ''),
+                                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(lead_data, '$.dynamicFields.reference1')), ''),
+                                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(lead_data, '$.reference')), ''),
+                                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(lead_data, '$.referenceName')), '')
+                            ) AS reference_name
+                     FROM admissions
+                     WHERE admission_number IN (?)`,
+                    [admissionNosForRef]
+                );
+                admRows.forEach(row => {
+                    if (row.admission_number) {
+                        referenceMap[String(row.admission_number).trim()] = row.reference_name || '';
+                    }
+                });
+            } catch (admErr) {
+                console.error('Error fetching admissions references:', admErr.message);
+            }
+        }
+
+        const withReference = enriched.map(r => ({
+            ...r,
+            referenceName: referenceMap[String(r.admissionNumber || '').trim()] || ''
+        }));
+
+        res.json(withReference);
     } catch (error) {
         console.error('Error fetching concession requests:', error);
         res.status(500).json({ message: 'Server Error', error: error.message });

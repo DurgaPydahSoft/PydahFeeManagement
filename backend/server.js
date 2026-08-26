@@ -9,21 +9,38 @@ const { connectHostelDB } = require('./config/dbHostel');
 const { connectTransportDB } = require('./config/dbTransport');
 const { connectEmployeeDB } = require('./config/dbEmployee'); // [NEW]
 const sqlPool = require('./config/sqlDb');
+const admissionsPool = require('./config/admissionsDb');
+
 
 connectDB();
 connectHostelDB();
 connectTransportDB();
 connectEmployeeDB(); // [NEW]
 
-// Test SQL Connection
-sqlPool.query('SELECT 1')
-  .then(() => {
-    console.log('MySQL Connected');
-    // Run startup name sync for MongoDB FeeStructures
-    const { syncFeeStructureNamesWithSql } = require('./services/feeStructureSyncService');
-    syncFeeStructureNamesWithSql().catch(err => console.error('[Startup Name Sync] Failed:', err));
-  })
-  .catch(err => console.error('MySQL Connection Failed:', err));
+const probeSqlPool = (pool, fallbackLabel) => {
+  const label = pool?.dbLabel || fallbackLabel;
+  const configuredName = pool?.dbName || process.env.DB_NAME || fallbackLabel;
+  if (!pool?.isConfigured) {
+    console.warn(`MySQL Skipped → ${configuredName} (${label}) — not configured`);
+    return;
+  }
+  Promise.resolve()
+    .then(() => pool.query('SELECT DATABASE() AS db_name'))
+    .then(([rows]) => {
+      const dbName = rows?.[0]?.db_name || configuredName;
+      console.log(`MySQL Connected → ${dbName} (${label})`);
+      if (label === 'student') {
+        const { syncFeeStructureNamesWithSql } = require('./services/feeStructureSyncService');
+        syncFeeStructureNamesWithSql().catch(err => console.error('[Startup Name Sync] Failed:', err));
+      }
+    })
+    .catch(err => {
+      console.error(`MySQL Connection Failed [${configuredName}] (${label}):`, err?.message || err);
+    });
+};
+
+probeSqlPool(sqlPool, 'student');
+probeSqlPool(admissionsPool, 'admissions');
 
 const { verifyS3Connection } = require('./utils/s3Upload');
 verifyS3Connection();

@@ -1751,6 +1751,7 @@ const OverallConcession = () => {
                                                     <th className="px-4 py-3 text-left">Student</th>
                                                     <th className="px-4 py-3 text-left">Batch</th>
                                                     <th className="px-4 py-3 text-left">Quota</th>
+                                                    <th className="px-4 py-3 text-left">Reference</th>
                                                     <th className="px-4 py-3 text-left">Requested By</th>
                                                     <th className="px-4 py-3 text-left">Approved By</th>
                                                     <th className="px-4 py-3 text-center">Entries</th>
@@ -1775,6 +1776,9 @@ const OverallConcession = () => {
                                                             <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold uppercase text-[10px]">
                                                                 {req.studentQuota || '—'}
                                                             </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-700 font-medium">
+                                                            {req.referenceName || <span className="text-slate-300">—</span>}
                                                         </td>
                                                         <td className="px-4 py-3 text-slate-700">
                                                             <div className="font-semibold text-slate-800">{req.requestedByName || req.requestedBy}</div>
@@ -1958,6 +1962,9 @@ const OverallConcession = () => {
                                                         {req.college} — {req.course} / {req.branch} &nbsp;|&nbsp;
                                                         Batch: <b>{req.batch}</b> &nbsp;|&nbsp;
                                                         Quota: <b className="uppercase">{req.studentQuota || '—'}</b>
+                                                        {req.referenceName ? (
+                                                            <> &nbsp;|&nbsp; Reference: <b>{req.referenceName}</b></>
+                                                        ) : null}
                                                     </p>
                                                     <p className="text-[10px] text-slate-400 mt-1">
                                                         Requested by <b>{req.requestedByName || req.requestedBy}</b> on{' '}
