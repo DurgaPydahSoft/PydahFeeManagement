@@ -703,6 +703,7 @@ const Reports = () => {
     const [summary, setSummary] = useState({ totalConfirm: 0, count: 0 });
     const [expandedRows, setExpandedRows] = useState([]);
     const [printModalData, setPrintModalData] = useState(null);
+    const [printGenerating, setPrintGenerating] = useState(false);
     const [printOptions, setPrintOptions] = useState({
         mode: 'all',
         showSummary: true,
@@ -1497,6 +1498,8 @@ const Reports = () => {
                 return;
             }
 
+            setPrintGenerating(true);
+
             const effectiveDateRange = {
                 start: modalDateRange.start || startDate,
                 end: modalDateRange.end || endDate,
@@ -1518,6 +1521,8 @@ const Reports = () => {
         } catch (err) {
             console.error('Print failed:', err);
             alert('Failed to generate print document');
+        } finally {
+            setPrintGenerating(false);
         }
     };
 
@@ -1715,7 +1720,8 @@ const Reports = () => {
                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200 relative">
                                 <button 
                                     onClick={() => setPrintModalData(null)}
-                                    className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors active:scale-95 z-10"
+                                    disabled={printGenerating}
+                                    className={`absolute top-4 right-4 p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors active:scale-95 z-10 ${printGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     aria-label="Close modal"
                                 >
                                     <X size={18} />
@@ -1859,18 +1865,30 @@ const Reports = () => {
                                                      downloadCashierExcel(curData, buildPrintOptions(), effectiveRange);
                                                  }
                                              }}
-                                             disabled={modalLoading}
-                                             className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 ${modalLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                             disabled={modalLoading || printGenerating}
+                                             className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 hover:bg-slate-200 transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 ${(modalLoading || printGenerating) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                          >
                                              <FileSpreadsheet size={16} /> Excel Download
                                          </button>
                                      )}
                                      <button
                                          onClick={handleModalPrint}
-                                         disabled={modalLoading || (!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
-                                         className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${(modalLoading || (!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
+                                         disabled={modalLoading || printGenerating || (!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)}
+                                         className={`flex-1 w-full px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${(modalLoading || printGenerating || (!printOptions.showSummary && !printOptions.showDetails) || (!isModalGlobalAccount && !printOptions.includeCash && !printOptions.includeBank)) ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-gray-900 hover:bg-black shadow-gray-200'}`}
                                      >
-                                         <Printer size={16} /> {modalLoading ? 'Updating Data...' : 'Generate Print'}
+                                         {printGenerating ? (
+                                             <>
+                                                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                 </svg>
+                                                 Generating Print...
+                                             </>
+                                         ) : (
+                                             <>
+                                                 <Printer size={16} /> {modalLoading ? 'Updating Data...' : 'Generate Print'}
+                                             </>
+                                         )}
                                      </button>
                                  </div>
                             </div>
