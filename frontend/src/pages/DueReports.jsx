@@ -547,9 +547,8 @@ const DueReports = () => {
 
             const getCategoryKey = (item) => {
                 const code = String(item.feeHeadCode || '').toUpperCase();
-                const name = String(item.feeHeadName || '').toLowerCase();
-                if (code === 'HST01' || name.includes('hostel')) return 'hostel';
-                if (code === 'TRN' || code === 'TRN01' || name.includes('transport')) return 'transport';
+                if (code === 'HST01') return 'hostel';
+                if (code === 'TRN' || code === 'TRN01') return 'transport';
                 return 'academic';
             };
 
@@ -632,13 +631,44 @@ const DueReports = () => {
 
             const dueAmount = Math.max(0, student.totalFee - paidAmount - concessionAmount);
 
+            // Calculate activeDue only from active terms
+            let activeDue = 0;
+            [catSums.academic, catSums.hostel, catSums.transport].forEach(catSum => {
+                Object.values(catSum.termsMap).forEach(term => {
+                    if (term.isActiveTerm) {
+                        activeDue += (term.balance || 0);
+                    }
+                });
+            });
+
+            const finalizeCategoryClient = (summary) => {
+                if (summary.total === 0 && summary.paid === 0 && summary.concession === 0 && summary.due === 0) {
+                    return null;
+                }
+                const terms = Object.values(summary.termsMap).sort((a, b) => a.termNumber - b.termNumber);
+                return {
+                    total: summary.total,
+                    paid: summary.paid,
+                    concession: summary.concession,
+                    due: summary.due,
+                    terms
+                };
+            };
+
+            const rebuiltGroupedFeeDetails = {
+                academic: finalizeCategoryClient(catSums.academic),
+                hostel: finalizeCategoryClient(catSums.hostel),
+                transport: finalizeCategoryClient(catSums.transport)
+            };
+
             return {
                 ...student,
                 paidAmount,
                 concessionAmount,
                 dueAmount,
-                activeDue: dueAmount,
-                termDues
+                activeDue,
+                termDues,
+                groupedFeeDetails: rebuiltGroupedFeeDetails
             };
         });
     }, [sortedData, excludeScholarship]);
@@ -987,7 +1017,7 @@ const DueReports = () => {
                                         <tr>
                                             <th className="p-2 w-10 text-center">#</th>
                                             <th 
-                                                className="p-2 w-28 cursor-pointer select-none hover:bg-gray-100 transition"
+                                                className="p-2 w-20 cursor-pointer select-none hover:bg-gray-100 transition"
                                                 onClick={() => {
                                                     const dir = (sortField === 'pin_no' && sortDir === 'asc') ? 'desc' : 'asc';
                                                     setSortField('pin_no');
@@ -999,7 +1029,7 @@ const DueReports = () => {
                                                 </div>
                                             </th>
                                             <th 
-                                                className="p-2 w-36 cursor-pointer select-none hover:bg-gray-100 transition"
+                                                className="p-2 w-20 cursor-pointer select-none hover:bg-gray-100 transition"
                                                 onClick={() => {
                                                     const dir = (sortField === 'admission_number' && sortDir === 'asc') ? 'desc' : 'asc';
                                                     setSortField('admission_number');
@@ -1007,11 +1037,11 @@ const DueReports = () => {
                                                 }}
                                             >
                                                 <div className="flex items-center gap-1">
-                                                    Admission No {sortField === 'admission_number' && (sortDir === 'asc' ? '▲' : '▼')}
+                                                    Adm No {sortField === 'admission_number' && (sortDir === 'asc' ? '▲' : '▼')}
                                                 </div>
                                             </th>
                                             <th 
-                                                className="p-2 cursor-pointer select-none hover:bg-gray-100 transition"
+                                                className="p-2 cursor-pointer select-none hover:bg-gray-100 transition min-w-[200px]"
                                                 onClick={() => {
                                                     const dir = (sortField === 'student_name' && sortDir === 'asc') ? 'desc' : 'asc';
                                                     setSortField('student_name');
@@ -1164,6 +1194,7 @@ const DueReports = () => {
                                                                                 <tr className="text-gray-500 border-b border-gray-200 text-[10px] uppercase font-bold">
                                                                                     <th className="pb-2">Fee Category</th>
                                                                                     <th className="pb-2 text-right">Total</th>
+                                                                                    <th className="pb-2 text-right">Paid</th>
                                                                                     {Array.from({ length: maxTerms }).map((_, i) => (
                                                                                         <th key={i} className="pb-2 text-right text-gray-500 bg-blue-50/15 w-28">
                                                                                             <div>T{i + 1} Due</div>
@@ -1184,11 +1215,11 @@ const DueReports = () => {
                                                                                         { key: 'hostel', label: 'Hostel Fee' },
                                                                                         { key: 'transport', label: 'Transport Fee' }
                                                                                     ].filter(c => student.groupedFeeDetails?.[c.key]);
-
+ 
                                                                                     if (categories.length === 0) {
-                                                                                        return <tr><td colSpan={6 + maxTerms} className="text-center py-4 text-gray-400 italic">No breakdown details found.</td></tr>;
+                                                                                        return <tr><td colSpan={7 + maxTerms} className="text-center py-4 text-gray-400 italic">No breakdown details found.</td></tr>;
                                                                                     }
-
+ 
                                                                                     return categories.map(cat => {
                                                                                         const catData = student.groupedFeeDetails[cat.key];
                                                                                         const catActiveDue = (catData.terms || []).reduce((acc, t) => acc + (t.isActiveTerm ? (t.balance || 0) : 0), 0);
@@ -1196,6 +1227,7 @@ const DueReports = () => {
                                                                                             <tr key={cat.key} className="hover:bg-gray-50/50">
                                                                                                 <td className="py-2.5 font-bold text-gray-700">{cat.label}</td>
                                                                                                 <td className="py-2.5 text-right text-gray-600">₹{catData.total.toLocaleString('en-IN')}</td>
+                                                                                                <td className="py-2.5 text-right text-green-600 font-semibold">₹{(catData.paid || 0).toLocaleString('en-IN')}</td>
                                                                                                 {Array.from({ length: maxTerms }).map((_, i) => {
                                                                                                     const termObj = (catData.terms || []).find(t => Number(t.termNumber) === (i + 1));
                                                                                                     const termBalance = termObj ? (termObj.balance || 0) : 0;
