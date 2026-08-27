@@ -529,6 +529,7 @@ const DueReports = () => {
             return sortedData;
         }
         return sortedData.map(student => {
+            const isStudentScholarEligible = String(student.scholarshipStatus || '').toLowerCase() === 'eligible';
             let paidAmount = 0;
             let concessionAmount = 0;
             const studentTermDues = {};

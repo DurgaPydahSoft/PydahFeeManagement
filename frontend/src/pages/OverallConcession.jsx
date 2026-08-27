@@ -214,10 +214,10 @@ const OverallConcession = () => {
     const markFormClean = () => { formDirtyRef.current = false; setIsFormDirty(false); };
 
     const normalizeConcessionType = (type) =>
-        String(type ?? 'CONCESSION').trim().toUpperCase() === 'REVISED' ? 'REVISED' : 'CONCESSION';
+        String(type ?? 'REVISED').trim().toUpperCase() === 'CONCESSION' ? 'CONCESSION' : 'REVISED';
     const normalizeFeeHeadId = (id) => String(id ?? '').trim();
     const getRowConcessionType = (fhId) =>
-        normalizeConcessionType(concessionTypes[normalizeFeeHeadId(fhId)] || 'CONCESSION');
+        normalizeConcessionType(concessionTypes[normalizeFeeHeadId(fhId)] || 'REVISED');
 
     const resolveRevisedFeeHeadId = useCallback((rf) => {
         // Prefer feeHeadCode (business id) over Mongo ObjectId when both exist
@@ -680,7 +680,7 @@ const OverallConcession = () => {
                 grouped.set(fhId, {
                     key: `${fhId}_${grouped.size}`,
                     feeHeadId: fhId,
-                    concessionType: normalizeConcessionType(c.concessionType || 'CONCESSION'),
+                    concessionType: normalizeConcessionType(c.concessionType || 'REVISED'),
                     years: {}
                 });
             }
@@ -726,7 +726,7 @@ const OverallConcession = () => {
         setEditRows(rows => [...rows, {
             key: `${editNewHeadId}_${Date.now()}`,
             feeHeadId: normalizeFeeHeadId(editNewHeadId),
-            concessionType: 'CONCESSION',
+            concessionType: 'REVISED',
             years: {}
         }]);
         setEditNewHeadId('');
@@ -1002,7 +1002,7 @@ const OverallConcession = () => {
         const fhId = normalizeFeeHeadId(selectedNewHead);
         if (!activeEditHeads.includes(fhId)) {
             setActiveEditHeads([...activeEditHeads, fhId]);
-            setConcessionTypes(prev => ({ ...prev, [fhId]: 'CONCESSION' }));
+            setConcessionTypes(prev => ({ ...prev, [fhId]: 'REVISED' }));
         }
         markFormDirty(); setSelectedNewHead('');
     };
@@ -1026,7 +1026,7 @@ const OverallConcession = () => {
         heads.forEach(fhId => {
             const fh    = feeHeads.find(h => normalizeFeeHeadId(h._id) === normalizeFeeHeadId(fhId));
             const fhCode = fh ? fh.code : '';
-            const cType  = normalizeConcessionType(types[normalizeFeeHeadId(fhId)] || 'CONCESSION');
+            const cType  = normalizeConcessionType(types[normalizeFeeHeadId(fhId)] || 'REVISED');
             yearsArray.forEach(yr => {
                 const val = drafts[buildDraftKey(fhId, yr)];
                 if (val !== undefined && val !== null && String(val).trim() !== '') {
