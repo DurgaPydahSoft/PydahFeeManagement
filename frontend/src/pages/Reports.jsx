@@ -771,6 +771,10 @@ const Reports = () => {
             if (mode === 'none') return false;
             if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
             if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+            if (options.allowedFeeHeads && options.allowedFeeHeads.length > 0) {
+                const fhName = (tx.feeHead || tx.feeHeadName || '').toString().trim().toLowerCase();
+                if (!options.allowedFeeHeads.includes(fhName)) return false;
+            }
             return true;
         });
 
@@ -816,10 +820,11 @@ const Reports = () => {
 
         if (showSummary) {
             const scopeValue = accountRow.is_global ? 'Global Account' : `${accountRow.college || 'N/A'} / ${accountRow.course || 'All Courses'}`;
+            const groupInfo = options.selectedGroupName ? ` | GROUP: ${options.selectedGroupName.toUpperCase()}` : '';
             const summaryRows = [
                 ['ACCOUNT COLLECTION SUMMARY'],
                 [String(accountRow.account_name || '').toUpperCase() || ''],
-                [`BANK: ${accountRow.bank_name || ''} | AC NO: ${accountRow.account_number || ''} | SCOPE: ${scopeValue} | DATE RANGE: ${dateRange.start} to ${dateRange.end}`],
+                [`BANK: ${accountRow.bank_name || ''} | AC NO: ${accountRow.account_number || ''} | SCOPE: ${scopeValue} | DATE RANGE: ${dateRange.start} to ${dateRange.end}${groupInfo}`],
                 [],
                 ['SUMMARY METRIC', 'VALUE'],
                 ['TOTAL RECEIPTS', totalReceipts],
@@ -949,8 +954,18 @@ const Reports = () => {
             if (mode === 'none') return false;
             if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
             if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+            if (options.allowedFeeHeads && options.allowedFeeHeads.length > 0) {
+                const fhName = (tx.feeHead || tx.feeHeadName || '').toString().trim().toLowerCase();
+                if (!options.allowedFeeHeads.includes(fhName)) return false;
+            }
             return true;
         });
+
+        const groupInfo = options.selectedGroupName ? ` | GROUP: ${options.selectedGroupName.toUpperCase()}` : '';
+        const sheetRows = [
+            ['CASHIER COLLECTION DETAIL'],
+            [`CASHIER: ${String(cashierName).toUpperCase()} | EMP NO: ${empNo || ''}${groupInfo}`],
+        ];
 
         // Group by College, then Course
         const grouped = {};
@@ -967,11 +982,6 @@ const Reports = () => {
                 grouped[col][course].bank.push(tx);
             }
         });
-
-        const sheetRows = [
-            ['CASHIER COLLECTION DETAIL'],
-            [`CASHIER: ${String(cashierName).toUpperCase()} | EMP NO: ${empNo || ''}`],
-        ];
 
         const merges = [
             { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
@@ -1217,6 +1227,10 @@ const Reports = () => {
                 if (mode === 'none') return false;
                 if (mode === 'Cash' && tx.paymentMode !== 'Cash') return false;
                 if (mode === 'Online' && tx.paymentMode === 'Cash') return false;
+                if (options.allowedFeeHeads && options.allowedFeeHeads.length > 0) {
+                    const fhName = (tx.feeHead || tx.feeHeadName || '').toString().trim().toLowerCase();
+                    if (!options.allowedFeeHeads.includes(fhName)) return false;
+                }
                 return true;
             });
 
@@ -1267,9 +1281,10 @@ const Reports = () => {
 
         if (showSummary) {
             const titleText = isAll ? 'CONSOLIDATED CASHIERS COLLECTION SUMMARY' : 'CASHIER COLLECTION SUMMARY';
+            const groupInfo = options.selectedGroupName ? ` | GROUP: ${options.selectedGroupName.toUpperCase()}` : '';
             const subtitleText = isAll 
-                ? `DATE RANGE: ${dateRange.start} to ${dateRange.end}`
-                : `EMP NO: ${cashierRows[0].empNo || ''} | DATE RANGE: ${dateRange.start} to ${dateRange.end}`;
+                ? `DATE RANGE: ${dateRange.start} to ${dateRange.end}${groupInfo}`
+                : `EMP NO: ${cashierRows[0].empNo || ''} | DATE RANGE: ${dateRange.start} to ${dateRange.end}${groupInfo}`;
             
             const summaryRows = [
                 [titleText],
@@ -1390,6 +1405,7 @@ const Reports = () => {
 
     useEffect(() => {
         if (printModalData) {
+            setSelectedFeeGroupId('');
             const initialStart = printModalData.dateRange?.start || printModalData.dateRange?.startDate || startDate;
             const initialEnd = printModalData.dateRange?.end || printModalData.dateRange?.endDate || endDate;
             setModalDateRange({
@@ -1410,6 +1426,7 @@ const Reports = () => {
             }
         } else {
             setModalReportData(null);
+            setSelectedFeeGroupId('');
         }
     }, [printModalData, activeTab]);
 
@@ -1847,6 +1864,27 @@ const Reports = () => {
                                                  </div>
                                              )}
                                          </div>
+
+                                         {/* Fee Head Group Filter */}
+                                         {feeGroups && feeGroups.length > 0 && (
+                                             <div className="space-y-2 animate-in fade-in duration-200">
+                                                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center justify-between">
+                                                     <span className="flex items-center gap-1.5"><Filter size={12} className="text-blue-600" /> Fee Head Group Filter</span>
+                                                 </label>
+                                                 <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                                                     <select
+                                                         value={selectedFeeGroupId}
+                                                         onChange={e => setSelectedFeeGroupId(e.target.value)}
+                                                         className="w-full px-2.5 py-1.5 text-xs font-bold text-gray-800 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                                                     >
+                                                         <option value="">All Fee Heads</option>
+                                                         {feeGroups.map(g => (
+                                                             <option key={g._id} value={g._id}>{g.name}</option>
+                                                         ))}
+                                                     </select>
+                                                 </div>
+                                             </div>
+                                         )}
                                      </div>
                                  </div>
 
