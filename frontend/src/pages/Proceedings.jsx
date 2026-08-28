@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, ChevronRight, User, CheckCircle, ShieldCheck, Printer, Loader2 } from 'lucide-react';
+import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X } from 'lucide-react';
 import { printHtmlDocument } from '../utils/printService';
 
 const STATUS_BADGE = {
@@ -14,8 +14,21 @@ const STATUS_BADGE = {
     Cancelled: 'bg-red-50 text-red-600 border-red-200'
 };
 
+const ModalHeader = ({ title, subtitle, onClose, children }) => (
+    <div className="px-6 pt-6 pb-4 flex justify-between items-start gap-4 shrink-0 border-b border-slate-100">
+        <div className="min-w-0">
+            <h2 className="text-lg font-bold text-slate-800 tracking-tight">{title}</h2>
+            {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+            {children}
+        </div>
+        <button type="button" onClick={onClose} className="bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition shrink-0" aria-label="Close">
+            <X size={18} className="text-slate-600" />
+        </button>
+    </div>
+);
+
 const TAB_META = {
-    list: { title: 'All Proceedings', desc: 'Active proceedings ready for fee collection' },
+    list: { title: 'All Proceedings', desc: 'Active and completed proceedings' },
     pending: { title: 'Pending Queue', desc: 'Verify and approve pending proceeding requests' },
     create: { title: 'Create Proceeding', desc: 'Create a new proceeding and map students' },
     guide: { title: 'Guide', desc: 'Step-by-step process for creating, verifying, and approving proceedings' }
@@ -96,7 +109,8 @@ const Proceedings = () => {
     const [collegeFilter, setCollegeFilter] = useState('All');
     const [courseFilter, setCourseFilter] = useState('All');
     const [academicYearFilter, setAcademicYearFilter] = useState('All');
-    const [expandedRows, setExpandedRows] = useState({});
+    const [detailModal, setDetailModal] = useState(null);
+    const academicYearDefaultSet = useRef(false);
     const [pendingSearch, setPendingSearch] = useState('');
 
     const [formData, setFormData] = useState(emptyForm());
@@ -117,6 +131,21 @@ const Proceedings = () => {
     const skipNextDraftSave = useRef(false);
 
     useEffect(() => { fetchInitialData(); }, []);
+
+    const listAcademicYears = useMemo(() => (
+        [...new Set(proceedings
+            .filter(p => p.status === 'Active' || p.status === 'Completed')
+            .map(p => p.academicYear)
+            .filter(Boolean))]
+            .sort()
+            .reverse()
+    ), [proceedings]);
+
+    useEffect(() => {
+        if (academicYearDefaultSet.current || listAcademicYears.length === 0) return;
+        setAcademicYearFilter(listAcademicYears[0]);
+        academicYearDefaultSet.current = true;
+    }, [listAcademicYears]);
 
     useEffect(() => {
         const tab = getTabFromHash(location.hash);
@@ -520,7 +549,7 @@ const Proceedings = () => {
             bankAccount: proc.bankAccount || '',
             bankCreditedDate: proc.bankCreditedDate ? proc.bankCreditedDate.split('T')[0] : '',
             amount: proc.amount || '',
-            bankCreditedAmount: proc.bankCreditedAmount || '',
+            bankCreditedAmount: proc.bankCreditedAmount || proc.amount || '',
             feeHead: proc.feeHead?._id || proc.feeHead || ''
         });
         setApproveStudents([]);
@@ -530,7 +559,6 @@ const Proceedings = () => {
             const res = await api.get(`/proceedings/${proc._id}`);
             setApproveStudents((res.data.students || []).map(s => ({
                 ...s,
-                originalShareAmount: Number(s.shareAmount) || 0,
                 shareAmount: Number(s.shareAmount) || 0
             })));
         } catch (e) {
@@ -538,31 +566,23 @@ const Proceedings = () => {
         }
     };
 
-    const zeroApproveStudentShare = (studentId) => {
-        setApproveStudents(prev => prev.map(s =>
-            s.studentId === studentId
-                ? { ...s, shareAmount: 0 }
-                : s
-        ));
-    };
-
-    const restoreApproveStudentShare = (studentId) => {
-        setApproveStudents(prev => prev.map(s =>
-            s.studentId === studentId
-                ? { ...s, shareAmount: Number(s.originalShareAmount) || 0 }
-                : s
-        ));
-    };
-
+    const approveProceedingAmount = Number(approvingProc?.amount || 0);
     const approveSharesTotal = useMemo(
         () => Math.round(approveStudents.reduce((t, s) => t + (Number(s.shareAmount) || 0), 0) * 100) / 100,
         [approveStudents]
     );
 
     const approveBankAmount = Number(approveData.bankCreditedAmount) || 0;
-    const approveShareBankDiff = Math.round((approveSharesTotal - approveBankAmount) * 100) / 100;
-    const bankLessThanProceeding = approveBankAmount > 0 && approveBankAmount < Number(approvingProc?.amount || 0);
-    const approveSharesMatchBank = approveBankAmount > 0 && Math.abs(approveShareBankDiff) <= 0.009;
+    const approveBankMatchesProceeding = approveBankAmount > 0 && Math.abs(approveBankAmount - approveProceedingAmount) <= 0.009;
+    const approveSharesMatchProceeding = approveProceedingAmount > 0 && Math.abs(approveSharesTotal - approveProceedingAmount) <= 0.009;
+    const canSubmitApprove = Boolean(
+        approveData.bankAccount
+        && approveData.bankCreditedAmount
+        && approveData.bankCreditedDate
+        && approveData.feeHead
+        && approveBankMatchesProceeding
+        && approveSharesMatchProceeding
+    );
     const approveTxnCount = approveStudents.filter(s => Number(s.shareAmount) > 0).length;
 
     const handleApproveSubmit = async (generateNow) => {
@@ -570,16 +590,18 @@ const Proceedings = () => {
             Swal.fire('Warning', 'Please fill Bank Account, Bank Credited Amount, Bank Credited Date, and Fee Head', 'warning');
             return;
         }
-        if (approveBankAmount > Number(approvingProc?.amount || 0) + 0.009) {
-            Swal.fire('Warning', 'Bank credited amount cannot be greater than proceeding amount', 'warning');
-            return;
-        }
-        if (!approveSharesMatchBank) {
+        if (!approveBankMatchesProceeding) {
             Swal.fire(
                 'Warning',
-                approveShareBankDiff > 0
-                    ? `Shares total (₹${approveSharesTotal.toLocaleString('en-IN')}) is higher than bank credit (₹${approveBankAmount.toLocaleString('en-IN')}) by ₹${approveShareBankDiff.toLocaleString('en-IN')}. Zero some student shares (students stay mapped).`
-                    : `Shares total (₹${approveSharesTotal.toLocaleString('en-IN')}) is less than bank credit (₹${approveBankAmount.toLocaleString('en-IN')}). Restore shares or check bank amount.`,
+                `Bank credited amount (₹${approveBankAmount.toLocaleString('en-IN')}) must exactly match proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}).`,
+                'warning'
+            );
+            return;
+        }
+        if (!approveSharesMatchProceeding) {
+            Swal.fire(
+                'Warning',
+                `Sum of student shares (₹${approveSharesTotal.toLocaleString('en-IN')}) must equal proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}). Edit the proceeding before approval if shares need to change.`,
                 'warning'
             );
             return;
@@ -588,8 +610,8 @@ const Proceedings = () => {
         const confirm = await Swal.fire({
             title: generateNow ? 'Approve & Create Transactions Now?' : 'Approve for Nightly Run?',
             html: generateNow
-                ? `<p>${approvingProc.proceedingNumber} will become Active and <b>${approveTxnCount} Bank/RTF DEBIT transactions</b> will be created (same as Fee Collection → Bank → RTF). Students with ₹0 share stay mapped, no txn.</p>`
-                : `<p>${approvingProc.proceedingNumber} will become Active. Bank/RTF transactions will be auto-generated during the nightly run for students with share &gt; 0.</p>`,
+                ? `<p>${approvingProc.proceedingNumber} will become Active and up to <b>${approveTxnCount} Bank/RTF DEBIT transactions</b> will be created where fee demand allows (same as Fee Collection → Bank → RTF).</p>`
+                : `<p>${approvingProc.proceedingNumber} will become Active. Bank/RTF transactions will be auto-generated during the nightly run where fee demand allows.</p>`,
             icon: 'question',
             showCancelButton: true,
             confirmButtonColor: '#059669',
@@ -600,7 +622,7 @@ const Proceedings = () => {
         Swal.fire({
             title: generateNow ? 'Approving & Creating Transactions...' : 'Approving Proceeding...',
             html: generateNow
-                ? `<p>Generating ${approveTxnCount} transactions, please wait...</p>`
+                ? `<p>Generating transactions, please wait...</p>`
                 : '<p>Please wait...</p>',
             allowOutsideClick: false,
             allowEscapeKey: false,
@@ -611,11 +633,7 @@ const Proceedings = () => {
         try {
             const res = await api.put(`/proceedings/${approvingProc._id}/approve`, {
                 ...approveData,
-                generateTransactionsNow: generateNow,
-                studentShares: approveStudents.map(s => ({
-                    studentId: s.studentId,
-                    shareAmount: Number(s.shareAmount) || 0
-                }))
+                generateTransactionsNow: generateNow
             });
             Swal.fire('Success', res.data.message, 'success');
             setShowApproveModal(false);
@@ -685,8 +703,8 @@ const Proceedings = () => {
     };
 
     const filteredProceedings = proceedings.filter(p => {
-        // All Proceedings tab: Active only (Pending/Verified live in Pending Queue)
-        if (p.status !== 'Active') return false;
+        // All Proceedings tab: Active + Completed (Pending/Verified live in Pending Queue)
+        if (p.status !== 'Active' && p.status !== 'Completed') return false;
         const matchesSearch = p.proceedingNumber?.toLowerCase().includes(searchTerm.toLowerCase()) || p.college?.toLowerCase().includes(searchTerm.toLowerCase()) || p.course?.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesCollege = collegeFilter === 'All' || p.college === collegeFilter;
         const matchesCourse = courseFilter === 'All' || p.course === courseFilter;
@@ -709,24 +727,116 @@ const Proceedings = () => {
 
     const pendingQueueCount = proceedings.filter(p => p.status === 'Pending' || p.status === 'Verified').length;
 
-    const toggleRow = async (id) => {
-        if (expandedRows[id]) { setExpandedRows(prev => { const n = { ...prev }; delete n[id]; return n; }); return; }
-        setExpandedRows(prev => ({ ...prev, [id]: { loading: true, data: [], totalUsed: 0, mappedStudents: [] } }));
+    const openDetailModal = async (proc) => {
+        setDetailModal({
+            proc,
+            loading: true,
+            transactions: [],
+            mappedStudents: [],
+            totalUsed: proc.totalUsed || 0
+        });
         try {
-            const res = await api.get(`/proceedings/${id}/summary`);
-            setExpandedRows(prev => ({ ...prev, [id]: { loading: false, data: res.data.transactions, totalUsed: res.data.totalUsed, mappedStudents: res.data.mappedStudents || [] } }));
+            const res = await api.get(`/proceedings/${proc._id}/summary`);
+            setDetailModal({
+                proc: {
+                    ...proc,
+                    status: res.data.proceedingStatus || proc.status,
+                    totalUsed: res.data.totalUsed ?? proc.totalUsed
+                },
+                loading: false,
+                transactions: res.data.transactions || [],
+                mappedStudents: res.data.mappedStudents || [],
+                totalUsed: res.data.totalUsed || 0
+            });
+            if (res.data.proceedingStatus && res.data.proceedingStatus !== proc.status) {
+                setProceedings(prev => prev.map(p => (
+                    p._id === proc._id ? {
+                        ...p,
+                        status: res.data.proceedingStatus || p.status,
+                        totalUsed: res.data.totalUsed ?? p.totalUsed
+                    } : p
+                )));
+            } else if (res.data.totalUsed != null && res.data.totalUsed !== proc.totalUsed) {
+                setProceedings(prev => prev.map(p => (
+                    p._id === proc._id ? { ...p, totalUsed: res.data.totalUsed } : p
+                )));
+            }
         } catch (e) {
-            setExpandedRows(prev => ({ ...prev, [id]: { loading: false, data: [], totalUsed: 0, mappedStudents: [] } }));
+            setDetailModal(prev => (prev ? { ...prev, loading: false } : null));
+            Swal.fire('Error', 'Failed to load proceeding details', 'error');
         }
     };
 
-    const renderAuditLine = (proc) => {
-        const parts = [];
-        if (proc.requestedByName) parts.push(`requested by ${proc.requestedByName}`);
-        if (proc.verifiedByName) parts.push(`verified by ${proc.verifiedByName}`);
-        if (proc.approvedByName) parts.push(`approved by ${proc.approvedByName}`);
-        if (parts.length === 0) return null;
-        return <div className="text-[9px] text-slate-400 mt-0.5">{parts.join(' · ')}</div>;
+    const closeDetailModal = () => setDetailModal(null);
+
+    const resolveTxnFeeHeadName = (txn, proc) => {
+        if (txn?.feeHead?.name) return txn.feeHead.name;
+        if (typeof txn?.feeHead === 'string' && proc?.feeHead?.name) return proc.feeHead.name;
+        if (proc?.feeHead?.name) return proc.feeHead.name;
+        return '—';
+    };
+
+    const renderAuditBlock = (proc) => {
+        if (!proc) return null;
+        const items = [];
+        if (proc.requestedByName || proc.requestedBy) {
+            items.push({ label: 'Requested by', value: proc.requestedByName || proc.requestedBy });
+        }
+        if (proc.verifiedByName || proc.verifiedBy) {
+            items.push({ label: 'Verified by', value: proc.verifiedByName || proc.verifiedBy });
+        }
+        if (proc.approvedByName || proc.approvedBy) {
+            items.push({ label: 'Approved by', value: proc.approvedByName || proc.approvedBy });
+        }
+        if (items.length === 0) return null;
+        return (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 border-b border-slate-100 pb-3 mb-4">
+                {items.map((item) => (
+                    <span key={item.label}>
+                        {item.label}: <b className="text-slate-800">{item.value}</b>
+                    </span>
+                ))}
+            </div>
+        );
+    };
+
+    const renderMappedStudentCard = (s) => {
+        const fixedShare = Number(s.shareAmount || 0);
+        const usedShare = Number(s.shareUtilized ?? Math.max(0, fixedShare - Number(s.shareRemaining ?? 0)));
+        const leftShare = Math.max(0, Number(s.shareRemaining ?? fixedShare - usedShare));
+        const needsCollection = leftShare > 0.009;
+        const showPending = Boolean(s.txnPending);
+        return (
+            <div key={`${s.studentId}-${s.admissionNumber}`} className={`border rounded-lg p-2 flex items-center gap-2 ${showPending ? 'bg-amber-50 border-amber-200' : needsCollection ? 'bg-blue-50/60 border-blue-100' : 'bg-emerald-50/40 border-emerald-100'}`}>
+                <div className="h-7 w-7 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-[10px] uppercase">{s.studentName?.charAt(0)}</div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold text-slate-800 truncate">{s.studentName}</div>
+                    <div className="text-[9px] text-slate-400 font-mono">{s.admissionNumber} {s.pinNo && s.pinNo !== '-' ? `| ${s.pinNo}` : ''}</div>
+                    <div className="text-[9px] text-slate-600 mt-0.5 leading-snug">
+                        <span className="font-bold">Fixed ₹{fixedShare.toLocaleString('en-IN')}</span>
+                        <span className="text-slate-300"> · </span>
+                        <span className="font-semibold text-emerald-700">Used ₹{usedShare.toLocaleString('en-IN')}</span>
+                        <span className="text-slate-300"> · </span>
+                        <span className={`font-semibold ${needsCollection ? 'text-amber-700' : 'text-slate-500'}`}>
+                            Left ₹{leftShare.toLocaleString('en-IN')}
+                        </span>
+                    </div>
+                    {showPending && (
+                        <div className="text-[9px] font-bold text-amber-700 mt-0.5 truncate" title={s.txnPendingReason || 'Pending auto transaction'}>
+                            Pending auto-txn{s.txnPendingReason ? `: ${s.txnPendingReason}` : ''}
+                        </div>
+                    )}
+                    {!showPending && needsCollection && (
+                        <div className="text-[9px] font-semibold text-blue-700 mt-0.5">
+                            ₹{leftShare.toLocaleString('en-IN')} to collect (Fee Collection)
+                        </div>
+                    )}
+                    {!showPending && !needsCollection && fixedShare > 0 && (
+                        <div className="text-[9px] font-semibold text-emerald-700 mt-0.5">Share fully collected</div>
+                    )}
+                </div>
+            </div>
+        );
     };
 
     if (!canView) {
@@ -760,9 +870,23 @@ const Proceedings = () => {
                             </p>
                         </div>
                         {activeTab === 'list' && (
-                            <button onClick={handlePrint} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border border-slate-200 self-start sm:self-auto shrink-0">
-                                <Printer size={16} /> Print Report
-                            </button>
+                            <div className="flex flex-wrap items-end gap-3 self-start sm:self-auto shrink-0">
+                                <div className="relative min-w-[140px]">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Academic Year</label>
+                                    <select
+                                        value={academicYearFilter}
+                                        onChange={(e) => setAcademicYearFilter(e.target.value)}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                    >
+                                        <option value="All">All Years</option>
+                                        {listAcademicYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+                                <button onClick={handlePrint} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border border-slate-200">
+                                    <Printer size={16} /> Print Report
+                                </button>
+                            </div>
                         )}
                     </div>
 
@@ -824,15 +948,8 @@ const Proceedings = () => {
                                     </select>
                                     <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                                 </div>
-                                <div className="relative">
-                                    <select value={academicYearFilter} onChange={(e) => setAcademicYearFilter(e.target.value)} className="bg-slate-50 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-medium text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer">
-                                        <option value="All">All Years</option>
-                                        {[...new Set(proceedings.filter(p => p.status === 'Active').map(p => p.academicYear).filter(Boolean))].sort().reverse().map(y => <option key={y} value={y}>{y}</option>)}
-                                    </select>
-                                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                                </div>
-                                {(collegeFilter !== 'All' || courseFilter !== 'All' || searchTerm || academicYearFilter !== 'All') && (
-                                    <button onClick={() => { setCollegeFilter('All'); setCourseFilter('All'); setSearchTerm(''); setAcademicYearFilter('All'); }} className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl">Clear Filters</button>
+                                {(collegeFilter !== 'All' || courseFilter !== 'All' || searchTerm) && (
+                                    <button onClick={() => { setCollegeFilter('All'); setCourseFilter('All'); setSearchTerm(''); setAcademicYearFilter(listAcademicYears[0] || 'All'); }} className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl">Clear Filters</button>
                                 )}
                             </div>
 
@@ -843,7 +960,6 @@ const Proceedings = () => {
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-50/50 border-b border-slate-100">
-                                                <th className="p-4 w-10"></th>
                                                 <th className="p-4 font-semibold text-slate-600 text-sm">College / Course / Caste</th>
                                                 <th className="p-4 font-semibold text-slate-600 text-sm">Academic Year</th>
                                                 <th className="p-4 font-semibold text-slate-600 text-sm">Proceeding No</th>
@@ -857,144 +973,62 @@ const Proceedings = () => {
                                         <tbody className="divide-y divide-slate-50">
                                             {filteredProceedings.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan="9" className="p-12 text-center text-slate-400 italic text-sm">No active proceedings found</td>
+                                                    <td colSpan="8" className="p-12 text-center text-slate-400 italic text-sm">No active proceedings found</td>
                                                 </tr>
                                             ) : filteredProceedings.map(proc => (
-                                                <React.Fragment key={proc._id}>
-                                                    <tr className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => toggleRow(proc._id)}>
-                                                        <td className="p-4">
-                                                            {expandedRows[proc._id] ? <ChevronDown size={18} className="text-blue-600" /> : <ChevronRight size={18} className="text-slate-400" />}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
-                                                            <div className="text-[10px] text-slate-500 font-medium uppercase">{proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}</div>
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <span className="px-2.5 py-1 text-xs bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200">{proc.academicYear || '-'}</span>
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="font-bold text-slate-800">{proc.proceedingNumber}</div>
-                                                            <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Active}`}>{proc.status || 'Active'}</span>
-                                                            {renderAuditLine(proc)}
-                                                        </td>
-                                                        <td className="p-4 text-slate-600 font-medium text-sm">{new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                                                        <td className="p-4 text-center">
-                                                            <span className="px-2 py-1 text-xs font-bold bg-blue-50 text-blue-700 rounded-lg border border-blue-100">{proc.studentCount || 0}</span>
-                                                        </td>
-                                                        <td className="p-4 text-right">
-                                                            <div className="font-bold text-slate-800">₹{(proc.amount || 0).toLocaleString('en-IN')}</div>
-                                                            {(() => {
-                                                                const used = expandedRows[proc._id] ? expandedRows[proc._id].totalUsed : (proc.totalUsed || 0);
-                                                                const rem = Math.max(0, (proc.amount || 0) - used);
-                                                                return (
-                                                                    <div className="text-[10px] font-bold">
-                                                                        <span className="text-slate-500">USED: ₹{used.toLocaleString('en-IN')}</span>
-                                                                        <span className="mx-1 text-slate-300">|</span>
-                                                                        <span className={rem === 0 ? "text-red-600 font-extrabold" : "text-emerald-600"}>REM: ₹{rem.toLocaleString('en-IN')}</span>
-                                                                    </div>
-                                                                );
-                                                            })()}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            {proc.bankAccount ? (
-                                                                <>
-                                                                    <div className="font-bold text-slate-700 text-xs">{proc.bankAccount}</div>
-                                                                    {proc.bankCreditedAmount > 0 && <div className="text-[10px] font-bold text-emerald-600">₹{proc.bankCreditedAmount.toLocaleString('en-IN')}</div>}
-                                                                    <div className="text-[10px] text-slate-500 font-bold">{proc.bankCreditedDate ? new Date(proc.bankCreditedDate).toLocaleDateString() : 'PENDING'}</div>
-                                                                </>
-                                                            ) : (
-                                                                <span className="text-xs text-slate-400 italic">-</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            <div className="flex justify-center gap-1 items-center">
-                                                                <button onClick={(e) => { e.stopPropagation(); handlePrintSingle(proc); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Print"><Printer size={16} /></button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                    {expandedRows[proc._id] && (
-                                                        <tr className="bg-slate-50/30">
-                                                            <td colSpan="9" className="p-0">
-                                                                <div className="p-6 border-l-4 border-blue-500 bg-white shadow-inner">
-                                                                    {expandedRows[proc._id].loading ? (
-                                                                        <div className="py-10 flex justify-center"><div className="animate-spin h-6 w-6 border-2 border-blue-600 border-t-transparent rounded-full"></div></div>
-                                                                    ) : (
-                                                                        <>
-                                                                            {expandedRows[proc._id].mappedStudents.length > 0 && (
-                                                                                <div className="mb-6">
-                                                                                    <h4 className="font-bold text-slate-800 flex items-center gap-2 uppercase text-xs tracking-widest mb-3">
-                                                                                        <Users size={14} className="text-blue-600" /> Mapped Students ({expandedRows[proc._id].mappedStudents.length})
-                                                                                    </h4>
-                                                                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                                                                        {expandedRows[proc._id].mappedStudents.map((s, i) => (
-                                                                                            <div key={i} className="bg-slate-50 border rounded-lg p-2 flex items-center gap-2">
-                                                                                                <div className="h-7 w-7 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-[10px] uppercase">{s.studentName?.charAt(0)}</div>
-                                                                                                <div className="min-w-0">
-                                                                                                    <div className="text-[11px] font-bold text-slate-800 truncate">{s.studentName}</div>
-                                                                                                    <div className="text-[9px] text-slate-400 font-mono">{s.admissionNumber} {s.pinNo && s.pinNo !== '-' ? `| ${s.pinNo}` : ''}</div>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        ))}
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
-
-                                                                            <h4 className="font-bold text-slate-800 flex items-center gap-2 uppercase text-xs tracking-widest mb-3">
-                                                                                <User size={14} className="text-blue-600" /> Transactions ({expandedRows[proc._id].data.length})
-                                                                            </h4>
-                                                                            {expandedRows[proc._id].data.length === 0 ? (
-                                                                                <div className="py-6 text-center text-slate-400 italic text-sm">
-                                                                                    {proc.status === 'Pending' || proc.status === 'Verified'
-                                                                                        ? 'Transactions will be created after approval.'
-                                                                                        : 'No transactions linked yet.'}
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                                                    {expandedRows[proc._id].data.map((txn, tidx) => (
-                                                                                        <div key={tidx} className="bg-white border rounded-xl p-3 shadow-sm hover:border-blue-200 transition-colors flex justify-between items-center group">
-                                                                                            <div className="flex items-center gap-3">
-                                                                                                <div className="h-8 w-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-xs group-hover:bg-blue-600 group-hover:text-white transition-colors uppercase">{txn.studentName?.charAt(0)}</div>
-                                                                                                <div>
-                                                                                                    <div className="text-xs font-bold text-slate-800">{txn.studentName}</div>
-                                                                                                    <div className="text-[10px] text-slate-400 font-mono">{txn.studentId}</div>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                            <div className="text-right">
-                                                                                                <div className="text-xs font-bold text-blue-700">₹{txn.amount.toLocaleString('en-IN')}</div>
-                                                                                                <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(txn.paymentDate || txn.createdAt).toLocaleDateString()}</div>
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-
-                                                                            {proc.amount > 0 && (
-                                                                                <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
-                                                                                    <div className="flex items-center gap-4">
-                                                                                        <div className="text-right">
-                                                                                            <div className="text-[10px] font-bold text-slate-400 uppercase">Limit</div>
-                                                                                            <div className="text-sm font-bold text-slate-600">₹{proc.amount?.toLocaleString('en-IN')}</div>
-                                                                                        </div>
-                                                                                        <div className="w-px h-8 bg-slate-200"></div>
-                                                                                        <div className="text-right">
-                                                                                            <div className="text-[10px] font-bold text-blue-400 uppercase">Utilized</div>
-                                                                                            <div className="text-sm font-bold text-blue-700">₹{expandedRows[proc._id].totalUsed.toLocaleString('en-IN')}</div>
-                                                                                        </div>
-                                                                                        <div className="w-px h-8 bg-slate-200"></div>
-                                                                                        <div className="text-right">
-                                                                                            <div className="text-[10px] font-bold text-emerald-400 uppercase">Remaining</div>
-                                                                                            <div className="text-sm font-bold text-emerald-600">₹{(proc.amount - expandedRows[proc._id].totalUsed).toLocaleString('en-IN')}</div>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
-                                                                        </>
-                                                                    )}
+                                                <tr key={proc._id} className="hover:bg-slate-50/50 transition-colors group">
+                                                    <td className="p-4">
+                                                        <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
+                                                        <div className="text-[10px] text-slate-500 font-medium uppercase">{proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}</div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <span className="px-2.5 py-1 text-xs bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200">{proc.academicYear || '-'}</span>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="font-bold text-slate-800">{proc.proceedingNumber}</div>
+                                                        <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Active}`}>{proc.status || 'Active'}</span>
+                                                        {(proc.pendingTxnCount > 0) && (
+                                                            <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-[10px] font-bold rounded-md border bg-amber-50 text-amber-700 border-amber-200">
+                                                                {proc.pendingTxnCount} pending txn
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-4 text-slate-600 font-medium text-sm">{new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                                                    <td className="p-4 text-center">
+                                                        <span className="px-2 py-1 text-xs font-bold bg-blue-50 text-blue-700 rounded-lg border border-blue-100">{proc.studentCount || 0}</span>
+                                                    </td>
+                                                    <td className="p-4 text-right">
+                                                        <div className="font-bold text-slate-800">₹{(proc.amount || 0).toLocaleString('en-IN')}</div>
+                                                        {(() => {
+                                                            const used = proc.totalUsed || 0;
+                                                            const rem = Math.max(0, (proc.amount || 0) - used);
+                                                            return (
+                                                                <div className="text-[10px] font-bold">
+                                                                    <span className="text-slate-500">USED: ₹{used.toLocaleString('en-IN')}</span>
+                                                                    <span className="mx-1 text-slate-300">|</span>
+                                                                    <span className={rem === 0 ? "text-red-600 font-extrabold" : "text-emerald-600"}>REM: ₹{rem.toLocaleString('en-IN')}</span>
                                                                 </div>
-                                                            </td>
-                                                        </tr>
-                                                    )}
-                                                </React.Fragment>
+                                                            );
+                                                        })()}
+                                                    </td>
+                                                    <td className="p-4">
+                                                        {proc.bankAccount ? (
+                                                            <>
+                                                                <div className="font-bold text-slate-700 text-xs">{proc.bankAccount}</div>
+                                                                {proc.bankCreditedAmount > 0 && <div className="text-[10px] font-bold text-emerald-600">₹{proc.bankCreditedAmount.toLocaleString('en-IN')}</div>}
+                                                                <div className="text-[10px] text-slate-500 font-bold">{proc.bankCreditedDate ? new Date(proc.bankCreditedDate).toLocaleDateString() : 'PENDING'}</div>
+                                                            </>
+                                                        ) : (
+                                                            <span className="text-xs text-slate-400 italic">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <div className="flex justify-center gap-1 items-center">
+                                                            <button onClick={() => openDetailModal(proc)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="View details"><Eye size={16} /></button>
+                                                            <button onClick={() => handlePrintSingle(proc)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Print"><Printer size={16} /></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
                                             ))}
                                         </tbody>
                                     </table>
@@ -1006,9 +1040,9 @@ const Proceedings = () => {
                     {/* ═══ CREATE TAB (inline, create only) ═══ */}
                     {activeTab === 'create' && canEdit && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                            <div className="bg-blue-600 p-6 text-white">
-                                <h2 className="text-lg font-bold">New Proceeding</h2>
-                                <p className="text-blue-100 text-sm mt-1">Fill details, load students, then submit for verification</p>
+                            <div className="px-6 py-5 border-b border-slate-100">
+                                <h2 className="text-lg font-bold text-slate-800 tracking-tight">New Proceeding</h2>
+                                <p className="text-sm text-slate-500 mt-1">Fill details, load students, then submit for verification</p>
                             </div>
 
                             {draftAvailable && (
@@ -1408,8 +1442,8 @@ const Proceedings = () => {
                                             points: [
                                                 'Only Verified proceedings can be approved.',
                                                 'Enter Bank Account, Bank Credited Date, Bank Credited Amount, and Fee Head.',
-                                                'If bank credit is less than proceeding amount, use Zero Share on some students so shares total equals bank credit (students stay mapped).',
-                                                'Approve is allowed only when Sum of shares = Bank credited amount.',
+                                                'Bank credited amount must exactly match the proceeding amount.',
+                                                'Sum of student shares must equal the proceeding amount (edit while Pending if needed).',
                                                 'Choose either Approve & Create Transactions Now, or Approve for Nightly Run.'
                                             ]
                                         },
@@ -1422,12 +1456,23 @@ const Proceedings = () => {
                                                 'Transactions are created like Fee Collection: Mode Bank / Online, Instrument RTF (paymentMode = RTF).',
                                                 'Type: DEBIT · Linked to proceeding · Fee head from approval.',
                                                 'Collected by = Approver name · Transaction date = Approval date.',
-                                                'Students with ₹0 share remain mapped but get no transaction.',
+                                                'Students skipped when share exceeds fee-head demand — collect via Fee Collection.',
                                                 'Immediate: created right away. Nightly: status Active with transactionsGenerated = false, then created at 3:00 AM IST by the scheduler.'
                                             ]
                                         },
                                         {
                                             step: 5,
+                                            title: 'Auto-Complete',
+                                            who: 'System',
+                                            color: 'slate',
+                                            points: [
+                                                'When total RTF collections reach the proceeding limit (REM ₹0), status moves from Active to Completed automatically.',
+                                                'Completed proceedings no longer appear in Fee Collection RTF selection.',
+                                                'If a linked transaction is cancelled and balance returns, status reopens to Active.'
+                                            ]
+                                        },
+                                        {
+                                            step: 6,
                                             title: 'Reports',
                                             who: 'Anyone with report access',
                                             color: 'amber',
@@ -1484,6 +1529,8 @@ const Proceedings = () => {
                                     <span className="px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-200 border border-indigo-400/30">Verified</span>
                                     <span className="text-slate-500 hidden sm:inline">→</span>
                                     <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">Active</span>
+                                    <span className="text-slate-500">→</span>
+                                    <span className="px-2.5 py-1 rounded-lg bg-slate-500/20 text-slate-200 border border-slate-400/30">Completed</span>
                                     <span className="text-slate-500 hidden sm:inline">→</span>
                                     <span className="px-2.5 py-1 rounded-lg bg-violet-500/20 text-violet-200 border border-violet-400/30">RTF Transactions</span>
                                 </div>
@@ -1496,17 +1543,13 @@ const Proceedings = () => {
             {/* ═══ EDIT MODAL (from Pending Queue only) ═══ */}
             {showEditModal && isEditing && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeEditModal}></div>
-                    <div className="relative bg-white w-full max-w-5xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="bg-blue-600 p-6 flex justify-between items-center text-white shrink-0">
-                            <div>
-                                <h2 className="text-lg font-bold">Edit Proceeding</h2>
-                                <p className="text-blue-100 text-sm mt-1">{formData.proceedingNumber || 'Update pending proceeding details'}</p>
-                            </div>
-                            <button type="button" onClick={closeEditModal} className="text-white/80 hover:text-white">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeEditModal}></div>
+                    <div className="relative bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
+                        <ModalHeader
+                            title="Edit Proceeding"
+                            subtitle={formData.proceedingNumber || 'Update pending proceeding details'}
+                            onClose={closeEditModal}
+                        />
 
                         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -1736,25 +1779,123 @@ const Proceedings = () => {
                 </div>
             )}
 
+            {/* ═══ PROCEEDING DETAIL MODAL (All Proceedings list) ═══ */}
+            {detailModal?.proc && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeDetailModal}></div>
+                    <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
+                        <ModalHeader
+                            title={detailModal.proc.proceedingNumber}
+                            subtitle={`${detailModal.proc.college} / ${detailModal.proc.course}${detailModal.proc.batch ? ` (${detailModal.proc.batch})` : ''}${detailModal.proc.academicYear ? ` · AY ${detailModal.proc.academicYear}` : ''}`}
+                            onClose={closeDetailModal}
+                        >
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                <span className={`px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[detailModal.proc.status] || STATUS_BADGE.Active}`}>
+                                    {detailModal.proc.status || 'Active'}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                    {new Date(detailModal.proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </span>
+                            </div>
+                        </ModalHeader>
+
+                        <div className="p-6 overflow-y-auto flex-1">
+                            {renderAuditBlock(detailModal.proc)}
+
+                            {detailModal.loading ? (
+                                <div className="py-16 flex justify-center"><Loader2 size={28} className="animate-spin text-blue-600" /></div>
+                            ) : (
+                                <>
+                                    {detailModal.mappedStudents.length > 0 && (
+                                        <div className="mb-6">
+                                            <h4 className="font-bold text-slate-800 flex items-center gap-2 uppercase text-xs tracking-widest mb-3">
+                                                <Users size={14} className="text-slate-500" /> Mapped Students ({detailModal.mappedStudents.length})
+                                            </h4>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                {detailModal.mappedStudents.map((s) => renderMappedStudentCard(s))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <h4 className="font-bold text-slate-800 flex items-center gap-2 uppercase text-xs tracking-widest mb-3">
+                                        <User size={14} className="text-slate-500" /> Transactions ({detailModal.transactions.length})
+                                    </h4>
+                                    {detailModal.transactions.length === 0 ? (
+                                        <div className="py-6 text-center text-slate-400 italic text-sm">No transactions linked yet.</div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {detailModal.transactions.map((txn, tidx) => (
+                                                <div key={tidx} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:border-slate-300 transition-colors flex justify-between items-start gap-3">
+                                                    <div className="flex items-start gap-3 min-w-0">
+                                                        <div className="h-8 w-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-xs uppercase shrink-0">{txn.studentName?.charAt(0)}</div>
+                                                        <div className="min-w-0">
+                                                            <div className="text-xs font-bold text-slate-800 truncate">{txn.studentName}</div>
+                                                            <div className="text-[10px] text-slate-400 font-mono truncate">{txn.studentId}</div>
+                                                            <div className="text-[10px] text-slate-600 font-semibold mt-1 truncate" title={resolveTxnFeeHeadName(txn, detailModal.proc)}>
+                                                                Fee Head: {resolveTxnFeeHeadName(txn, detailModal.proc)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <div className="text-xs font-bold text-slate-800">₹{txn.amount.toLocaleString('en-IN')}</div>
+                                                        <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(txn.paymentDate || txn.createdAt).toLocaleDateString()}</div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {detailModal.proc.amount > 0 && (
+                                        <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+                                            <div className="flex items-center gap-4">
+                                                <div className="text-right">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Limit</div>
+                                                    <div className="text-sm font-bold text-slate-600">₹{detailModal.proc.amount?.toLocaleString('en-IN')}</div>
+                                                </div>
+                                                <div className="w-px h-8 bg-slate-200"></div>
+                                                <div className="text-right">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Utilized</div>
+                                                    <div className="text-sm font-bold text-slate-700">₹{detailModal.totalUsed.toLocaleString('en-IN')}</div>
+                                                </div>
+                                                <div className="w-px h-8 bg-slate-200"></div>
+                                                <div className="text-right">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Remaining</div>
+                                                    <div className="text-sm font-bold text-slate-800">₹{Math.max(0, detailModal.proc.amount - detailModal.totalUsed).toLocaleString('en-IN')}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2 shrink-0">
+                            <button onClick={() => handlePrintSingle(detailModal.proc)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 flex items-center gap-2">
+                                <Printer size={16} /> Print
+                            </button>
+                            <button onClick={closeDetailModal} className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ═══ APPROVE MODAL ═══ */}
             {showApproveModal && approvingProc && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowApproveModal(false)}></div>
-                    <div className="relative bg-white w-full max-w-4xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="bg-emerald-600 p-6 flex justify-between items-center text-white shrink-0">
-                            <div>
-                                <h2 className="text-xl font-bold">Approve Proceeding</h2>
-                                <p className="text-emerald-100 text-sm mt-1">{approvingProc.proceedingNumber} — {approvingProc.college} / {approvingProc.course}{approvingProc.academicYear ? ` · AY ${approvingProc.academicYear}` : ''}</p>
-                            </div>
-                            <button onClick={() => setShowApproveModal(false)} className="text-white/80 hover:text-white">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowApproveModal(false)}></div>
+                    <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
+                        <ModalHeader
+                            title="Approve Proceeding"
+                            subtitle={`${approvingProc.proceedingNumber} — ${approvingProc.college} / ${approvingProc.course}${approvingProc.academicYear ? ` · AY ${approvingProc.academicYear}` : ''}`}
+                            onClose={() => setShowApproveModal(false)}
+                        />
 
                         <div className="p-6 overflow-y-auto flex-1">
-                            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4 flex items-center justify-between">
-                                <span className="text-xs font-bold text-blue-700">Proceeding Amount</span>
-                                <span className="text-sm font-bold text-blue-800">₹{(approvingProc.amount || 0).toLocaleString('en-IN')}</span>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Proceeding Amount</span>
+                                <span className="text-sm font-bold text-slate-800">₹{(approvingProc.amount || 0).toLocaleString('en-IN')}</span>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -1773,7 +1914,7 @@ const Proceedings = () => {
                                     <input type="date" value={approveData.bankCreditedDate} onChange={(e) => setApproveData(prev => ({ ...prev, bankCreditedDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-600">Bank Credited Amount *</label>
+                                    <label className="text-xs font-bold text-slate-600">Bank Credited Amount * <span className="text-slate-400 font-normal">(must match proceeding amount)</span></label>
                                     <input type="number" value={approveData.bankCreditedAmount} onChange={(e) => setApproveData(prev => ({ ...prev, bankCreditedAmount: e.target.value }))} required placeholder="0.00" className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm font-mono" />
                                 </div>
                                 <div className="space-y-1">
@@ -1788,21 +1929,20 @@ const Proceedings = () => {
                                 </div>
                             </div>
 
-                            <div className="mb-4 p-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-800 text-xs font-semibold">
-                                Transactions will be created like Fee Collection: <span className="font-bold">Mode Bank / Online · Instrument RTF</span>
+                            <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-semibold">
+                                Transactions will be created like Fee Collection: <span className="font-bold text-slate-800">Mode Bank / Online · Instrument RTF</span>
                                 {' '}(paymentMode = RTF, deposited to selected bank account, date = bank credited date).
                             </div>
 
-                            {approveBankAmount > Number(approvingProc.amount || 0) + 0.009 && (
+                            {!approveBankMatchesProceeding && approveBankAmount > 0 && (
                                 <div className="mb-4 p-3 rounded-xl border border-red-300 bg-red-50 text-red-800 text-xs font-semibold">
-                                    Bank credited amount cannot be greater than proceeding amount (₹{Number(approvingProc.amount || 0).toLocaleString('en-IN')}).
+                                    Bank credited amount (₹{approveBankAmount.toLocaleString('en-IN')}) must exactly match proceeding amount (₹{approveProceedingAmount.toLocaleString('en-IN')}).
                                 </div>
                             )}
 
-                            {bankLessThanProceeding && (
+                            {!approveSharesMatchProceeding && approveProceedingAmount > 0 && (
                                 <div className="mb-4 p-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold">
-                                    Bank credit is less than proceeding amount by ₹{(Number(approvingProc.amount || 0) - approveBankAmount).toLocaleString('en-IN')}.
-                                    Zero share for some students so shares total equals bank credit. Students stay mapped (no transaction for ₹0 share).
+                                    Sum of student shares (₹{approveSharesTotal.toLocaleString('en-IN')}) must equal proceeding amount (₹{approveProceedingAmount.toLocaleString('en-IN')}). Edit the proceeding while Pending if shares need correction.
                                 </div>
                             )}
 
@@ -1811,10 +1951,9 @@ const Proceedings = () => {
                                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mapped Students & Shares ({approveStudents.length})</div>
                                     <div className="text-xs font-bold text-slate-600">
                                         Shares ₹{approveSharesTotal.toLocaleString('en-IN')}
-                                        {approveBankAmount > 0 && (
-                                            <span className={`ml-2 ${approveSharesMatchBank ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                · vs Bank ₹{approveBankAmount.toLocaleString('en-IN')}
-                                                {!approveSharesMatchBank && ` (diff ₹${Math.abs(approveShareBankDiff).toLocaleString('en-IN')})`}
+                                        {approveProceedingAmount > 0 && (
+                                            <span className={`ml-2 ${approveSharesMatchProceeding ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                · Proceeding ₹{approveProceedingAmount.toLocaleString('en-IN')}
                                             </span>
                                         )}
                                     </div>
@@ -1831,7 +1970,6 @@ const Proceedings = () => {
                                                     <th className="pb-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
                                                     <th className="pb-2 text-[10px] font-bold text-slate-500 uppercase">Proc. Yr</th>
                                                     <th className="pb-2 text-[10px] font-bold text-slate-500 uppercase text-right">Share</th>
-                                                    <th className="pb-2 text-[10px] font-bold text-slate-500 uppercase text-right">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
@@ -1839,39 +1977,14 @@ const Proceedings = () => {
                                                     const procYear = Number(s.proceedingYear) > 0
                                                         ? Number(s.proceedingYear)
                                                         : computeProceedingYear(s.batch, approvingProc.academicYear);
-                                                    const isZeroed = !(Number(s.shareAmount) > 0);
                                                     return (
-                                                    <tr key={s.studentId} className={isZeroed ? 'bg-red-50/60 opacity-80' : ''}>
+                                                    <tr key={s.studentId}>
                                                         <td className="py-1.5 text-xs font-medium text-slate-700">{s.studentName}</td>
                                                         <td className="py-1.5 text-xs font-mono text-slate-500">{s.admissionNumber}</td>
                                                         <td className="py-1.5 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                         <td className="py-1.5 text-xs font-bold text-indigo-700">{formatYearLabel(procYear)}</td>
-                                                        <td className={`py-1.5 text-xs font-bold text-right font-mono ${isZeroed ? 'text-red-600' : 'text-indigo-700'}`}>
+                                                        <td className="py-1.5 text-xs font-bold text-right font-mono text-indigo-700">
                                                             ₹{Number(s.shareAmount || 0).toLocaleString('en-IN')}
-                                                            {isZeroed && Number(s.originalShareAmount) > 0 && (
-                                                                <div className="text-[9px] font-semibold text-slate-400">was ₹{Number(s.originalShareAmount).toLocaleString('en-IN')}</div>
-                                                            )}
-                                                        </td>
-                                                        <td className="py-1.5 text-right">
-                                                            {isZeroed ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => restoreApproveStudentShare(s.studentId)}
-                                                                    className="text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-lg"
-                                                                >
-                                                                    Restore
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => zeroApproveStudentShare(s.studentId)}
-                                                                    disabled={!(approveBankAmount > 0 && approveShareBankDiff > 0.009)}
-                                                                    title="Zero this share (student stays mapped)"
-                                                                    className="text-[10px] font-bold text-red-600 hover:bg-red-50 px-2 py-1 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                >
-                                                                    Zero Share
-                                                                </button>
-                                                            )}
                                                         </td>
                                                     </tr>
                                                     );
@@ -1883,25 +1996,32 @@ const Proceedings = () => {
                             </div>
 
                             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs font-bold text-slate-600 text-center">
-                                {approveTxnCount} student(s) will get transactions · {approveStudents.length - approveTxnCount} mapped with ₹0 share
+                                {approveTxnCount} mapped student(s) · transactions created where fee demand allows
                             </div>
 
-                            <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
                                 <button
                                     type="button"
-                                    onClick={() => handleApproveSubmit(true)}
-                                    disabled={!approveData.bankAccount || !approveData.bankCreditedAmount || !approveData.bankCreditedDate || !approveData.feeHead || !approveSharesMatchBank || approveBankAmount > Number(approvingProc.amount || 0) + 0.009}
-                                    className="flex-1 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    onClick={() => setShowApproveModal(false)}
+                                    className="px-6 py-2.5 rounded-xl font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 text-sm"
                                 >
-                                    <CheckCircle size={18} /> Approve & Create Transactions Now
+                                    Cancel
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleApproveSubmit(false)}
-                                    disabled={!approveData.bankAccount || !approveData.bankCreditedAmount || !approveData.bankCreditedDate || !approveData.feeHead || !approveSharesMatchBank || approveBankAmount > Number(approvingProc.amount || 0) + 0.009}
-                                    className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    disabled={!canSubmitApprove}
+                                    className="flex-1 px-6 py-3 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                                 >
                                     <Calendar size={18} /> Approve for Nightly Run
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleApproveSubmit(true)}
+                                    disabled={!canSubmitApprove}
+                                    className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                >
+                                    <CheckCircle size={18} /> Approve & Create Transactions Now
                                 </button>
                             </div>
                         </div>
@@ -1915,7 +2035,7 @@ const Proceedings = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden">
                         <div className="p-6">
                             <div className="flex items-center gap-3 mb-6">
-                                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Printer size={24} /></div>
+                                <div className="p-3 bg-slate-100 text-slate-600 rounded-xl"><Printer size={24} /></div>
                                 <div>
                                     <h3 className="text-base font-bold text-gray-900">Print Proceedings Report</h3>
                                     <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wider">Configure report printout</p>

@@ -3,6 +3,13 @@ const ProceedingStudent = require('../models/ProceedingStudent');
 const Transaction = require('../models/Transaction');
 const collegeScope = require('../utils/collegeScope');
 const db = require('../config/sqlDb');
+const {
+    getFeeHeadDueForYear,
+    getStudentProceedingShareUtilized,
+    syncProceedingStudentTxnStatus,
+    syncProceedingCompletionStatus,
+    roundMoney
+} = require('../utils/proceedingDemand');
 
 const canApproveProceeding = (user) => {
     if (!user) return false;
@@ -95,7 +102,7 @@ const loadStudentsForProceeding = async (req, res) => {
 // ─── Get all proceedings ────────────────────────────────────────────────
 const getProceedings = async (req, res) => {
     try {
-        const { college, course, batch, caste, status } = req.query;
+        const { college, course, batch, caste, status, studentId } = req.query;
         let query = {};
         if (college) query.college = college;
         if (course) query.course = course;
@@ -105,6 +112,18 @@ const getProceedings = async (req, res) => {
             query.$or = [
                 { caste: caste }, { caste: '' }, { caste: null }, { caste: { $exists: false } }
             ];
+        }
+
+        // Fee Collection: only proceedings where this student is mapped
+        let studentProceedingIds = null;
+        const studentKey = String(studentId || '').trim();
+        if (studentKey) {
+            const mapped = await ProceedingStudent.find({ studentId: studentKey }).select('proceedingId shareAmount txnPending txnPendingReason').lean();
+            studentProceedingIds = mapped.map((m) => m.proceedingId);
+            if (studentProceedingIds.length === 0) {
+                return res.json([]);
+            }
+            query._id = { $in: studentProceedingIds };
         }
 
         const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
@@ -140,11 +159,40 @@ const getProceedings = async (req, res) => {
 
         const proceedings = await Proceeding.find(query).sort({ createdAt: -1 }).populate('feeHead', 'name');
 
+        const studentShareMap = new Map();
+        if (studentKey) {
+            const mapped = await ProceedingStudent.find({ studentId: studentKey, proceedingId: { $in: proceedings.map((p) => p._id) } }).lean();
+            mapped.forEach((m) => studentShareMap.set(String(m.proceedingId), m));
+        }
+
         const proceedingsWithSummary = await Promise.all(proceedings.map(async (p) => {
             const txns = await Transaction.find({ proceedingId: p._id, status: { $ne: 'cancelled' } }).select('amount');
             const totalUsed = txns.reduce((acc, t) => acc + t.amount, 0);
             const studentCount = await ProceedingStudent.countDocuments({ proceedingId: p._id });
-            return { ...p.toObject(), totalUsed, studentCount };
+            const pendingTxnCount = await ProceedingStudent.countDocuments({ proceedingId: p._id, txnPending: true });
+
+            let effectiveStatus = p.status;
+            if (effectiveStatus === 'Active' || effectiveStatus === 'Completed') {
+                effectiveStatus = await syncProceedingCompletionStatus(p._id) || effectiveStatus;
+            }
+
+            const base = { ...p.toObject(), status: effectiveStatus, totalUsed, studentCount, pendingTxnCount };
+
+            if (studentKey) {
+                const mapping = studentShareMap.get(String(p._id));
+                if (mapping) {
+                    const shareAmount = roundMoney(mapping.shareAmount);
+                    const shareUtilized = await getStudentProceedingShareUtilized(p._id, studentKey);
+                    const shareRemaining = Math.max(0, roundMoney(shareAmount - shareUtilized));
+                    base.studentShare = shareAmount;
+                    base.shareUtilized = shareUtilized;
+                    base.shareRemaining = shareRemaining;
+                    base.txnPending = mapping.txnPending || shareRemaining > 0.009;
+                    base.txnPendingReason = mapping.txnPendingReason || '';
+                }
+            }
+
+            return base;
         }));
 
         res.json(proceedingsWithSummary);
@@ -422,30 +470,25 @@ const approveProceeding = async (req, res) => {
             });
         }
 
-        const { bankAccount, bankCreditedDate, bankCreditedAmount, feeHead, generateTransactionsNow, studentShares } = req.body;
+        const { bankAccount, bankCreditedDate, bankCreditedAmount, feeHead, generateTransactionsNow } = req.body;
         if (!bankAccount || !bankCreditedAmount || !bankCreditedDate || !feeHead) {
             return res.status(400).json({ message: 'Bank Account, Bank Credited Amount, Bank Credited Date, and Fee Head are required for approval' });
         }
 
         const bankAmount = Math.round(Number(bankCreditedAmount) * 100) / 100;
+        const proceedingAmount = Math.round(Number(proceeding.amount) * 100) / 100;
 
-        // Optional: update per-student shares at approve (zero some without unmapping)
-        if (Array.isArray(studentShares) && studentShares.length > 0) {
-            for (const row of studentShares) {
-                if (!row?.studentId) continue;
-                const share = Math.round((Number(row.shareAmount) || 0) * 100) / 100;
-                await ProceedingStudent.updateOne(
-                    { proceedingId: proceeding._id, studentId: String(row.studentId) },
-                    { $set: { shareAmount: share } }
-                );
-            }
+        if (Math.abs(bankAmount - proceedingAmount) > 0.05) {
+            return res.status(400).json({
+                message: `Bank credited amount (₹${bankAmount}) must exactly match proceeding amount (₹${proceedingAmount}).`
+            });
         }
 
         const mapped = await ProceedingStudent.find({ proceedingId: proceeding._id });
         const sharesSum = Math.round(mapped.reduce((sum, s) => sum + (Number(s.shareAmount) || 0), 0) * 100) / 100;
-        if (Math.abs(sharesSum - bankAmount) > 0.05) {
+        if (Math.abs(sharesSum - proceedingAmount) > 0.05) {
             return res.status(400).json({
-                message: `Sum of student shares (₹${sharesSum}) must equal bank credited amount (₹${bankAmount}). Zero some student shares if bank credit is less than proceeding amount (students stay mapped).`
+                message: `Sum of student shares (₹${sharesSum}) must equal proceeding amount (₹${proceedingAmount}). Edit the proceeding while Pending if shares need correction.`
             });
         }
 
@@ -459,10 +502,19 @@ const approveProceeding = async (req, res) => {
         proceeding.approvedAt = new Date();
 
         if (generateTransactionsNow) {
-            const created = await generateProceedingTransactions(proceeding, req.user);
+            const result = await generateProceedingTransactions(proceeding, req.user);
             proceeding.transactionsGenerated = true;
             await proceeding.save();
-            return res.json({ message: `Proceeding approved. ${created} Bank/RTF DEBIT transactions created.`, proceeding, transactionsCreated: created });
+            const parts = [`${result.created} Bank/RTF DEBIT transaction(s) created`];
+            if (result.skippedDemand > 0) {
+                parts.push(`${result.skippedDemand} student(s) pending (share exceeds fee-head demand — collect via Fee Collection)`);
+            }
+            return res.json({
+                message: `Proceeding approved. ${parts.join('; ')}.`,
+                proceeding,
+                transactionsCreated: result.created,
+                pendingStudents: result.skippedDemand
+            });
         }
 
         proceeding.transactionsGenerated = false;
@@ -473,12 +525,18 @@ const approveProceeding = async (req, res) => {
     }
 };
 
+
 // ─── Generate Bank/RTF DEBIT transactions for a proceeding ───────────────
 // Mirrors Fee Collection: category Bank + instrument RTF
+// Skips students whose share exceeds remaining demand on the approved fee head.
 const generateProceedingTransactions = async (proceeding, user) => {
     const PaymentConfig = require('../models/PaymentConfig');
     const students = await ProceedingStudent.find({ proceedingId: proceeding._id });
-    if (students.length === 0) return 0;
+    if (students.length === 0) return { created: 0, skippedDemand: 0 };
+
+    if (!proceeding.feeHead) {
+        return { created: 0, skippedDemand: 0 };
+    }
 
     // Resolve bank account like Fee Collection (paymentConfigId + depositedToAccount + bankName)
     let paymentConfig = null;
@@ -503,29 +561,58 @@ const generateProceedingTransactions = async (proceeding, user) => {
     };
 
     const docs = [];
+    let skippedDemand = 0;
+
     for (const stu of students) {
-        // Zeroed shares stay mapped but get no transaction
-        const studentShare = Math.round((Number(stu.shareAmount) || 0) * 100) / 100;
-        if (!(studentShare > 0)) continue;
+        const studentShare = roundMoney(stu.shareAmount);
+        if (!(studentShare > 0)) {
+            await ProceedingStudent.updateOne(
+                { _id: stu._id },
+                { $set: { txnPending: false, txnPendingReason: '' } }
+            );
+            continue;
+        }
 
-        const existing = await Transaction.findOne({
-            proceedingId: proceeding._id,
-            studentId: stu.studentId,
-            status: { $ne: 'cancelled' }
-        });
-        if (existing) continue;
-
+        const admissionNo = stu.admissionNumber || stu.studentId;
         const txnYear = Number(stu.proceedingYear) > 0
             ? Number(stu.proceedingYear)
             : (computeProceedingYear(stu.batch, proceeding.academicYear)
                 || (Number(stu.studentYear) > 0 ? Number(stu.studentYear) : null)
-                || '');
+                || 1);
+
+        const shareUtilized = await getStudentProceedingShareUtilized(proceeding._id, admissionNo);
+        const shareRemaining = Math.max(0, roundMoney(studentShare - shareUtilized));
+        if (shareRemaining <= 0.009) {
+            await syncProceedingStudentTxnStatus(proceeding._id, admissionNo);
+            continue;
+        }
+
+        const feeHeadDue = await getFeeHeadDueForYear(admissionNo, proceeding.feeHead, txnYear);
+
+        // Share exceeds demand on approved fee head — skip auto txn; collect via Fee Collection (any fee head)
+        if (shareRemaining > feeHeadDue + 0.009) {
+            skippedDemand += 1;
+            await ProceedingStudent.updateOne(
+                { _id: stu._id },
+                {
+                    $set: {
+                        txnPending: true,
+                        txnPendingReason: feeHeadDue <= 0
+                            ? `No demand on approved fee head (share ₹${shareRemaining.toLocaleString('en-IN')})`
+                            : `Share ₹${shareRemaining.toLocaleString('en-IN')} exceeds fee-head demand ₹${feeHeadDue.toLocaleString('en-IN')}`
+                    }
+                }
+            );
+            continue;
+        }
+
+        const txnAmount = roundMoney(Math.min(shareRemaining, feeHeadDue));
 
         docs.push({
             studentId: stu.studentId,
             studentName: stu.studentName,
             feeHead: proceeding.feeHead,
-            amount: studentShare,
+            amount: txnAmount,
             paymentMode: 'RTF',
             transactionType: 'DEBIT',
             paymentDate: txnDate,
@@ -536,7 +623,7 @@ const generateProceedingTransactions = async (proceeding, user) => {
             paymentConfigId: paymentConfig?._id || undefined,
             depositedToAccount: proceeding.bankAccount || paymentConfig?.account_name || '',
             remarks: `RTF (Bank) — Auto from Proceeding ${proceeding.proceedingNumber}`,
-            studentYear: txnYear != null && txnYear !== '' ? String(txnYear) : '',
+            studentYear: String(txnYear),
             receiptNumber: generateSimpleReceipt(),
             collectedBy: collectorUsername,
             collectedByName: collectorName,
@@ -546,7 +633,7 @@ const generateProceedingTransactions = async (proceeding, user) => {
             course: stu.course || proceeding.course,
             branch: stu.branch || '',
             pinNo: stu.pinNo || '',
-            admissionNumber: stu.admissionNumber || stu.studentId,
+            admissionNumber: admissionNo,
             collegeId: stu.collegeId || undefined,
             courseId: stu.courseId || undefined,
             branchId: stu.branchId || undefined,
@@ -555,9 +642,16 @@ const generateProceedingTransactions = async (proceeding, user) => {
         });
     }
 
-    if (docs.length === 0) return 0;
-    await Transaction.insertMany(docs, { ordered: false, timestamps: false });
-    return docs.length;
+    if (docs.length > 0) {
+        await Transaction.insertMany(docs, { ordered: false, timestamps: false });
+        for (const doc of docs) {
+            await syncProceedingStudentTxnStatus(proceeding._id, doc.studentId);
+        }
+    }
+
+    await syncProceedingCompletionStatus(proceeding._id);
+
+    return { created: docs.length, skippedDemand };
 };
 
 // ─── Nightly: generate transactions for approved proceedings ────────────
@@ -569,18 +663,20 @@ const processNightlyProceedingTransactions = async () => {
     }
 
     let totalCreated = 0;
+    let totalPending = 0;
     for (const proc of pending) {
         try {
-            const count = await generateProceedingTransactions(proc, null);
+            const result = await generateProceedingTransactions(proc, null);
             proc.transactionsGenerated = true;
             await proc.save();
-            totalCreated += count;
-            console.log(`[Proceedings Nightly] ${proc.proceedingNumber}: ${count} transactions created.`);
+            totalCreated += result.created;
+            totalPending += result.skippedDemand;
+            console.log(`[Proceedings Nightly] ${proc.proceedingNumber}: ${result.created} txns, ${result.skippedDemand} pending`);
         } catch (err) {
             console.error(`[Proceedings Nightly] Failed for ${proc.proceedingNumber}:`, err.message);
         }
     }
-    return { processed: pending.length, totalCreated };
+    return { processed: pending.length, totalCreated, totalPending };
 };
 
 // ─── Delete proceeding ──────────────────────────────────────────────────
@@ -620,8 +716,13 @@ const getProceedingSummary = async (req, res) => {
             return res.status(403).json({ message: 'Forbidden: Access denied' });
         }
 
-        const transactions = await Transaction.find({ proceedingId: req.params.id, status: { $ne: 'cancelled' } }).sort({ createdAt: -1 });
+        const transactions = await Transaction.find({ proceedingId: req.params.id, status: { $ne: 'cancelled' } })
+            .populate('feeHead', 'name code')
+            .sort({ createdAt: -1 });
         const totalUsed = transactions.reduce((acc, t) => acc + t.amount, 0);
+
+        await syncProceedingCompletionStatus(proceeding._id);
+        const freshProceeding = await Proceeding.findById(req.params.id).lean();
 
         const mappedStudents = await ProceedingStudent.find({ proceedingId: req.params.id }).sort({ studentName: 1 });
 
@@ -644,10 +745,27 @@ const getProceedingSummary = async (req, res) => {
             pinNo: pinMap[t.studentId] || '-'
         }));
 
+        const mappedWithShare = await Promise.all(mappedStudents.map(async (s) => {
+            const admissionNo = s.admissionNumber || s.studentId;
+            const shareAmount = roundMoney(s.shareAmount);
+            const shareUtilized = await getStudentProceedingShareUtilized(proceeding._id, admissionNo);
+            const shareRemaining = Math.max(0, roundMoney(shareAmount - shareUtilized));
+            return {
+                ...s.toObject(),
+                shareUtilized,
+                shareRemaining,
+                pinNo: pinMap[admissionNo] || s.pinNo || '-'
+            };
+        }));
+
+        const pendingTxnCount = mappedWithShare.filter((s) => s.txnPending || s.shareRemaining > 0.009).length;
+
         res.json({
             transactions: transactionsWithPin,
             totalUsed,
-            mappedStudents: mappedStudents.map(s => ({ ...s.toObject(), pinNo: pinMap[s.studentId] || s.pinNo || '-' }))
+            pendingTxnCount,
+            proceedingStatus: freshProceeding?.status || proceeding.status,
+            mappedStudents: mappedWithShare
         });
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
@@ -727,5 +845,6 @@ module.exports = {
     loadStudentsForProceeding,
     processNightlyProceedingTransactions,
     generateProceedingTransactions,
+    syncProceedingStudentTxnStatus,
     syncProceedingIds
 };

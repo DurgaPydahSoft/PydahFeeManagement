@@ -6,6 +6,7 @@ const Setting = require('../models/Setting');
 const ReceiptSequence = require('../models/ReceiptSequence');
 const db = require('../config/sqlDb');
 const collegeScope = require('../utils/collegeScope');
+const { validateProceedingPayment, syncProceedingStudentTxnStatus, syncProceedingCompletionStatus } = require('../utils/proceedingDemand');
 
 
 const getCollectorFromRequest = (req) => ({
@@ -229,7 +230,22 @@ const addTransaction = async (req, res) => {
     if (req.body.transactions && Array.isArray(req.body.transactions)) {
        const collector = getCollectorFromRequest(req);
        
-       // Proceeding validation for batch items
+       // Proceeding validation for batch items (per student + share cap)
+       for (const item of req.body.transactions) {
+         if (!item.proceedingId) continue;
+         const check = await validateProceedingPayment({
+           proceedingId: item.proceedingId,
+           studentId: item.studentId || studentId,
+           amount: item.amount,
+           feeHeadId: item.feeHeadId,
+           studentYear: item.studentYear
+         });
+         if (!check.ok) {
+           return res.status(check.status).json({ message: check.message });
+         }
+       }
+
+       // Proceeding pool balance (aggregate per proceeding)
        const proceedingAmountsMap = {};
        for (const item of req.body.transactions) {
          if (item.proceedingId) {
@@ -305,6 +321,18 @@ const addTransaction = async (req, res) => {
        
        const createdTransactions = await Transaction.insertMany(batch, { timestamps: false });
 
+       // Sync proceeding student pending flags + completion status
+       const proceedingIdsToSync = new Set();
+       for (const item of req.body.transactions) {
+         if (item.proceedingId && (item.studentId || studentId)) {
+           await syncProceedingStudentTxnStatus(item.proceedingId, item.studentId || studentId);
+           proceedingIdsToSync.add(String(item.proceedingId));
+         }
+       }
+       for (const pId of proceedingIdsToSync) {
+         await syncProceedingCompletionStatus(pId);
+       }
+
        // Populate feeHead for proper display in response
        const populatedTransactions = await Transaction.find({ _id: { $in: createdTransactions.map(t => t._id) } }).populate('feeHead', 'name');
        
@@ -323,23 +351,15 @@ const addTransaction = async (req, res) => {
     }
 
     if (proceedingId) {
-      const proc = await Proceeding.findById(proceedingId);
-      if (!proc) {
-        return res.status(404).json({ message: 'Selected proceeding not found' });
-      }
-      if (proc.status !== 'Active') {
-        return res.status(400).json({
-          message: `Proceeding '${proc.proceedingNumber}' is ${proc.status || 'not Active'} and cannot be used for collection until approved.`
-        });
-      }
-      const existingTxns = await Transaction.find({ proceedingId, status: { $ne: 'cancelled' } }).select('amount');
-      const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
-      const remaining = proc.amount - totalUsed;
-      if (Number(amount) > remaining) {
-        const avail = remaining < 0 ? 0 : remaining;
-        return res.status(400).json({
-          message: `Proceeding '${proc.proceedingNumber}' amount limit exceeded. Remaining balance is ₹${avail.toLocaleString('en-IN')}, but attempting to collect ₹${Number(amount).toLocaleString('en-IN')}.`
-        });
+      const check = await validateProceedingPayment({
+        proceedingId,
+        studentId,
+        amount,
+        feeHeadId,
+        studentYear
+      });
+      if (!check.ok) {
+        return res.status(check.status).json({ message: check.message });
       }
     }
 
@@ -386,6 +406,11 @@ const addTransaction = async (req, res) => {
       updatedAt: timestamps.updatedAt
     });
     const transaction = await transactionDoc.save({ timestamps: false });
+
+    if (proceedingId) {
+      await syncProceedingStudentTxnStatus(proceedingId, studentId);
+      await syncProceedingCompletionStatus(proceedingId);
+    }
 
     res.status(201).json(transaction);
   } catch (error) {
@@ -673,27 +698,30 @@ const updateTransactionPaymentMode = async (req, res) => {
     }
     if (proceedingId !== undefined) {
       const targetProcId = (proceedingId === '' || !proceedingId) ? null : proceedingId;
+      const prevProcId = transaction.proceedingId ? String(transaction.proceedingId) : null;
       if (targetProcId) {
-        const proc = await Proceeding.findById(targetProcId);
-        if (!proc) {
-          return res.status(404).json({ message: 'Selected proceeding not found' });
-        }
-        if (proc.status !== 'Active') {
-          return res.status(400).json({
-            message: `Proceeding '${proc.proceedingNumber}' is ${proc.status || 'not Active'} and cannot be used for collection until approved.`
-          });
-        }
-        const existingTxns = await Transaction.find({ proceedingId: targetProcId, _id: { $ne: id }, status: { $ne: 'cancelled' } }).select('amount');
-        const totalUsed = existingTxns.reduce((acc, t) => acc + t.amount, 0);
-        const remaining = proc.amount - totalUsed;
-        if (transaction.amount > remaining) {
-          const avail = remaining < 0 ? 0 : remaining;
-          return res.status(400).json({
-            message: `Proceeding '${proc.proceedingNumber}' amount limit exceeded. Remaining balance is ₹${avail.toLocaleString('en-IN')}, but transaction amount is ₹${transaction.amount.toLocaleString('en-IN')}.`
-          });
+        const check = await validateProceedingPayment({
+          proceedingId: targetProcId,
+          studentId: transaction.studentId,
+          amount: transaction.amount,
+          excludeTxnId: transaction._id,
+          feeHeadId: transaction.feeHead,
+          studentYear: transaction.studentYear
+        });
+        if (!check.ok) {
+          return res.status(check.status).json({ message: check.message });
         }
       }
       transaction.proceedingId = targetProcId;
+      await transaction.save({ timestamps: false });
+      if (targetProcId) await syncProceedingStudentTxnStatus(targetProcId, transaction.studentId);
+      if (prevProcId && prevProcId !== String(targetProcId || '')) {
+        await syncProceedingStudentTxnStatus(prevProcId, transaction.studentId);
+      }
+      if (targetProcId) await syncProceedingCompletionStatus(targetProcId);
+      if (prevProcId && prevProcId !== String(targetProcId || '')) {
+        await syncProceedingCompletionStatus(prevProcId);
+      }
     }
 
     if (req.body.paymentDate !== undefined && canEditTransactionDate(req.user)) {
@@ -815,6 +843,11 @@ const cancelTransaction = async (req, res) => {
       transaction.cancellationReason = cancellationReason;
     }
     await transaction.save();
+
+    if (transaction.proceedingId) {
+      await syncProceedingStudentTxnStatus(transaction.proceedingId, transaction.studentId);
+      await syncProceedingCompletionStatus(transaction.proceedingId);
+    }
 
     res.json({ message: 'Transaction cancelled successfully', transaction });
   } catch (error) {

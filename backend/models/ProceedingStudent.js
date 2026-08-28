@@ -38,7 +38,10 @@ const proceedingStudentSchema = mongoose.Schema({
      */
     proceedingYear: { type: Number, default: null },
     /** Individual share for this student (used when generating transactions). */
-    shareAmount: { type: Number, default: 0 }
+    shareAmount: { type: Number, default: 0 },
+    /** Auto-generation skipped — student share exceeds fee-head demand at approve time. */
+    txnPending: { type: Boolean, default: false },
+    txnPendingReason: { type: String, default: '' }
 }, {
     timestamps: true
 });

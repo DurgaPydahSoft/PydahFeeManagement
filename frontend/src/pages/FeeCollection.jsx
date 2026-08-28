@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import api from '../lib/api';
 import { useReactToPrint } from 'react-to-print';
 import Sidebar from './Sidebar';
@@ -324,7 +324,8 @@ const FeeCollection = () => {
                             course: student.course,
                             batch: student.academic_year, // Map to batch
                             caste: student.caste,
-                            status: 'Active'
+                            status: 'Active',
+                            studentId: student.admission_number
                         },
                     });
                     setAvailableProceedings(res.data);
@@ -350,6 +351,102 @@ const FeeCollection = () => {
             c.course === student.course
         );
     }, [paymentConfigs, student]);
+
+    const resolveConfigForProceeding = useCallback((proc) => {
+        if (!proc?.bankAccount) return null;
+        const accountName = String(proc.bankAccount).trim().toLowerCase();
+        return paymentConfigs.find(c => String(c.account_name || '').trim().toLowerCase() === accountName)
+            || relevantConfigs.find(c => String(c.account_name || '').trim().toLowerCase() === accountName);
+    }, [relevantConfigs, paymentConfigs]);
+
+    /** Bank config for submit: proceeding account for RTF, else form selection. */
+    const resolvePaymentBankConfig = useCallback(() => {
+        if (paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId) {
+            const proc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
+            const config = proc ? resolveConfigForProceeding(proc) : null;
+            if (config) return config;
+        }
+        return paymentConfigs.find(c => c._id === paymentForm.paymentConfigId) || null;
+    }, [paymentForm.paymentMode, paymentForm.proceedingId, paymentForm.paymentConfigId, availableProceedings, paymentConfigs, resolveConfigForProceeding]);
+
+    const applyProceedingBankToForm = useCallback((prev, proceedingId) => {
+        if (!proceedingId) {
+            return { ...prev, proceedingId: '', paymentConfigId: '', bankName: '' };
+        }
+        const proc = availableProceedings.find(p => p._id === proceedingId);
+        const config = proc ? resolveConfigForProceeding(proc) : null;
+        return {
+            ...prev,
+            proceedingId,
+            paymentConfigId: config?._id || '',
+            bankName: config?.bank_name || '',
+            referenceNo: proc?.proceedingNumber || prev.referenceNo || ''
+        };
+    }, [availableProceedings, resolveConfigForProceeding]);
+
+    const handleProceedingSelect = (proceedingId) => {
+        setPaymentForm(prev => applyProceedingBankToForm(prev, proceedingId));
+    };
+
+    useEffect(() => {
+        if (paymentForm.paymentMode !== 'RTF' || !paymentForm.proceedingId) return;
+        const proc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
+        if (!proc?.bankAccount) return;
+        const config = resolveConfigForProceeding(proc);
+        if (!config || paymentForm.paymentConfigId === config._id) return;
+        setPaymentForm(prev => ({
+            ...prev,
+            paymentConfigId: config._id,
+            bankName: config.bank_name || prev.bankName,
+            referenceNo: proc.proceedingNumber || prev.referenceNo || ''
+        }));
+    }, [paymentForm.paymentMode, paymentForm.proceedingId, paymentForm.paymentConfigId, availableProceedings, resolveConfigForProceeding]);
+
+    const isRtfShareLocked = Boolean(
+        paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId && !isEditMode
+    );
+
+    const getRtfProceedingProc = useCallback(() => {
+        if (paymentForm.paymentMode !== 'RTF' || !paymentForm.proceedingId) return null;
+        return availableProceedings.find(p => p._id === paymentForm.proceedingId) || null;
+    }, [paymentForm.paymentMode, paymentForm.proceedingId, availableProceedings]);
+
+    const getRtfShareAmountForRow = useCallback((feeHeadId, proc = getRtfProceedingProc()) => {
+        if (!proc) return '';
+        const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === proc._id)
+            ? Number(editingTransaction.amount) : 0;
+        const shareRem = Math.max(0, (proc.shareRemaining ?? proc.studentShare ?? 0) + existingTxAmount);
+        if (!(shareRem > 0)) return '';
+        if (!feeHeadId) return String(Math.round(shareRem * 100) / 100);
+        const selectedFee = feeDetails.find(f => f._id === feeHeadId);
+        const due = selectedFee ? (Number(selectedFee.dueAmount) || 0) : shareRem;
+        return String(Math.round(Math.min(shareRem, due) * 100) / 100);
+    }, [feeDetails, getRtfProceedingProc, isEditMode, editingTransaction]);
+
+    const syncRtfShareToFeeRows = useCallback(() => {
+        const proc = getRtfProceedingProc();
+        if (!proc || isEditMode) return;
+        setFeeRows(prev => {
+            const base = prev.length > 1 ? [prev[0]] : prev;
+            return base.map(row => ({
+                ...row,
+                amount: getRtfShareAmountForRow(row.feeHeadId, proc)
+            }));
+        });
+    }, [getRtfProceedingProc, getRtfShareAmountForRow, isEditMode]);
+
+    useEffect(() => {
+        if (paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId && !isEditMode) {
+            syncRtfShareToFeeRows();
+        }
+    }, [
+        paymentForm.paymentMode,
+        paymentForm.proceedingId,
+        availableProceedings,
+        feeDetails,
+        isEditMode,
+        syncRtfShareToFeeRows
+    ]);
 
 
     // Print Handler
@@ -665,7 +762,11 @@ const FeeCollection = () => {
             if (row.id === id) {
                 const updatedRow = { ...row, [field]: value };
                 if (field === 'feeHeadId') {
-                    updatedRow.amount = '';
+                    if (isRtfShareLocked) {
+                        updatedRow.amount = getRtfShareAmountForRow(value);
+                    } else {
+                        updatedRow.amount = '';
+                    }
                 }
                 return updatedRow;
             }
@@ -692,7 +793,7 @@ const FeeCollection = () => {
             const newRow = {
                 id: Date.now(),
                 feeHeadId: fee._id,
-                amount: ''
+                amount: isRtfShareLocked ? getRtfShareAmountForRow(fee._id) : ''
             };
 
             if (firstRowEmpty) {
@@ -856,36 +957,56 @@ const FeeCollection = () => {
         }
 
         if (paymentCategory === 'Bank' || paymentCategory === 'Split') {
-            if (relevantConfigs.length === 0) {
-                showToastMessage("No bank accounts are linked to this student's college and course. Cannot process bank payment.", 'error');
-                return;
-            }
-            if (!paymentForm.paymentConfigId) {
-                showToastMessage('Please select a target account.', 'error');
-                return;
-            }
-            const configExists = relevantConfigs.some(c => c._id === paymentForm.paymentConfigId);
-            if (!configExists) {
-                showToastMessage('Selected target account is invalid for this student.', 'error');
-                return;
-            }
+            const isRtfProceedingPay = paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId;
+            const selectedProcForBank = isRtfProceedingPay
+                ? availableProceedings.find(p => p._id === paymentForm.proceedingId)
+                : null;
+            const proceedingBankConfig = selectedProcForBank
+                ? resolveConfigForProceeding(selectedProcForBank)
+                : null;
 
             if (paymentForm.paymentMode === 'RTF') {
                 if (!paymentForm.proceedingId) {
                     showToastMessage('Please select a proceeding for RTF payment.', 'error');
                     return;
                 }
-                const selectedProc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
-                if (!selectedProc) {
+                if (!selectedProcForBank) {
                     showToastMessage('Selected proceeding is invalid or not found.', 'error');
                     return;
                 }
+                if (!proceedingBankConfig) {
+                    showToastMessage(`Proceeding bank account "${selectedProcForBank.bankAccount || '—'}" is not configured in Payment Settings.`, 'error');
+                    return;
+                }
+            } else {
+                if (relevantConfigs.length === 0) {
+                    showToastMessage("No bank accounts are linked to this student's college and course. Cannot process bank payment.", 'error');
+                    return;
+                }
+                if (!paymentForm.paymentConfigId) {
+                    showToastMessage('Please select a target account.', 'error');
+                    return;
+                }
+                const configExists = relevantConfigs.some(c => c._id === paymentForm.paymentConfigId);
+                if (!configExists) {
+                    showToastMessage('Selected target account is invalid for this student.', 'error');
+                    return;
+                }
+            }
+
+            if (paymentForm.paymentMode === 'RTF') {
+                const selectedProc = selectedProcForBank;
 
                 const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selectedProc._id) ? Number(editingTransaction.amount) : 0;
                 const procRem = (selectedProc.amount || 0) - (selectedProc.totalUsed || 0) + existingTxAmount;
+                const shareRem = (selectedProc.shareRemaining ?? selectedProc.studentShare ?? selectedProc.amount ?? 0) + existingTxAmount;
 
                 if (procRem <= 0) {
                     showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' has been exhausted (₹0 remaining balance).`, 'error');
+                    return;
+                }
+                if (shareRem <= 0) {
+                    showToastMessage(`Your fixed share in proceeding '${selectedProc.proceedingNumber}' is fully utilized.`, 'error');
                     return;
                 }
 
@@ -905,9 +1026,26 @@ const FeeCollection = () => {
                     return;
                 }
 
-                if (rtfPayAmount > procRem) {
-                    showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' only has ₹${fmtAmount(procRem)} remaining balance, but requested RTF amount is ₹${fmtAmount(rtfPayAmount)}.`, 'error');
+                const maxRtfAllowed = Math.min(procRem, shareRem);
+                if (rtfPayAmount > maxRtfAllowed) {
+                    if (rtfPayAmount > shareRem) {
+                        showToastMessage(`RTF amount ₹${fmtAmount(rtfPayAmount)} exceeds your remaining proceeding share of ₹${fmtAmount(shareRem)} (fixed share ₹${fmtAmount(selectedProc.studentShare || 0)}).`, 'error');
+                    } else {
+                        showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' only has ₹${fmtAmount(procRem)} remaining balance, but requested RTF amount is ₹${fmtAmount(rtfPayAmount)}.`, 'error');
+                    }
                     return;
+                }
+
+                // Per-row: amount must not exceed selected fee head due
+                for (const row of validRows) {
+                    const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
+                    if (!selectedFee) continue;
+                    const due = Number(selectedFee.dueAmount) || 0;
+                    const rowAmt = Number(row.amount) || 0;
+                    if (rowAmt > due + 0.009 && !receiptSettings?.excessFeeHead) {
+                        showToastMessage(`Amount for ${selectedFee.feeHeadName} (₹${fmtAmount(rowAmt)}) exceeds remaining demand (₹${fmtAmount(due)}).`, 'error');
+                        return;
+                    }
                 }
             }
         }
@@ -963,15 +1101,23 @@ const FeeCollection = () => {
                 }
 
                 if (paymentCategory === 'Bank') {
-                    payload.bankName = paymentForm.bankName;
+                    const bankConfig = resolvePaymentBankConfig();
                     payload.instrumentDate = paymentForm.instrumentDate;
-                    payload.referenceNo = paymentForm.referenceNo;
                     payload.referenceDate = paymentForm.referenceDate;
-                    payload.paymentConfigId = paymentForm.paymentConfigId;
-                    const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
-                    if (selectedConfig) {
-                        payload.depositedToAccount = selectedConfig.account_name;
+                    payload.paymentConfigId = bankConfig?._id || paymentForm.paymentConfigId;
+                    if (bankConfig) {
+                        payload.depositedToAccount = bankConfig.account_name;
+                        payload.bankName = bankConfig.bank_name || paymentForm.bankName;
+                    } else {
+                        payload.bankName = paymentForm.bankName;
+                        const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
+                        if (selectedConfig) {
+                            payload.depositedToAccount = selectedConfig.account_name;
+                        }
                     }
+                    payload.referenceNo = paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId
+                        ? (paymentForm.referenceNo || availableProceedings.find(p => p._id === paymentForm.proceedingId)?.proceedingNumber || '')
+                        : paymentForm.referenceNo;
                     if (paymentForm.paymentMode === 'RTF') {
                         payload.proceedingId = paymentForm.proceedingId;
                     }
@@ -1015,15 +1161,20 @@ const FeeCollection = () => {
                 commonData.paymentMode = 'Cash';
             } else if (paymentCategory === 'Bank') {
                 commonData.paymentMode = paymentForm.paymentMode;
-                commonData.bankName = paymentForm.bankName;
                 commonData.instrumentDate = paymentForm.instrumentDate;
-                commonData.referenceNo = paymentForm.referenceNo;
                 commonData.referenceDate = paymentForm.referenceDate;
-                commonData.paymentConfigId = paymentForm.paymentConfigId;
-                const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
-                if (selectedConfig) {
-                    commonData.depositedToAccount = selectedConfig.account_name;
+                const bankConfig = resolvePaymentBankConfig();
+                if (bankConfig) {
+                    commonData.paymentConfigId = bankConfig._id;
+                    commonData.depositedToAccount = bankConfig.account_name;
+                    commonData.bankName = bankConfig.bank_name || paymentForm.bankName;
+                } else {
+                    commonData.paymentConfigId = paymentForm.paymentConfigId;
+                    commonData.bankName = paymentForm.bankName;
                 }
+                commonData.referenceNo = paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId
+                    ? (paymentForm.referenceNo || availableProceedings.find(p => p._id === paymentForm.proceedingId)?.proceedingNumber || '')
+                    : paymentForm.referenceNo;
                 if (paymentForm.paymentMode === 'RTF') {
                     commonData.proceedingId = paymentForm.proceedingId;
                 }
@@ -1104,20 +1255,20 @@ const FeeCollection = () => {
 
                     // Push Target Bank transaction if > 0
                     if (targetBank > 0) {
+                        const bankConfig = resolvePaymentBankConfig();
                         const bankData = {
                             ...baseData,
                             amount: targetBank,
                             paymentMode: paymentForm.paymentMode,
-                            bankName: paymentForm.bankName,
                             instrumentDate: paymentForm.instrumentDate,
-                            referenceNo: paymentForm.referenceNo,
                             referenceDate: paymentForm.referenceDate,
-                            paymentConfigId: paymentForm.paymentConfigId
+                            paymentConfigId: bankConfig?._id || paymentForm.paymentConfigId,
+                            depositedToAccount: bankConfig?.account_name || '',
+                            bankName: bankConfig?.bank_name || paymentForm.bankName,
+                            referenceNo: paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId
+                                ? (paymentForm.referenceNo || availableProceedings.find(p => p._id === paymentForm.proceedingId)?.proceedingNumber || '')
+                                : paymentForm.referenceNo
                         };
-                        const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
-                        if (selectedConfig) {
-                            bankData.depositedToAccount = selectedConfig.account_name;
-                        }
                         if (paymentForm.paymentMode === 'RTF') {
                             bankData.proceedingId = paymentForm.proceedingId;
                         }
@@ -1135,20 +1286,20 @@ const FeeCollection = () => {
 
                     // Push Excess Bank transaction if > 0
                     if (excessBank > 0 && excessBaseData) {
+                        const bankConfig = resolvePaymentBankConfig();
                         const bankData = {
                             ...excessBaseData,
                             amount: excessBank,
                             paymentMode: paymentForm.paymentMode,
-                            bankName: paymentForm.bankName,
                             instrumentDate: paymentForm.instrumentDate,
-                            referenceNo: paymentForm.referenceNo,
                             referenceDate: paymentForm.referenceDate,
-                            paymentConfigId: paymentForm.paymentConfigId
+                            paymentConfigId: bankConfig?._id || paymentForm.paymentConfigId,
+                            depositedToAccount: bankConfig?.account_name || '',
+                            bankName: bankConfig?.bank_name || paymentForm.bankName,
+                            referenceNo: paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId
+                                ? (paymentForm.referenceNo || availableProceedings.find(p => p._id === paymentForm.proceedingId)?.proceedingNumber || '')
+                                : paymentForm.referenceNo
                         };
-                        const selectedConfig = paymentConfigs.find(c => c._id === paymentForm.paymentConfigId);
-                        if (selectedConfig) {
-                            bankData.depositedToAccount = selectedConfig.account_name;
-                        }
                         if (paymentForm.paymentMode === 'RTF') {
                             bankData.proceedingId = paymentForm.proceedingId;
                         }
@@ -2100,7 +2251,7 @@ const FeeCollection = () => {
                                                             </p>
                                                         )}
                                                     </div>
-                                                    {!isEditMode && actionTab === 'collect' && (
+                                                    {!isEditMode && actionTab === 'collect' && !isRtfShareLocked && (
                                                         <button
                                                             type="button"
                                                             onClick={addFeeRow}
@@ -2175,22 +2326,29 @@ const FeeCollection = () => {
                                                                                 </select>
                                                                             </div>
                                                                         <div className="w-24">
-                                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount</label>
+                                                                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                                                                Amount{isRtfShareLocked ? ' (Share)' : ''}
+                                                                            </label>
                                                                             <div className="relative">
                                                                                 <span className="absolute left-2 top-1.5 text-gray-400 text-xs"></span>
                                                                                 <input
                                                                                     type="number"
-                                                                                    className="w-full border border-gray-300 rounded-lg p-1.5 pl-5 text-xs font-bold text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder-gray-300 disabled:opacity-75 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                                                    className={`w-full border rounded-lg p-1.5 pl-5 text-xs font-bold outline-none transition-all placeholder-gray-300 disabled:cursor-not-allowed ${
+                                                                                        isRtfShareLocked
+                                                                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                                                                            : 'border-gray-300 text-gray-700 bg-white focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-75 disabled:bg-gray-100'
+                                                                                    }`}
                                                                                     value={row.amount}
                                                                                     onChange={e => updateFeeRow(row.id, 'amount', e.target.value)}
                                                                                     onWheel={e => e.target.blur()}
                                                                                     required
                                                                                     placeholder="0"
-                                                                                    disabled={isEditMode}
+                                                                                    disabled={isEditMode || isRtfShareLocked}
+                                                                                    readOnly={isRtfShareLocked}
                                                                                 />
                                                                             </div>
                                                                         </div>
-                                                                        {feeRows.length > 1 && !isEditMode && (
+                                                                        {feeRows.length > 1 && !isEditMode && !isRtfShareLocked && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => removeFeeRow(row.id)}
@@ -2332,7 +2490,14 @@ const FeeCollection = () => {
                                                                             <select
                                                                                 className="col-span-2 w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none font-bold"
                                                                                 value={paymentForm.paymentMode}
-                                                                                onChange={e => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
+                                                                                onChange={e => {
+                                                                                    const mode = e.target.value;
+                                                                                    if (mode === 'RTF' && paymentForm.proceedingId) {
+                                                                                        setPaymentForm(prev => applyProceedingBankToForm({ ...prev, paymentMode: mode }, prev.proceedingId));
+                                                                                    } else {
+                                                                                        setPaymentForm({ ...paymentForm, paymentMode: mode });
+                                                                                    }
+                                                                                }}
                                                                             >
                                                                                 <option value="UPI">UPI / QR Scan</option>
                                                                                 <option value="RTF">RTF (Scholarship)</option>
@@ -2346,17 +2511,18 @@ const FeeCollection = () => {
                                                                                     <select
                                                                                         className="w-full border border-gray-300 p-2 rounded-lg text-xs bg-white focus:border-blue-500 outline-none"
                                                                                         value={paymentForm.proceedingId || ''}
-                                                                                        onChange={e => setPaymentForm({ ...paymentForm, proceedingId: e.target.value })}
+                                                                                        onChange={e => handleProceedingSelect(e.target.value)}
                                                                                         required
                                                                                     >
                                                                                         <option value="">-- Select Proceeding --</option>
                                                                                         {availableProceedings.map(p => {
                                                                                             const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === p._id) ? Number(editingTransaction.amount) : 0;
                                                                                             const rem = (p.amount || 0) - (p.totalUsed || 0) + existingTxAmount;
-                                                                                            const isExhausted = rem <= 0;
+                                                                                            const shareRem = (p.shareRemaining ?? p.studentShare ?? 0) + existingTxAmount;
+                                                                                            const isExhausted = rem <= 0 || shareRem <= 0;
                                                                                             return (
                                                                                                 <option key={p._id} value={p._id} disabled={isExhausted}>
-                                                                                                    {p.proceedingNumber} - Rem: ₹{fmtAmount(Math.max(0, rem))} (Total: ₹{fmtAmount(p.amount)}){isExhausted ? ' - [EXHAUSTED]' : ''}
+                                                                                                    {p.proceedingNumber} — Left ₹{fmtAmount(Math.max(0, shareRem))} of ₹{fmtAmount(p.studentShare || 0)} share · Proc ₹{fmtAmount(Math.max(0, rem))}{isExhausted ? ' [EXHAUSTED]' : ''}
                                                                                                 </option>
                                                                                             );
                                                                                         })}
@@ -2369,7 +2535,9 @@ const FeeCollection = () => {
                                                                                         if (!selProc) return null;
                                                                                         const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selProc._id) ? Number(editingTransaction.amount) : 0;
                                                                                         const rem = (selProc.amount || 0) - (selProc.totalUsed || 0) + existingTxAmount;
-                                                                                        const isExhausted = rem <= 0;
+                                                                                        const shareRem = (selProc.shareRemaining ?? selProc.studentShare ?? 0) + existingTxAmount;
+                                                                                        const maxAllowed = Math.min(rem, shareRem);
+                                                                                        const isExhausted = rem <= 0 || shareRem <= 0;
 
                                                                                         const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
                                                                                         let currentRtfInput = 0;
@@ -2383,19 +2551,26 @@ const FeeCollection = () => {
                                                                                             }, 0);
                                                                                         }
 
-                                                                                        const isExceeding = currentRtfInput > rem;
+                                                                                        const isExceeding = currentRtfInput > maxAllowed;
 
                                                                                         return (
                                                                                             <div className={`mt-1.5 p-2 rounded-lg text-xs space-y-1 ${isExceeding || isExhausted ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>
                                                                                                 <div className="flex justify-between items-center font-bold">
-                                                                                                    <span>Remaining Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
-                                                                                                    <span className="text-[10px] font-mono opacity-80">Limit: ₹{fmtAmount(selProc.amount)}</span>
+                                                                                                    <span>Your Share Remaining: ₹{fmtAmount(Math.max(0, shareRem))}</span>
+                                                                                                    <span className="text-[10px] font-mono opacity-80">Fixed: ₹{fmtAmount(selProc.studentShare || 0)}</span>
                                                                                                 </div>
+                                                                                                <div className="flex justify-between items-center text-[10px] opacity-90">
+                                                                                                    <span>Proceeding Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
+                                                                                                    <span className="font-mono">Max RTF: ₹{fmtAmount(Math.max(0, maxAllowed))}</span>
+                                                                                                </div>
+                                                                                                {selProc.txnPending && selProc.txnPendingReason && (
+                                                                                                    <p className="text-[10px] font-semibold text-amber-700">Pending auto-txn: {selProc.txnPendingReason}</p>
+                                                                                                )}
                                                                                                 {isExhausted && (
-                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ This proceeding balance is exhausted (₹0 remaining).</p>
+                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ Proceeding or your share balance is exhausted.</p>
                                                                                                 )}
                                                                                                 {!isExhausted && isExceeding && (
-                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds remaining balance (₹{fmtAmount(rem)}).</p>
+                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds max allowed (₹{fmtAmount(maxAllowed)}).</p>
                                                                                                 )}
                                                                                             </div>
                                                                                         );
@@ -2404,7 +2579,36 @@ const FeeCollection = () => {
                                                                             </div>
                                                                         )}
 
-                                                                        {/* Target Account Selection */}
+                                                                        {/* Target Account — hidden dropdown for RTF; proceeding account only */}
+                                                                        {paymentForm.paymentMode === 'RTF' ? (
+                                                                            (() => {
+                                                                                const rtfProceeding = paymentForm.proceedingId
+                                                                                    ? availableProceedings.find(p => p._id === paymentForm.proceedingId)
+                                                                                    : null;
+                                                                                const proceedingConfig = rtfProceeding ? resolveConfigForProceeding(rtfProceeding) : null;
+                                                                                return (
+                                                                                    <div>
+                                                                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                                                                            Deposit Account (from proceeding)
+                                                                                        </label>
+                                                                                        {!rtfProceeding ? (
+                                                                                            <div className="w-full border border-dashed border-slate-200 bg-slate-50 p-2 rounded-lg text-xs text-slate-500 italic">
+                                                                                                Select a proceeding above — bank account is set automatically.
+                                                                                            </div>
+                                                                                        ) : proceedingConfig ? (
+                                                                                            <div className="w-full border border-emerald-200 bg-emerald-50 p-2 rounded-lg text-xs font-bold text-emerald-800">
+                                                                                                {proceedingConfig.account_name} — {proceedingConfig.account_number} ({proceedingConfig.bank_name})
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="w-full border border-amber-200 bg-amber-50 p-2 rounded-lg text-xs font-semibold text-amber-800">
+                                                                                                {rtfProceeding.bankAccount || '—'}
+                                                                                                <span className="block text-[10px] font-normal mt-0.5">Not found in Payment Settings — add this account name in Payment Config.</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })()
+                                                                        ) : (
                                                                         <div>
                                                                             <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Target Account *</label>
                                                                             <select
@@ -2431,6 +2635,7 @@ const FeeCollection = () => {
                                                                                 )}
                                                                             </select>
                                                                         </div>
+                                                                        )}
                                                                         {paymentForm.paymentMode === 'UPI' && (
                                                                             <div className="grid grid-cols-2 gap-2">
                                                                                 <div>
