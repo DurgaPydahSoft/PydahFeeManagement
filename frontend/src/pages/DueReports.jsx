@@ -926,138 +926,133 @@ const DueReports = () => {
                         )}
 
                         {/* Control Bar: Filters & Search */}
-                        <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
-                            <div className="flex flex-col xl:flex-row gap-3 items-end">
-                                {/* Filters Group */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 w-full xl:w-auto flex-1">
-                                    <div className="w-full text-left">
-                                        <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
-                                        <select
-                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
-                                            value={filters.college}
-                                            onChange={handleCollegeChange}
-                                        >
-                                            <option value="">Select College</option>
-                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className="w-full text-left">
-                                        <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Course</label>
-                                        <select
-                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                            value={filters.course}
-                                            onChange={handleCourseChange}
-                                            disabled={!filters.college}
-                                        >
-                                            <option value="">Select Course</option>
-                                            {courses.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-                                    <MultiSelectDropdown
-                                        label="Branch"
-                                        options={branches}
-                                        selectedValues={filters.branch}
-                                        onChange={val => setFilters({ ...filters, branch: val })}
-                                        disabled={!filters.course}
-                                    />
-                                    <MultiSelectDropdown
-                                        label="Year"
-                                        options={availableYears}
-                                        selectedValues={filters.year}
-                                        onChange={val => setFilters({ ...filters, year: val })}
-                                        disabled={!filters.course || availableYears.length === 0}
-                                    />
-                                    <MultiSelectDropdown
-                                        label="Quota"
-                                        options={quotas || []}
-                                        selectedValues={filters.quota}
-                                        onChange={val => setFilters({ ...filters, quota: val })}
-                                        disabled={!filters.course}
-                                    />
-                                    <MultiSelectDropdown
-                                        label="Fee Head"
-                                        options={feeHeadFilterOptions}
-                                        selectedValues={selectedFeeHeadIds}
-                                        onChange={setSelectedFeeHeadIds}
-                                        disabled={feeHeadFilterOptions.length === 0}
-                                    />
-                                    <div className="w-full text-left">
-                                        <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Student Status</label>
-                                        <select
-                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
-                                            value={filters.studentStatus}
-                                            onChange={e => setFilters({ ...filters, studentStatus: e.target.value })}
-                                        >
-                                            <option value="all">All Statuses</option>
-                                            {studentStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                    </div>
+                        <div className="bg-white border border-gray-200 rounded shadow-sm p-4 space-y-3">
+                            {/* Row 1: Filters */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                                <div className="w-full text-left">
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
+                                    <select
+                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
+                                        value={filters.college}
+                                        onChange={handleCollegeChange}
+                                    >
+                                        <option value="">Select College</option>
+                                        {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div className="w-full text-left">
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Course</label>
+                                    <select
+                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                        value={filters.course}
+                                        onChange={handleCourseChange}
+                                        disabled={!filters.college}
+                                    >
+                                        <option value="">Select Course</option>
+                                        {courses.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <MultiSelectDropdown
+                                    label="Branch"
+                                    options={branches}
+                                    selectedValues={filters.branch}
+                                    onChange={val => setFilters({ ...filters, branch: val })}
+                                    disabled={!filters.course}
+                                />
+                                <MultiSelectDropdown
+                                    label="Year"
+                                    options={availableYears}
+                                    selectedValues={filters.year}
+                                    onChange={val => setFilters({ ...filters, year: val })}
+                                    disabled={!filters.course || availableYears.length === 0}
+                                />
+                                <MultiSelectDropdown
+                                    label="Quota"
+                                    options={quotas || []}
+                                    selectedValues={filters.quota}
+                                    onChange={val => setFilters({ ...filters, quota: val })}
+                                    disabled={!filters.course}
+                                />
+                                <MultiSelectDropdown
+                                    label="Fee Head"
+                                    options={feeHeadFilterOptions}
+                                    selectedValues={selectedFeeHeadIds}
+                                    onChange={setSelectedFeeHeadIds}
+                                    disabled={feeHeadFilterOptions.length === 0}
+                                />
+                                <div className="w-full text-left">
+                                    <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Student Status</label>
+                                    <select
+                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-semibold"
+                                        value={filters.studentStatus}
+                                        onChange={e => setFilters({ ...filters, studentStatus: e.target.value })}
+                                    >
+                                        <option value="all">All Statuses</option>
+                                        {studentStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Row 2: Actions */}
+                            <div className="flex flex-wrap items-end gap-2 pt-1 border-t border-gray-100">
+                                <button
+                                    onClick={fetchReport}
+                                    disabled={loading}
+                                    className="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded text-xs px-4 py-2.5 transition flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
+                                >
+                                    {loading ? '...' : 'Get Data'}
+                                </button>
+
+                                <div className="w-px h-8 bg-gray-200 mx-1 hidden sm:block"></div>
+
+                                <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-300 rounded shrink-0 select-none">
+                                    <span className={`text-[10px] font-bold whitespace-nowrap transition-colors ${!excludeScholarship ? 'text-blue-700' : 'text-gray-400'}`}>With Sch</span>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={excludeScholarship}
+                                        onClick={() => setExcludeScholarship(prev => !prev)}
+                                        className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 ${excludeScholarship ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                    >
+                                        <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transform transition-transform ${excludeScholarship ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                    </button>
+                                    <span className={`text-[10px] font-bold whitespace-nowrap transition-colors ${excludeScholarship ? 'text-blue-700' : 'text-gray-400'}`}>Without Sch</span>
                                 </div>
 
-                                {/* Actions Group */}
-                                <div className="flex items-center gap-2 w-full xl:w-auto">
-                                    <button
-                                        onClick={fetchReport}
-                                        disabled={loading}
-                                        className="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded text-xs px-4 py-2.5 transition flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
-                                    >
-                                        {loading ? '...' : 'Get Data'}
-                                    </button>
+                                <select
+                                    className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-16 p-2"
+                                    value={itemsPerPage}
+                                    onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                                    title="Rows per page"
+                                >
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
 
-                                    <div className="w-px h-8 bg-gray-200 mx-1 hidden xl:block"></div>
-
-                                    <div className="relative flex-1 xl:w-64 flex gap-2">
-                                        {/* Scholarship Toggle */}
-                                        <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-300 rounded shrink-0 select-none">
-                                            <span className={`text-[10px] font-bold whitespace-nowrap transition-colors ${!excludeScholarship ? 'text-blue-700' : 'text-gray-400'}`}>With Sch</span>
-                                            <button
-                                                type="button"
-                                                role="switch"
-                                                aria-checked={excludeScholarship}
-                                                onClick={() => setExcludeScholarship(prev => !prev)}
-                                                className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 ${excludeScholarship ? 'bg-blue-600' : 'bg-gray-300'}`}
-                                            >
-                                                <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transform transition-transform ${excludeScholarship ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                            </button>
-                                            <span className={`text-[10px] font-bold whitespace-nowrap transition-colors ${excludeScholarship ? 'text-blue-700' : 'text-gray-400'}`}>Without Sch</span>
-                                        </div>
-
-                                        {/* Items Per Page */}
-                                        <select
-                                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-16 p-2"
-                                            value={itemsPerPage}
-                                            onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
-                                            title="Rows per page"
-                                        >
-                                            <option value={10}>10</option>
-                                            <option value={20}>20</option>
-                                            <option value={50}>50</option>
-                                            <option value={100}>100</option>
-                                        </select>
-
-                                        <div className="relative flex-1">
-                                            <div className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none">
-                                                <Search size={14} className="text-gray-400" />
-                                            </div>
-                                            <input
-                                                type="text"
-                                                className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full pl-8 p-2"
-                                                placeholder="Quick Search (Enter to fetch)..."
-                                                value={searchTerm}
-                                                onChange={e => { setSearchTerm(e.target.value); }}
-                                                onKeyDown={(e) => e.key === 'Enter' && fetchReport()}
-                                            />
-                                        </div>
+                                <div className="relative flex-1 min-w-[180px] max-w-sm">
+                                    <div className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none">
+                                        <Search size={14} className="text-gray-400" />
                                     </div>
-                                    <button
-                                        onClick={exportToExcel}
-                                        disabled={reportData.length === 0}
-                                        className="text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-300 font-medium rounded text-xs px-3 py-2 transition flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50"
-                                        title="Export to Excel"
-                                    >
-                                        <Download size={14} />
-                                    </button>
+                                    <input
+                                        type="text"
+                                        className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded focus:ring-blue-500 focus:border-blue-500 block w-full pl-8 p-2"
+                                        placeholder="Quick Search (Enter to fetch)..."
+                                        value={searchTerm}
+                                        onChange={e => { setSearchTerm(e.target.value); }}
+                                        onKeyDown={(e) => e.key === 'Enter' && fetchReport()}
+                                    />
                                 </div>
+
+                                <button
+                                    onClick={exportToExcel}
+                                    disabled={reportData.length === 0}
+                                    className="text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-300 font-medium rounded text-xs px-3 py-2 transition flex items-center justify-center gap-1 whitespace-nowrap disabled:opacity-50 shrink-0"
+                                    title="Export to Excel"
+                                >
+                                    <Download size={14} />
+                                </button>
                             </div>
                         </div>
 
