@@ -10,6 +10,16 @@ const MultiSelectDropdown = ({ label, options, selectedValues, onChange, disable
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = React.useRef(null);
 
+    const normalizedOptions = React.useMemo(() => (
+        (options || []).map(opt => (
+            typeof opt === 'string'
+                ? { value: opt, label: opt }
+                : { value: String(opt.value), label: opt.label || String(opt.value) }
+        ))
+    ), [options]);
+
+    const optionValues = normalizedOptions.map(o => o.value);
+
     React.useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -29,10 +39,10 @@ const MultiSelectDropdown = ({ label, options, selectedValues, onChange, disable
     };
 
     const toggleAll = () => {
-        if (selectedValues.length === options.length) {
+        if (selectedValues.length === optionValues.length) {
             onChange([]);
         } else {
-            onChange([...options]);
+            onChange([...optionValues]);
         }
     };
 
@@ -48,7 +58,7 @@ const MultiSelectDropdown = ({ label, options, selectedValues, onChange, disable
                 <span className="truncate">
                     {selectedValues.length === 0 
                         ? `Select ${label}` 
-                        : selectedValues.length === options.length 
+                        : selectedValues.length === optionValues.length && optionValues.length > 0
                         ? `All ${label}s` 
                         : `${selectedValues.length} Selected`}
                 </span>
@@ -57,28 +67,28 @@ const MultiSelectDropdown = ({ label, options, selectedValues, onChange, disable
 
             {isOpen && (
                 <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto p-2 space-y-1">
-                    {options.length > 0 ? (
+                    {normalizedOptions.length > 0 ? (
                         <>
                             <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer select-none font-bold text-[11px] border-b border-gray-100 pb-2">
                                 <input
                                     type="checkbox"
-                                    checked={selectedValues.length === options.length && options.length > 0}
+                                    checked={selectedValues.length === optionValues.length && optionValues.length > 0}
                                     onChange={toggleAll}
                                     className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                                 />
                                 <span>Select All</span>
                             </label>
-                            {options.map(opt => {
-                                const isChecked = selectedValues.includes(opt);
+                            {normalizedOptions.map(opt => {
+                                const isChecked = selectedValues.includes(opt.value);
                                 return (
-                                    <label key={opt} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer select-none text-[11px] font-medium text-gray-700">
+                                    <label key={opt.value} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer select-none text-[11px] font-medium text-gray-700">
                                         <input
                                             type="checkbox"
                                             checked={isChecked}
-                                            onChange={() => toggleOption(opt)}
+                                            onChange={() => toggleOption(opt.value)}
                                             className="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                                         />
-                                        <span>{opt}</span>
+                                        <span>{opt.label}</span>
                                     </label>
                                 );
                             })}
@@ -102,6 +112,8 @@ const DueReports = () => {
     const [academicYears, setAcademicYears] = useState([]);
     const [currentAcademicYear, setCurrentAcademicYear] = useState('');
     const [studentStatuses, setStudentStatuses] = useState([]);
+    const [feeHeads, setFeeHeads] = useState([]);
+    const [selectedFeeHeadIds, setSelectedFeeHeadIds] = useState([]);
 
     // Generate Academic Years (current year ± 6 years)
     const generateAcademicYears = () => {
@@ -214,7 +226,11 @@ const DueReports = () => {
     useEffect(() => {
         const fetchMetadata = async () => {
             try {
-                const response = await api.get(`/students/metadata`);
+                const [metaRes, headsRes] = await Promise.all([
+                    api.get('/students/metadata'),
+                    api.get('/fee-heads?all=true')
+                ]);
+                const response = metaRes;
                 const meta = response.data.hierarchy || response.data;
                 const batchList = response.data.batches || [];
                 const quotaList = response.data.quotas || response.data.categories || [];
@@ -227,6 +243,7 @@ const DueReports = () => {
                 setCourseYears(courseYearsData);
                 setColleges(Object.keys(meta));
                 setStudentStatuses(statusList);
+                setFeeHeads(Array.isArray(headsRes.data) ? headsRes.data : []);
                 
                 // Generate academic years on load
                 const years = generateAcademicYears();
@@ -383,7 +400,13 @@ const DueReports = () => {
                         quota: filters.quota.join(','),
                         batch: filters.batch || topFilters.batch,
                         campusId: filters.campusId !== 'all' ? filters.campusId : topFilters.campusId,
-                        studentStatus: filters.studentStatus
+                        studentStatus: filters.studentStatus,
+                        feeHeads: selectedFeeHeadIds.length > 0
+                            ? feeHeadFilterOptions
+                                .filter(fh => selectedFeeHeadIds.includes(fh.value))
+                                .map(fh => fh.label)
+                                .join(', ')
+                            : 'All'
                     },
                     summary: {
                         totalStudents: filteredData.length,
@@ -523,22 +546,19 @@ const DueReports = () => {
         });
     }, [reportData, sortField, sortDir]);
 
-    // Recalculate student amounts based on whether scholarship-eligible records are excluded
+    // Recalculate student amounts based on scholarship toggle and/or fee-head filter
     const processedData = React.useMemo(() => {
-        if (!excludeScholarship) {
+        const hasFeeHeadFilter = selectedFeeHeadIds.length > 0;
+        if (!excludeScholarship && !hasFeeHeadFilter) {
             return sortedData;
         }
         return sortedData.map(student => {
             const isStudentScholarEligible = String(student.scholarshipStatus || '').toLowerCase() === 'eligible';
+            let totalFee = 0;
             let paidAmount = 0;
             let concessionAmount = 0;
             const studentTermDues = {};
             const feeDetailsMap = {};
-            const newGroupedFeeDetails = {
-                academic: null,
-                hostel: null,
-                transport: null
-            };
             const catSums = {
                 academic: { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} },
                 hostel: { total: 0, paid: 0, concession: 0, due: 0, termsMap: {} },
@@ -553,11 +573,16 @@ const DueReports = () => {
             };
 
             (student.rawGroupedData || []).forEach(item => {
+                if (hasFeeHeadFilter && !selectedFeeHeadIds.includes(String(item.feeHeadId))) {
+                    return;
+                }
+
                 const feeCode = String(item.feeHeadCode || '').toUpperCase();
                 const isServiceFee = feeCode === 'HST01' || feeCode === 'TRN' || feeCode === 'TRN01';
-                const shouldExclude = isStudentScholarEligible && item.isScholarshipApplicable && !isServiceFee;
+                const shouldExclude = excludeScholarship && isStudentScholarEligible && item.isScholarshipApplicable && !isServiceFee;
 
                 if (!shouldExclude) {
+                    totalFee += (item.totalAmount || 0);
                     paidAmount += (item.paidAmount || 0);
                     concessionAmount += (item.concessionAmount || 0);
 
@@ -578,16 +603,14 @@ const DueReports = () => {
                         }
                     }
 
-                    // Update feeDetailsMap for Excel / PDF details
                     const headIdStr = String(item.feeHeadId || 'unknown');
                     if (!feeDetailsMap[headIdStr]) {
-                        feeDetailsMap[headIdStr] = { total: 0, paid: 0, due: 0 };
+                        feeDetailsMap[headIdStr] = { total: 0, paid: 0, due: 0, headName: item.feeHeadName || 'Unknown', headCode: item.feeHeadCode || '' };
                     }
                     feeDetailsMap[headIdStr].total += (item.totalAmount || 0);
                     feeDetailsMap[headIdStr].paid += (item.paidAmount || 0);
                     feeDetailsMap[headIdStr].due += itemBalance;
 
-                    // Rebuild category summaries
                     const catKey = getCategoryKey(item);
                     const catSum = catSums[catKey];
 
@@ -629,9 +652,9 @@ const DueReports = () => {
                 termDues.push(studentTermDues[i] || 0);
             }
 
-            const dueAmount = Math.max(0, student.totalFee - paidAmount - concessionAmount);
+            const effectiveTotalFee = hasFeeHeadFilter ? totalFee : student.totalFee;
+            const dueAmount = Math.max(0, effectiveTotalFee - paidAmount - concessionAmount);
 
-            // Calculate activeDue only from active terms
             let activeDue = 0;
             [catSums.academic, catSums.hostel, catSums.transport].forEach(catSum => {
                 Object.values(catSum.termsMap).forEach(term => {
@@ -661,19 +684,41 @@ const DueReports = () => {
                 transport: finalizeCategoryClient(catSums.transport)
             };
 
+            const feeDetailsArray = hasFeeHeadFilter
+                ? Object.entries(feeDetailsMap).map(([headId, detail]) => ({
+                    headId,
+                    headName: detail.headName || 'Unknown',
+                    headCode: detail.headCode || '',
+                    total: detail.total || 0,
+                    paid: detail.paid || 0,
+                    due: detail.due || 0
+                }))
+                : student.feeDetailsArray;
+
             return {
                 ...student,
+                ...(hasFeeHeadFilter ? { totalFee } : {}),
                 paidAmount,
                 concessionAmount,
                 dueAmount,
                 activeDue,
                 termDues,
-                groupedFeeDetails: rebuiltGroupedFeeDetails
+                groupedFeeDetails: rebuiltGroupedFeeDetails,
+                ...(hasFeeHeadFilter ? { feeDetailsArray } : {})
             };
         });
-    }, [sortedData, excludeScholarship]);
+    }, [sortedData, excludeScholarship, selectedFeeHeadIds]);
 
-    // Filter Logic - Now Server Side, so we just use processedData
+    const feeHeadFilterOptions = React.useMemo(() => (
+        [...feeHeads]
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+            .map(fh => ({
+                value: String(fh._id),
+                label: fh.code ? `${fh.name} (${fh.code})` : fh.name
+            }))
+    ), [feeHeads]);
+
+    // Filter Logic - client-side scholarship + fee-head filters applied in processedData
     const filteredData = processedData;
 
     // Pagination Logic
@@ -884,7 +929,7 @@ const DueReports = () => {
                         <div className="bg-white border border-gray-200 rounded shadow-sm p-4">
                             <div className="flex flex-col xl:flex-row gap-3 items-end">
                                 {/* Filters Group */}
-                                <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full xl:w-auto flex-1">
+                                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 w-full xl:w-auto flex-1">
                                     <div className="w-full text-left">
                                         <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">College</label>
                                         <select
@@ -928,6 +973,13 @@ const DueReports = () => {
                                         selectedValues={filters.quota}
                                         onChange={val => setFilters({ ...filters, quota: val })}
                                         disabled={!filters.course}
+                                    />
+                                    <MultiSelectDropdown
+                                        label="Fee Head"
+                                        options={feeHeadFilterOptions}
+                                        selectedValues={selectedFeeHeadIds}
+                                        onChange={setSelectedFeeHeadIds}
+                                        disabled={feeHeadFilterOptions.length === 0}
                                     />
                                     <div className="w-full text-left">
                                         <label className="text-[11px] font-bold text-gray-600 block mb-1 uppercase tracking-wider">Student Status</label>
