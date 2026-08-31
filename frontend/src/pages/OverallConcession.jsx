@@ -207,6 +207,7 @@ const OverallConcession = () => {
 
     // ── view overview list filter + print ─────────────────────────────────
     const [viewListMode,      setViewListMode]      = useState('all'); // 'all' | 'revised'
+    const [viewQuotaFilter,   setViewQuotaFilter]    = useState('');
     const [viewPrintBusy,     setViewPrintBusy]     = useState(false);
 
     // ── pending requests map (admissionNumber → true) for badge ──────────
@@ -465,12 +466,19 @@ const OverallConcession = () => {
     };
 
     // ── View Overview print (All loaded students vs Revised-fees only) ──
+    const getViewQuotaFilteredStudents = useCallback((list) => {
+        if (!viewQuotaFilter) return list;
+        const q = viewQuotaFilter.trim().toUpperCase();
+        return list.filter((s) => String(s.stud_type || '').trim().toUpperCase() === q);
+    }, [viewQuotaFilter]);
+
     const handleViewPrint = async (mode) => {
         const includeAll = mode === 'all';
+        const quotaFiltered = getViewQuotaFilteredStudents(students);
 
         const selectedStudents = includeAll
-            ? students
-            : students.filter(s => (s.revisedFees || []).length > 0);
+            ? quotaFiltered
+            : quotaFiltered.filter(s => (s.revisedFees || []).length > 0);
 
         if (selectedStudents.length === 0) {
             alert(includeAll ? 'No students loaded to print.' : 'No revised-fee students to print.');
@@ -515,6 +523,7 @@ const OverallConcession = () => {
                     requests,
                     filters: {
                         ...filters,
+                        quota: viewQuotaFilter || undefined,
                         courseYears: courseYears[filters.course] || undefined
                     },
                     generatedOn: new Date().toLocaleString('en-IN')
@@ -1257,58 +1266,73 @@ const OverallConcession = () => {
                     {/* ── Filter Bar (shown on add + view tabs only) ── */}
                     {activeTab !== 'requests' && activeTab !== 'register' && activeTab !== 'bulk' && (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
-                            <div className="flex flex-col xl:flex-row gap-4 items-end">
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full xl:w-auto flex-1">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
-                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                            value={filters.college} onChange={handleCollegeChange}>
-                                            <option value="">Select College</option>
-                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
-                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                            value={filters.course} onChange={handleCourseChange} disabled={!filters.college}>
-                                            <option value="">Select Course</option>
-                                            {courses.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
-                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                            value={filters.batch} onChange={e => setFilters({ ...filters, batch: e.target.value })}>
-                                            <option value="">Select Batch</option>
-                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
-                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                            value={filters.branch} onChange={e => setFilters({ ...filters, branch: e.target.value })} disabled={!filters.course}>
-                                            <option value="">Select Branch</option>
-                                            {branches.map(b => <option key={b} value={b}>{b}</option>)}
-                                        </select>
-                                    </div>
+                            <div className="flex flex-wrap lg:flex-nowrap items-end gap-3 w-full">
+                                <div className="min-w-[130px] flex-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
+                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                        value={filters.college} onChange={handleCollegeChange}>
+                                        <option value="">Select College</option>
+                                        {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
                                 </div>
-                                <div className="flex items-center gap-3 w-full xl:w-auto">
-                                    <div className="relative flex-1 xl:w-64">
+                                <div className="min-w-[120px] flex-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
+                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                        value={filters.course} onChange={handleCourseChange} disabled={!filters.college}>
+                                        <option value="">Select Course</option>
+                                        {courses.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                                <div className="min-w-[100px] flex-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
+                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                        value={filters.batch} onChange={e => setFilters({ ...filters, batch: e.target.value })}>
+                                        <option value="">Select Batch</option>
+                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
+                                </div>
+                                <div className="min-w-[120px] flex-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
+                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                        value={filters.branch} onChange={e => setFilters({ ...filters, branch: e.target.value })} disabled={!filters.course}>
+                                        <option value="">Select Branch</option>
+                                        {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                                    </select>
+                                </div>
+                                {activeTab === 'view' && (
+                                    <div className="min-w-[110px] flex-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Quota</label>
+                                        <select
+                                            className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={viewQuotaFilter}
+                                            onChange={(e) => setViewQuotaFilter(e.target.value)}
+                                        >
+                                            <option value="">All Quotas</option>
+                                            {(students.length > 0
+                                                ? [...new Set(students.map(s => s.stud_type).filter(Boolean))].sort()
+                                                : quotaOptions
+                                            ).map(q => <option key={q} value={q}>{q}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                <div className="relative min-w-[180px] flex-1 lg:max-w-[220px]">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Search</label>
+                                    <div className="relative">
                                         <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                                             <Search size={14} className="text-slate-400" />
                                         </div>
                                         <input type="text"
                                             className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-9 p-2.5"
-                                            placeholder="Quick Search (Name/Adm/Pin)..."
+                                            placeholder="Name / Adm / Pin"
                                             value={searchTerm}
                                             onChange={e => setSearchTerm(e.target.value)}
                                             onKeyDown={e => e.key === 'Enter' && fetchStudents()} />
                                     </div>
-                                    <button onClick={fetchStudents} disabled={loading}
-                                        className="text-white bg-blue-600 hover:bg-blue-700 font-bold rounded-lg text-xs px-5 py-2.5 transition flex items-center justify-center gap-2 whitespace-nowrap shadow-sm">
-                                        <Filter size={14} /> {loading ? 'Searching...' : 'Load Students'}
-                                    </button>
                                 </div>
+                                <button onClick={fetchStudents} disabled={loading}
+                                    className="text-white bg-blue-600 hover:bg-blue-700 font-bold rounded-lg text-xs px-5 py-2.5 transition flex items-center justify-center gap-2 whitespace-nowrap shadow-sm shrink-0">
+                                    <Filter size={14} /> {loading ? 'Searching...' : 'Load Students'}
+                                </button>
                             </div>
                         </div>
                     )}
@@ -1552,10 +1576,11 @@ const OverallConcession = () => {
                         VIEW OVERVIEW TAB
                     ══════════════════════════════════════════════════ */}
                     {activeTab === 'view' && (() => {
-                        const revisedCount = students.filter(s => (s.revisedFees || []).length > 0).length;
+                        const quotaFilteredStudents = getViewQuotaFilteredStudents(students);
+                        const revisedCount = quotaFilteredStudents.filter(s => (s.revisedFees || []).length > 0).length;
                         const viewStudents = viewListMode === 'revised'
-                            ? students.filter(s => (s.revisedFees || []).length > 0)
-                            : students;
+                            ? quotaFilteredStudents.filter(s => (s.revisedFees || []).length > 0)
+                            : quotaFilteredStudents;
 
                         const sortedViewStudents = [...viewStudents].sort((a, b) => {
                             if (!viewSortField) return 0;
@@ -1596,13 +1621,17 @@ const OverallConcession = () => {
                         return (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-fadeIn">
                             <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3 flex-wrap">
                                     <h2 className="text-sm font-bold text-slate-800">Concessions Overview Roster</h2>
-                                    <span className="text-xs text-slate-500 font-semibold">{students.length} Students Loaded</span>
+                                    <span className="text-xs text-slate-500 font-semibold">
+                                        {quotaFilteredStudents.length} Students
+                                        {viewQuotaFilter ? ` (${viewQuotaFilter} quota)` : ''}
+                                        {students.length !== quotaFilteredStudents.length ? ` of ${students.length} loaded` : ' Loaded'}
+                                    </span>
                                 </div>
 
-                                <div className="flex items-center gap-3">
-                                    {students.length > 0 && (
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    {quotaFilteredStudents.length > 0 && (
                                         <div className="flex bg-slate-200/80 p-1 rounded-xl border border-slate-300/40">
                                             <button
                                                 type="button"
@@ -1613,7 +1642,7 @@ const OverallConcession = () => {
                                                         : 'text-slate-600 hover:text-slate-800'
                                                 }`}
                                             >
-                                                All <span className="ml-1 opacity-80">({students.length})</span>
+                                                All <span className="ml-1 opacity-80">({quotaFilteredStudents.length})</span>
                                             </button>
                                             <button
                                                 type="button"
@@ -1692,6 +1721,10 @@ const OverallConcession = () => {
                                         ) : students.length === 0 ? (
                                             <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
                                                 {hasSearched ? 'No active regular students found matching criteria.' : 'Select filters and click Load Students.'}
+                                            </td></tr>
+                                        ) : quotaFilteredStudents.length === 0 ? (
+                                            <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
+                                                No students found for the selected quota filter.
                                             </td></tr>
                                         ) : sortedViewStudents.length === 0 ? (
                                             <tr><td colSpan="2" className="text-center py-24 text-slate-400 p-6">
