@@ -57,7 +57,15 @@ const createConcessionRequest = async (req, res) => {
   try {
     let imageUrl = null;
     if (req.file) {
-      imageUrl = await uploadToS3(req.file);
+      try {
+        imageUrl = await uploadToS3(req.file);
+      } catch (s3Error) {
+        console.error("S3 Upload Failed:", s3Error);
+        return res.status(500).json({ 
+          message: 'S3 Upload failed. Please verify AWS credentials/configuration on the hosted server.', 
+          error: s3Error.message 
+        });
+      }
     }
 
     // Generate a single voucher ID for the entire bulk request based on the first student's course

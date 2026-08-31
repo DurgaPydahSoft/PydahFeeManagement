@@ -549,7 +549,11 @@ const ConcessionManagement = () => {
                 formDataObjs.append('image', imageFile);
             }
 
-            const response = await api.post(`/concessions`, formDataObjs);
+            const response = await api.post(`/concessions`, formDataObjs, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
 
             const createdVoucherId = response.data.data?.[0]?.voucherId || 'N/A';
             const submittedCourse = selectedStudents[0]?.course;
@@ -586,7 +590,7 @@ const ConcessionManagement = () => {
             fetchUserRequests();
         } catch (error) {
             console.error(error);
-            alert('Failed to submit request');
+            alert(error.response?.data?.message || error.response?.data?.error || 'Failed to submit request');
         }
     };
 
