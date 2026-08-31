@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import api from '../lib/api';
 import Sidebar from './Sidebar';
 import { Search, Filter, Trash2, Plus, User, Award, ShieldAlert, Check, Eye, Clock, CheckCircle, XCircle, Send, X, Pencil, Save, BookOpen, Printer, ChevronDown, ChevronUp, LayoutGrid } from 'lucide-react';
@@ -165,11 +165,14 @@ const OverallConcession = () => {
     const [refSearchTerm,        setRefSearchTerm]        = useState('');
     const [refSearchResults,     setRefSearchResults]     = useState([]);
     const [refSearchLoading,     setRefSearchLoading]     = useState(false);
+    const [savedReferenceNames,  setSavedReferenceNames]  = useState([]);
+    const [savedReferencesLoading, setSavedReferencesLoading] = useState(false);
     const [refDropdownOpen,      setRefDropdownOpen]      = useState(false);
     const [referenceSaveBusy,    setReferenceSaveBusy]    = useState(false);
     const [isEditingReference,   setIsEditingReference]   = useState(false);
     const refSearchTimerRef = useRef(null);
     const refDropdownRef = useRef(null);
+    const savedRefsCacheRef = useRef({ at: 0, names: [] });
 
     // Pagination for Concession Requests Tab
     const [reqCurrentPage, setReqCurrentPage] = useState(1);
@@ -565,11 +568,38 @@ const OverallConcession = () => {
         }
     };
 
+    const loadSavedReferenceNames = useCallback(async () => {
+        const now = Date.now();
+        if (now - savedRefsCacheRef.current.at < 60000 && savedRefsCacheRef.current.names.length > 0) {
+            setSavedReferenceNames(savedRefsCacheRef.current.names);
+            return;
+        }
+        setSavedReferencesLoading(true);
+        try {
+            const res = await api.get('/admissions/reference-names');
+            const names = Array.isArray(res.data?.data?.names)
+                ? res.data.data.names
+                : (Array.isArray(res.data?.names) ? res.data.names : []);
+            savedRefsCacheRef.current = { at: now, names };
+            setSavedReferenceNames(names);
+        } catch (err) {
+            console.error('Saved reference names load failed', err);
+            setSavedReferenceNames([]);
+        } finally {
+            setSavedReferencesLoading(false);
+        }
+    }, []);
+
     const loadReferenceEmployees = useCallback(async (term = '') => {
+        const q = String(term || '').trim();
+        if (q.length < 2) {
+            setRefSearchResults([]);
+            setRefSearchLoading(false);
+            return;
+        }
         setRefSearchLoading(true);
         try {
-            const q = String(term || '').trim();
-            const res = await api.get('/employees/search', { params: q ? { name: q } : {} });
+            const res = await api.get('/employees/search', { params: { name: q } });
             setRefSearchResults(Array.isArray(res.data) ? res.data : []);
         } catch (err) {
             console.error('Employee search failed', err);
@@ -583,9 +613,14 @@ const OverallConcession = () => {
         setRefSearchTerm(value);
         setRefDropdownOpen(true);
         if (refSearchTimerRef.current) clearTimeout(refSearchTimerRef.current);
-        refSearchTimerRef.current = setTimeout(() => {
-            void loadReferenceEmployees(value);
-        }, 250);
+        if (String(value || '').trim().length >= 2) {
+            refSearchTimerRef.current = setTimeout(() => {
+                void loadReferenceEmployees(value);
+            }, 250);
+        } else {
+            setRefSearchResults([]);
+            setRefSearchLoading(false);
+        }
     };
 
     const selectReferenceEmployee = (emp) => {
@@ -595,6 +630,18 @@ const OverallConcession = () => {
         setRefSearchTerm('');
         setRefDropdownOpen(false);
     };
+
+    const selectSavedReference = (name) => {
+        setReferenceDraft(String(name || '').trim());
+        setRefSearchTerm('');
+        setRefDropdownOpen(false);
+    };
+
+    const filteredSavedReferenceNames = useMemo(() => {
+        const q = refSearchTerm.trim().toLowerCase();
+        if (!q) return savedReferenceNames;
+        return savedReferenceNames.filter((name) => name.toLowerCase().includes(q));
+    }, [savedReferenceNames, refSearchTerm]);
 
     const saveRequestReference = async () => {
         if (!selectedRequest?._id) return;
@@ -657,9 +704,10 @@ const OverallConcession = () => {
     const startEditingReference = () => {
         setReferenceDraft(String(selectedRequest?.referenceName || '').trim());
         setRefSearchTerm('');
+        setRefSearchResults([]);
         setIsEditingReference(true);
         setRefDropdownOpen(true);
-        void loadReferenceEmployees('');
+        void loadSavedReferenceNames();
     };
 
     const cancelEditingReference = () => {
@@ -2076,7 +2124,7 @@ const OverallConcession = () => {
                                                     </p>
                                                     <div className="mt-2.5 max-w-md" ref={refDropdownRef}>
                                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                                                            Reference (HRMS Employee)
+                                                            Reference
                                                         </label>
                                                         {!isEditingReference ? (
                                                             <div className="flex items-center gap-2">
@@ -2104,9 +2152,9 @@ const OverallConcession = () => {
                                                                             onFocus={() => {
                                                                                 setRefDropdownOpen(true);
                                                                                 setRefSearchTerm('');
-                                                                                if (!refSearchResults.length) void loadReferenceEmployees('');
+                                                                                void loadSavedReferenceNames();
                                                                             }}
-                                                                            placeholder={referenceDraft || 'Search employee by name or ID…'}
+                                                                            placeholder={referenceDraft || 'Search by name or employee ID…'}
                                                                             className="w-full text-xs text-slate-800 outline-none bg-transparent placeholder:text-slate-400"
                                                                             disabled={referenceSaveBusy}
                                                                             autoFocus
@@ -2114,31 +2162,71 @@ const OverallConcession = () => {
                                                                         <ChevronDown size={14} className="text-slate-400 shrink-0" />
                                                                     </div>
                                                                     {refDropdownOpen && (
-                                                                        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-                                                                            {refSearchLoading && (
-                                                                                <div className="p-3 text-center text-slate-500 text-xs">Searching…</div>
+                                                                        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                                                            <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100">
+                                                                                Saved references
+                                                                            </div>
+                                                                            {savedReferencesLoading ? (
+                                                                                <div className="p-3 text-center text-slate-500 text-xs">Loading saved names…</div>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-50 text-xs text-slate-600"
+                                                                                        onClick={() => selectSavedReference('')}
+                                                                                    >
+                                                                                        No reference
+                                                                                    </button>
+                                                                                    {filteredSavedReferenceNames.map((name) => (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            key={name}
+                                                                                            className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
+                                                                                            onClick={() => selectSavedReference(name)}
+                                                                                        >
+                                                                                            <p className="text-xs font-bold text-slate-800">{name}</p>
+                                                                                            <p className="text-[10px] text-slate-400 mt-0.5">Used on previous admissions</p>
+                                                                                        </button>
+                                                                                    ))}
+                                                                                    {filteredSavedReferenceNames.length === 0 && (
+                                                                                        <div className="px-3 py-2 text-[11px] text-slate-400 italic border-b border-slate-100">
+                                                                                            {refSearchTerm.trim() ? 'No saved names match your search' : 'No saved reference names yet'}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </>
                                                                             )}
-                                                                            {!refSearchLoading && refSearchResults.map((emp) => (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    key={emp._id}
-                                                                                    className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-50 last:border-b-0"
-                                                                                    onClick={() => selectReferenceEmployee(emp)}
-                                                                                >
-                                                                                    <p className="text-xs font-bold text-slate-800">
-                                                                                        {emp.employee_name}{' '}
-                                                                                        <span className="font-normal text-slate-500">({emp.emp_no})</span>
-                                                                                    </p>
-                                                                                    <p className="text-[10px] text-slate-400 mt-0.5">
-                                                                                        {emp.designation_id?.designation_name || emp.designation_id?.name || 'N/A'}
-                                                                                        {' · '}
-                                                                                        {emp.department_id?.department_name || emp.department_id?.name || 'N/A'}
-                                                                                    </p>
-                                                                                </button>
-                                                                            ))}
-                                                                            {!refSearchLoading && refSearchResults.length === 0 && (
-                                                                                <div className="p-3 text-center text-slate-500 text-xs">No employees found</div>
+
+                                                                            {refSearchTerm.trim().length >= 2 && (
+                                                                                <>
+                                                                                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-t border-slate-100">
+                                                                                        HRMS employees
+                                                                                    </div>
+                                                                                    {refSearchLoading ? (
+                                                                                        <div className="p-3 text-center text-slate-500 text-xs">Searching employees…</div>
+                                                                                    ) : refSearchResults.map((emp) => (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            key={emp._id}
+                                                                                            className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-50 last:border-b-0"
+                                                                                            onClick={() => selectReferenceEmployee(emp)}
+                                                                                        >
+                                                                                            <p className="text-xs font-bold text-slate-800">
+                                                                                                {emp.employee_name}{' '}
+                                                                                                <span className="font-normal text-slate-500">({emp.emp_no})</span>
+                                                                                            </p>
+                                                                                            <p className="text-[10px] text-slate-400 mt-0.5">
+                                                                                                {emp.designation_id?.designation_name || emp.designation_id?.name || 'N/A'}
+                                                                                                {' · '}
+                                                                                                {emp.department_id?.department_name || emp.department_id?.name || 'N/A'}
+                                                                                            </p>
+                                                                                        </button>
+                                                                                    ))}
+                                                                                    {!refSearchLoading && refSearchResults.length === 0 && (
+                                                                                        <div className="p-3 text-center text-slate-500 text-xs">No employees found</div>
+                                                                                    )}
+                                                                                </>
                                                                             )}
+
                                                                             {referenceDraft ? (
                                                                                 <button
                                                                                     type="button"

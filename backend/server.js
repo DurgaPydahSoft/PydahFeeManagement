@@ -115,6 +115,7 @@ protectedApi.use('/late-fees', require('./routes/lateFeeRoutes'));
 protectedApi.use('/proceedings', require('./routes/proceedingRoutes'));
 protectedApi.use('/concession-approvers', require('./routes/approverRoutes'));
 protectedApi.use('/overall-concessions', require('./routes/overallConcessionRoutes'));
+protectedApi.use('/admissions', require('./routes/admissionsRoutes'));
 
 app.use('/api', protectedApi);
 
