@@ -73,6 +73,19 @@ const UserManagement = () => {
         { name: 'Permissions', path: '/permissions' }
     ];
 
+    const OVERALL_CONCESSION_SUBS = [
+        'overall_concession_add',
+        'overall_concession_view',
+        'overall_concession_bulk',
+        'overall_concession_requests',
+    ];
+    const OVERALL_CONCESSION_SUB_LABELS = {
+        overall_concession_add: 'Add / Manage',
+        overall_concession_view: 'View Overview',
+        overall_concession_bulk: 'Bulk Load',
+        overall_concession_requests: 'Requests',
+    };
+
     const handleEmployeeSearch = async (e) => {
         const query = e.target.value;
         if (query.trim().length >= 2) {
@@ -358,6 +371,9 @@ const UserManagement = () => {
             if (path === '/proceedings') {
                 currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_verify' && p !== 'proceedings_edit' && p !== 'proceedings_view');
             }
+            if (path === '/overall-concessions') {
+                currentPermissions = currentPermissions.filter(p => !OVERALL_CONCESSION_SUBS.includes(p));
+            }
         } else {
             currentPermissions = [...currentPermissions, path];
             if (path === '/fee-collection') {
@@ -376,6 +392,9 @@ const UserManagement = () => {
             }
             if (path === '/proceedings') {
                 if (!currentPermissions.includes('proceedings_view')) currentPermissions.push('proceedings_view');
+            }
+            if (path === '/overall-concessions') {
+                if (!currentPermissions.includes('overall_concession_view')) currentPermissions.push('overall_concession_view');
             }
         }
         setRoleFormData(prev => ({ ...prev, permissions: currentPermissions }));
@@ -1212,6 +1231,9 @@ const UserManagement = () => {
                                                                         if (path === '/proceedings') {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_verify' && p !== 'proceedings_edit' && p !== 'proceedings_view');
                                                                         }
+                                                                        if (path === '/overall-concessions') {
+                                                                            currentPermissions = currentPermissions.filter(p => !OVERALL_CONCESSION_SUBS.includes(p));
+                                                                        }
                                                                     } else {
                                                                         currentPermissions = [...currentPermissions, path];
                                                                         if (path === '/fee-collection') {
@@ -1234,6 +1256,9 @@ const UserManagement = () => {
                                                                         }
                                                                         if (path === '/proceedings') {
                                                                             if (!currentPermissions.includes('proceedings_view')) currentPermissions.push('proceedings_view');
+                                                                        }
+                                                                        if (path === '/overall-concessions') {
+                                                                            if (!currentPermissions.includes('overall_concession_view')) currentPermissions.push('overall_concession_view');
                                                                         }
                                                                     }
                                                                     setFormData({ ...formData, permissions: currentPermissions });
@@ -1407,6 +1432,31 @@ const UserManagement = () => {
                                                                 />
                                                                 <span className="text-xs text-gray-600">Enable Approvals</span>
                                                             </label>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Sub-Permissions for Overall Concessions */}
+                                                    {page.path === '/overall-concessions' && (formData.permissions || []).includes('/overall-concessions') && (
+                                                        <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                            {OVERALL_CONCESSION_SUBS.map(sub => (
+                                                                <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={(formData.permissions || []).includes(sub)}
+                                                                        onChange={(() => {
+                                                                            const toggle = () => {
+                                                                                let p = formData.permissions || [];
+                                                                                if (p.includes(sub)) p = p.filter(x => x !== sub);
+                                                                                else p = [...p, sub];
+                                                                                setFormData({ ...formData, permissions: p });
+                                                                            };
+                                                                            return toggle;
+                                                                        })()}
+                                                                        className="rounded text-blue-600 focus:ring-blue-500"
+                                                                    />
+                                                                    <span className="text-xs text-gray-600">{OVERALL_CONCESSION_SUB_LABELS[sub]}</span>
+                                                                </label>
+                                                            ))}
                                                         </div>
                                                     )}
 
@@ -1693,6 +1743,23 @@ const UserManagement = () => {
                                                     </div>
                                                 )}
 
+                                                {/* Sub-Permissions for Overall Concessions */}
+                                                {page.path === '/overall-concessions' && (roleFormData.permissions || []).includes('/overall-concessions') && (
+                                                    <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                                                        {OVERALL_CONCESSION_SUBS.map(sub => (
+                                                            <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={(roleFormData.permissions || []).includes(sub)}
+                                                                    onChange={() => handleRoleSubPermissionToggle(sub)}
+                                                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="text-xs text-gray-600">{OVERALL_CONCESSION_SUB_LABELS[sub]}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                )}
+
                                                 {/* Sub-Permissions for Concessions */}
                                                 {page.path === '/concessions' && (roleFormData.permissions || []).includes('/concessions') && (
                                                     <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
@@ -1950,6 +2017,19 @@ const UserManagement = () => {
                                                                             <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
                                                                                 <span className="text-green-600">✓</span>
                                                                                 <span className="capitalize">{sub.replace(/_/g, ' ').replace('proceedings ', '')}</span>
+                                                                            </div>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
+                                                            {page.path === '/overall-concessions' && (
+                                                                <div className="mt-1.5 ml-2 space-y-1">
+                                                                    {OVERALL_CONCESSION_SUBS.map(sub => (
+                                                                        (viewPermissionsModal.user.permissions || []).includes(sub) && (
+                                                                            <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                                                                                <span className="text-green-600">✓</span>
+                                                                                <span>{OVERALL_CONCESSION_SUB_LABELS[sub]}</span>
                                                                             </div>
                                                                         )
                                                                     ))}

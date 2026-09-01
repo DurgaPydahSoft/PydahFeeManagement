@@ -129,6 +129,13 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     const canEditProceedings = role === 'superadmin' || role === 'admin'
         || permissions.includes('proceedings_edit');
 
+    const canViewOverallConcessions = role === 'superadmin' || role === 'admin'
+        || permissions.includes('/overall-concessions')
+        || permissions.includes('overall_concession_add')
+        || permissions.includes('overall_concession_view')
+        || permissions.includes('overall_concession_bulk')
+        || permissions.includes('overall_concession_requests');
+
     const visibleProceedingsSubs = PROCEEDINGS_SUB_ITEMS.filter(sub => {
         if (sub.perm === 'edit') return canEditProceedings;
         return canViewProceedings;
@@ -180,6 +187,7 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
                 permissions.includes('proceedings_verify') ||
                 permissions.includes('proceedings_approve')
             )) ||
+            (item.path === '/overall-concessions' && canViewOverallConcessions) ||
             (item.path === '/transaction-dates' && (permissions.includes('fee_collection_edit') || permissions.includes('fee_collection_delete')))
         );
 

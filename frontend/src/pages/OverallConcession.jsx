@@ -91,7 +91,20 @@ const OverallConcession = () => {
     const permissions = user.permissions || [];
     const role        = user.role;
     const isAdminRole = role === 'superadmin' || role === 'admin';
-    const hasPermission = isAdminRole || permissions.includes('/overall-concessions');
+    const hasLegacyFull = permissions.includes('/overall-concessions');
+    const canAdd = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_add');
+    const canView = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_view');
+    const canBulk = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_bulk');
+    const canRequests = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_requests');
+    const hasPageAccess = isAdminRole || hasLegacyFull || canAdd || canView || canBulk || canRequests;
+
+    const getFirstAllowedTab = () => {
+        if (canAdd) return 'add';
+        if (canView) return 'view';
+        if (canBulk) return 'bulk';
+        if (canRequests) return 'requests';
+        return 'view';
+    };
 
     // ── filter metadata ──────────────────────────────────────────────────
     const [metadata,    setMetadata]    = useState({});
@@ -136,7 +149,7 @@ const OverallConcession = () => {
     const bulkHeadDropRef = useRef(null);
 
     // ── tabs ─────────────────────────────────────────────────────────────
-    const [activeTab, setActiveTab] = useState('add'); // 'add' | 'view' | 'requests'
+    const [activeTab, setActiveTab] = useState(getFirstAllowedTab);
 
     // ── requests tab state ───────────────────────────────────────────────
     const [requests,          setRequests]          = useState([]);
@@ -313,9 +326,14 @@ const OverallConcession = () => {
         markFormClean();
     }, [resolveRevisedFeeHeadId]);
 
+    useEffect(() => {
+        const allowed = { add: canAdd, view: canView, bulk: canBulk, requests: canRequests, register: canRequests };
+        if (!allowed[activeTab]) setActiveTab(getFirstAllowedTab());
+    }, [canAdd, canView, canBulk, canRequests, activeTab]);
+
     // ── initial data load ────────────────────────────────────────────────
     useEffect(() => {
-        if (!hasPermission) return;
+        if (!hasPageAccess) return;
         const fetchInitialData = async () => {
             try {
                 const calls = [api.get('/students/metadata'), api.get('/fee-heads?all=true')];
@@ -329,7 +347,7 @@ const OverallConcession = () => {
                 setQuotaOptions(metaRes.data.categories || []);} catch (err) { console.error('Error fetching initial data', err); }
         };
         fetchInitialData();
-    }, [hasPermission, isAdminRole]);
+    }, [hasPageAccess]);
 
     useEffect(() => {
         if (!selectedStudent || formDirtyRef.current) return;
@@ -347,7 +365,7 @@ const OverallConcession = () => {
     }, []);
 
     const fetchRequests = useCallback(async () => {
-        if (!isAdminRole) return;
+        if (!canRequests) return;
         setRequestsLoading(true);
         try {
             const baseParams = {
@@ -375,7 +393,7 @@ const OverallConcession = () => {
             console.error('Error fetching requests', err);
             setRequestsLoading(false);
         }
-    }, [isAdminRole, reqStatusFilter, reqFilters]);
+    }, [canRequests, reqStatusFilter, reqFilters]);
 
     const filteredRequests = (() => {
         const q = reqSearchTerm.trim().toLowerCase();
@@ -852,14 +870,14 @@ const OverallConcession = () => {
 
     // also load pending set on mount for badge in Add/Manage tab
     useEffect(() => {
-        if (!isAdminRole) return;
+        if (!canRequests) return;
         api.get('/overall-concessions/requests', { params: { status: 'PENDING' } })
             .then(res => setPendingAdmSet(new Set(res.data.map(r => r.admissionNumber))))
             .catch(() => {});
-    }, [isAdminRole]);
+    }, [canRequests]);
 
     // ── access denied screen ─────────────────────────────────────────────
-    if (!hasPermission) {
+    if (!hasPageAccess) {
         return (
             <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
                 <Sidebar />
@@ -1237,19 +1255,25 @@ const OverallConcession = () => {
 
                         {/* Tabs */}
                         <div className="flex bg-slate-200/80 p-1 rounded-xl border border-slate-300/40 shrink-0">
+                            {canAdd && (
                             <button onClick={() => setActiveTab('add')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'add' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
                                 <Plus size={14} /> Add / Manage
                             </button>
+                            )}
+                            {canView && (
                             <button onClick={() => setActiveTab('view')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'view' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
                                 <Eye size={14} /> View Overview
                             </button>
+                            )}
+                            {canBulk && (
                             <button onClick={() => setActiveTab('bulk')}
                                 className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'bulk' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
                                 <LayoutGrid size={14} /> Bulk Load
                             </button>
-                            {isAdminRole && (
+                            )}
+                            {canRequests && (
                                 <button onClick={() => setActiveTab('requests')}
                                     className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'requests' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
                                     <Clock size={14} /> Requests
@@ -1258,6 +1282,12 @@ const OverallConcession = () => {
                                             {pendingAdmSet.size}
                                         </span>
                                     )}
+                                </button>
+                            )}
+                            {canRequests && (
+                                <button onClick={() => setActiveTab('register')}
+                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'register' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
+                                    <Printer size={14} /> Register
                                 </button>
                             )}
                         </div>
@@ -1340,7 +1370,7 @@ const OverallConcession = () => {
                     {/* ══════════════════════════════════════════════════
                         ADD / MANAGE TAB
                     ══════════════════════════════════════════════════ */}
-                    {activeTab === 'add' && (
+                    {activeTab === 'add' && canAdd && (
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
 
                             {/* Student Roster */}
@@ -1575,7 +1605,7 @@ const OverallConcession = () => {
                     {/* ══════════════════════════════════════════════════
                         VIEW OVERVIEW TAB
                     ══════════════════════════════════════════════════ */}
-                    {activeTab === 'view' && (() => {
+                    {activeTab === 'view' && canView && (() => {
                         const quotaFilteredStudents = getViewQuotaFilteredStudents(students);
                         const revisedCount = quotaFilteredStudents.filter(s => (s.revisedFees || []).length > 0).length;
                         const viewStudents = viewListMode === 'revised'
@@ -1840,7 +1870,7 @@ const OverallConcession = () => {
                     {/* ══════════════════════════════════════════════════
                         REQUESTS TAB (admin/superadmin only)
                     ══════════════════════════════════════════════════ */}
-                    {activeTab === 'requests' && isAdminRole && (
+                    {activeTab === 'requests' && canRequests && (
                         <div className="space-y-4 animate-fadeIn">
 
                             {/* alerts inside requests tab */}
@@ -2666,7 +2696,7 @@ const OverallConcession = () => {
                     {/* ══════════════════════════════════════════════════
                         REPORTS TAB
                     ══════════════════════════════════════════════════ */}
-                    {activeTab === 'register' && (
+                    {activeTab === 'register' && canRequests && (
                         <div className="space-y-4 animate-fadeIn">
 
                             {/* Controls row: filters + print all */}
@@ -2894,7 +2924,7 @@ const OverallConcession = () => {
                     {/* ══════════════════════════════════════════════════
                         BULK LOAD TAB
                     ══════════════════════════════════════════════════ */}
-                    {activeTab === 'bulk' && (
+                    {activeTab === 'bulk' && canBulk && (
                         <div className="space-y-4 animate-fadeIn">
 
                             {/* Config bar */}

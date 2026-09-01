@@ -73,7 +73,13 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/overall-concessions',
-    permissions: ['/overall-concessions'],
+    permissions: [
+      '/overall-concessions',
+      'overall_concession_add',
+      'overall_concession_view',
+      'overall_concession_bulk',
+      'overall_concession_requests',
+    ],
   },
   {
     prefix: '/api/reminders',
@@ -196,6 +202,63 @@ const authorize = (req, res, next) => {
       return next();
     }
     return res.status(403).json({ message: 'Forbidden: proceedings edit/create permission required' });
+  }
+
+  const hasOverallConcessionLegacy = () => hasPermission(user, ['/overall-concessions']);
+  const hasOverallConcessionPerm = (...keys) => (
+    hasOverallConcessionLegacy() || hasPermission(user, keys)
+  );
+
+  // Overall concession tab/action permissions (Declaration module)
+  if (path.startsWith('/api/overall-concessions')) {
+    if (path === '/api/overall-concessions' && req.method === 'GET') {
+      if (hasOverallConcessionPerm('overall_concession_add', 'overall_concession_view', 'overall_concession_bulk')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession view/add/bulk permission required' });
+    }
+
+    if (path === '/api/overall-concessions' && req.method === 'POST') {
+      if (hasOverallConcessionPerm('overall_concession_add')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession add/manage permission required' });
+    }
+
+    if (path.match(/^\/api\/overall-concessions\/[^/]+$/) && req.method === 'DELETE') {
+      if (hasOverallConcessionPerm('overall_concession_add')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession add/manage permission required' });
+    }
+
+    if ((path === '/api/overall-concessions/bulk' || path === '/api/overall-concessions/bulk-multi') && req.method === 'POST') {
+      if (hasOverallConcessionPerm('overall_concession_bulk')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession bulk permission required' });
+    }
+
+    if (path === '/api/overall-concessions/request' && req.method === 'POST') {
+      if (hasOverallConcessionPerm('overall_concession_add')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession add/manage permission required' });
+    }
+
+    if (path === '/api/overall-concessions/requests' && req.method === 'GET') {
+      if (hasOverallConcessionPerm('overall_concession_requests')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession requests permission required' });
+    }
+
+    if (path.match(/^\/api\/overall-concessions\/requests\/[^/]+/) && req.method === 'PUT') {
+      if (hasOverallConcessionPerm('overall_concession_requests')) {
+        return next();
+      }
+      return res.status(403).json({ message: 'Forbidden: overall concession requests permission required' });
+    }
   }
 
   // Restrict Concession process/bulk-process/modify-approved (PUT requests) strictly to /concessions permission
