@@ -916,7 +916,7 @@ const OverallConcession = () => {
 
     // ── fetch students ───────────────────────────────────────────────────
     const fetchStudents = async () => {
-        const hasFilters = filters.college && filters.course && filters.branch && filters.batch;
+        const hasFilters = filters.college && filters.course && filters.batch;
         if (!hasFilters && !searchTerm.trim()) {
             alert('Please select all filters or enter a search query.');
             return;
@@ -1284,17 +1284,11 @@ const OverallConcession = () => {
                                     )}
                                 </button>
                             )}
-                            {canRequests && (
-                                <button onClick={() => setActiveTab('register')}
-                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${activeTab === 'register' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}>
-                                    <Printer size={14} /> Register
-                                </button>
-                            )}
                         </div>
                     </header>
 
                     {/* ── Filter Bar (shown on add + view tabs only) ── */}
-                    {activeTab !== 'requests' && activeTab !== 'register' && activeTab !== 'bulk' && (
+                    {activeTab !== 'requests' && activeTab !== 'bulk' && (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
                             <div className="flex flex-wrap lg:flex-nowrap items-end gap-3 w-full">
                                 <div className="min-w-[130px] flex-1">
@@ -1325,7 +1319,7 @@ const OverallConcession = () => {
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
                                     <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
                                         value={filters.branch} onChange={e => setFilters({ ...filters, branch: e.target.value })} disabled={!filters.course}>
-                                        <option value="">Select Branch</option>
+                                        <option value="">All Branches</option>
                                         {branches.map(b => <option key={b} value={b}>{b}</option>)}
                                     </select>
                                 </div>

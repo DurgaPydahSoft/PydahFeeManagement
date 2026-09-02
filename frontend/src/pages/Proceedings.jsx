@@ -85,13 +85,17 @@ const Proceedings = () => {
     const canApprove = user?.role === 'superadmin' || permissions.includes('proceedings_approve');
     const canVerify = user?.role === 'superadmin' || permissions.includes('proceedings_verify');
     const canEdit = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_edit');
-    const canView = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_view') || permissions.includes('/proceedings');
+    const canCreate = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_view') || permissions.includes('proceedings_edit') || permissions.includes('/proceedings');
+    const canList = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_edit') || permissions.includes('proceedings_verify') || permissions.includes('proceedings_approve');
+    const canView = user?.role === 'superadmin' || user?.role === 'admin' || permissions.includes('proceedings_view') || permissions.includes('proceedings_edit') || permissions.includes('proceedings_verify') || permissions.includes('proceedings_approve') || permissions.includes('/proceedings');
 
     const getTabFromHash = (hash) => {
         const cleaned = (hash || '').replace('#', '');
-        if (cleaned === 'create' && !canEdit) return 'list';
-        if (['list', 'pending', 'create', 'guide'].includes(cleaned)) return cleaned;
-        return 'list';
+        if (cleaned === 'create' && canCreate) return 'create';
+        if (cleaned === 'list' && canList) return 'list';
+        if (cleaned === 'pending' && canView) return 'pending';
+        if (cleaned === 'guide') return 'guide';
+        return canList ? 'list' : (canCreate ? 'create' : 'pending');
     };
 
     const [activeTab, setActiveTab] = useState(() => getTabFromHash(location.hash));
@@ -157,7 +161,7 @@ const Proceedings = () => {
             setDraftAvailable(!!draft);
             setDraftSavedAt(draft?.savedAt || null);
         }
-    }, [location.hash, canEdit, user?.username]);
+    }, [location.hash, canCreate, canList, canEdit, user?.username]);
 
     // Auto-save create draft (survives refresh)
     useEffect(() => {

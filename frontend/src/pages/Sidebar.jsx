@@ -76,10 +76,10 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
 
     // Proceedings sub-items (hash-based; filtered by permission)
     const PROCEEDINGS_SUB_ITEMS = [
-        { name: 'All Proceedings', hash: 'list',   perm: 'view' },
-        { name: 'Pending Queue',   hash: 'pending', perm: 'view' },
-        { name: 'Create Proceeding', hash: 'create', perm: 'edit' },
-        { name: 'Guide',           hash: 'guide',  perm: 'view' },
+        { name: 'All Proceedings', hash: 'list',   perm: 'list' },
+        { name: 'Pending Queue',   hash: 'pending', perm: 'pending' },
+        { name: 'Create Proceeding', hash: 'create', perm: 'create' },
+        { name: 'Guide',           hash: 'guide',  perm: 'guide' },
     ];
 
     // Reminder Configuration sub-items (hash-based navigation within /reminders)
@@ -126,8 +126,14 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         || permissions.includes('proceedings_edit')
         || permissions.includes('proceedings_verify')
         || permissions.includes('proceedings_approve');
-    const canEditProceedings = role === 'superadmin' || role === 'admin'
-        || permissions.includes('proceedings_edit');
+    const canCreateProceedings = role === 'superadmin' || role === 'admin'
+        || permissions.includes('proceedings_view')
+        || permissions.includes('proceedings_edit')
+        || permissions.includes('/proceedings');
+    const canListProceedings = role === 'superadmin' || role === 'admin'
+        || permissions.includes('proceedings_edit')
+        || permissions.includes('proceedings_verify')
+        || permissions.includes('proceedings_approve');
 
     const canViewOverallConcessions = role === 'superadmin' || role === 'admin'
         || permissions.includes('/overall-concessions')
@@ -137,7 +143,8 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         || permissions.includes('overall_concession_requests');
 
     const visibleProceedingsSubs = PROCEEDINGS_SUB_ITEMS.filter(sub => {
-        if (sub.perm === 'edit') return canEditProceedings;
+        if (sub.perm === 'create') return canCreateProceedings;
+        if (sub.perm === 'list') return canListProceedings;
         return canViewProceedings;
     });
 

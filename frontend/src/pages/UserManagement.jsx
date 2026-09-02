@@ -86,6 +86,19 @@ const UserManagement = () => {
         overall_concession_requests: 'Requests',
     };
 
+    const PROCEEDINGS_SUBS = [
+        'proceedings_view',
+        'proceedings_edit',
+        'proceedings_verify',
+        'proceedings_approve',
+    ];
+    const PROCEEDINGS_SUB_LABELS = {
+        proceedings_view: 'Create Proceedings',
+        proceedings_edit: 'Edit Proceeding',
+        proceedings_verify: 'Verify Proceeding',
+        proceedings_approve: 'Approve Proceeding',
+    };
+
     const handleEmployeeSearch = async (e) => {
         const query = e.target.value;
         if (query.trim().length >= 2) {
@@ -1364,74 +1377,25 @@ const UserManagement = () => {
                                                     {/* Sub-Permissions for Proceedings */}
                                                     {page.path === '/proceedings' && (formData.permissions || []).includes('/proceedings') && (
                                                         <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={(formData.permissions || []).includes('proceedings_view')}
-                                                                    onChange={(() => {
-                                                                        const toggle = () => {
-                                                                            let p = formData.permissions || [];
-                                                                            if (p.includes('proceedings_view')) p = p.filter(x => x !== 'proceedings_view');
-                                                                            else p = [...p, 'proceedings_view'];
-                                                                            setFormData({ ...formData, permissions: p });
-                                                                        };
-                                                                        return toggle;
-                                                                    })()}
-                                                                    className="rounded text-blue-600 focus:ring-blue-500"
-                                                                />
-                                                                <span className="text-xs text-gray-600">Enable View</span>
-                                                            </label>
-                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={(formData.permissions || []).includes('proceedings_edit')}
-                                                                    onChange={(() => {
-                                                                        const toggle = () => {
-                                                                            let p = formData.permissions || [];
-                                                                            if (p.includes('proceedings_edit')) p = p.filter(x => x !== 'proceedings_edit');
-                                                                            else p = [...p, 'proceedings_edit'];
-                                                                            setFormData({ ...formData, permissions: p });
-                                                                        };
-                                                                        return toggle;
-                                                                    })()}
-                                                                    className="rounded text-blue-600 focus:ring-blue-500"
-                                                                />
-                                                                <span className="text-xs text-gray-600">Enable Edit/Create</span>
-                                                            </label>
-                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={(formData.permissions || []).includes('proceedings_verify')}
-                                                                    onChange={(() => {
-                                                                        const toggle = () => {
-                                                                            let p = formData.permissions || [];
-                                                                            if (p.includes('proceedings_verify')) p = p.filter(x => x !== 'proceedings_verify');
-                                                                            else p = [...p, 'proceedings_verify'];
-                                                                            setFormData({ ...formData, permissions: p });
-                                                                        };
-                                                                        return toggle;
-                                                                    })()}
-                                                                    className="rounded text-blue-600 focus:ring-blue-500"
-                                                                />
-                                                                <span className="text-xs text-gray-600">Enable Verify</span>
-                                                            </label>
-                                                            <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={(formData.permissions || []).includes('proceedings_approve')}
-                                                                    onChange={(() => {
-                                                                        const toggle = () => {
-                                                                            let p = formData.permissions || [];
-                                                                            if (p.includes('proceedings_approve')) p = p.filter(x => x !== 'proceedings_approve');
-                                                                            else p = [...p, 'proceedings_approve'];
-                                                                            setFormData({ ...formData, permissions: p });
-                                                                        };
-                                                                        return toggle;
-                                                                    })()}
-                                                                    className="rounded text-blue-600 focus:ring-blue-500"
-                                                                />
-                                                                <span className="text-xs text-gray-600">Enable Approvals</span>
-                                                            </label>
+                                                            {PROCEEDINGS_SUBS.map(sub => (
+                                                                <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={(formData.permissions || []).includes(sub)}
+                                                                        onChange={(() => {
+                                                                            const toggle = () => {
+                                                                                let p = formData.permissions || [];
+                                                                                if (p.includes(sub)) p = p.filter(x => x !== sub);
+                                                                                else p = [...p, sub];
+                                                                                setFormData({ ...formData, permissions: p });
+                                                                            };
+                                                                            return toggle;
+                                                                        })()}
+                                                                        className="rounded text-blue-600 focus:ring-blue-500"
+                                                                    />
+                                                                    <span className="text-xs text-gray-600">{PROCEEDINGS_SUB_LABELS[sub]}</span>
+                                                                </label>
+                                                            ))}
                                                         </div>
                                                     )}
 
@@ -1729,7 +1693,7 @@ const UserManagement = () => {
                                                 {/* Sub-Permissions for Proceedings */}
                                                 {page.path === '/proceedings' && (roleFormData.permissions || []).includes('/proceedings') && (
                                                     <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                                                        {['proceedings_view', 'proceedings_edit', 'proceedings_verify', 'proceedings_approve'].map(sub => (
+                                                        {PROCEEDINGS_SUBS.map(sub => (
                                                             <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
                                                                 <input
                                                                     type="checkbox"
@@ -1737,7 +1701,7 @@ const UserManagement = () => {
                                                                     onChange={() => handleRoleSubPermissionToggle(sub)}
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
-                                                                <span className="text-xs text-gray-600 capitalize">{sub.replace(/_/g, ' ').replace('proceedings ', '')}</span>
+                                                                <span className="text-xs text-gray-600">{PROCEEDINGS_SUB_LABELS[sub]}</span>
                                                             </label>
                                                         ))}
                                                     </div>

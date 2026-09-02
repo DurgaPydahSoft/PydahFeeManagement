@@ -155,7 +155,7 @@ const DueReports = () => {
         branch: [],
         batch: '',
         quota: [],
-        year: [],
+        year: '',
         studentStatus: 'Regular'
     });
     const [sortField, setSortField] = useState('');
@@ -274,7 +274,7 @@ const DueReports = () => {
     const handleTopCampusChange = (e) => {
         const campusId = e.target.value;
         setTopFilters({ campusId, batch: '' });
-        setFilters({ campusId, college: '', course: '', branch: [], batch: topFilters.batch, quota: [], year: [], studentStatus: 'Regular' });
+        setFilters({ campusId, college: '', course: '', branch: [], batch: topFilters.batch, quota: [], year: '', studentStatus: 'Regular' });
         if (campusId === 'all') {
             setColleges(Object.keys(metadata));
         } else {
@@ -294,7 +294,7 @@ const DueReports = () => {
 
     const handleCampusChange = (e) => {
         const campusId = e.target.value;
-        setFilters({ campusId, college: '', course: '', branch: [], batch: topFilters.batch, quota: [], year: [], studentStatus: 'Regular' });
+        setFilters({ campusId, college: '', course: '', branch: [], batch: topFilters.batch, quota: [], year: '', studentStatus: 'Regular' });
         if (campusId === 'all') {
             setColleges(Object.keys(metadata));
         } else {
@@ -308,7 +308,7 @@ const DueReports = () => {
 
     const handleCollegeChange = (e) => {
         const college = e.target.value;
-        setFilters({ ...filters, college, course: '', branch: [], quota: [], year: [] });
+        setFilters({ ...filters, college, course: '', branch: [], quota: [], year: '' });
         setCourses(college ? Object.keys(metadata[college] || {}) : []);
         setBranches([]);
         setAvailableYears([]);
@@ -316,7 +316,7 @@ const DueReports = () => {
 
     const handleCourseChange = (e) => {
         const course = e.target.value;
-        const newFilters = { ...filters, course, branch: [], quota: [], year: [] };
+        const newFilters = { ...filters, course, branch: [], quota: [], year: '' };
 
         if (course && filters.college) {
             const courseData = metadata[filters.college][course];
@@ -365,7 +365,7 @@ const DueReports = () => {
                 course: filters.course,
                 branch: filters.branch.join(','),
                 batch: filters.batch,
-                year: filters.year.join(','),
+                year: Array.isArray(filters.year) ? filters.year.join(',') : (filters.year || ''),
                 search: searchTerm,
                 studentStatus: filters.studentStatus,
                 ...(filters.campusId !== 'all' ? { campusId: filters.campusId } : {}),
@@ -396,7 +396,7 @@ const DueReports = () => {
                         college: filters.college,
                         course: filters.course,
                         branch: filters.branch.join(','),
-                        year: filters.year.join(','),
+                        year: Array.isArray(filters.year) ? filters.year.join(',') : (filters.year || ''),
                         quota: filters.quota.join(','),
                         batch: filters.batch || topFilters.batch,
                         campusId: filters.campusId !== 'all' ? filters.campusId : topFilters.campusId,
@@ -959,13 +959,20 @@ const DueReports = () => {
                                     onChange={val => setFilters({ ...filters, branch: val })}
                                     disabled={!filters.course}
                                 />
-                                <MultiSelectDropdown
-                                    label="Year"
-                                    options={availableYears}
-                                    selectedValues={filters.year}
-                                    onChange={val => setFilters({ ...filters, year: val })}
-                                    disabled={!filters.course || availableYears.length === 0}
-                                />
+                                <div className="min-w-[120px] flex-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Year</label>
+                                    <select
+                                        className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                        value={filters.year}
+                                        onChange={e => setFilters({ ...filters, year: e.target.value })}
+                                        disabled={!filters.course || availableYears.length === 0}
+                                    >
+                                        <option value="">All Years</option>
+                                        {availableYears.map(y => (
+                                            <option key={y} value={y}>{y}</option>
+                                        ))}
+                                    </select>
+                                </div>
                                 <MultiSelectDropdown
                                     label="Quota"
                                     options={quotas || []}
