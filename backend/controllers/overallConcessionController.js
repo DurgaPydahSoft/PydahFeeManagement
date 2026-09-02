@@ -880,7 +880,7 @@ const getConcessionRequests = async (req, res) => {
             const admissionNos = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
             if (admissionNos.length > 0) {
                 const [studentRows] = await db.query(
-                    `SELECT admission_number, stud_type, college, course, branch, batch, student_name, pin_no
+                    `SELECT id, admission_number, stud_type, college, course, branch, batch, student_name, pin_no
                      FROM students WHERE admission_number IN (?)`,
                     [admissionNos]
                 );
@@ -890,8 +890,57 @@ const getConcessionRequests = async (req, res) => {
             }
         }
 
+        // Fetch merit statuses for these students (keyed by admission_number and student_id)
+        const admissionNosForMerit = [...new Set(requests.map(r => r.admissionNumber).filter(Boolean))];
+        const meritMap = {};
+        if (admissionNosForMerit.length > 0) {
+            try {
+                const [meritRows] = await db.query(
+                    `SELECT sm.student_id, sm.student_year, sm.merit_status, sm.remarks, s.admission_number
+                     FROM student_merit_status sm
+                     JOIN students s ON (sm.student_id = s.id OR CAST(sm.student_id AS CHAR) = CAST(s.admission_number AS CHAR))
+                     WHERE s.admission_number IN (?)
+                     ORDER BY sm.student_year ASC`,
+                    [admissionNosForMerit]
+                );
+                meritRows.forEach(m => {
+                    const admKey = String(m.admission_number || '').trim();
+                    if (admKey) {
+                        if (!meritMap[admKey]) meritMap[admKey] = [];
+                        meritMap[admKey].push(m);
+                    }
+                });
+            } catch (mErr) {
+                // Fallback direct query by student_id if JOIN fails
+                const studentDbIds = Object.values(studentMap).map(s => s.id).filter(Boolean);
+                if (studentDbIds.length > 0) {
+                    try {
+                        const [fallbackRows] = await db.query(
+                            `SELECT student_id, student_year, merit_status, remarks FROM student_merit_status WHERE student_id IN (?) ORDER BY student_year ASC`,
+                            [studentDbIds]
+                        );
+                        fallbackRows.forEach(m => {
+                            const foundStudent = Object.values(studentMap).find(s => String(s.id) === String(m.student_id));
+                            if (foundStudent && foundStudent.admission_number) {
+                                const admKey = String(foundStudent.admission_number).trim();
+                                if (!meritMap[admKey]) meritMap[admKey] = [];
+                                meritMap[admKey].push(m);
+                            }
+                        });
+                    } catch (e2) {}
+                }
+            }
+        }
+
         const enriched = requests.map(r => {
             const student = studentMap[r.admissionNumber];
+            const admKey = String(r.admissionNumber || '').trim();
+            const studentMerits = meritMap[admKey] || (student ? (meritMap[student.id] || []) : []);
+            
+            // Pick 1st available year status (Year 1 or 1st record when sorted by student_year ASC)
+            const firstMeritRecord = studentMerits.find(m => Number(m.student_year) === 1) || studentMerits[0];
+            const firstMeritStatus = firstMeritRecord ? firstMeritRecord.merit_status : '';
+
             return {
                 ...r,
                 college: student?.college || r.college,
@@ -901,6 +950,8 @@ const getConcessionRequests = async (req, res) => {
                 studentName: student?.student_name || r.studentName,
                 pinNo: student?.pin_no || r.pinNo,
                 studentQuota: student?.stud_type || '',
+                meritStatus: firstMeritStatus,
+                meritStatusRecords: studentMerits,
                 // Prefer feeHeadCode (business id) over feeHeadId (ObjectId) for display
                 concessions: r.concessions.map(c => {
                     const codeKey = String(c.feeHeadCode || '').trim().toUpperCase();

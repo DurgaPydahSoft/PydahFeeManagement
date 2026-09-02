@@ -266,6 +266,22 @@ const getStudentByAdmissionNumber = async (req, res) => {
     );
     rows[0].scholarships = scholarships || [];
 
+    // Fetch merit status records for this student
+    try {
+      const [meritRecords] = await db.query(
+        `SELECT id, student_id, student_year, merit_status, remarks, created_at, updated_at
+         FROM student_merit_status
+         WHERE student_id = ? OR CAST(student_id AS CHAR) = ?
+         ORDER BY student_year ASC`,
+        [rows[0].id, String(rows[0].admission_number || '')]
+      );
+      rows[0].meritStatusRecords = meritRecords || [];
+      rows[0].merit_status = meritRecords || [];
+    } catch (meritErr) {
+      rows[0].meritStatusRecords = [];
+      rows[0].merit_status = [];
+    }
+
     res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching student details:', error);

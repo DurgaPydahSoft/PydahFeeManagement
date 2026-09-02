@@ -1767,6 +1767,35 @@ const FeeCollection = () => {
                                                     <span className="font-bold text-yellow-300 uppercase">{student.stud_type || 'Regular'}</span>
                                                 </div>
                                                 {student && (() => {
+                                                    let meritText = '-';
+                                                    let isMeritYes = false;
+
+                                                    const yearFilter = viewFilterYear !== 'ALL' ? Number(viewFilterYear) : Number(student.current_year);
+                                                    const meritRecords = Array.isArray(student.meritStatusRecords)
+                                                        ? student.meritStatusRecords
+                                                        : (Array.isArray(student.merit_status) ? student.merit_status : []);
+
+                                                    if (meritRecords && meritRecords.length > 0) {
+                                                        const yearRecord = meritRecords.find(m => Number(m.student_year) === yearFilter) || meritRecords[meritRecords.length - 1];
+                                                        if (yearRecord) {
+                                                            meritText = String(yearRecord.merit_status || '-').toUpperCase();
+                                                            isMeritYes = String(yearRecord.merit_status).toLowerCase() === 'yes';
+                                                        }
+                                                    } else if (typeof student.merit_status === 'string' && student.merit_status) {
+                                                        meritText = student.merit_status.toUpperCase();
+                                                        isMeritYes = student.merit_status.toLowerCase() === 'yes';
+                                                    }
+
+                                                    return (
+                                                        <div className={`px-1.5 py-0.5 rounded flex items-center ${isMeritYes ? 'bg-emerald-500/20 border border-emerald-500/30' : 'bg-blue-700'}`}>
+                                                            <span className="text-blue-100 mr-1 uppercase text-[9px] font-bold">Merit:</span>
+                                                            <span className={`font-bold uppercase ${isMeritYes ? 'text-emerald-300' : 'text-white'}`}>
+                                                                {meritText}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
+                                                {student && (() => {
                                                     let scholarText = 'not_eligible';
                                                     let isEligibleClass = false;
 

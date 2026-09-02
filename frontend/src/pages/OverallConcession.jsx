@@ -2177,7 +2177,19 @@ const OverallConcession = () => {
                                                         Pin: <b>{req.pinNo}</b> &nbsp;|&nbsp;
                                                         {req.college} — {req.course} / {req.branch} &nbsp;|&nbsp;
                                                         Batch: <b>{req.batch}</b> &nbsp;|&nbsp;
-                                                        Quota: <b className="uppercase">{req.studentQuota || '—'}</b>
+                                                        {(() => {
+                                                            const firstMerit = Array.isArray(req.meritStatusRecords) && req.meritStatusRecords.length > 0
+                                                                ? (req.meritStatusRecords.find(m => Number(m.student_year) === 1) || req.meritStatusRecords[0])
+                                                                : null;
+                                                            const meritVal = (firstMerit ? firstMerit.merit_status : (req.meritStatus || req.merit_status || '')).toString().trim();
+                                                            const isYes = meritVal.toLowerCase() === 'yes';
+                                                            return (
+                                                                <>
+                                                                    Quota: <b className="uppercase">{req.studentQuota || '—'}</b> &nbsp;|&nbsp;
+                                                                    Merit: <b className={`uppercase ${isYes ? 'text-emerald-700 font-bold' : ''}`}>{meritVal ? meritVal.toUpperCase() : '—'}</b>
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </p>
                                                     <div className="mt-2.5 max-w-md" ref={refDropdownRef}>
                                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
