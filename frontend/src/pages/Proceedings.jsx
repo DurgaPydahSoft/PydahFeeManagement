@@ -3,7 +3,8 @@ import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X } from 'lucide-react';
+import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { printHtmlDocument } from '../utils/printService';
 
 const STATUS_BADGE = {
@@ -31,6 +32,7 @@ const TAB_META = {
     list: { title: 'All Proceedings', desc: 'Active and completed proceedings' },
     pending: { title: 'Pending Queue', desc: 'Verify and approve pending proceeding requests' },
     create: { title: 'Create Proceeding', desc: 'Create a new proceeding and map students' },
+    analytics: { title: 'Analytics', desc: 'Scholarship records from student_scholarship by student filters' },
     guide: { title: 'Guide', desc: 'Step-by-step process for creating, verifying, and approving proceedings' }
 };
 
@@ -58,6 +60,432 @@ const formatYearLabel = (year) => {
     if (!Number.isFinite(n) || n < 1) return '-';
     const suffix = n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th';
     return `${n}${suffix} Year`;
+};
+
+const getStudentApplicationId = (student, academicYear) => {
+    const apps = student?.scholarshipApplications || [];
+    if (!apps.length) return '—';
+    if (academicYear && student?.batch) {
+        const procYear = computeProceedingYear(student.batch, academicYear);
+        if (procYear) {
+            const match = apps.find(a => Number(a.studentYear) === procYear);
+            if (match?.applicationId) return match.applicationId;
+        }
+    }
+    const unique = [...new Set(apps.map(a => a.applicationId).filter(Boolean))];
+    if (unique.length === 0) return '—';
+    return unique.length === 1 ? unique[0] : unique.join(', ');
+};
+
+const normalizeExcelHeader = (cell) => String(cell ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[₹$()./\\#@:;,[\]*]+/g, ' ')
+    .replace(/[^a-z0-9\s_-]/g, '')
+    .replace(/[\s\-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+
+const headerTokens = (header) => normalizeExcelHeader(header).split('_').filter(Boolean);
+
+const scoreApplicationIdHeader = (header) => {
+    const h = normalizeExcelHeader(header);
+    if (!h) return 0;
+    const tokens = headerTokens(header);
+    let score = 0;
+
+    if (/^(application_id|application_no|application_number|app_id|app_no|app_number|applicationid|appid)$/.test(h)) score += 20;
+    if (/application.*(id|no|number|code)/.test(h)) score += 14;
+    if (/app.*(id|no|number|code)/.test(h)) score += 12;
+    if (tokens.includes('application') && tokens.some(t => ['id', 'no', 'number', 'code', 'num'].includes(t))) score += 11;
+    if (tokens.includes('app') && tokens.some(t => ['id', 'no', 'number', 'code', 'num'].includes(t))) score += 10;
+    if (tokens.includes('scholarship') && tokens.some(t => ['id', 'application', 'app', 'no', 'number'].includes(t))) score += 9;
+    if (h === 'application' || h === 'app') score += 6;
+    if (tokens.includes('application') && !tokens.some(t => ['amount', 'share', 'date', 'name'].includes(t))) score += 5;
+
+    if (tokens.some(t => ['name', 'student', 'admission', 'pin', 'roll', 'batch', 'caste', 'college', 'course'].includes(t))) score -= 8;
+    if (tokens.some(t => ['amount', 'share', 'amt', 'sanctioned', 'released', 'paid'].includes(t))) score -= 6;
+    if (tokens.includes('date')) score -= 4;
+
+    return Math.max(0, score);
+};
+
+const scoreShareAmountHeader = (header) => {
+    const h = normalizeExcelHeader(header);
+    if (!h) return 0;
+    const tokens = headerTokens(header);
+    let score = 0;
+
+    if (/^(share_amount|share_amt|shareamount|proceeding_share|proceeding_amount|scholarship_amount|sanctioned_amount)$/.test(h)) score += 20;
+    if (/share.*(amount|amt|rs|rupee|value)/.test(h)) score += 16;
+    if (/proceeding.*(amount|share|amt)/.test(h)) score += 14;
+    if (/scholarship.*(amount|share|amt)/.test(h)) score += 13;
+    if (/sanctioned.*(amount|amt)/.test(h)) score += 12;
+    if (/released.*(amount|amt)/.test(h)) score += 10;
+    if (tokens.includes('share') && tokens.some(t => ['amount', 'amt', 'rs', 'rupee', 'value'].includes(t))) score += 12;
+    if (tokens.includes('share') && tokens.length === 1) score += 8;
+    if (h === 'amount' || h === 'amt' || h.endsWith('_amount') || h.endsWith('_amt')) score += 7;
+    if (tokens.includes('amount') && !tokens.includes('application')) score += 5;
+    if (tokens.includes('amt') && !tokens.includes('application')) score += 5;
+
+    if (tokens.some(t => ['application', 'app', 'id', 'no', 'number', 'name', 'student', 'admission', 'pin'].includes(t))) score -= 10;
+    if (tokens.includes('total') && tokens.includes('count')) score -= 6;
+    if (tokens.includes('date')) score -= 5;
+
+    return Math.max(0, score);
+};
+
+const rankExcelColumns = (headers) => {
+    const appScores = headers.map(h => scoreApplicationIdHeader(h));
+    const shareScores = headers.map(h => scoreShareAmountHeader(h));
+
+    let appCol = -1;
+    let shareCol = -1;
+    let appScore = 0;
+    let shareScore = 0;
+
+    appScores.forEach((s, i) => { if (s > appScore) { appScore = s; appCol = i; } });
+    shareScores.forEach((s, i) => { if (s > shareScore) { shareScore = s; shareCol = i; } });
+
+    const MIN_SCORE = 5;
+    if (appScore < MIN_SCORE) appCol = -1;
+    if (shareScore < MIN_SCORE) shareCol = -1;
+
+    if (appCol >= 0 && appCol === shareCol) {
+        if (appScore > shareScore) shareCol = -1;
+        else if (shareScore > appScore) appCol = -1;
+        else {
+            const altShare = shareScores
+                .map((s, i) => ({ s, i }))
+                .filter(({ s, i }) => i !== appCol && s >= MIN_SCORE)
+                .sort((a, b) => b.s - a.s)[0];
+            shareCol = altShare?.i ?? -1;
+        }
+    }
+
+    return {
+        appCol,
+        shareCol,
+        score: (appCol >= 0 ? appScore : 0) + (shareCol >= 0 ? shareScore : 0),
+        hasHeader: appCol >= 0,
+    };
+};
+
+const detectExcelHeaderRow = (rows, maxScan = 10) => {
+    let best = { rowIdx: -1, appCol: 0, shareCol: -1, score: 0, hasHeader: false };
+    const limit = Math.min(maxScan, rows.length);
+
+    for (let r = 0; r < limit; r++) {
+        const headers = (rows[r] || []).map(normalizeExcelHeader);
+        if (!headers.some(Boolean)) continue;
+        const ranked = rankExcelColumns(headers);
+        if (ranked.score > best.score) {
+            best = { rowIdx: r, ...ranked };
+        }
+    }
+
+    return best;
+};
+
+const parseExcelShareAmount = (val) => {
+    if (val == null || val === '') return null;
+    if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+        return Math.round(val * 100) / 100;
+    }
+    const cleaned = String(val).replace(/[,₹\s]/g, '').trim();
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+};
+
+const resolveShareForStudent = (student, shareByAppId, academicYear) => {
+    if (!shareByAppId?.size) return null;
+    const apps = student?.scholarshipApplications || [];
+    if (academicYear && student?.batch) {
+        const procYear = computeProceedingYear(student.batch, academicYear);
+        if (procYear) {
+            const match = apps.find(a => Number(a.studentYear) === procYear);
+            if (match?.applicationId) {
+                const amt = shareByAppId.get(String(match.applicationId).toLowerCase());
+                if (amt != null) return amt;
+            }
+        }
+    }
+    for (const id of (student.applicationIds || [])) {
+        const amt = shareByAppId.get(String(id).toLowerCase());
+        if (amt != null) return amt;
+    }
+    for (const a of apps) {
+        if (a.applicationId) {
+            const amt = shareByAppId.get(String(a.applicationId).toLowerCase());
+            if (amt != null) return amt;
+        }
+    }
+    return null;
+};
+
+/** Parse proceeding Excel: application IDs + optional share amounts (single pass, deduped by app id). */
+const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        try {
+            const wb = XLSX.read(evt.target.result, {
+                type: 'array',
+                cellDates: false,
+                cellNF: false,
+                cellStyles: false,
+            });
+            const sheet = wb.Sheets[wb.SheetNames[0]];
+            if (!sheet) {
+                resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0 });
+                return;
+            }
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+            if (!rows.length) {
+                resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0 });
+                return;
+            }
+
+            const detected = detectExcelHeaderRow(rows);
+            const hasHeader = detected.hasHeader && detected.rowIdx >= 0;
+            const idCol = hasHeader ? detected.appCol : 0;
+            const amountCol = hasHeader
+                ? detected.shareCol
+                : (rows[0]?.length > 1 ? 1 : -1);
+            const startRow = hasHeader ? detected.rowIdx + 1 : 0;
+            const hasShareColumn = amountCol >= 0;
+
+            const entryMap = new Map();
+            for (let i = startRow; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row?.length) continue;
+                const applicationId = String(row[idCol] ?? '').trim();
+                if (!applicationId) continue;
+                const shareAmount = hasShareColumn ? parseExcelShareAmount(row[amountCol]) : null;
+                entryMap.set(applicationId.toLowerCase(), { applicationId, shareAmount });
+            }
+
+            const entries = [...entryMap.values()];
+            let totalShareAmount = 0;
+            entries.forEach(e => {
+                if (e.shareAmount != null) totalShareAmount += e.shareAmount;
+            });
+
+            resolve({
+                entries,
+                applicationIds: entries.map(e => e.applicationId),
+                hasShareColumn,
+                totalShareAmount: Math.round(totalShareAmount * 100) / 100,
+            });
+        } catch (err) {
+            reject(err);
+        }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+});
+
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const buildExcelImportSummary = (parsed, students, shares, backendSummary, autoLocked, academicYear) => {
+    if (!parsed?.applicationIds?.length) return null;
+
+    const matchedAppIdLower = new Set();
+    students.forEach(s => {
+        (s.applicationIds || []).forEach(id => matchedAppIdLower.add(String(id).toLowerCase()));
+    });
+
+    const missingShareInExcel = parsed.hasShareColumn
+        ? parsed.entries.filter(e => e.shareAmount == null).map(e => e.applicationId)
+        : [];
+
+    const studentsMissingShare = students
+        .filter(s => !(Number(shares?.[s.studentId]) > 0))
+        .map(s => ({
+            studentId: s.studentId,
+            studentName: s.studentName,
+            applicationId: getStudentApplicationId(s, academicYear),
+        }));
+
+    const notFound = backendSummary?.notFound?.length
+        ? backendSummary.notFound
+        : parsed.applicationIds
+            .filter(id => !matchedAppIdLower.has(String(id).toLowerCase()))
+            .map(applicationId => ({
+                applicationId,
+                status: 'not_in_filter',
+                message: 'No matching student for current filters',
+            }));
+
+    const hasIssues = notFound.length > 0 || missingShareInExcel.length > 0 || studentsMissingShare.length > 0;
+
+    return {
+        requested: parsed.applicationIds.length,
+        matchedStudents: students.length,
+        matchedApplicationIds: backendSummary?.matchedApplicationIds ?? matchedAppIdLower.size,
+        notFound,
+        missingShareInExcel,
+        studentsMissingShare,
+        hasShareColumn: parsed.hasShareColumn,
+        autoLocked,
+        hasIssues,
+    };
+};
+
+const showExcelImportResultDialog = (summary, hasStudents, autoLocked) => {
+    if (!summary) return;
+
+    const issueLines = [];
+    if (summary.notFound.length > 0) issueLines.push(`${summary.notFound.length} application ID(s) could not be loaded`);
+    if (summary.missingShareInExcel.length > 0) issueLines.push(`${summary.missingShareInExcel.length} Excel row(s) have no share amount`);
+    if (summary.studentsMissingShare.length > 0) issueLines.push(`${summary.studentsMissingShare.length} loaded student(s) need share amounts`);
+
+    if (!hasStudents) {
+        let html = `<div style="text-align:left;font-size:13px;line-height:1.5">`;
+        html += `<p>No students matched the Excel file for the selected College / Course / Caste / Batch.</p>`;
+        if (summary.notFound.length > 0) {
+            html += `<p style="margin-top:10px;font-weight:600;color:#b45309">Application IDs not loaded:</p><ul style="max-height:160px;overflow:auto;margin:6px 0 0;padding-left:18px;font-size:12px">`;
+            summary.notFound.slice(0, 40).forEach(n => {
+                html += `<li style="margin-bottom:4px"><code>${escapeHtml(n.applicationId)}</code>${n.message ? `<br><span style="color:#64748b">${escapeHtml(n.message)}</span>` : ''}</li>`;
+            });
+            if (summary.notFound.length > 40) html += `<li>…and ${summary.notFound.length - 40} more</li>`;
+            html += `</ul>`;
+        }
+        html += `<p style="margin-top:10px;color:#64748b;font-size:12px">Try adjusting filters or verify application IDs in the Excel file.</p></div>`;
+        Swal.fire({ icon: 'warning', title: 'No students loaded', html, width: 620, confirmButtonText: 'OK' });
+        return;
+    }
+
+    if (!summary.hasIssues) {
+        Swal.fire({
+            icon: 'success',
+            title: 'Excel loaded',
+            text: autoLocked
+                ? `All ${summary.matchedStudents} student(s) loaded with share amounts. Selection locked — review and submit.`
+                : `All ${summary.matchedStudents} student(s) loaded and selected successfully.`,
+            timer: autoLocked ? 3500 : 2500,
+            showConfirmButton: !autoLocked,
+        });
+        return;
+    }
+
+    let html = `<div style="text-align:left;font-size:13px;line-height:1.5">`;
+    html += `<p><b>${summary.matchedStudents}</b> of <b>${summary.requested}</b> application ID(s) loaded as students.</p>`;
+    html += `<p style="color:#b45309;margin-top:6px">${issueLines.join(' · ')}</p>`;
+
+    if (summary.notFound.length > 0) {
+        html += `<p style="margin-top:10px;font-weight:600">Not loaded:</p><ul style="max-height:100px;overflow:auto;margin:4px 0 0;padding-left:18px;font-size:12px">`;
+        summary.notFound.slice(0, 25).forEach(n => {
+            html += `<li style="margin-bottom:4px"><code>${escapeHtml(n.applicationId)}</code>${n.message ? ` — ${escapeHtml(n.message)}` : ''}</li>`;
+        });
+        if (summary.notFound.length > 25) html += `<li>…and ${summary.notFound.length - 25} more</li>`;
+        html += `</ul>`;
+    }
+
+    if (summary.missingShareInExcel.length > 0) {
+        html += `<p style="margin-top:10px;font-weight:600">Excel rows missing share amount:</p><p style="font-size:12px;color:#64748b">${summary.missingShareInExcel.slice(0, 15).map(escapeHtml).join(', ')}${summary.missingShareInExcel.length > 15 ? ` …+${summary.missingShareInExcel.length - 15} more` : ''}</p>`;
+    }
+
+    if (summary.studentsMissingShare.length > 0) {
+        html += `<p style="margin-top:10px;font-weight:600">Students needing share amounts:</p><ul style="max-height:80px;overflow:auto;margin:4px 0 0;padding-left:18px;font-size:12px">`;
+        summary.studentsMissingShare.slice(0, 15).forEach(s => {
+            html += `<li>${escapeHtml(s.studentName || s.studentId)} (${escapeHtml(s.applicationId)})</li>`;
+        });
+        if (summary.studentsMissingShare.length > 15) html += `<li>…and ${summary.studentsMissingShare.length - 15} more</li>`;
+        html += `</ul>`;
+    }
+
+    html += `<p style="margin-top:10px;color:#64748b;font-size:12px">Review the summary panel below the filters for full details.</p></div>`;
+
+    Swal.fire({
+        icon: 'warning',
+        title: 'Loaded with issues',
+        html,
+        width: 620,
+        confirmButtonText: 'OK',
+    });
+};
+
+/** Group student_scholarship rows by student_year; only records with application_id */
+const groupScholarshipsByYear = (scholarships = []) => {
+    const withAppId = scholarships.filter(r => String(r.applicationId || '').trim());
+    const yearMap = new Map();
+
+    withAppId.forEach(rec => {
+        const yr = String(rec.studentYear ?? '—');
+        if (!yearMap.has(yr)) yearMap.set(yr, { appMap: new Map(), yearSanctioned: 0 });
+        const yearEntry = yearMap.get(yr);
+        const appMap = yearEntry.appMap;
+        const appKey = rec.applicationId;
+
+        const san = Number(rec.sanctionedAmount);
+        if (Number.isFinite(san) && san > yearEntry.yearSanctioned) {
+            yearEntry.yearSanctioned = san;
+        }
+
+        if (!appMap.has(appKey)) {
+            appMap.set(appKey, {
+                applicationId: rec.applicationId || '—',
+                eligible: rec.eligible || '',
+                releasedAmount: 0,
+                paidAmount: 0,
+                fromDate: rec.fromDate || null,
+                toDate: rec.toDate || null,
+                proceeding: rec.proceeding || '',
+                semesters: [],
+            });
+        }
+
+        const app = appMap.get(appKey);
+        app.releasedAmount += Number(rec.releasedAmount) || 0;
+        app.paidAmount += Number(rec.paidAmount) || 0;
+        if (rec.fromDate && (!app.fromDate || rec.fromDate < app.fromDate)) app.fromDate = rec.fromDate;
+        if (rec.toDate && (!app.toDate || rec.toDate > app.toDate)) app.toDate = rec.toDate;
+        if (rec.proceeding && !app.proceeding) app.proceeding = rec.proceeding;
+        if (rec.studentSemester != null && !app.semesters.includes(rec.studentSemester)) {
+            app.semesters.push(rec.studentSemester);
+        }
+        const elig = String(rec.eligible || '').toLowerCase();
+        const cur = String(app.eligible || '').toLowerCase();
+        if (elig === 'eligible' || (elig === 'pending' && cur !== 'eligible')) {
+            app.eligible = rec.eligible;
+        }
+    });
+
+    return [...yearMap.entries()]
+        .sort(([a], [b]) => {
+            const na = Number(a);
+            const nb = Number(b);
+            if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+            return String(a).localeCompare(String(b));
+        })
+        .map(([studentYear, { appMap, yearSanctioned }]) => {
+            const applications = [...appMap.values()].sort((a, b) =>
+                String(a.applicationId).localeCompare(String(b.applicationId))
+            );
+            const applicationIds = [...new Set(
+                applications.map(a => a.applicationId).filter(id => id && id !== '—')
+            )];
+            return {
+                studentYear,
+                yearLabel: Number.isFinite(Number(studentYear)) ? formatYearLabel(studentYear) : studentYear,
+                applicationId: applicationIds.length === 1
+                    ? applicationIds[0]
+                    : (applicationIds.length > 1 ? applicationIds.join(', ') : '—'),
+                applicationIds,
+                applications,
+                eligible: applications.some(a => String(a.eligible).toLowerCase() === 'eligible')
+                    ? 'eligible'
+                    : (applications[0]?.eligible || ''),
+                sanctionedAmount: yearSanctioned,
+                releasedAmount: applications.reduce((s, a) => s + (a.releasedAmount || 0), 0),
+                paidAmount: applications.reduce((s, a) => s + (a.paidAmount || 0), 0),
+            };
+        });
 };
 
 const emptyForm = () => ({
@@ -94,6 +522,7 @@ const Proceedings = () => {
         if (cleaned === 'create' && canCreate) return 'create';
         if (cleaned === 'list' && canList) return 'list';
         if (cleaned === 'pending' && canView) return 'pending';
+        if (cleaned === 'analytics' && canView) return 'analytics';
         if (cleaned === 'guide') return 'guide';
         return canList ? 'list' : (canCreate ? 'create' : 'pending');
     };
@@ -133,6 +562,18 @@ const Proceedings = () => {
     const [draftAvailable, setDraftAvailable] = useState(() => !!readProceedingDraft(user?.username));
     const [draftSavedAt, setDraftSavedAt] = useState(null);
     const skipNextDraftSave = useRef(false);
+    const applicationExcelRef = useRef(null);
+    const [excelImportSummary, setExcelImportSummary] = useState(null);
+    const [excelSummaryExpanded, setExcelSummaryExpanded] = useState(true);
+
+    // ── Analytics tab state ───────────────────────────────────────────────
+    const [analyticsFilters, setAnalyticsFilters] = useState({ college: '', course: '', branch: '', batch: '' });
+    const [analyticsCourses, setAnalyticsCourses] = useState([]);
+    const [analyticsBranches, setAnalyticsBranches] = useState([]);
+    const [analyticsData, setAnalyticsData] = useState(null);
+    const [analyticsLoading, setAnalyticsLoading] = useState(false);
+    const [analyticsSearch, setAnalyticsSearch] = useState('');
+    const [analyticsExpanded, setAnalyticsExpanded] = useState({});
 
     useEffect(() => { fetchInitialData(); }, []);
 
@@ -262,6 +703,116 @@ const Proceedings = () => {
         setActiveTab(tab);
     };
 
+    const handleAnalyticsCollegeChange = (e) => {
+        const college = e.target.value;
+        setAnalyticsFilters({ college, course: '', branch: '', batch: '' });
+        setAnalyticsCourses(college ? Object.keys(metadata.hierarchy?.[college] || {}) : []);
+        setAnalyticsBranches([]);
+        setAnalyticsData(null);
+    };
+
+    const handleAnalyticsCourseChange = (e) => {
+        const course = e.target.value;
+        const college = analyticsFilters.college;
+        setAnalyticsFilters(f => ({ ...f, course, branch: '' }));
+        setAnalyticsBranches(
+            college && course
+                ? (metadata.hierarchy?.[college]?.[course]?.branches || [])
+                : []
+        );
+        setAnalyticsData(null);
+    };
+
+    const fetchScholarshipAnalytics = async () => {
+        if (!analyticsFilters.college || !analyticsFilters.course) {
+            Swal.fire('Warning', 'Please select College and Course', 'warning');
+            return;
+        }
+        setAnalyticsLoading(true);
+        setAnalyticsExpanded({});
+        try {
+            const params = {
+                college: analyticsFilters.college,
+                course: analyticsFilters.course,
+                branch: analyticsFilters.branch || undefined,
+                batch: analyticsFilters.batch || undefined,
+            };
+            const res = await api.get('/proceedings/scholarship-analytics', { params });
+            setAnalyticsData(res.data);
+        } catch (err) {
+            console.error('Analytics fetch error', err);
+            Swal.fire('Error', err.response?.data?.message || 'Failed to load scholarship analytics', 'error');
+            setAnalyticsData(null);
+        } finally {
+            setAnalyticsLoading(false);
+        }
+    };
+
+    const filteredAnalyticsStudents = useMemo(() => {
+        if (!analyticsData?.students) return [];
+        let rows = analyticsData.students.filter(s =>
+            groupScholarshipsByYear(s.scholarships).length > 0
+        );
+        const q = analyticsSearch.trim().toLowerCase();
+        if (!q) return rows;
+        return rows.filter(s =>
+            String(s.studentName || '').toLowerCase().includes(q)
+            || String(s.admissionNumber || '').toLowerCase().includes(q)
+            || String(s.pinNo || '').toLowerCase().includes(q)
+        );
+    }, [analyticsData, analyticsSearch]);
+
+    const toggleAnalyticsExpand = (key) => {
+        setAnalyticsExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const renderEligibleBadge = (eligible) => (
+        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+            String(eligible).toLowerCase() === 'eligible'
+                ? 'bg-emerald-50 text-emerald-700'
+                : String(eligible).toLowerCase() === 'pending'
+                    ? 'bg-amber-50 text-amber-700'
+                    : 'bg-slate-100 text-slate-600'
+        }`}>
+            {eligible || '—'}
+        </span>
+    );
+
+    const renderScholarshipFeeCell = (feeInfo) => {
+        if (!feeInfo) {
+            return <span className="text-[10px] text-slate-400 italic">No fee structure found</span>;
+        }
+        if (feeInfo.amount != null && Number(feeInfo.amount) > 0) {
+            return (
+                <div>
+                    <span className="font-semibold text-violet-700 whitespace-nowrap">{formatAnalyticsAmount(feeInfo.amount)}</span>
+                    {feeInfo.heads?.length > 0 && (
+                        <div className="text-[9px] text-slate-400 mt-0.5 leading-snug">
+                            {feeInfo.heads.map(h => `${h.feeHeadCode || h.feeHeadName}: ${formatAnalyticsAmount(h.amount)}`).join(' · ')}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+        return (
+            <span className="text-[10px] text-amber-700 italic" title={feeInfo.note || ''}>
+                {feeInfo.note || 'No scholarship applicable fee head'}
+            </span>
+        );
+    };
+
+    const formatAnalyticsDate = (val) => {
+        if (!val) return '—';
+        const d = new Date(val);
+        return Number.isNaN(d.getTime()) ? String(val) : d.toLocaleDateString('en-IN');
+    };
+
+    const formatAnalyticsAmount = (val) => {
+        if (val == null || val === '') return '—';
+        const n = Number(val);
+        return Number.isFinite(n) ? `₹${n.toLocaleString('en-IN')}` : String(val);
+    };
+
     const fetchInitialData = async () => {
         setLoading(true);
         try {
@@ -305,10 +856,10 @@ const Proceedings = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleLoadStudents = async () => {
+    const handleLoadStudents = async (applicationIdsFilter = null, excelShareByAppId = null) => {
         if (!formData.college || !formData.course) {
             Swal.fire('Warning', 'Please select College and Course first', 'warning');
-            return;
+            return { students: [], sharesApplied: 0, autoLocked: false, importSummary: null, shares: {} };
         }
         setLoadingStudents(true);
         setStudentQuotaFilter('All');
@@ -316,17 +867,186 @@ const Proceedings = () => {
             const params = { college: formData.college, course: formData.course };
             if (formData.caste) params.caste = formData.caste;
             if (formData.batch) params.batch = formData.batch;
-            const res = await api.get('/proceedings/load-students', { params });
-            setLoadedStudents(res.data);
-            // Do not select all by default — user selects via quota filter
-            setStudentChecks({});
-            setStudentShareAmounts({});
-            setStudentsLocked(false);
+            if (applicationIdsFilter?.length) params.applicationIds = applicationIdsFilter.join(',');
+            const payload = res.data;
+            const students = Array.isArray(payload) ? payload : (payload.students || []);
+            const importSummary = Array.isArray(payload) ? null : (payload.importSummary || null);
+            setLoadedStudents(students);
+
+            let sharesApplied = 0;
+            let autoLocked = false;
+            const shares = {};
+
+            if (applicationIdsFilter?.length) {
+                const checks = {};
+                students.forEach(s => {
+                    checks[s.studentId] = true;
+                    if (excelShareByAppId?.size) {
+                        const amt = resolveShareForStudent(s, excelShareByAppId, formData.academicYear);
+                        if (amt != null) {
+                            shares[s.studentId] = String(amt);
+                            sharesApplied += 1;
+                        }
+                    }
+                });
+                setStudentChecks(checks);
+
+                if (sharesApplied > 0) {
+                    setStudentShareAmounts(shares);
+                    const allHaveShares = students.length > 0 && students.every(s => Number(shares[s.studentId]) > 0);
+                    if (allHaveShares && formData.academicYear) {
+                        const shareTotal = Object.values(shares).reduce((sum, v) => sum + Number(v), 0);
+                        if (!(Number(formData.amount) > 0) && shareTotal > 0) {
+                            setFormData(prev => ({
+                                ...prev,
+                                amount: String(Math.round(shareTotal * 100) / 100),
+                            }));
+                        }
+                        setStudentsLocked(true);
+                        autoLocked = true;
+                    } else {
+                        setStudentsLocked(false);
+                    }
+                } else {
+                    setStudentShareAmounts({});
+                    setStudentsLocked(false);
+                }
+            } else {
+                setStudentChecks({});
+                setStudentShareAmounts({});
+                setStudentsLocked(false);
+                setExcelImportSummary(null);
+            }
+
+            return { students, sharesApplied, autoLocked, importSummary, shares };
         } catch (e) {
             Swal.fire('Error', e.response?.data?.message || 'Failed to load students', 'error');
+            return { students: [], sharesApplied: 0, autoLocked: false, importSummary: null, shares: {} };
         } finally {
             setLoadingStudents(false);
         }
+    };
+
+    const handleApplicationExcelUpload = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!formData.college || !formData.course) {
+            Swal.fire('Warning', 'Please select College and Course first', 'warning');
+            return;
+        }
+        try {
+            const parsed = await parseProceedingExcelFile(file);
+            if (parsed.applicationIds.length === 0) {
+                Swal.fire('Warning', 'No application IDs found in the Excel file.', 'warning');
+                setExcelImportSummary(null);
+                return;
+            }
+            const shareByAppId = new Map(
+                parsed.entries
+                    .filter(e => e.shareAmount != null)
+                    .map(e => [e.applicationId.toLowerCase(), e.shareAmount])
+            );
+            const { students, autoLocked, importSummary, shares } = await handleLoadStudents(
+                parsed.applicationIds,
+                shareByAppId.size ? shareByAppId : null
+            );
+            const summary = buildExcelImportSummary(
+                parsed, students, shares, importSummary, autoLocked, formData.academicYear
+            );
+            setExcelImportSummary(summary);
+            setExcelSummaryExpanded(true);
+            showExcelImportResultDialog(summary, students.length > 0, autoLocked);
+        } catch (err) {
+            console.error('Excel parse error', err);
+            Swal.fire('Error', 'Failed to read the Excel file.', 'error');
+            setExcelImportSummary(null);
+        }
+    };
+
+    const renderExcelImportSummaryPanel = () => {
+        if (!excelImportSummary) return null;
+        const s = excelImportSummary;
+        const allOk = !s.hasIssues && s.matchedStudents > 0;
+
+        return (
+            <div className={`mb-4 rounded-xl border overflow-hidden ${allOk ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                        <div className={`text-xs font-bold uppercase tracking-wide ${allOk ? 'text-emerald-800' : 'text-amber-900'}`}>
+                            Excel import summary
+                        </div>
+                        <div className={`text-sm font-semibold mt-1 ${allOk ? 'text-emerald-900' : 'text-amber-950'}`}>
+                            {s.matchedStudents} of {s.requested} application ID(s) loaded
+                            {s.autoLocked ? ' · Selection locked with shares' : ''}
+                        </div>
+                        {!allOk && (
+                            <div className="text-xs text-amber-800 mt-1 space-y-0.5">
+                                {s.notFound.length > 0 && <div>{s.notFound.length} ID(s) not loaded — check filters or verify IDs</div>}
+                                {s.missingShareInExcel.length > 0 && <div>{s.missingShareInExcel.length} Excel row(s) missing share amount</div>}
+                                {s.studentsMissingShare.length > 0 && <div>{s.studentsMissingShare.length} student(s) still need share amounts</div>}
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {(s.notFound.length > 0 || s.missingShareInExcel.length > 0 || s.studentsMissingShare.length > 0) && (
+                            <button
+                                type="button"
+                                onClick={() => setExcelSummaryExpanded(v => !v)}
+                                className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-white/80 border border-amber-200 text-amber-900 hover:bg-white"
+                            >
+                                {excelSummaryExpanded ? 'Hide details' : 'Show details'}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setExcelImportSummary(null)}
+                            className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-slate-600 hover:bg-white"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
+                {excelSummaryExpanded && (s.notFound.length > 0 || s.missingShareInExcel.length > 0 || s.studentsMissingShare.length > 0) && (
+                    <div className="px-4 pb-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 border-t border-amber-200/80 pt-3">
+                        {s.notFound.length > 0 && (
+                            <div className="bg-white/70 rounded-lg p-3 border border-amber-100 min-w-0">
+                                <div className="text-[10px] font-bold text-amber-900 uppercase mb-2">Not loaded ({s.notFound.length})</div>
+                                <ul className="text-xs text-slate-700 space-y-1.5 max-h-36 overflow-y-auto">
+                                    {s.notFound.map(n => (
+                                        <li key={n.applicationId} className="border-b border-amber-50 pb-1 last:border-0">
+                                            <span className="font-mono font-semibold text-amber-950">{n.applicationId}</span>
+                                            {n.message && <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{n.message}</div>}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        {s.missingShareInExcel.length > 0 && (
+                            <div className="bg-white/70 rounded-lg p-3 border border-amber-100 min-w-0">
+                                <div className="text-[10px] font-bold text-amber-900 uppercase mb-2">Missing share in Excel ({s.missingShareInExcel.length})</div>
+                                <div className="text-xs font-mono text-slate-700 max-h-36 overflow-y-auto leading-relaxed break-all">
+                                    {s.missingShareInExcel.join(', ')}
+                                </div>
+                            </div>
+                        )}
+                        {s.studentsMissingShare.length > 0 && (
+                            <div className="bg-white/70 rounded-lg p-3 border border-amber-100 min-w-0">
+                                <div className="text-[10px] font-bold text-amber-900 uppercase mb-2">Students without share ({s.studentsMissingShare.length})</div>
+                                <ul className="text-xs text-slate-700 space-y-1 max-h-36 overflow-y-auto">
+                                    {s.studentsMissingShare.map(st => (
+                                        <li key={st.studentId}>
+                                            <span className="font-semibold">{st.studentName || st.studentId}</span>
+                                            <span className="text-slate-500 font-mono text-[10px] ml-1">({st.applicationId})</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const toggleAllStudents = (checked) => {
@@ -346,9 +1066,10 @@ const Proceedings = () => {
             if (studentQuotaFilter !== 'All' && (s.studType || '') !== studentQuotaFilter) return false;
             if (!studentSearch.trim()) return true;
             const q = studentSearch.toLowerCase();
-            return s.studentName?.toLowerCase().includes(q) || s.admissionNumber?.toLowerCase().includes(q) || s.pinNo?.toLowerCase().includes(q);
+            return s.studentName?.toLowerCase().includes(q) || s.admissionNumber?.toLowerCase().includes(q) || s.pinNo?.toLowerCase().includes(q)
+                || getStudentApplicationId(s, formData.academicYear).toLowerCase().includes(q);
         });
-    }, [loadedStudents, studentSearch, studentQuotaFilter]);
+    }, [loadedStudents, studentSearch, studentQuotaFilter, formData.academicYear]);
 
     const selectedCount = Object.values(studentChecks).filter(Boolean).length;
 
@@ -1103,7 +1824,7 @@ const Proceedings = () => {
 
                                 <div className="bg-slate-50 rounded-xl p-4 mb-4">
                                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Student Filters</div>
-                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold text-slate-600">College *</label>
                                             <div className="relative">
@@ -1144,11 +1865,17 @@ const Proceedings = () => {
                                                 <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                             </div>
                                         </div>
-                                        <button type="button" onClick={handleLoadStudents} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
+                                        <button type="button" onClick={() => handleLoadStudents()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
                                             {loadingStudents ? <><Loader2 size={16} className="animate-spin" /> Loading...</> : <><Users size={16} /> Load Students</>}
+                                        </button>
+                                        <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplicationExcelUpload} />
+                                        <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel with Application ID and optional Share/Amount columns (flexible header names)">
+                                            {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by Excel</>}
                                         </button>
                                     </div>
                                 </div>
+
+                                {renderExcelImportSummaryPanel()}
 
                                 {loadedStudents.length > 0 && (
                                     <>
@@ -1193,6 +1920,7 @@ const Proceedings = () => {
                                                         <th className="p-2 w-10"></th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Caste</th>
@@ -1207,6 +1935,7 @@ const Proceedings = () => {
                                                             </td>
                                                             <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                            <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.caste || '-'}</td>
@@ -1248,6 +1977,7 @@ const Proceedings = () => {
                                                     <tr>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
@@ -1264,6 +1994,7 @@ const Proceedings = () => {
                                                         <tr key={s.studentId} className="hover:bg-indigo-50/30">
                                                             <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                            <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
@@ -1412,6 +2143,221 @@ const Proceedings = () => {
                         </>
                     )}
 
+                    {/* ═══ ANALYTICS TAB ═══ */}
+                    {activeTab === 'analytics' && (
+                        <div className="space-y-4 animate-fadeIn">
+                            {/* Filters */}
+                            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
+                                        <select
+                                            value={analyticsFilters.college}
+                                            onChange={handleAnalyticsCollegeChange}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
+                                        >
+                                            <option value="">Select College</option>
+                                            {metadata?.hierarchy && Object.keys(metadata.hierarchy).map(c => (
+                                                <option key={c} value={c}>{c}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
+                                        <select
+                                            value={analyticsFilters.course}
+                                            onChange={handleAnalyticsCourseChange}
+                                            disabled={!analyticsFilters.college}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
+                                        >
+                                            <option value="">Select Course</option>
+                                            {(analyticsFilters.college
+                                                ? Object.keys(metadata.hierarchy?.[analyticsFilters.college] || {})
+                                                : analyticsCourses
+                                            ).map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
+                                        <select
+                                            value={analyticsFilters.branch}
+                                            onChange={e => setAnalyticsFilters(f => ({ ...f, branch: e.target.value }))}
+                                            disabled={!analyticsFilters.course}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
+                                        >
+                                            <option value="">All Branches</option>
+                                            {analyticsBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
+                                        <select
+                                            value={analyticsFilters.batch}
+                                            onChange={e => setAnalyticsFilters(f => ({ ...f, batch: e.target.value }))}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
+                                        >
+                                            <option value="">All Batches</option>
+                                            {metadata.batches?.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Search</label>
+                                        <div className="relative">
+                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={analyticsSearch}
+                                                onChange={e => setAnalyticsSearch(e.target.value)}
+                                                placeholder="Name / adm / pin..."
+                                                className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50 font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
+                                            />
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={fetchScholarshipAnalytics}
+                                        disabled={analyticsLoading || !analyticsFilters.college || !analyticsFilters.course}
+                                        className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {analyticsLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+                                        {analyticsLoading ? 'Loading...' : 'Get Data'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Stats */}
+                            {analyticsData?.stats && (
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                    {[
+                                        { label: 'Total Students', value: analyticsData.stats.totalStudents, color: 'text-slate-800' },
+                                        { label: 'With Scholarship', value: analyticsData.stats.withScholarship, color: 'text-emerald-700' },
+                                        { label: 'Without Scholarship', value: analyticsData.stats.withoutScholarship, color: 'text-slate-500' },
+                                        { label: 'Scholarship Records', value: analyticsData.stats.totalRecords, color: 'text-blue-700' },
+                                        { label: 'Unique Applications', value: analyticsData.stats.uniqueApplications, color: 'text-indigo-700' },
+                                    ].map(card => (
+                                        <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{card.label}</p>
+                                            <p className={`text-xl font-black mt-1 ${card.color}`}>{card.value}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Table */}
+                            {analyticsData && (
+                                <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-slate-100">
+                                        <h3 className="text-sm font-bold text-slate-800">Students & Scholarship Applications</h3>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">Expand a student to view year-wise scholarship with application ID</p>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
+                                                <tr>
+                                                    <th className="px-3 py-2.5 w-8"></th>
+                                                    <th className="px-3 py-2.5">Student</th>
+                                                    <th className="px-3 py-2.5">Admission No</th>
+                                                    <th className="px-3 py-2.5">PIN</th>
+                                                    <th className="px-3 py-2.5">Branch</th>
+                                                    <th className="px-3 py-2.5">Batch</th>
+                                                    <th className="px-3 py-2.5">Quota</th>
+                                                    <th className="px-3 py-2.5 text-center">Applications</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50">
+                                                {filteredAnalyticsStudents.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={8} className="px-4 py-10 text-center text-slate-400 font-medium">
+                                                            No students match the current filters.
+                                                        </td>
+                                                    </tr>
+                                                ) : filteredAnalyticsStudents.map(student => {
+                                                    const rowKey = student.admissionNumber || String(student.sqlId);
+                                                    const isOpen = !!analyticsExpanded[rowKey];
+                                                    const yearGroups = groupScholarshipsByYear(student.scholarships);
+                                                    const hasApps = yearGroups.length > 0;
+                                                    return (
+                                                        <React.Fragment key={rowKey}>
+                                                            <tr className={`hover:bg-slate-50/80 ${hasApps ? 'cursor-pointer' : ''}`}
+                                                                onClick={() => hasApps && toggleAnalyticsExpand(rowKey)}>
+                                                                <td className="px-3 py-2.5 text-slate-400">
+                                                                    {hasApps ? (
+                                                                        <ChevronRight size={14} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                                                                    ) : <span className="inline-block w-3.5" />}
+                                                                </td>
+                                                                <td className="px-3 py-2.5 font-semibold text-slate-800">{student.studentName || '—'}</td>
+                                                                <td className="px-3 py-2.5 font-mono text-slate-600">{student.admissionNumber || '—'}</td>
+                                                                <td className="px-3 py-2.5 font-mono text-slate-500">{student.pinNo || '—'}</td>
+                                                                <td className="px-3 py-2.5 text-slate-600">{student.branch || '—'}</td>
+                                                                <td className="px-3 py-2.5 text-slate-600">{student.batch || '—'}</td>
+                                                                <td className="px-3 py-2.5 text-slate-600">{student.studType || '—'}</td>
+                                                                <td className="px-3 py-2.5 text-center">
+                                                                    {hasApps ? (
+                                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-100">
+                                                                            {yearGroups.length} yr
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-slate-300">0</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                            {isOpen && hasApps && (
+                                                                <tr className="bg-slate-50/50">
+                                                                    <td colSpan={8} className="px-3 py-3">
+                                                                        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                                                            <table className="w-full text-[11px]">
+                                                                                <thead className="bg-slate-100 text-[9px] font-bold text-slate-500 uppercase">
+                                                                                    <tr>
+                                                                                        <th className="px-2 py-2">Year</th>
+                                                                                        <th className="px-2 py-2">Application ID</th>
+                                                                                        <th className="px-2 py-2">Eligible</th>
+                                                                                        <th className="px-2 py-2">Sanctioned</th>
+                                                                                        <th className="px-2 py-2">Released</th>
+                                                                                        <th className="px-2 py-2">Paid</th>
+                                                                                        <th className="px-2 py-2">Scholarship Fee</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-slate-100">
+                                                                                    {yearGroups.map(yearRow => {
+                                                                                        const feeInfo = student.scholarshipFeeByYear?.[String(yearRow.studentYear)];
+                                                                                        return (
+                                                                                        <tr key={`${rowKey}_${yearRow.studentYear}`} className="hover:bg-slate-50 bg-white">
+                                                                                            <td className="px-2 py-2 font-bold text-slate-800">{yearRow.yearLabel}</td>
+                                                                                            <td className="px-2 py-2 font-mono font-semibold text-indigo-700">{yearRow.applicationId}</td>
+                                                                                            <td className="px-2 py-2">{renderEligibleBadge(yearRow.eligible)}</td>
+                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-slate-800">{formatAnalyticsAmount(yearRow.sanctionedAmount)}</td>
+                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-700">{formatAnalyticsAmount(yearRow.releasedAmount)}</td>
+                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-blue-700">{formatAnalyticsAmount(yearRow.paidAmount)}</td>
+                                                                                            <td className="px-2 py-2">{renderScholarshipFeeCell(feeInfo)}</td>
+                                                                                        </tr>
+                                                                                        );
+                                                                                    })}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </React.Fragment>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!analyticsData && !analyticsLoading && (
+                                <div className="bg-white rounded-xl border border-dashed border-slate-200 p-10 text-center">
+                                    <BarChart3 size={32} className="mx-auto text-slate-300 mb-3" />
+                                    <p className="text-sm font-semibold text-slate-600">Select College and Course, then click Get Data</p>
+                                    <p className="text-xs text-slate-400 mt-1">Scholarship records are loaded from the student_scholarship table</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* ═══ GUIDE TAB ═══ */}
                     {activeTab === 'guide' && (
                         <div className="w-full space-y-4 sm:space-y-5">
@@ -1431,8 +2377,9 @@ const Proceedings = () => {
                                             color: 'blue',
                                             points: [
                                                 'Open Create Proceeding and enter Proceeding Number, Date, Academic Year, and Proceeding Amount (fixed at top).',
-                                                'Select College / Course (and optional Caste / Batch), then Load Students.',
-                                                'Students are not selected by default — filter by quota and select the required students.',
+                                                'Select College / Course (and optional Caste / Batch), then Load Students or Load by Excel.',
+                                                'Excel: flexible columns for Application ID and Share Amount. Unmatched IDs and missing shares are reported after upload.',
+                                                'Students are not selected by default when using Load Students — filter by quota and select manually.',
                                                 'Click Confirm Selection & Enter Amounts to lock the list.',
                                                 'Enter a share amount for every student (must be greater than zero).',
                                                 'Balance = Proceeding Amount − Allocated shares. Create is allowed only when Balance is ₹0.',
@@ -1607,7 +2554,7 @@ const Proceedings = () => {
 
                             <div className="bg-slate-50 rounded-xl p-4 mb-4">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Student Filters</div>
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">College *</label>
                                         <div className="relative">
@@ -1648,11 +2595,17 @@ const Proceedings = () => {
                                             <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                         </div>
                                     </div>
-                                    <button type="button" onClick={handleLoadStudents} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
+                                    <button type="button" onClick={() => handleLoadStudents()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
                                         {loadingStudents ? <><Loader2 size={16} className="animate-spin" /> Loading...</> : <><Users size={16} /> Load Students</>}
+                                    </button>
+                                    <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplicationExcelUpload} />
+                                    <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel with Application ID and optional Share/Amount columns (flexible header names)">
+                                        {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by Excel</>}
                                     </button>
                                 </div>
                             </div>
+
+                            {renderExcelImportSummaryPanel()}
 
                             {loadedStudents.length > 0 && (
                                 <>
@@ -1678,6 +2631,7 @@ const Proceedings = () => {
                                                     <th className="p-2 w-10"></th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
+                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Caste</th>
@@ -1692,6 +2646,7 @@ const Proceedings = () => {
                                                         </td>
                                                         <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                         <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                        <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                         <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.caste || '-'}</td>
@@ -1732,10 +2687,11 @@ const Proceedings = () => {
                                             <thead className="sticky top-0 bg-white border-b">
                                                 <tr>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Current Yr</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Proc. Yr</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase w-36">Share Amount *</th>
@@ -1748,10 +2704,11 @@ const Proceedings = () => {
                                                     return (
                                                     <tr key={s.studentId} className="hover:bg-indigo-50/30">
                                                         <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
-                                                        <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
-                                                        <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
-                                                        <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
-                                                        <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
+                                                            <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                            <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
+                                                            <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
+                                                            <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
+                                                            <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-600">{formatYearLabel(s.studentYear)}</td>
                                                         <td className="p-2 text-xs font-bold text-indigo-700">{formatYearLabel(procYear)}</td>
                                                         <td className="p-2">

@@ -79,6 +79,7 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         { name: 'All Proceedings', hash: 'list',   perm: 'list' },
         { name: 'Pending Queue',   hash: 'pending', perm: 'pending' },
         { name: 'Create Proceeding', hash: 'create', perm: 'create' },
+        { name: 'Analytics',         hash: 'analytics', perm: 'view' },
         { name: 'Guide',           hash: 'guide',  perm: 'guide' },
     ];
 

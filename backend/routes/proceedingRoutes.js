@@ -10,11 +10,13 @@ const {
     deleteProceeding,
     getProceedingSummary,
     loadStudentsForProceeding,
-    syncProceedingIds
+    syncProceedingIds,
+    getScholarshipAnalytics
 } = require('../controllers/proceedingController');
 
 router.route('/').get(getProceedings).post(createProceeding);
 router.get('/load-students', loadStudentsForProceeding);
+router.get('/scholarship-analytics', getScholarshipAnalytics);
 router.post('/sync-ids', syncProceedingIds);
 router.get('/:id/summary', getProceedingSummary);
 router.put('/:id/verify', verifyProceeding);

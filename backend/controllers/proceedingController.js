@@ -1,6 +1,8 @@
 const Proceeding = require('../models/Proceeding');
 const ProceedingStudent = require('../models/ProceedingStudent');
 const Transaction = require('../models/Transaction');
+const FeeStructure = require('../models/FeeStructure');
+const FeeHead = require('../models/FeeHead');
 const collegeScope = require('../utils/collegeScope');
 const db = require('../config/sqlDb');
 const {
@@ -44,11 +46,66 @@ const computeProceedingYear = (batch, academicYear) => {
     return yearNum >= 1 && yearNum <= 10 ? yearNum : null;
 };
 
+/** Scholarship-applicable fee structure total for a student year (from FeeStructure Mongo docs) */
+const resolveScholarshipApplicableFeeForYear = (structures, feeHeadMap, student, studentYear) => {
+    const yr = Number(studentYear);
+    if (!Number.isFinite(yr)) {
+        return { amount: null, note: 'Invalid student year' };
+    }
+
+    const matching = (structures || []).filter(fs =>
+        fs.college === student.college
+        && fs.course === student.course
+        && fs.branch === student.branch
+        && String(fs.batch) === String(student.batch)
+        && fs.category === student.studType
+        && Number(fs.studentYear) === yr
+    );
+
+    if (matching.length === 0) {
+        return { amount: null, note: 'No fee structure found' };
+    }
+
+    const scholarshipStructs = matching.filter(fs => fs.isScholarshipApplicable);
+    if (scholarshipStructs.length === 0) {
+        return { amount: null, note: 'No scholarship applicable fee head' };
+    }
+
+    const byHead = new Map();
+    scholarshipStructs.forEach(fs => {
+        const hId = String(fs.feeHead?._id || fs.feeHead);
+        if (!byHead.has(hId)) byHead.set(hId, []);
+        byHead.get(hId).push(fs);
+    });
+
+    let total = 0;
+    const heads = [];
+    for (const [hId, structs] of byHead.entries()) {
+        const yearly = structs.find(s => s.semester == null || s.semester === undefined);
+        const headAmount = yearly
+            ? (Number(yearly.amount) || 0)
+            : structs.reduce((sum, fs) => sum + (Number(fs.amount) || 0), 0);
+        total += headAmount;
+        const fh = feeHeadMap[hId];
+        heads.push({
+            feeHeadName: fh?.name || 'Unknown',
+            feeHeadCode: fh?.code || '',
+            amount: headAmount,
+        });
+    }
+
+    return {
+        amount: roundMoney(total),
+        note: null,
+        heads,
+    };
+};
+
 // ─── Load students from SQL for proceeding creation ────────────────────
-// GET /api/proceedings/load-students?college=X&course=Y&caste=Z&batch=B
+// GET /api/proceedings/load-students?college=X&course=Y&caste=Z&batch=B&applicationIds=id1,id2
 const loadStudentsForProceeding = async (req, res) => {
     try {
-        const { college, course, caste, batch } = req.query;
+        const { college, course, caste, batch, applicationIds } = req.query;
         if (!college || !course) {
             return res.status(400).json({ message: 'College and Course are required' });
         }
@@ -71,29 +128,157 @@ const loadStudentsForProceeding = async (req, res) => {
         }
 
         const query = `
-            SELECT admission_number, pin_no, student_name, college, college_id, course, course_id, branch, branch_id, caste, batch, current_year, stud_type
+            SELECT id, admission_number, pin_no, student_name, college, college_id, course, course_id, branch, branch_id, caste, batch, current_year, stud_type
             FROM students
             WHERE ${conditions.join(' AND ')}
             ORDER BY student_name
         `;
         const [rows] = await db.query(query, params);
 
-        res.json(rows.map(r => ({
-            studentId: r.admission_number,
-            admissionNumber: r.admission_number,
-            pinNo: r.pin_no || '',
-            studentName: r.student_name || '',
-            college: r.college || '',
-            collegeId: r.college_id || null,
-            course: r.course || '',
-            courseId: r.course_id || null,
-            branch: r.branch || '',
-            branchId: r.branch_id || null,
-            caste: r.caste || '',
-            batch: r.batch || '',
-            studentYear: r.current_year || '',
-            studType: r.stud_type || ''
-        })));
+        const applicationIdFilter = String(applicationIds || '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+        const applicationIdSet = applicationIdFilter.length > 0
+            ? new Set(applicationIdFilter.map(id => id.toLowerCase()))
+            : null;
+
+        const sqlIds = rows.map(r => r.id).filter(Boolean);
+        const scholarshipByStudent = {};
+
+        if (sqlIds.length > 0) {
+            const placeholders = sqlIds.map(() => '?').join(',');
+            const [scholarshipRows] = await db.query(
+                `SELECT student_id, student_year, application_id
+                 FROM student_scholarship
+                 WHERE student_id IN (${placeholders})
+                   AND application_id IS NOT NULL
+                   AND TRIM(application_id) != ''
+                 ORDER BY student_year ASC, student_semester ASC`,
+                sqlIds
+            );
+            (scholarshipRows || []).forEach(row => {
+                const sid = String(row.student_id);
+                if (!scholarshipByStudent[sid]) scholarshipByStudent[sid] = [];
+                const appId = String(row.application_id || '').trim();
+                if (!appId) return;
+                if (!scholarshipByStudent[sid].some(a => a.applicationId === appId && Number(a.studentYear) === Number(row.student_year))) {
+                    scholarshipByStudent[sid].push({
+                        studentYear: row.student_year,
+                        applicationId: appId,
+                    });
+                }
+            });
+        }
+
+        const students = rows.map(r => {
+            const scholarshipApplications = scholarshipByStudent[String(r.id)] || [];
+            const applicationIdsList = [...new Set(scholarshipApplications.map(a => a.applicationId))];
+            return {
+                sqlId: r.id,
+                studentId: r.admission_number,
+                admissionNumber: r.admission_number,
+                pinNo: r.pin_no || '',
+                studentName: r.student_name || '',
+                college: r.college || '',
+                collegeId: r.college_id || null,
+                course: r.course || '',
+                courseId: r.course_id || null,
+                branch: r.branch || '',
+                branchId: r.branch_id || null,
+                caste: r.caste || '',
+                batch: r.batch || '',
+                studentYear: r.current_year || '',
+                studType: r.stud_type || '',
+                scholarshipApplications,
+                applicationIds: applicationIdsList,
+            };
+        }).filter(s => {
+            if (!applicationIdSet) return true;
+            return s.applicationIds.some(id => applicationIdSet.has(id.toLowerCase()));
+        });
+
+        if (applicationIdSet && applicationIdFilter.length > 0) {
+            const matchedAppIdLower = new Set();
+            students.forEach(s => {
+                s.applicationIds.forEach(id => {
+                    if (applicationIdSet.has(id.toLowerCase())) matchedAppIdLower.add(id.toLowerCase());
+                });
+            });
+
+            const unmatchedLower = [...applicationIdSet].filter(id => !matchedAppIdLower.has(id));
+            const notFound = [];
+
+            if (unmatchedLower.length > 0) {
+                const placeholders = unmatchedLower.map(() => '?').join(',');
+                const [hintRows] = await db.query(
+                    `SELECT ss.application_id, s.college, s.course, s.batch, s.caste, s.student_name,
+                            s.admission_number, s.student_status
+                     FROM student_scholarship ss
+                     INNER JOIN students s ON s.id = ss.student_id
+                     WHERE LOWER(TRIM(ss.application_id)) IN (${placeholders})`,
+                    unmatchedLower
+                );
+
+                const hintsByAppId = {};
+                (hintRows || []).forEach(row => {
+                    const key = String(row.application_id || '').trim().toLowerCase();
+                    if (!key) return;
+                    if (!hintsByAppId[key]) hintsByAppId[key] = [];
+                    hintsByAppId[key].push(row);
+                });
+
+                applicationIdFilter.forEach(originalId => {
+                    const lower = originalId.toLowerCase();
+                    if (matchedAppIdLower.has(lower)) return;
+
+                    const hints = hintsByAppId[lower] || [];
+                    if (hints.length === 0) {
+                        notFound.push({
+                            applicationId: originalId,
+                            status: 'not_in_system',
+                            message: 'No student found with this application ID in the system',
+                        });
+                        return;
+                    }
+
+                    const h = hints[0];
+                    const mismatches = [];
+                    if (String(h.college || '') !== String(college || '')) mismatches.push(`college is ${h.college || '—'}`);
+                    if (String(h.course || '') !== String(course || '')) mismatches.push(`course is ${h.course || '—'}`);
+                    if (caste && String(h.caste || '') !== String(caste)) mismatches.push(`caste is ${h.caste || '—'}`);
+                    if (batch && String(h.batch || '') !== String(batch)) mismatches.push(`batch is ${h.batch || '—'}`);
+                    if (String(h.student_status || '').toLowerCase() !== 'regular') {
+                        mismatches.push(`status is ${h.student_status || '—'}`);
+                    }
+
+                    notFound.push({
+                        applicationId: originalId,
+                        status: mismatches.length > 0 ? 'filter_mismatch' : 'not_in_filter',
+                        message: mismatches.length > 0
+                            ? `Student exists (${h.student_name || h.admission_number}) but filter mismatch — ${mismatches.join('; ')}`
+                            : `Student exists (${h.student_name || h.admission_number}) but not included with current filters`,
+                        studentName: h.student_name || '',
+                        admissionNumber: h.admission_number || '',
+                        college: h.college || '',
+                        course: h.course || '',
+                        batch: h.batch || '',
+                    });
+                });
+            }
+
+            return res.json({
+                students,
+                importSummary: {
+                    requested: applicationIdFilter.length,
+                    matchedStudents: students.length,
+                    matchedApplicationIds: matchedAppIdLower.size,
+                    notFound,
+                },
+            });
+        }
+
+        res.json(students);
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
@@ -833,6 +1018,177 @@ const syncProceedingIds = async (req, res) => {
     }
 };
 
+// ─── Scholarship analytics (student_scholarship from SQL) ───────────────
+// GET /api/proceedings/scholarship-analytics?college=X&course=Y&branch=B&batch=B
+const getScholarshipAnalytics = async (req, res) => {
+    try {
+        const { college, course, branch, batch } = req.query;
+        if (!college || !course) {
+            return res.status(400).json({ message: 'College and Course are required' });
+        }
+
+        const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
+        if (allowedColleges && !allowedColleges.includes(college)) {
+            return res.status(403).json({ message: 'Access denied for this college' });
+        }
+
+        const allowedCourses = req.user?.courses?.length > 0 ? req.user.courses : null;
+        if (allowedCourses) {
+            const matchString = `${college}|${course}`;
+            if (!allowedCourses.includes(matchString)) {
+                return res.status(403).json({ message: 'Access denied for this course' });
+            }
+        }
+
+        const conditions = ["LOWER(student_status) = 'regular'", 'college = ?', 'course = ?'];
+        const params = [college, course];
+
+        if (batch) {
+            conditions.push('batch = ?');
+            params.push(batch);
+        }
+        if (branch) {
+            conditions.push('branch = ?');
+            params.push(branch);
+        }
+
+        const [studentRows] = await db.query(
+            `SELECT id, admission_number, pin_no, student_name, college, course, branch, batch, current_year, stud_type
+             FROM students
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY student_name`,
+            params
+        );
+
+        const sqlIds = studentRows.map(s => s.id).filter(Boolean);
+        const scholarshipMap = {};
+
+        if (sqlIds.length > 0) {
+            const placeholders = sqlIds.map(() => '?').join(',');
+            const [scholarshipRows] = await db.query(
+                `SELECT id, student_id, student_year, student_semester, application_id, eligible,
+                        sanctioned_amount, from_date, to_date, proceeding, released_amount,
+                        paid_amount, fee_paid, created_at, updated_at
+                 FROM student_scholarship
+                 WHERE student_id IN (${placeholders})
+                 ORDER BY student_year ASC, student_semester ASC, application_id ASC`,
+                sqlIds
+            );
+            (scholarshipRows || []).forEach(row => {
+                const sId = String(row.student_id);
+                if (!scholarshipMap[sId]) scholarshipMap[sId] = [];
+                scholarshipMap[sId].push({
+                    id: row.id,
+                    studentId: row.student_id,
+                    studentYear: row.student_year,
+                    studentSemester: row.student_semester,
+                    applicationId: row.application_id || '',
+                    eligible: row.eligible || '',
+                    sanctionedAmount: row.sanctioned_amount != null ? Number(row.sanctioned_amount) : null,
+                    fromDate: row.from_date || null,
+                    toDate: row.to_date || null,
+                    proceeding: row.proceeding || '',
+                    releasedAmount: row.released_amount != null ? Number(row.released_amount) : null,
+                    paidAmount: row.paid_amount != null ? Number(row.paid_amount) : null,
+                    feePaid: row.fee_paid != null ? Boolean(row.fee_paid) : false,
+                    createdAt: row.created_at || null,
+                    updatedAt: row.updated_at || null,
+                });
+            });
+        }
+
+        let withScholarship = 0;
+        let totalRecords = 0;
+        const applicationIds = new Set();
+
+        const students = studentRows.map(s => {
+            const scholarships = (scholarshipMap[String(s.id)] || [])
+                .filter(r => String(r.applicationId || '').trim());
+            if (scholarships.length > 0) withScholarship += 1;
+            totalRecords += scholarships.length;
+            scholarships.forEach(r => {
+                applicationIds.add(String(r.applicationId));
+            });
+            return {
+                sqlId: s.id,
+                admissionNumber: s.admission_number || '',
+                pinNo: s.pin_no || '',
+                studentName: s.student_name || '',
+                college: s.college || '',
+                course: s.course || '',
+                branch: s.branch || '',
+                batch: s.batch || '',
+                currentYear: s.current_year || '',
+                studType: s.stud_type || '',
+                scholarshipCount: scholarships.length,
+                scholarships,
+            };
+        }).filter(s => s.scholarships.length > 0);
+
+        if (students.length > 0) {
+            try {
+                const colleges = [...new Set(students.map(s => s.college).filter(Boolean))];
+                const courses = [...new Set(students.map(s => s.course).filter(Boolean))];
+                const branches = [...new Set(students.map(s => s.branch).filter(Boolean))];
+                const batches = [...new Set(students.map(s => s.batch).filter(Boolean))];
+                const categories = [...new Set(students.map(s => s.studType).filter(Boolean))];
+
+                const [applicableStructures, feeHeads] = await Promise.all([
+                    FeeStructure.find({
+                        college: { $in: colleges },
+                        course: { $in: courses },
+                        branch: { $in: branches },
+                        batch: { $in: batches },
+                        category: { $in: categories },
+                    }).lean(),
+                    FeeHead.find().lean(),
+                ]);
+
+                const feeHeadMap = {};
+                (feeHeads || []).forEach(fh => { feeHeadMap[String(fh._id)] = fh; });
+
+                students.forEach(student => {
+                    const years = [...new Set(student.scholarships.map(r => r.studentYear))];
+                    student.scholarshipFeeByYear = {};
+                    years.forEach(yr => {
+                        student.scholarshipFeeByYear[String(yr)] = resolveScholarshipApplicableFeeForYear(
+                            applicableStructures,
+                            feeHeadMap,
+                            student,
+                            yr
+                        );
+                    });
+                });
+            } catch (feeErr) {
+                console.error('Scholarship fee structure lookup failed:', feeErr);
+                students.forEach(student => {
+                    const years = [...new Set(student.scholarships.map(r => r.studentYear))];
+                    student.scholarshipFeeByYear = {};
+                    years.forEach(yr => {
+                        student.scholarshipFeeByYear[String(yr)] = {
+                            amount: null,
+                            note: 'Fee structure lookup unavailable',
+                        };
+                    });
+                });
+            }
+        }
+
+        res.json({
+            stats: {
+                totalStudents: students.length,
+                withScholarship,
+                withoutScholarship: studentRows.length - students.length,
+                totalRecords,
+                uniqueApplications: applicationIds.size,
+            },
+            students,
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 module.exports = {
     getProceedings,
     createProceeding,
@@ -846,5 +1202,6 @@ module.exports = {
     processNightlyProceedingTransactions,
     generateProceedingTransactions,
     syncProceedingStudentTxnStatus,
-    syncProceedingIds
+    syncProceedingIds,
+    getScholarshipAnalytics
 };
