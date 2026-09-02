@@ -1349,19 +1349,27 @@ const Proceedings = () => {
                                             ) : pendingQueue.map(proc => (
                                                 <tr key={proc._id} className="hover:bg-slate-50/50 transition-colors">
                                                     <td className="p-4">
-                                                        <div className="font-bold text-slate-800">{proc.proceedingNumber}</div>
+                                                        <div className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition-colors" onClick={() => openDetailModal(proc)}>
+                                                            {proc.proceedingNumber}
+                                                        </div>
                                                         <div className="text-[10px] text-slate-500 font-medium">
                                                             {proc.proceedingDate ? new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
                                                             {proc.academicYear ? ` · ${proc.academicYear}` : ''}
                                                         </div>
                                                     </td>
-                                                    <td className="p-4">
+                                                    <td className="p-4 cursor-pointer" onClick={() => openDetailModal(proc)}>
                                                         <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
                                                         <div className="text-[10px] text-slate-500 font-medium uppercase">{proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}</div>
                                                     </td>
                                                     <td className="p-4 text-right font-bold text-slate-800">₹{(proc.amount || 0).toLocaleString('en-IN')}</td>
                                                     <td className="p-4 text-center">
-                                                        <span className="px-2 py-1 text-xs font-bold bg-blue-50 text-blue-700 rounded-lg border border-blue-100">{proc.studentCount || 0}</span>
+                                                        <button
+                                                            onClick={() => openDetailModal(proc)}
+                                                            className="px-2.5 py-1 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors flex items-center gap-1.5 mx-auto cursor-pointer"
+                                                            title="Click to view & cross-check mapped students"
+                                                        >
+                                                            <Users size={12} /> {proc.studentCount || 0} Students
+                                                        </button>
                                                     </td>
                                                     <td className="p-4">
                                                         <span className={`inline-block px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Pending}`}>{proc.status}</span>
@@ -1370,6 +1378,13 @@ const Proceedings = () => {
                                                     <td className="p-4 text-xs font-medium text-slate-600">{proc.verifiedByName || '-'}</td>
                                                     <td className="p-4 text-center">
                                                         <div className="flex justify-center gap-1 items-center flex-wrap">
+                                                            <button
+                                                                onClick={() => openDetailModal(proc)}
+                                                                className="px-2 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                                                title="View & Cross-Check Students"
+                                                            >
+                                                                <Eye size={14} /> View
+                                                            </button>
                                                             {proc.status === 'Pending' && canVerify && (
                                                                 <button onClick={() => handleVerify(proc)} className="px-2.5 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1" title="Verify">
                                                                     <ShieldCheck size={14} /> Verify
