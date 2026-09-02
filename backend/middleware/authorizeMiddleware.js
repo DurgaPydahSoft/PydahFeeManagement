@@ -25,7 +25,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/fee-heads',
-    permissions: ['/fee-config', '/fee-collection', '/concessions', '/overall-concessions'],
+    permissions: ['/fee-config', '/fee-collection', '/concessions', '/overall-concessions', '/proceedings', 'proceedings_view', 'proceedings_edit', 'proceedings_verify', 'proceedings_approve'],
   },
   {
     prefix: '/api/fee-groups',
@@ -45,7 +45,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/payment-config',
-    permissions: ['/payment-config', '/fee-collection'],
+    permissions: ['/payment-config', '/fee-collection', '/proceedings', 'proceedings_view', 'proceedings_edit', 'proceedings_verify', 'proceedings_approve'],
   },
   {
     prefix: '/api/academic-calendar',
@@ -65,7 +65,7 @@ const API_ACCESS_RULES = [
   },
   {
     prefix: '/api/proceedings',
-    permissions: ['proceedings_view', '/proceedings', '/fee-collection'],
+    permissions: ['/proceedings', 'proceedings_view', 'proceedings_edit', 'proceedings_verify', 'proceedings_approve', '/fee-collection'],
   },
   {
     prefix: '/api/concessions',
@@ -98,6 +98,10 @@ const API_ACCESS_RULES = [
       '/concessions',
       '/overall-concessions',
       '/proceedings',
+      'proceedings_view',
+      'proceedings_edit',
+      'proceedings_verify',
+      'proceedings_approve',
       '/reminders',
       '/transport-config',
     ],

@@ -268,8 +268,8 @@ const Proceedings = () => {
             const [procRes, metaRes, configRes, fhRes] = await Promise.all([
                 api.get('/proceedings'),
                 api.get('/students/metadata'),
-                api.get('/payment-config'),
-                api.get('/fee-heads?all=true')
+                api.get('/payment-config').catch(() => ({ data: [] })),
+                api.get('/fee-heads?all=true').catch(() => ({ data: [] }))
             ]);
             setProceedings(procRes.data);
 
@@ -290,7 +290,7 @@ const Proceedings = () => {
                 finalHierarchy = fh;
             }
             setMetadata({ ...metaRes.data, hierarchy: finalHierarchy });
-            setPaymentConfigs(configRes.data.filter(c => c.is_active));
+            setPaymentConfigs(Array.isArray(configRes.data) ? configRes.data.filter(c => c.is_active) : []);
             setFeeHeads(Array.isArray(fhRes.data) ? fhRes.data : []);
         } catch (error) {
             console.error('Error fetching data:', error);
