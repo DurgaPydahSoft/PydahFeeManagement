@@ -97,7 +97,9 @@ const OverallConcession = () => {
         'overall_concession_add',
         'overall_concession_view',
         'overall_concession_bulk',
-        'overall_concession_requests',
+        'overall_concession_requests_read',
+        'overall_concession_requests_write',
+        'overall_concession_requests', // legacy full requests access
     ];
     const hasPagePath = permissions.includes('/overall-concessions');
     const hasAnySub = OVERALL_CONC_SUBS.some(p => permissions.includes(p));
@@ -105,7 +107,13 @@ const OverallConcession = () => {
     const canAdd = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_add');
     const canView = isAdminRole || hasLegacyFull || hasPagePath || permissions.includes('overall_concession_view');
     const canBulk = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_bulk');
-    const canRequests = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_requests');
+    // Requests: write = all ops; read = view only (no approve/reject/edit)
+    const canRequestsWrite = isAdminRole || hasLegacyFull
+        || permissions.includes('overall_concession_requests_write')
+        || permissions.includes('overall_concession_requests'); // legacy = write
+    const canRequestsRead = canRequestsWrite
+        || permissions.includes('overall_concession_requests_read');
+    const canRequests = canRequestsRead;
     const hasPageAccess = isAdminRole || hasPagePath || canAdd || canView || canBulk || canRequests;
 
     const getFirstAllowedTab = () => {
@@ -2210,6 +2218,7 @@ const OverallConcession = () => {
                                                                 <div className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-800">
                                                                     {req.referenceName || <span className="text-slate-400">No reference set</span>}
                                                                 </div>
+                                                                {canRequestsWrite && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={startEditingReference}
@@ -2218,8 +2227,9 @@ const OverallConcession = () => {
                                                                     <Pencil size={13} />
                                                                     Edit
                                                                 </button>
+                                                                )}
                                                             </div>
-                                                        ) : (
+                                                        ) : canRequestsWrite ? (
                                                             <div className="flex items-center gap-2">
                                                                 <div className="relative flex-1 min-w-0">
                                                                     <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg bg-white px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300">
@@ -2343,7 +2353,7 @@ const OverallConcession = () => {
                                                                     {referenceSaveBusy ? 'Saving…' : 'Save'}
                                                                 </button>
                                                             </div>
-                                                        )}
+                                                        ) : null}
                                                     </div>
                                                     <p className="text-[10px] text-slate-400 mt-1">
                                                         Requested by <b>{req.requestedByName || req.requestedBy}</b> on{' '}
@@ -2385,7 +2395,7 @@ const OverallConcession = () => {
                                                         Actual Fee Structure
                                                     </button>
                                                 </div>
-                                                {req.status === 'PENDING' && modalTab === 'request' && !isEditingRequest && (
+                                                {req.status === 'PENDING' && modalTab === 'request' && !isEditingRequest && canRequestsWrite && (
                                                     <button type="button" onClick={startEditingRequest}
                                                         className="mb-1 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition flex items-center gap-1">
                                                         <Pencil size={12} /> Edit Entries
@@ -2603,7 +2613,7 @@ const OverallConcession = () => {
                                                     </>
                                                 )}
 
-                                                {modalMode === 'reject' && !isEditingRequest && (
+                                                {modalMode === 'reject' && !isEditingRequest && canRequestsWrite && (
                                                     <div className="mt-4 p-3 rounded-xl border border-rose-200 bg-rose-50/60">
                                                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                                             Rejection Reason <span className="text-rose-500">*</span>
@@ -2633,7 +2643,7 @@ const OverallConcession = () => {
                                                     Close
                                                 </button>
                                                 )}
-                                                {req.status === 'PENDING' && modalMode === 'view' && !isEditingRequest && (
+                                                {req.status === 'PENDING' && modalMode === 'view' && !isEditingRequest && canRequestsWrite && (
                                                     <>
                                                         <button onClick={() => setModalMode('reject')}
                                                             className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition flex items-center gap-1 shadow-sm">
@@ -2645,7 +2655,7 @@ const OverallConcession = () => {
                                                         </button>
                                                     </>
                                                 )}
-                                                {req.status === 'PENDING' && modalMode === 'reject' && (
+                                                {req.status === 'PENDING' && modalMode === 'reject' && canRequestsWrite && (
                                                     <>
                                                         <button onClick={() => { setModalMode('view'); setRejectReason(''); }}
                                                             className="px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">

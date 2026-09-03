@@ -77,13 +77,15 @@ const UserManagement = () => {
         'overall_concession_add',
         'overall_concession_view',
         'overall_concession_bulk',
-        'overall_concession_requests',
+        'overall_concession_requests_read',
+        'overall_concession_requests_write',
     ];
     const OVERALL_CONCESSION_SUB_LABELS = {
         overall_concession_add: 'Add / Manage',
         overall_concession_view: 'View Overview',
         overall_concession_bulk: 'Bulk Load',
-        overall_concession_requests: 'Requests',
+        overall_concession_requests_read: 'Requests (Read)',
+        overall_concession_requests_write: 'Requests (Write)',
     };
 
     const PROCEEDINGS_SUBS = [
@@ -385,7 +387,7 @@ const UserManagement = () => {
                 currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_verify' && p !== 'proceedings_edit' && p !== 'proceedings_view');
             }
             if (path === '/overall-concessions') {
-                currentPermissions = currentPermissions.filter(p => !OVERALL_CONCESSION_SUBS.includes(p));
+                currentPermissions = currentPermissions.filter(p => !OVERALL_CONCESSION_SUBS.includes(p) && p !== 'overall_concession_requests');
             }
         } else {
             currentPermissions = [...currentPermissions, path];
@@ -415,10 +417,27 @@ const UserManagement = () => {
 
     const handleRoleSubPermissionToggle = (permission) => {
         let currentPermissions = roleFormData.permissions || [];
-        if (currentPermissions.includes(permission)) {
+        const hasWriteLegacy = currentPermissions.includes('overall_concession_requests');
+        const has = currentPermissions.includes(permission)
+            || (permission === 'overall_concession_requests_write' && hasWriteLegacy);
+
+        if (has) {
             currentPermissions = currentPermissions.filter(p => p !== permission);
+            if (permission === 'overall_concession_requests_write') {
+                currentPermissions = currentPermissions.filter(p => p !== 'overall_concession_requests');
+            }
+            if (permission === 'overall_concession_requests_read') {
+                currentPermissions = currentPermissions.filter(p =>
+                    p !== 'overall_concession_requests_write' && p !== 'overall_concession_requests'
+                );
+            }
         } else {
             currentPermissions = [...currentPermissions, permission];
+            if (permission === 'overall_concession_requests_write'
+                && !currentPermissions.includes('overall_concession_requests_read')) {
+                currentPermissions.push('overall_concession_requests_read');
+            }
+            currentPermissions = currentPermissions.filter(p => p !== 'overall_concession_requests');
         }
         setRoleFormData(prev => ({ ...prev, permissions: currentPermissions }));
     };
@@ -1245,7 +1264,7 @@ const UserManagement = () => {
                                                                             currentPermissions = currentPermissions.filter(p => p !== 'proceedings_approve' && p !== 'proceedings_verify' && p !== 'proceedings_edit' && p !== 'proceedings_view');
                                                                         }
                                                                         if (path === '/overall-concessions') {
-                                                                            currentPermissions = currentPermissions.filter(p => !OVERALL_CONCESSION_SUBS.includes(p));
+                                                                            currentPermissions = currentPermissions.filter(p => !OVERALL_CONCESSION_SUBS.includes(p) && p !== 'overall_concession_requests');
                                                                         }
                                                                     } else {
                                                                         currentPermissions = [...currentPermissions, path];
@@ -1406,12 +1425,34 @@ const UserManagement = () => {
                                                                 <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
                                                                     <input
                                                                         type="checkbox"
-                                                                        checked={(formData.permissions || []).includes(sub)}
+                                                                        checked={
+                                                                            (formData.permissions || []).includes(sub)
+                                                                            || (sub === 'overall_concession_requests_write' && (formData.permissions || []).includes('overall_concession_requests'))
+                                                                            || (sub === 'overall_concession_requests_read' && (
+                                                                                (formData.permissions || []).includes('overall_concession_requests_write')
+                                                                                || (formData.permissions || []).includes('overall_concession_requests')
+                                                                            ))
+                                                                        }
                                                                         onChange={(() => {
                                                                             const toggle = () => {
                                                                                 let p = formData.permissions || [];
-                                                                                if (p.includes(sub)) p = p.filter(x => x !== sub);
-                                                                                else p = [...p, sub];
+                                                                                const has = p.includes(sub)
+                                                                                    || (sub === 'overall_concession_requests_write' && p.includes('overall_concession_requests'));
+                                                                                if (has) {
+                                                                                    p = p.filter(x => x !== sub);
+                                                                                    if (sub === 'overall_concession_requests_write') {
+                                                                                        p = p.filter(x => x !== 'overall_concession_requests');
+                                                                                    }
+                                                                                    if (sub === 'overall_concession_requests_read') {
+                                                                                        p = p.filter(x => x !== 'overall_concession_requests_write' && x !== 'overall_concession_requests');
+                                                                                    }
+                                                                                } else {
+                                                                                    p = [...p, sub];
+                                                                                    if (sub === 'overall_concession_requests_write' && !p.includes('overall_concession_requests_read')) {
+                                                                                        p.push('overall_concession_requests_read');
+                                                                                    }
+                                                                                    p = p.filter(x => x !== 'overall_concession_requests');
+                                                                                }
                                                                                 setFormData({ ...formData, permissions: p });
                                                                             };
                                                                             return toggle;
@@ -1714,7 +1755,14 @@ const UserManagement = () => {
                                                             <label key={sub} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
                                                                 <input
                                                                     type="checkbox"
-                                                                    checked={(roleFormData.permissions || []).includes(sub)}
+                                                                    checked={
+                                                                        (roleFormData.permissions || []).includes(sub)
+                                                                        || (sub === 'overall_concession_requests_write' && (roleFormData.permissions || []).includes('overall_concession_requests'))
+                                                                        || (sub === 'overall_concession_requests_read' && (
+                                                                            (roleFormData.permissions || []).includes('overall_concession_requests_write')
+                                                                            || (roleFormData.permissions || []).includes('overall_concession_requests')
+                                                                        ))
+                                                                    }
                                                                     onChange={() => handleRoleSubPermissionToggle(sub)}
                                                                     className="rounded text-blue-600 focus:ring-blue-500"
                                                                 />
@@ -1989,14 +2037,22 @@ const UserManagement = () => {
 
                                                             {page.path === '/overall-concessions' && (
                                                                 <div className="mt-1.5 ml-2 space-y-1">
-                                                                    {OVERALL_CONCESSION_SUBS.map(sub => (
-                                                                        (viewPermissionsModal.user.permissions || []).includes(sub) && (
+                                                                    {OVERALL_CONCESSION_SUBS.map(sub => {
+                                                                        const perms = viewPermissionsModal.user.permissions || [];
+                                                                        const shown =
+                                                                            perms.includes(sub)
+                                                                            || (sub === 'overall_concession_requests_write' && perms.includes('overall_concession_requests'))
+                                                                            || (sub === 'overall_concession_requests_read' && (
+                                                                                perms.includes('overall_concession_requests_write')
+                                                                                || perms.includes('overall_concession_requests')
+                                                                            ));
+                                                                        return shown ? (
                                                                             <div key={sub} className="flex items-center gap-1.5 text-[10px] text-gray-600">
                                                                                 <span className="text-green-600">✓</span>
                                                                                 <span>{OVERALL_CONCESSION_SUB_LABELS[sub]}</span>
                                                                             </div>
-                                                                        )
-                                                                    ))}
+                                                                        ) : null;
+                                                                    })}
                                                                 </div>
                                                             )}
 

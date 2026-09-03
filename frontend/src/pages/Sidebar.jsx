@@ -141,6 +141,8 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         || permissions.includes('overall_concession_add')
         || permissions.includes('overall_concession_view')
         || permissions.includes('overall_concession_bulk')
+        || permissions.includes('overall_concession_requests_read')
+        || permissions.includes('overall_concession_requests_write')
         || permissions.includes('overall_concession_requests');
 
     const visibleProceedingsSubs = PROCEEDINGS_SUB_ITEMS.filter(sub => {

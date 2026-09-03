@@ -78,6 +78,8 @@ const API_ACCESS_RULES = [
       'overall_concession_add',
       'overall_concession_view',
       'overall_concession_bulk',
+      'overall_concession_requests_read',
+      'overall_concession_requests_write',
       'overall_concession_requests',
     ],
   },
@@ -215,7 +217,9 @@ const authorize = (req, res, next) => {
     'overall_concession_add',
     'overall_concession_view',
     'overall_concession_bulk',
-    'overall_concession_requests',
+    'overall_concession_requests_read',
+    'overall_concession_requests_write',
+    'overall_concession_requests', // legacy write
   ];
   const hasOverallPagePath = () => hasPermission(user, ['/overall-concessions']);
   const hasOverallAnySub = () => hasPermission(user, OVERALL_CONC_SUBS);
@@ -223,13 +227,29 @@ const authorize = (req, res, next) => {
   const hasOverallConcessionPerm = (...keys) => (
     hasOverallLegacyFull() || hasPermission(user, keys)
   );
+  const hasOverallRequestsRead = () => hasOverallConcessionPerm(
+    'overall_concession_requests_read',
+    'overall_concession_requests_write',
+    'overall_concession_requests'
+  );
+  const hasOverallRequestsWrite = () => hasOverallConcessionPerm(
+    'overall_concession_requests_write',
+    'overall_concession_requests'
+  );
 
   if (path.startsWith('/api/overall-concessions')) {
     if (path === '/api/overall-concessions' && req.method === 'GET') {
       if (
         hasOverallLegacyFull()
         || hasOverallPagePath()
-        || hasPermission(user, ['overall_concession_add', 'overall_concession_view', 'overall_concession_bulk'])
+        || hasPermission(user, [
+          'overall_concession_add',
+          'overall_concession_view',
+          'overall_concession_bulk',
+          'overall_concession_requests_read',
+          'overall_concession_requests_write',
+          'overall_concession_requests',
+        ])
       ) {
         return next();
       }
@@ -265,17 +285,17 @@ const authorize = (req, res, next) => {
     }
 
     if (path === '/api/overall-concessions/requests' && req.method === 'GET') {
-      if (hasOverallConcessionPerm('overall_concession_requests')) {
+      if (hasOverallRequestsRead()) {
         return next();
       }
-      return res.status(403).json({ message: 'Forbidden: overall concession requests permission required' });
+      return res.status(403).json({ message: 'Forbidden: overall concession requests read permission required' });
     }
 
     if (path.match(/^\/api\/overall-concessions\/requests\/[^/]+/) && req.method === 'PUT') {
-      if (hasOverallConcessionPerm('overall_concession_requests')) {
+      if (hasOverallRequestsWrite()) {
         return next();
       }
-      return res.status(403).json({ message: 'Forbidden: overall concession requests permission required' });
+      return res.status(403).json({ message: 'Forbidden: overall concession requests write permission required' });
     }
   }
 

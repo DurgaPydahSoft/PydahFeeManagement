@@ -30,7 +30,9 @@ const allPermissions = [
   'overall_concession_add',
   'overall_concession_view',
   'overall_concession_bulk',
-  'overall_concession_requests',
+  'overall_concession_requests_read',
+  'overall_concession_requests_write',
+  'overall_concession_requests', // legacy — treated as write
   'reports_daily_collection',
   'reports_cashier_summary',
   'reports_fee_head_summary',
