@@ -208,15 +208,29 @@ const authorize = (req, res, next) => {
     return res.status(403).json({ message: 'Forbidden: proceedings edit/create permission required' });
   }
 
-  const hasOverallConcessionLegacy = () => hasPermission(user, ['/overall-concessions']);
+  // Overall concession tab/action permissions (Declaration module)
+  // `/overall-concessions` alone is page access only. Full legacy unlock applies
+  // only when that page path exists and no tab-level sub-permissions are set.
+  const OVERALL_CONC_SUBS = [
+    'overall_concession_add',
+    'overall_concession_view',
+    'overall_concession_bulk',
+    'overall_concession_requests',
+  ];
+  const hasOverallPagePath = () => hasPermission(user, ['/overall-concessions']);
+  const hasOverallAnySub = () => hasPermission(user, OVERALL_CONC_SUBS);
+  const hasOverallLegacyFull = () => hasOverallPagePath() && !hasOverallAnySub();
   const hasOverallConcessionPerm = (...keys) => (
-    hasOverallConcessionLegacy() || hasPermission(user, keys)
+    hasOverallLegacyFull() || hasPermission(user, keys)
   );
 
-  // Overall concession tab/action permissions (Declaration module)
   if (path.startsWith('/api/overall-concessions')) {
     if (path === '/api/overall-concessions' && req.method === 'GET') {
-      if (hasOverallConcessionPerm('overall_concession_add', 'overall_concession_view', 'overall_concession_bulk')) {
+      if (
+        hasOverallLegacyFull()
+        || hasOverallPagePath()
+        || hasPermission(user, ['overall_concession_add', 'overall_concession_view', 'overall_concession_bulk'])
+      ) {
         return next();
       }
       return res.status(403).json({ message: 'Forbidden: overall concession view/add/bulk permission required' });

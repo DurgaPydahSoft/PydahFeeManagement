@@ -91,12 +91,22 @@ const OverallConcession = () => {
     const permissions = user.permissions || [];
     const role        = user.role;
     const isAdminRole = role === 'superadmin' || role === 'admin';
-    const hasLegacyFull = permissions.includes('/overall-concessions');
+    // Page path alone must NOT unlock all tabs. Only grant full legacy access when
+    // the role has `/overall-concessions` and no tab-level sub-permissions yet.
+    const OVERALL_CONC_SUBS = [
+        'overall_concession_add',
+        'overall_concession_view',
+        'overall_concession_bulk',
+        'overall_concession_requests',
+    ];
+    const hasPagePath = permissions.includes('/overall-concessions');
+    const hasAnySub = OVERALL_CONC_SUBS.some(p => permissions.includes(p));
+    const hasLegacyFull = hasPagePath && !hasAnySub;
     const canAdd = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_add');
-    const canView = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_view');
+    const canView = isAdminRole || hasLegacyFull || hasPagePath || permissions.includes('overall_concession_view');
     const canBulk = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_bulk');
     const canRequests = isAdminRole || hasLegacyFull || permissions.includes('overall_concession_requests');
-    const hasPageAccess = isAdminRole || hasLegacyFull || canAdd || canView || canBulk || canRequests;
+    const hasPageAccess = isAdminRole || hasPagePath || canAdd || canView || canBulk || canRequests;
 
     const getFirstAllowedTab = () => {
         if (canAdd) return 'add';
