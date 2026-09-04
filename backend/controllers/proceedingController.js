@@ -148,17 +148,34 @@ const resolveScholarshipApplicableFeeForYear = (structures, feeHeadMap, student,
 };
 
 // ─── Load students from SQL for proceeding creation ────────────────────
-// GET /api/proceedings/load-students?college=X&course=Y&caste=Z&batch=B&applicationIds=id1,id2
+const chunkArray = (arr, size) => {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+};
+
+const parseApplicationIdFilter = (raw) => {
+    if (Array.isArray(raw)) {
+        return [...new Set(raw.map((s) => String(s ?? '').trim()).filter(Boolean))];
+    }
+    if (raw == null || raw === '') return [];
+    return [...new Set(String(raw).split(',').map((s) => s.trim()).filter(Boolean))];
+};
+
+// GET/POST /api/proceedings/load-students
+// Body (preferred for large Excel/PDF imports): { applicationIds: string[], college?, course?, caste?, batch? }
+// Query: ?college=X&course=Y&caste=Z&batch=B&applicationIds=id1,id2
 // When applicationIds are provided, college/course/batch are optional filters —
 // matching is done across courses & batches so one proceeding can include mixed students.
 const loadStudentsForProceeding = async (req, res) => {
     try {
-        const { college, course, caste, batch, applicationIds } = req.query;
-
-        const applicationIdFilter = String(applicationIds || '')
-            .split(',')
-            .map(s => s.trim())
-            .filter(Boolean);
+        const college = req.body?.college ?? req.query.college;
+        const course = req.body?.course ?? req.query.course;
+        const caste = req.body?.caste ?? req.query.caste;
+        const batch = req.body?.batch ?? req.query.batch;
+        const applicationIdFilter = parseApplicationIdFilter(
+            req.body?.applicationIds ?? req.query.applicationIds
+        );
         const applicationIdSet = applicationIdFilter.length > 0
             ? new Set(applicationIdFilter.map(id => id.toLowerCase()))
             : null;
@@ -170,46 +187,71 @@ const loadStudentsForProceeding = async (req, res) => {
 
         let rows = [];
         const scholarshipByStudent = {};
+        const scholarshipSeen = {}; // sid -> Set(`${appId}|${year}`) for O(1) dedupe
+
+        const pushScholarship = (sid, appId, studentYear) => {
+            if (!scholarshipByStudent[sid]) scholarshipByStudent[sid] = [];
+            if (!scholarshipSeen[sid]) scholarshipSeen[sid] = new Set();
+            const key = `${appId}|${Number(studentYear)}`;
+            if (scholarshipSeen[sid].has(key)) return;
+            scholarshipSeen[sid].add(key);
+            scholarshipByStudent[sid].push({
+                studentYear,
+                applicationId: appId,
+            });
+        };
 
         if (byApplicationIds) {
-            const placeholders = applicationIdFilter.map(() => '?').join(',');
-            const conditions = [
-                `LOWER(TRIM(ss.application_id)) IN (${placeholders})`,
-                `(LOWER(TRIM(s.student_status)) = 'regular' OR LOWER(TRIM(s.student_status)) = 'course completed')`,
-            ];
-            const params = [...applicationIdFilter.map(id => id.toLowerCase())];
+            // Chunk large ID lists (~500) so MySQL IN clauses stay fast and packet-safe
+            const ID_CHUNK = 200;
+            const idChunks = chunkArray(applicationIdFilter, ID_CHUNK);
 
-            // Optional narrowing only — Excel match can span courses/batches
-            if (college) {
-                conditions.push('s.college = ?');
-                params.push(college);
-            }
-            if (course) {
-                conditions.push('s.course = ?');
-                params.push(course);
-            }
-            if (caste) {
-                conditions.push('s.caste = ?');
-                params.push(caste);
-            }
-            if (batch) {
-                conditions.push('s.batch = ?');
-                params.push(batch);
-            }
+            const buildAppIdConditions = (ids) => {
+                const placeholders = ids.map(() => '?').join(',');
+                const conditions = [
+                    // Prefer exact match (index-friendly). Also match lowercased TRIM for messy data.
+                    `(ss.application_id IN (${placeholders}) OR LOWER(TRIM(ss.application_id)) IN (${placeholders}))`,
+                    `(LOWER(TRIM(s.student_status)) = 'regular' OR LOWER(TRIM(s.student_status)) = 'course completed')`,
+                ];
+                const params = [...ids, ...ids.map((id) => id.toLowerCase())];
+                if (college) {
+                    conditions.push('s.college = ?');
+                    params.push(college);
+                }
+                if (course) {
+                    conditions.push('s.course = ?');
+                    params.push(course);
+                }
+                if (caste) {
+                    conditions.push('s.caste = ?');
+                    params.push(caste);
+                }
+                if (batch) {
+                    conditions.push('s.batch = ?');
+                    params.push(batch);
+                }
+                return { conditions, params };
+            };
 
-            const [joinedRows] = await db.query(
-                `SELECT s.id, s.admission_number, s.pin_no, s.student_name, s.college, s.college_id,
-                        s.course, s.course_id, s.branch, s.branch_id, s.caste, s.batch, s.current_year, s.stud_type,
-                        ss.student_year, ss.application_id
-                 FROM student_scholarship ss
-                 INNER JOIN students s ON s.id = ss.student_id
-                 WHERE ${conditions.join(' AND ')}
-                 ORDER BY s.student_name ASC, ss.student_year ASC, ss.student_semester ASC`,
-                params
+            const chunkResults = await Promise.all(
+                idChunks.map(async (ids) => {
+                    const { conditions, params } = buildAppIdConditions(ids);
+                    const [joinedRows] = await db.query(
+                        `SELECT s.id, s.admission_number, s.pin_no, s.student_name, s.college, s.college_id,
+                                s.course, s.course_id, s.branch, s.branch_id, s.caste, s.batch, s.current_year, s.stud_type,
+                                ss.student_year, ss.application_id
+                         FROM student_scholarship ss
+                         INNER JOIN students s ON s.id = ss.student_id
+                         WHERE ${conditions.join(' AND ')}
+                         ORDER BY s.student_name ASC, ss.student_year ASC, ss.student_semester ASC`,
+                        params
+                    );
+                    return joinedRows || [];
+                })
             );
 
             const studentMap = new Map();
-            (joinedRows || []).forEach(row => {
+            chunkResults.flat().forEach((row) => {
                 const sid = String(row.id);
                 if (!studentMap.has(sid)) {
                     studentMap.set(sid, {
@@ -228,16 +270,10 @@ const loadStudentsForProceeding = async (req, res) => {
                         current_year: row.current_year,
                         stud_type: row.stud_type,
                     });
-                    scholarshipByStudent[sid] = [];
                 }
                 const appId = String(row.application_id || '').trim();
                 if (!appId) return;
-                if (!scholarshipByStudent[sid].some(a => a.applicationId === appId && Number(a.studentYear) === Number(row.student_year))) {
-                    scholarshipByStudent[sid].push({
-                        studentYear: row.student_year,
-                        applicationId: appId,
-                    });
-                }
+                pushScholarship(sid, appId, row.student_year);
             });
             rows = [...studentMap.values()];
         } else {
@@ -281,15 +317,9 @@ const loadStudentsForProceeding = async (req, res) => {
                 );
                 (scholarshipRows || []).forEach(row => {
                     const sid = String(row.student_id);
-                    if (!scholarshipByStudent[sid]) scholarshipByStudent[sid] = [];
                     const appId = String(row.application_id || '').trim();
                     if (!appId) return;
-                    if (!scholarshipByStudent[sid].some(a => a.applicationId === appId && Number(a.studentYear) === Number(row.student_year))) {
-                        scholarshipByStudent[sid].push({
-                            studentYear: row.student_year,
-                            applicationId: appId,
-                        });
-                    }
+                    pushScholarship(sid, appId, row.student_year);
                 });
             }
         }
@@ -333,15 +363,23 @@ const loadStudentsForProceeding = async (req, res) => {
             const notFound = [];
 
             if (unmatchedLower.length > 0) {
-                const placeholders = unmatchedLower.map(() => '?').join(',');
-                const [hintRows] = await db.query(
-                    `SELECT ss.application_id, s.college, s.course, s.batch, s.caste, s.student_name,
-                            s.admission_number, s.student_status
-                     FROM student_scholarship ss
-                     INNER JOIN students s ON s.id = ss.student_id
-                     WHERE LOWER(TRIM(ss.application_id)) IN (${placeholders})`,
-                    unmatchedLower
+                const hintChunks = chunkArray(unmatchedLower, 200);
+                const hintResults = await Promise.all(
+                    hintChunks.map(async (ids) => {
+                        const placeholders = ids.map(() => '?').join(',');
+                        const [hintRows] = await db.query(
+                            `SELECT ss.application_id, s.college, s.course, s.batch, s.caste, s.student_name,
+                                    s.admission_number, s.student_status
+                             FROM student_scholarship ss
+                             INNER JOIN students s ON s.id = ss.student_id
+                             WHERE ss.application_id IN (${placeholders})
+                                OR LOWER(TRIM(ss.application_id)) IN (${placeholders})`,
+                            [...ids, ...ids]
+                        );
+                        return hintRows || [];
+                    })
                 );
+                const hintRows = hintResults.flat();
 
                 const hintsByAppId = {};
                 (hintRows || []).forEach(row => {

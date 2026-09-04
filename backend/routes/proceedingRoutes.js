@@ -27,6 +27,7 @@ router.route('/')
     .post(upload.single('attachment'), createProceeding);
 router.get('/pending-auto-txn-alert', getPendingAutoTxnAlert);
 router.get('/load-students', loadStudentsForProceeding);
+router.post('/load-students', loadStudentsForProceeding);
 router.get('/scholarship-analytics', getScholarshipAnalytics);
 router.post('/sync-ids', syncProceedingIds);
 router.get('/:id/summary', getProceedingSummary);

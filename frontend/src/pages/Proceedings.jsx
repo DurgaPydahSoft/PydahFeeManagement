@@ -221,6 +221,55 @@ const parseExcelShareAmount = (val) => {
     return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 };
 
+const looksLikeStudentIdToken = (text) => /^\d{10,14}$/.test(String(text || '').trim());
+
+/** True for values that look like course year / S.No, not fee amounts. */
+const looksLikeYearOrSerial = (text, amt) => {
+    const t = String(text || '').trim();
+    if (/^\d{4}\s*[-–]\s*\d{2,4}$/.test(t)) return true; // 2024-25
+    if (/^null$/i.test(t)) return true;
+    if (amt != null && amt > 0 && amt <= 20 && Number.isInteger(amt) && !/[.,]/.test(t.replace(/\s/g, ''))) {
+        return true; // Course Year / S.No typically 1–20
+    }
+    return false;
+};
+
+/**
+ * From cells to the right of Student ID, pick Released Amount.
+ * RTF PDFs put Course Year (small int) before Released Amount — never take the first number blindly.
+ */
+const pickReleasedShareFromCells = (cells, idIndex, amountColX = null) => {
+    const candidates = [];
+    for (let j = idIndex + 1; j < cells.length; j++) {
+        const text = cells[j].text;
+        if (/^\d{4}\s*[-–]\s*\d{2,4}$/.test(String(text).trim())) continue;
+        if (/^null$/i.test(String(text).trim())) continue;
+        if (looksLikeStudentIdToken(String(text).replace(/\s+/g, ''))) continue;
+        const amt = parseExcelShareAmount(text);
+        if (amt == null) continue;
+        candidates.push({ amt, x: cells[j].x, text });
+    }
+    if (!candidates.length) return null;
+
+    // If header gave us Released Amount X, take nearest cell to that column
+    if (amountColX != null && Number.isFinite(amountColX)) {
+        const byCol = [...candidates].sort((a, b) => Math.abs(a.x - amountColX) - Math.abs(b.x - amountColX));
+        const near = byCol[0];
+        if (near && Math.abs(near.x - amountColX) <= 80) return near.amt;
+    }
+
+    // Prefer real fee amounts (>= 100) over course-year / serial leftovers
+    const feeLike = candidates.filter((c) => c.amt >= 100 || !looksLikeYearOrSerial(c.text, c.amt));
+    const pool = feeLike.length ? feeLike : candidates;
+    // Released Amount is the rightmost numeric column — O(n) pick, no sort
+    let best = pool[0];
+    for (let i = 1; i < pool.length; i++) {
+        const c = pool[i];
+        if (c.x > best.x || (c.x === best.x && c.amt > best.amt)) best = c;
+    }
+    return best.amt;
+};
+
 const resolveShareForStudent = (student, shareByAppId, academicYear) => {
     if (!shareByAppId?.size) return null;
     const apps = student?.scholarshipApplications || [];
@@ -257,13 +306,23 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
                 cellDates: false,
                 cellNF: false,
                 cellStyles: false,
+                bookVBA: false,
+                bookDeps: false,
+                bookFiles: false,
             });
-            const sheet = wb.Sheets[wb.SheetNames[0]];
+            const sheetName = wb.SheetNames[0];
+            const sheet = sheetName ? wb.Sheets[sheetName] : null;
             if (!sheet) {
                 resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0 });
                 return;
             }
-            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+            // Dense array-of-arrays is faster than object rows for ~500+ student sheets
+            const rows = XLSX.utils.sheet_to_json(sheet, {
+                header: 1,
+                defval: '',
+                blankrows: false,
+                raw: true,
+            });
             if (!rows.length) {
                 resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0 });
                 return;
@@ -290,9 +349,9 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
 
             const entries = [...entryMap.values()];
             let totalShareAmount = 0;
-            entries.forEach(e => {
-                if (e.shareAmount != null) totalShareAmount += e.shareAmount;
-            });
+            for (let i = 0; i < entries.length; i++) {
+                if (entries[i].shareAmount != null) totalShareAmount += entries[i].shareAmount;
+            }
 
             resolve({
                 entries,
@@ -309,104 +368,193 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
 });
 
 /** Extract Student ID + Released Amount from text-based PDF tables (same mapping as Excel). */
-const parseProceedingPdfFile = async (file) => {
+const parseProceedingPdfFile = async (file, onProgress) => {
     const data = new Uint8Array(await file.arrayBuffer());
-    const pdf = await getDocument({ data, useSystemFonts: true }).promise;
+    const pdf = await getDocument({
+        data,
+        // Text-only extraction: skip font loading / face work for speed
+        useSystemFonts: false,
+        disableFontFace: true,
+        isEvalSupported: false,
+        useWorkerFetch: false,
+        verbosity: 0,
+    }).promise;
+
     const entryMap = new Map();
     let hasShareColumn = false;
+    const pagePlainTexts = new Array(pdf.numPages).fill('');
 
-    const looksLikeStudentId = (text) => {
-        const t = String(text || '').trim();
-        // Scholarship / student application IDs in this system are typically 10–14 digits
-        return /^\d{10,14}$/.test(t);
-    };
+    const extractFromPageItems = (rawItems) => {
+        const localEntries = [];
+        let localHasShare = false;
+        let amountColX = null;
+        const items = [];
+        let plainParts = '';
 
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-        const items = (content.items || [])
-            .filter(it => it && typeof it.str === 'string' && it.str.trim())
-            .map(it => ({
-                text: String(it.str).trim(),
+        for (let i = 0; i < (rawItems?.length || 0); i++) {
+            const it = rawItems[i];
+            if (!it || typeof it.str !== 'string') continue;
+            const text = it.str.trim();
+            plainParts += `${it.str || ''} `;
+            if (!text) continue;
+            items.push({
+                text,
                 x: Number(it.transform?.[4]) || 0,
-                y: Math.round((Number(it.transform?.[5]) || 0) * 10) / 10,
-            }));
+                yBucket: Math.round((Number(it.transform?.[5]) || 0) / 2.5),
+                y: Number(it.transform?.[5]) || 0,
+            });
+        }
 
-        // Group into rows by Y (tolerance for slightly misaligned cells)
-        const rows = [];
-        items.forEach(item => {
-            let row = rows.find(r => Math.abs(r.y - item.y) <= 2.5);
+        // O(n) row grouping via Y buckets (tolerance ~2.5)
+        const rowMap = new Map();
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            let row = rowMap.get(item.yBucket);
             if (!row) {
                 row = { y: item.y, cells: [] };
-                rows.push(row);
+                rowMap.set(item.yBucket, row);
             }
             row.cells.push(item);
-        });
-        rows.sort((a, b) => b.y - a.y); // PDF y grows upward; top rows first
+        }
 
-        rows.forEach(row => {
-            const cells = row.cells.sort((a, b) => a.x - b.x);
-            const texts = cells.map(c => c.text);
-            const joined = texts.join(' ');
+        const rows = [...rowMap.values()].sort((a, b) => b.y - a.y);
+        for (let r = 0; r < rows.length; r++) {
+            const cells = rows[r].cells.sort((a, b) => a.x - b.x);
+            const joined = cells.map((c) => c.text).join(' ');
 
-            // Detect amount header presence on the page
-            if (/released\s*amount|share\s*amount|sanctioned|amount/i.test(joined)
-                && /student\s*id|application|app\s*id/i.test(joined)) {
-                hasShareColumn = true;
+            // Header row: lock Released Amount column X (RTF proceeding PDFs)
+            if (/released\s*amount/i.test(joined) || (/released/i.test(joined) && /amount/i.test(joined))) {
+                localHasShare = true;
+                const releasedCell = cells.find((c) => /released/i.test(c.text))
+                    || cells.find((c) => /^amount$/i.test(c.text.trim()));
+                if (releasedCell) amountColX = releasedCell.x;
+            } else if (
+                /share\s*amount|sanctioned\s*amount/i.test(joined)
+                && /student\s*id|application|app\s*id/i.test(joined)
+            ) {
+                localHasShare = true;
             }
 
-            // Find student ID cell(s) in the row
             for (let i = 0; i < cells.length; i++) {
                 const idText = cells[i].text.replace(/\s+/g, '');
-                if (!looksLikeStudentId(idText)) continue;
+                if (!looksLikeStudentIdToken(idText)) continue;
 
-                // Prefer an amount to the right of the ID on the same row
-                let shareAmount = null;
-                for (let j = i + 1; j < cells.length; j++) {
-                    const amt = parseExcelShareAmount(cells[j].text);
-                    if (amt != null) {
-                        shareAmount = amt;
-                        hasShareColumn = true;
-                        break;
-                    }
-                }
-                // Fallback: whole-row amount scan if not found to the right
-                if (shareAmount == null) {
-                    for (const cell of cells) {
-                        if (looksLikeStudentId(cell.text.replace(/\s+/g, ''))) continue;
-                        const amt = parseExcelShareAmount(cell.text);
-                        if (amt != null) {
-                            shareAmount = amt;
-                            hasShareColumn = true;
-                            break;
-                        }
-                    }
-                }
+                const shareAmount = pickReleasedShareFromCells(cells, i, amountColX);
+                if (shareAmount != null) localHasShare = true;
 
-                entryMap.set(idText.toLowerCase(), {
-                    applicationId: idText,
-                    shareAmount,
-                });
+                localEntries.push({ applicationId: idText, shareAmount });
             }
-        });
+        }
+
+        return { localEntries, localHasShare, plainText: plainParts };
+    };
+
+    const parsePage = async (pageNum) => {
+        const page = await pdf.getPage(pageNum);
+        try {
+            const content = await page.getTextContent({
+                includeMarkedContent: false,
+                disableCombineTextItems: false,
+            });
+            return extractFromPageItems(content.items);
+        } finally {
+            page.cleanup?.();
+        }
+    };
+
+    // Parallel page parse — higher concurrency for multi-page ~500-student PDFs
+    const CONCURRENCY = Math.min(8, Math.max(3, navigator?.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 8) : 4));
+    onProgress?.(0, pdf.numPages);
+
+    for (let start = 1; start <= pdf.numPages; start += CONCURRENCY) {
+        const batchNums = [];
+        for (let p = start; p < start + CONCURRENCY && p <= pdf.numPages; p++) batchNums.push(p);
+        const batchResults = await Promise.all(batchNums.map((pageNum) => parsePage(pageNum)));
+
+        for (let i = 0; i < batchResults.length; i++) {
+            const pageNum = batchNums[i];
+            const { localEntries, localHasShare, plainText } = batchResults[i];
+            pagePlainTexts[pageNum - 1] = plainText || '';
+            if (localHasShare) hasShareColumn = true;
+            for (let e = 0; e < localEntries.length; e++) {
+                const entry = localEntries[e];
+                // Prefer entries that already have a real share when merging duplicates
+                const key = entry.applicationId.toLowerCase();
+                const prev = entryMap.get(key);
+                if (!prev || (entry.shareAmount != null && prev.shareAmount == null)) {
+                    entryMap.set(key, entry);
+                } else if (
+                    entry.shareAmount != null
+                    && prev.shareAmount != null
+                    && entry.shareAmount >= 100
+                    && prev.shareAmount < 100
+                ) {
+                    entryMap.set(key, entry);
+                }
+            }
+        }
+
+        onProgress?.(Math.min(pdf.numPages, start + CONCURRENCY - 1), pdf.numPages);
     }
 
-    // Regex fallback across concatenated page text if row mapping found nothing
-    if (entryMap.size === 0) {
-        let fullText = '';
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            const page = await pdf.getPage(pageNum);
-            const content = await page.getTextContent();
-            fullText += `\n${(content.items || []).map(it => it.str || '').join(' ')}`;
+    // Fix / fill shares only when needed (Course Year mistaken for Released Amount)
+    let nullShares = 0;
+    let smallShares = 0;
+    let feeShares = 0;
+    entryMap.forEach((e) => {
+        if (e.shareAmount == null) nullShares += 1;
+        else if (e.shareAmount <= 20) smallShares += 1;
+        else if (e.shareAmount >= 100) feeShares += 1;
+    });
+    const needsShareFix = entryMap.size === 0
+        || feeShares === 0
+        || smallShares > Math.max(5, Math.floor(entryMap.size * 0.05));
+
+    if (needsShareFix) {
+        // Per-page regex (avoids one giant string + backtracking on 500-row PDFs)
+        const amountRe = /(?:₹|Rs\.?\s*)?([\d,]+\.?\d{0,2})/gi;
+        const idChunkRe = /(\d{10,14})([\s\S]{0,180}?)(?=\d{10,14}|$)/g;
+        for (let p = 0; p < pagePlainTexts.length; p++) {
+            const pageText = pagePlainTexts[p];
+            if (!pageText) continue;
+            idChunkRe.lastIndex = 0;
+            let m;
+            while ((m = idChunkRe.exec(pageText)) !== null) {
+                const applicationId = m[1];
+                const chunk = m[2] || '';
+                amountRe.lastIndex = 0;
+                let shareAmount = null;
+                const nums = [];
+                let am;
+                while ((am = amountRe.exec(chunk)) !== null) {
+                    const amt = parseExcelShareAmount(am[1]);
+                    if (amt != null && !looksLikeYearOrSerial(am[1], amt)) {
+                        nums.push(amt);
+                    }
+                }
+                const feeNums = nums.filter((amt) => amt >= 100);
+                const pool = feeNums.length ? feeNums : nums;
+                if (pool.length) shareAmount = pool[pool.length - 1];
+
+                if (shareAmount != null) hasShareColumn = true;
+                const key = applicationId.toLowerCase();
+                const prev = entryMap.get(key);
+                if (!prev) {
+                    entryMap.set(key, { applicationId, shareAmount });
+                } else if (
+                    shareAmount != null
+                    && (prev.shareAmount == null || prev.shareAmount <= 20 || (prev.shareAmount < 100 && shareAmount >= 100))
+                ) {
+                    entryMap.set(key, { applicationId, shareAmount });
+                }
+            }
         }
-        const re = /(\d{10,14})(?:\s*[|\t,;:]?\s*)((?:₹|Rs\.?\s*)?[\d,]+\.?\d{0,2})?/gi;
-        let m;
-        while ((m = re.exec(fullText)) !== null) {
-            const applicationId = m[1];
-            const shareAmount = parseExcelShareAmount(m[2] || '');
-            if (shareAmount != null) hasShareColumn = true;
-            entryMap.set(applicationId.toLowerCase(), { applicationId, shareAmount });
-        }
+    }
+
+    try {
+        await pdf.destroy();
+    } catch {
+        /* ignore */
     }
 
     const entries = [...entryMap.values()];
@@ -416,16 +564,16 @@ const parseProceedingPdfFile = async (file) => {
 
     return {
         entries,
-        applicationIds: entries.map(e => e.applicationId),
-        hasShareColumn,
+        applicationIds: entries.map((e) => e.applicationId),
+        hasShareColumn: hasShareColumn || entries.some((e) => e.shareAmount != null),
         totalShareAmount,
         sourceType: 'pdf',
     };
 };
 
-const parseProceedingImportFile = async (file) => {
+const parseProceedingImportFile = async (file, onProgress) => {
     const name = String(file?.name || '').toLowerCase();
-    if (name.endsWith('.pdf')) return parseProceedingPdfFile(file);
+    if (name.endsWith('.pdf')) return parseProceedingPdfFile(file, onProgress);
     return parseProceedingExcelFile(file);
 };
 
@@ -1227,14 +1375,15 @@ const Proceedings = () => {
             let importSummary = null;
 
             if (excelMode) {
-                const params = { applicationIds: applicationIdsFilter.join(',') };
+                // POST body avoids huge query strings for ~500 application IDs
+                const body = { applicationIds: applicationIdsFilter };
                 if (options.respectFilters) {
-                    if (colleges.length === 1) params.college = colleges[0];
-                    if (courses.length === 1) params.course = courses[0];
-                    if (formData.caste) params.caste = formData.caste;
-                    if (batches.length === 1) params.batch = batches[0];
+                    if (colleges.length === 1) body.college = colleges[0];
+                    if (courses.length === 1) body.course = courses[0];
+                    if (formData.caste) body.caste = formData.caste;
+                    if (batches.length === 1) body.batch = batches[0];
                 }
-                const res = await api.get('/proceedings/load-students', { params });
+                const res = await api.post('/proceedings/load-students', body);
                 const payload = res.data;
                 students = Array.isArray(payload) ? payload : (payload.students || []);
                 importSummary = Array.isArray(payload) ? null : (payload.importSummary || null);
@@ -1273,7 +1422,9 @@ const Proceedings = () => {
 
             if (excelMode) {
                 const checks = {};
-                students.forEach(s => {
+                const n = students.length;
+                for (let i = 0; i < n; i++) {
+                    const s = students[i];
                     checks[s.studentId] = true;
                     if (excelShareByAppId?.size) {
                         const amt = resolveShareForStudent(s, excelShareByAppId, formData.academicYear);
@@ -1282,7 +1433,7 @@ const Proceedings = () => {
                             sharesApplied += 1;
                         }
                     }
-                });
+                }
                 setStudentChecks(checks);
 
                 // Auto-check colleges / courses / batches from matched Excel students
@@ -1303,7 +1454,8 @@ const Proceedings = () => {
                     setStudentShareAmounts(shares);
                     const allHaveShares = students.length > 0 && students.every(s => Number(shares[s.studentId]) > 0);
                     if (allHaveShares && formData.academicYear) {
-                        const shareTotal = Object.values(shares).reduce((sum, v) => sum + Number(v), 0);
+                        let shareTotal = 0;
+                        for (const v of Object.values(shares)) shareTotal += Number(v) || 0;
                         if (!(Number(formData.amount) > 0) && shareTotal > 0) {
                             setFormData(prev => ({
                                 ...prev,
@@ -1348,14 +1500,24 @@ const Proceedings = () => {
             return;
         }
         try {
+            const isPdf = file.name.toLowerCase().endsWith('.pdf');
             Swal.fire({
-                title: file.name.toLowerCase().endsWith('.pdf') ? 'Reading PDF…' : 'Reading Excel…',
+                title: isPdf ? 'Reading PDF…' : 'Reading Excel…',
+                html: `<div id="import-read-progress" style="font-size:13px;color:#64748b;margin-top:6px">${isPdf ? 'Preparing…' : 'Parsing rows…'}</div>`,
                 allowOutsideClick: false,
                 didOpen: () => Swal.showLoading(),
             });
-            const parsed = await parseProceedingImportFile(file);
-            Swal.close();
+            const parsed = await parseProceedingImportFile(
+                file,
+                isPdf
+                    ? (done, total) => {
+                        const el = document.getElementById('import-read-progress');
+                        if (el) el.textContent = total > 0 ? `Page ${done} of ${total}` : 'Preparing…';
+                    }
+                    : undefined
+            );
             if (parsed.applicationIds.length === 0) {
+                Swal.close();
                 Swal.fire(
                     'Warning',
                     file.name.toLowerCase().endsWith('.pdf')
@@ -1366,6 +1528,11 @@ const Proceedings = () => {
                 setExcelImportSummary(null);
                 return;
             }
+            const progressEl = document.getElementById('import-read-progress');
+            if (progressEl) {
+                progressEl.textContent = `Matching ${parsed.applicationIds.length} IDs against students…`;
+            }
+            Swal.update({ title: 'Matching students…' });
             const shareByAppId = new Map(
                 parsed.entries
                     .filter(e => e.shareAmount != null)
@@ -1375,6 +1542,7 @@ const Proceedings = () => {
                 parsed.applicationIds,
                 shareByAppId.size ? shareByAppId : null
             );
+            Swal.close();
             const summary = buildExcelImportSummary(
                 parsed, students, shares, importSummary, autoLocked, formData.academicYear
             );
@@ -1650,6 +1818,8 @@ const Proceedings = () => {
         setStudentQuotaFilter('All');
         setAttachmentFile(null);
         if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+        setExcelImportSummary(null);
+        setExcelSummaryExpanded(true);
     };
 
     const handleSubmit = async (e) => {
