@@ -1865,6 +1865,24 @@ const Proceedings = () => {
             Swal.fire('Warning', 'Please select at least one College and Course (or load from Excel)', 'warning');
             return;
         }
+
+        if (!isEditing) {
+            const confirm = await Swal.fire({
+                title: 'Create proceeding?',
+                html: `<div style="text-align:left;font-size:14px;line-height:1.5">
+                    <p>Proceeding <strong>${escapeHtml(formData.proceedingNumber || '')}</strong></p>
+                    <p style="margin-top:6px">${selectedStudents.length} student(s) · Amount <strong>₹${totalAmount.toLocaleString('en-IN')}</strong></p>
+                    <p style="margin-top:10px;color:#64748b">This will be created as Pending for verification.</p>
+                </div>`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Yes, create',
+                cancelButtonText: 'Cancel',
+                confirmButtonColor: '#2563eb',
+            });
+            if (!confirm.isConfirmed) return;
+        }
+
         setIsSaving(true);
         try {
             if (isEditing) {
