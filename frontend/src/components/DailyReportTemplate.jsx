@@ -1,4 +1,5 @@
 import React, { forwardRef } from 'react';
+import { isRtfTransaction, isBankCollectionTx } from '../utils/reportTxHelpers';
 
 const DailyReportTemplate = forwardRef(({ data }, ref) => {
     // data is the row object which contains _id (date) and transactions array
@@ -9,8 +10,8 @@ const DailyReportTemplate = forwardRef(({ data }, ref) => {
 
     const allTxs = data.transactions || [];
     const cashTxs = allTxs.filter(tx => tx.paymentMode === 'Cash');
-    const rtfTxs = allTxs.filter(tx => tx.paymentMode === 'RTF' || tx.proceedingId);
-    const bankTxs = allTxs.filter(tx => tx.paymentMode !== 'Cash' && tx.paymentMode !== 'RTF' && !tx.proceedingId);
+    const rtfTxs = allTxs.filter(tx => isRtfTransaction(tx));
+    const bankTxs = allTxs.filter(tx => isBankCollectionTx(tx));
 
     const rtfTotal = rtfTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
@@ -103,8 +104,8 @@ const DailyReportTemplate = forwardRef(({ data }, ref) => {
             )}
 
             <div style={{ backgroundColor: '#f0f0f0', borderTop: '2px solid #000', padding: '8px', textAlign: 'right', fontSize: '13px' }}>
-                <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Cash: ₹{(data.cashAmount || 0).toLocaleString('en-IN')}</span>
-                <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Bank: ₹{(data.bankAmount || 0).toLocaleString('en-IN')}</span>
+                <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Cash: ₹{cashTxs.filter(t => t.transactionType !== 'CREDIT').reduce((s, t) => s + (Number(t.amount) || 0), 0).toLocaleString('en-IN')}</span>
+                <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total Bank: ₹{bankTxs.filter(t => t.transactionType !== 'CREDIT').reduce((s, t) => s + (Number(t.amount) || 0), 0).toLocaleString('en-IN')}</span>
                 {rtfTxs.length > 0 && (
                     <span style={{ marginRight: '20px', fontWeight: 'bold' }}>Total RTF: ₹{rtfTotal.toLocaleString('en-IN')}</span>
                 )}

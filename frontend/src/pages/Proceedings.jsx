@@ -3,9 +3,13 @@ import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload } from 'lucide-react';
+import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { printHtmlDocument } from '../utils/printService';
+
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const STATUS_BADGE = {
     Pending: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -94,7 +98,9 @@ const scoreApplicationIdHeader = (header) => {
     const tokens = headerTokens(header);
     let score = 0;
 
-    if (/^(application_id|application_no|application_number|app_id|app_no|app_number|applicationid|appid)$/.test(h)) score += 20;
+    // Exact / common scholarship ID labels (incl. "Student ID" used in Excel exports)
+    if (/^(application_id|application_no|application_number|app_id|app_no|app_number|applicationid|appid|student_id|studentid|stud_id)$/.test(h)) score += 22;
+    if (/student.*(id|no|number|code)/.test(h) && !/admission|name|year|type/.test(h)) score += 18;
     if (/application.*(id|no|number|code)/.test(h)) score += 14;
     if (/app.*(id|no|number|code)/.test(h)) score += 12;
     if (tokens.includes('application') && tokens.some(t => ['id', 'no', 'number', 'code', 'num'].includes(t))) score += 11;
@@ -103,7 +109,9 @@ const scoreApplicationIdHeader = (header) => {
     if (h === 'application' || h === 'app') score += 6;
     if (tokens.includes('application') && !tokens.some(t => ['amount', 'share', 'date', 'name'].includes(t))) score += 5;
 
-    if (tokens.some(t => ['name', 'student', 'admission', 'pin', 'roll', 'batch', 'caste', 'college', 'course'].includes(t))) score -= 8;
+    if (tokens.some(t => ['name', 'admission', 'pin', 'roll', 'batch', 'caste', 'college', 'course'].includes(t))) score -= 8;
+    // "student" alone is fine for Student ID; penalize only when paired with name/type/year
+    if (tokens.includes('student') && tokens.some(t => ['name', 'type', 'year', 'status'].includes(t))) score -= 10;
     if (tokens.some(t => ['amount', 'share', 'amt', 'sanctioned', 'released', 'paid'].includes(t))) score -= 6;
     if (tokens.includes('date')) score -= 4;
 
@@ -116,19 +124,34 @@ const scoreShareAmountHeader = (header) => {
     const tokens = headerTokens(header);
     let score = 0;
 
-    if (/^(share_amount|share_amt|shareamount|proceeding_share|proceeding_amount|scholarship_amount|sanctioned_amount)$/.test(h)) score += 20;
+    // Exact / common labels used in scholarship exports
+    if (/^(share_amount|share_amt|shareamount|proceeding_share|proceeding_amount|scholarship_amount|sanctioned_amount|released_amount|released_amt|releasedamount|amount_released|release_amount|release_amt)$/.test(h)) {
+        score += 28;
+    }
+    // "Released Amount", "Released Amt", "Amount Released", "Release Amount", etc.
+    if (
+        (tokens.includes('released') || tokens.includes('release'))
+        && tokens.some(t => ['amount', 'amt', 'rs', 'rupee', 'value'].includes(t))
+    ) {
+        score += 26;
+    }
+    if (/released.*(amount|amt|rs|rupee|value)?/.test(h) || /amount.*released/.test(h) || h === 'released') {
+        score += 22;
+    }
     if (/share.*(amount|amt|rs|rupee|value)/.test(h)) score += 16;
     if (/proceeding.*(amount|share|amt)/.test(h)) score += 14;
     if (/scholarship.*(amount|share|amt)/.test(h)) score += 13;
     if (/sanctioned.*(amount|amt)/.test(h)) score += 12;
-    if (/released.*(amount|amt)/.test(h)) score += 10;
     if (tokens.includes('share') && tokens.some(t => ['amount', 'amt', 'rs', 'rupee', 'value'].includes(t))) score += 12;
     if (tokens.includes('share') && tokens.length === 1) score += 8;
     if (h === 'amount' || h === 'amt' || h.endsWith('_amount') || h.endsWith('_amt')) score += 7;
-    if (tokens.includes('amount') && !tokens.includes('application')) score += 5;
-    if (tokens.includes('amt') && !tokens.includes('application')) score += 5;
+    if (tokens.includes('amount') && !tokens.includes('application') && !tokens.includes('student')) score += 5;
+    if (tokens.includes('amt') && !tokens.includes('application') && !tokens.includes('student')) score += 5;
 
-    if (tokens.some(t => ['application', 'app', 'id', 'no', 'number', 'name', 'student', 'admission', 'pin'].includes(t))) score -= 10;
+    if (tokens.some(t => ['application', 'app', 'id', 'no', 'number', 'name', 'student', 'admission', 'pin'].includes(t))
+        && !tokens.some(t => ['amount', 'amt', 'released', 'release', 'share', 'sanctioned'].includes(t))) {
+        score -= 10;
+    }
     if (tokens.includes('total') && tokens.includes('count')) score -= 6;
     if (tokens.includes('date')) score -= 5;
 
@@ -285,6 +308,127 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
     reader.readAsArrayBuffer(file);
 });
 
+/** Extract Student ID + Released Amount from text-based PDF tables (same mapping as Excel). */
+const parseProceedingPdfFile = async (file) => {
+    const data = new Uint8Array(await file.arrayBuffer());
+    const pdf = await getDocument({ data, useSystemFonts: true }).promise;
+    const entryMap = new Map();
+    let hasShareColumn = false;
+
+    const looksLikeStudentId = (text) => {
+        const t = String(text || '').trim();
+        // Scholarship / student application IDs in this system are typically 10–14 digits
+        return /^\d{10,14}$/.test(t);
+    };
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const content = await page.getTextContent();
+        const items = (content.items || [])
+            .filter(it => it && typeof it.str === 'string' && it.str.trim())
+            .map(it => ({
+                text: String(it.str).trim(),
+                x: Number(it.transform?.[4]) || 0,
+                y: Math.round((Number(it.transform?.[5]) || 0) * 10) / 10,
+            }));
+
+        // Group into rows by Y (tolerance for slightly misaligned cells)
+        const rows = [];
+        items.forEach(item => {
+            let row = rows.find(r => Math.abs(r.y - item.y) <= 2.5);
+            if (!row) {
+                row = { y: item.y, cells: [] };
+                rows.push(row);
+            }
+            row.cells.push(item);
+        });
+        rows.sort((a, b) => b.y - a.y); // PDF y grows upward; top rows first
+
+        rows.forEach(row => {
+            const cells = row.cells.sort((a, b) => a.x - b.x);
+            const texts = cells.map(c => c.text);
+            const joined = texts.join(' ');
+
+            // Detect amount header presence on the page
+            if (/released\s*amount|share\s*amount|sanctioned|amount/i.test(joined)
+                && /student\s*id|application|app\s*id/i.test(joined)) {
+                hasShareColumn = true;
+            }
+
+            // Find student ID cell(s) in the row
+            for (let i = 0; i < cells.length; i++) {
+                const idText = cells[i].text.replace(/\s+/g, '');
+                if (!looksLikeStudentId(idText)) continue;
+
+                // Prefer an amount to the right of the ID on the same row
+                let shareAmount = null;
+                for (let j = i + 1; j < cells.length; j++) {
+                    const amt = parseExcelShareAmount(cells[j].text);
+                    if (amt != null) {
+                        shareAmount = amt;
+                        hasShareColumn = true;
+                        break;
+                    }
+                }
+                // Fallback: whole-row amount scan if not found to the right
+                if (shareAmount == null) {
+                    for (const cell of cells) {
+                        if (looksLikeStudentId(cell.text.replace(/\s+/g, ''))) continue;
+                        const amt = parseExcelShareAmount(cell.text);
+                        if (amt != null) {
+                            shareAmount = amt;
+                            hasShareColumn = true;
+                            break;
+                        }
+                    }
+                }
+
+                entryMap.set(idText.toLowerCase(), {
+                    applicationId: idText,
+                    shareAmount,
+                });
+            }
+        });
+    }
+
+    // Regex fallback across concatenated page text if row mapping found nothing
+    if (entryMap.size === 0) {
+        let fullText = '';
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const content = await page.getTextContent();
+            fullText += `\n${(content.items || []).map(it => it.str || '').join(' ')}`;
+        }
+        const re = /(\d{10,14})(?:\s*[|\t,;:]?\s*)((?:₹|Rs\.?\s*)?[\d,]+\.?\d{0,2})?/gi;
+        let m;
+        while ((m = re.exec(fullText)) !== null) {
+            const applicationId = m[1];
+            const shareAmount = parseExcelShareAmount(m[2] || '');
+            if (shareAmount != null) hasShareColumn = true;
+            entryMap.set(applicationId.toLowerCase(), { applicationId, shareAmount });
+        }
+    }
+
+    const entries = [...entryMap.values()];
+    const totalShareAmount = Math.round(
+        entries.reduce((sum, e) => sum + (e.shareAmount || 0), 0) * 100
+    ) / 100;
+
+    return {
+        entries,
+        applicationIds: entries.map(e => e.applicationId),
+        hasShareColumn,
+        totalShareAmount,
+        sourceType: 'pdf',
+    };
+};
+
+const parseProceedingImportFile = async (file) => {
+    const name = String(file?.name || '').toLowerCase();
+    if (name.endsWith('.pdf')) return parseProceedingPdfFile(file);
+    return parseProceedingExcelFile(file);
+};
+
 const escapeHtml = (value) => String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -321,6 +465,13 @@ const buildExcelImportSummary = (parsed, students, shares, backendSummary, autoL
                 message: 'No matching student for current filters',
             }));
 
+    const courses = backendSummary?.courses
+        || [...new Set(students.map(s => s.course).filter(Boolean))];
+    const batches = backendSummary?.batches
+        || [...new Set(students.map(s => s.batch).filter(Boolean))];
+    const colleges = backendSummary?.colleges
+        || [...new Set(students.map(s => s.college).filter(Boolean))];
+
     const hasIssues = notFound.length > 0 || missingShareInExcel.length > 0 || studentsMissingShare.length > 0;
 
     return {
@@ -333,6 +484,11 @@ const buildExcelImportSummary = (parsed, students, shares, backendSummary, autoL
         hasShareColumn: parsed.hasShareColumn,
         autoLocked,
         hasIssues,
+        courses,
+        batches,
+        colleges,
+        multiCourse: courses.length > 1,
+        multiBatch: batches.length > 1,
     };
 };
 
@@ -346,7 +502,7 @@ const showExcelImportResultDialog = (summary, hasStudents, autoLocked) => {
 
     if (!hasStudents) {
         let html = `<div style="text-align:left;font-size:13px;line-height:1.5">`;
-        html += `<p>No students matched the Excel file for the selected College / Course / Caste / Batch.</p>`;
+        html += `<p>No students matched the Excel Student ID / Application ID values.</p>`;
         if (summary.notFound.length > 0) {
             html += `<p style="margin-top:10px;font-weight:600;color:#b45309">Application IDs not loaded:</p><ul style="max-height:160px;overflow:auto;margin:6px 0 0;padding-left:18px;font-size:12px">`;
             summary.notFound.slice(0, 40).forEach(n => {
@@ -355,18 +511,25 @@ const showExcelImportResultDialog = (summary, hasStudents, autoLocked) => {
             if (summary.notFound.length > 40) html += `<li>…and ${summary.notFound.length - 40} more</li>`;
             html += `</ul>`;
         }
-        html += `<p style="margin-top:10px;color:#64748b;font-size:12px">Try adjusting filters or verify application IDs in the Excel file.</p></div>`;
+        html += `<p style="margin-top:10px;color:#64748b;font-size:12px">Verify Student ID / Application ID values in the Excel file.</p></div>`;
         Swal.fire({ icon: 'warning', title: 'No students loaded', html, width: 620, confirmButtonText: 'OK' });
         return;
     }
+
+    const scopeParts = [];
+    if (summary.multiCourse) scopeParts.push(`${summary.courses.length} courses`);
+    else if (summary.courses?.length === 1) scopeParts.push(`Course ${summary.courses[0]}`);
+    if (summary.multiBatch) scopeParts.push(`${summary.batches.length} batches`);
+    else if (summary.batches?.length === 1) scopeParts.push(`Batch ${summary.batches[0]}`);
+    const scopeText = scopeParts.length ? ` · ${scopeParts.join(' · ')}` : '';
 
     if (!summary.hasIssues) {
         Swal.fire({
             icon: 'success',
             title: 'Excel loaded',
             text: autoLocked
-                ? `All ${summary.matchedStudents} student(s) loaded with share amounts. Selection locked — review and submit.`
-                : `All ${summary.matchedStudents} student(s) loaded and selected successfully.`,
+                ? `All ${summary.matchedStudents} student(s) loaded with share amounts${scopeText}. Selection locked — review and submit.`
+                : `All ${summary.matchedStudents} student(s) loaded and selected${scopeText}.`,
             timer: autoLocked ? 3500 : 2500,
             showConfirmButton: !autoLocked,
         });
@@ -374,7 +537,7 @@ const showExcelImportResultDialog = (summary, hasStudents, autoLocked) => {
     }
 
     let html = `<div style="text-align:left;font-size:13px;line-height:1.5">`;
-    html += `<p><b>${summary.matchedStudents}</b> of <b>${summary.requested}</b> application ID(s) loaded as students.</p>`;
+    html += `<p><b>${summary.matchedStudents}</b> of <b>${summary.requested}</b> Student ID(s) loaded as students${scopeText ? ` (${escapeHtml(scopeParts.join(', '))})` : ''}.</p>`;
     html += `<p style="color:#b45309;margin-top:6px">${issueLines.join(' · ')}</p>`;
 
     if (summary.notFound.length > 0) {
@@ -489,8 +652,149 @@ const groupScholarshipsByYear = (scholarships = []) => {
 };
 
 const emptyForm = () => ({
-    proceedingNumber: '', proceedingDate: '', amount: '', bankCreditedAmount: '', bankAccount: '', bankCreditedDate: '', college: '', course: '', caste: '', batch: '', academicYear: ''
+    proceedingNumber: '',
+    proceedingDate: '',
+    amount: '',
+    bankCreditedAmount: '',
+    bankAccount: '',
+    bankCreditedDate: '',
+    colleges: [],
+    courses: [],
+    batches: [],
+    caste: '',
+    academicYear: '',
 });
+
+/** Normalize legacy string college/course/batch into arrays for the form */
+const normalizeScopeArrays = (data = {}) => {
+    const toArr = (v) => {
+        if (Array.isArray(v)) return v.filter(Boolean);
+        if (v == null || v === '' || v === 'Multiple') return [];
+        return [String(v)];
+    };
+    return {
+        ...data,
+        colleges: toArr(data.colleges ?? data.college),
+        courses: toArr(data.courses ?? data.course),
+        batches: toArr(data.batches ?? data.batch),
+    };
+};
+
+const headerFromList = (list) => {
+    if (!list?.length) return '';
+    return list.length === 1 ? list[0] : 'Multiple';
+};
+
+/** Checkbox multi-select dropdown for College / Course / Batch */
+const MultiCheckDropdown = ({
+    label,
+    options = [],
+    selected = [],
+    onChange,
+    placeholder = 'Select',
+    disabled = false,
+    readOnly = false,
+    required = false,
+}) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        const onDoc = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+    }, []);
+
+    const mergedOptions = useMemo(() => {
+        const set = new Set([...(options || []), ...(selected || [])]);
+        return [...set].filter(Boolean).sort((a, b) => String(a).localeCompare(String(b)));
+    }, [options, selected]);
+
+    const toggle = (value) => {
+        if (disabled || readOnly) return;
+        if (selected.includes(value)) onChange(selected.filter(v => v !== value));
+        else onChange([...selected, value]);
+    };
+
+    const summary = selected.length === 0
+        ? placeholder
+        : selected.length === 1
+            ? selected[0]
+            : selected.length <= 3
+                ? selected.join(', ')
+                : `${selected.length} selected`;
+
+    const canOpen = !disabled;
+
+    return (
+        <div className="space-y-1" ref={ref}>
+            <label className="text-xs font-bold text-slate-600">
+                {label}{required ? ' *' : ''}
+                {readOnly && selected.length > 0 && (
+                    <span className="ml-1 font-semibold text-slate-400 normal-case">(locked)</span>
+                )}
+            </label>
+            <div className="relative">
+                <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => canOpen && setOpen(o => !o)}
+                    className={`w-full px-3 py-2 pr-8 bg-white border border-slate-200 rounded-xl text-left text-sm font-medium focus:ring-2 focus:ring-blue-100 ${
+                        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-slate-300'
+                    } ${selected.length ? 'text-slate-800' : 'text-slate-400'}`}
+                    title={selected.length ? selected.join(', ') : placeholder}
+                >
+                    <span className="block truncate">{summary}</span>
+                </button>
+                <ChevronDown size={14} className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition ${open ? 'rotate-180' : ''}`} />
+                {open && canOpen && (
+                    <div className="absolute z-30 mt-1 w-full max-h-52 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg py-1">
+                        {readOnly && (
+                            <div className="px-3 py-1.5 text-[10px] font-bold text-amber-700 bg-amber-50 border-b border-amber-100">
+                                View only — click Change Selection to edit
+                            </div>
+                        )}
+                        {mergedOptions.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-slate-400">No options</div>
+                        ) : (
+                            mergedOptions.map(opt => {
+                                const checked = selected.includes(opt);
+                                return (
+                                    <label
+                                        key={opt}
+                                        className={`flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 ${
+                                            readOnly ? 'cursor-default' : 'hover:bg-slate-50 cursor-pointer'
+                                        }`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={readOnly}
+                                            onChange={() => toggle(opt)}
+                                            className="rounded text-blue-600 focus:ring-blue-500 disabled:opacity-70"
+                                        />
+                                        <span className={`font-medium ${checked ? 'text-indigo-700' : ''}`}>{opt}</span>
+                                    </label>
+                                );
+                            })
+                        )}
+                        {!readOnly && selected.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => onChange([])}
+                                className="w-full text-left px-3 py-1.5 text-[10px] font-bold text-rose-600 hover:bg-rose-50 border-t border-slate-100"
+                            >
+                                Clear all
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const getProceedingDraftKey = (username) => `proceeding_create_draft_${username || 'anon'}`;
 
@@ -614,8 +918,8 @@ const Proceedings = () => {
         const hasContent = !!(
             formData.proceedingNumber
             || formData.amount
-            || formData.college
-            || formData.course
+            || (formData.colleges || []).length
+            || (formData.courses || []).length
             || formData.academicYear
             || loadedStudents.length > 0
             || Object.keys(studentShareAmounts).length > 0
@@ -663,7 +967,7 @@ const Proceedings = () => {
             return;
         }
         skipNextDraftSave.current = true;
-        setFormData({ ...emptyForm(), ...(draft.formData || {}) });
+        setFormData(normalizeScopeArrays({ ...emptyForm(), ...(draft.formData || {}) }));
         setLoadedStudents(Array.isArray(draft.loadedStudents) ? draft.loadedStudents : []);
         setStudentChecks(draft.studentChecks || {});
         setStudentShareAmounts(draft.studentShareAmounts || {});
@@ -856,28 +1160,104 @@ const Proceedings = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleLoadStudents = async (applicationIdsFilter = null, excelShareByAppId = null) => {
-        if (!formData.college || !formData.course) {
+    const availableCollegeOptions = useMemo(
+        () => Object.keys(metadata.hierarchy || {}),
+        [metadata.hierarchy]
+    );
+
+    const availableCourseOptions = useMemo(() => {
+        const colleges = formData.colleges || [];
+        if (!colleges.length) return [];
+        const set = new Set();
+        colleges.forEach(college => {
+            Object.keys(metadata.hierarchy?.[college] || {}).forEach(c => set.add(c));
+        });
+        return [...set].sort();
+    }, [formData.colleges, metadata.hierarchy]);
+
+    const availableBatchOptions = useMemo(() => {
+        const fromMeta = metadata.batches || [];
+        const fromStudents = loadedStudents.map(s => s.batch).filter(Boolean);
+        return [...new Set([...fromMeta, ...fromStudents])].sort();
+    }, [metadata.batches, loadedStudents]);
+
+    const setScopeField = (field, values) => {
+        setFormData(prev => {
+            const next = { ...prev, [field]: values };
+            // Drop courses that no longer belong to selected colleges
+            if (field === 'colleges') {
+                const allowed = new Set();
+                values.forEach(college => {
+                    Object.keys(metadata.hierarchy?.[college] || {}).forEach(c => allowed.add(c));
+                });
+                next.courses = (prev.courses || []).filter(c => allowed.has(c));
+            }
+            return next;
+        });
+    };
+
+    const handleLoadStudents = async (applicationIdsFilter = null, excelShareByAppId = null, options = {}) => {
+        const excelMode = !!applicationIdsFilter?.length;
+        const colleges = formData.colleges || [];
+        const courses = formData.courses || [];
+        const batches = formData.batches || [];
+
+        if (!excelMode && (!colleges.length || !courses.length)) {
             Swal.fire('Warning', 'Please select College and Course first', 'warning');
             return { students: [], sharesApplied: 0, autoLocked: false, importSummary: null, shares: {} };
         }
         setLoadingStudents(true);
         setStudentQuotaFilter('All');
         try {
-            const params = { college: formData.college, course: formData.course };
-            if (formData.caste) params.caste = formData.caste;
-            if (formData.batch) params.batch = formData.batch;
-            if (applicationIdsFilter?.length) params.applicationIds = applicationIdsFilter.join(',');
-            const payload = res.data;
-            const students = Array.isArray(payload) ? payload : (payload.students || []);
-            const importSummary = Array.isArray(payload) ? null : (payload.importSummary || null);
+            let students = [];
+            let importSummary = null;
+
+            if (excelMode) {
+                const params = { applicationIds: applicationIdsFilter.join(',') };
+                if (options.respectFilters) {
+                    if (colleges.length === 1) params.college = colleges[0];
+                    if (courses.length === 1) params.course = courses[0];
+                    if (formData.caste) params.caste = formData.caste;
+                    if (batches.length === 1) params.batch = batches[0];
+                }
+                const res = await api.get('/proceedings/load-students', { params });
+                const payload = res.data;
+                students = Array.isArray(payload) ? payload : (payload.students || []);
+                importSummary = Array.isArray(payload) ? null : (payload.importSummary || null);
+            } else {
+                // Load each college × course pair and merge (supports multi-select)
+                const pairs = [];
+                colleges.forEach(college => {
+                    courses.forEach(course => {
+                        if (metadata.hierarchy?.[college]?.[course]) pairs.push({ college, course });
+                    });
+                });
+                if (pairs.length === 0) {
+                    Swal.fire('Warning', 'Selected course(s) do not match the selected college(s)', 'warning');
+                    return { students: [], sharesApplied: 0, autoLocked: false, importSummary: null, shares: {} };
+                }
+                const merged = new Map();
+                for (const pair of pairs) {
+                    const params = { college: pair.college, course: pair.course };
+                    if (formData.caste) params.caste = formData.caste;
+                    if (batches.length === 1) params.batch = batches[0];
+                    const res = await api.get('/proceedings/load-students', { params });
+                    const list = Array.isArray(res.data) ? res.data : (res.data.students || []);
+                    list.forEach(s => {
+                        if (batches.length > 1 && s.batch && !batches.includes(s.batch)) return;
+                        merged.set(s.studentId, s);
+                    });
+                }
+                students = [...merged.values()];
+            }
+
             setLoadedStudents(students);
 
             let sharesApplied = 0;
             let autoLocked = false;
             const shares = {};
 
-            if (applicationIdsFilter?.length) {
+            if (excelMode) {
                 const checks = {};
                 students.forEach(s => {
                     checks[s.studentId] = true;
@@ -890,6 +1270,20 @@ const Proceedings = () => {
                     }
                 });
                 setStudentChecks(checks);
+
+                // Auto-check colleges / courses / batches from matched Excel students
+                if (students.length > 0) {
+                    const matchedColleges = [...new Set(students.map(s => s.college).filter(Boolean))].sort();
+                    const matchedCourses = [...new Set(students.map(s => s.course).filter(Boolean))].sort();
+                    const matchedBatches = [...new Set(students.map(s => s.batch).filter(Boolean))].sort();
+                    setFormData(prev => ({
+                        ...prev,
+                        colleges: matchedColleges,
+                        courses: matchedCourses,
+                        batches: matchedBatches,
+                        caste: '',
+                    }));
+                }
 
                 if (sharesApplied > 0) {
                     setStudentShareAmounts(shares);
@@ -931,14 +1325,22 @@ const Proceedings = () => {
         const file = e.target.files?.[0];
         e.target.value = '';
         if (!file) return;
-        if (!formData.college || !formData.course) {
-            Swal.fire('Warning', 'Please select College and Course first', 'warning');
-            return;
-        }
         try {
-            const parsed = await parseProceedingExcelFile(file);
+            Swal.fire({
+                title: file.name.toLowerCase().endsWith('.pdf') ? 'Reading PDF…' : 'Reading Excel…',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading(),
+            });
+            const parsed = await parseProceedingImportFile(file);
+            Swal.close();
             if (parsed.applicationIds.length === 0) {
-                Swal.fire('Warning', 'No application IDs found in the Excel file.', 'warning');
+                Swal.fire(
+                    'Warning',
+                    file.name.toLowerCase().endsWith('.pdf')
+                        ? 'No Student ID / Application ID found in the PDF. Use a text-based PDF (not a scanned image), or upload Excel.'
+                        : 'No Student ID / Application ID found in the Excel file.',
+                    'warning'
+                );
                 setExcelImportSummary(null);
                 return;
             }
@@ -958,8 +1360,9 @@ const Proceedings = () => {
             setExcelSummaryExpanded(true);
             showExcelImportResultDialog(summary, students.length > 0, autoLocked);
         } catch (err) {
-            console.error('Excel parse error', err);
-            Swal.fire('Error', 'Failed to read the Excel file.', 'error');
+            console.error('Import parse error', err);
+            Swal.close();
+            Swal.fire('Error', 'Failed to read the file. For PDF, ensure it is text-based (not scanned).', 'error');
             setExcelImportSummary(null);
         }
     };
@@ -974,12 +1377,23 @@ const Proceedings = () => {
                 <div className="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 flex-1">
                         <div className={`text-xs font-bold uppercase tracking-wide ${allOk ? 'text-emerald-800' : 'text-amber-900'}`}>
-                            Excel import summary
+                            File import summary
                         </div>
                         <div className={`text-sm font-semibold mt-1 ${allOk ? 'text-emerald-900' : 'text-amber-950'}`}>
-                            {s.matchedStudents} of {s.requested} application ID(s) loaded
+                            {s.matchedStudents} of {s.requested} Student ID(s) loaded
                             {s.autoLocked ? ' · Selection locked with shares' : ''}
                         </div>
+                        {(s.multiCourse || s.multiBatch || s.courses?.length || s.batches?.length) && (
+                            <div className={`text-xs mt-1 ${allOk ? 'text-emerald-800' : 'text-amber-800'}`}>
+                                {s.multiCourse
+                                    ? `${s.courses.length} courses (${s.courses.slice(0, 6).join(', ')}${s.courses.length > 6 ? '…' : ''})`
+                                    : (s.courses?.[0] ? `Course: ${s.courses[0]}` : null)}
+                                {(s.multiCourse || s.courses?.[0]) && (s.multiBatch || s.batches?.[0]) ? ' · ' : ''}
+                                {s.multiBatch
+                                    ? `${s.batches.length} batches (${s.batches.slice(0, 6).join(', ')}${s.batches.length > 6 ? '…' : ''})`
+                                    : (s.batches?.[0] ? `Batch: ${s.batches[0]}` : null)}
+                            </div>
+                        )}
                         {!allOk && (
                             <div className="text-xs text-amber-800 mt-1 space-y-0.5">
                                 {s.notFound.length > 0 && <div>{s.notFound.length} ID(s) not loaded — check filters or verify IDs</div>}
@@ -1169,20 +1583,37 @@ const Proceedings = () => {
             studentYear: s.studentYear != null && s.studentYear !== '' ? String(s.studentYear) : ''
         }));
         const totalAmount = Math.round(Number(formData.amount) * 100) / 100;
+        const headerCollege = headerFromList(formData.colleges);
+        const headerCourse = headerFromList(formData.courses);
+        const headerBatch = headerFromList(formData.batches);
+        if (!headerCollege || !headerCourse) {
+            Swal.fire('Warning', 'Please select at least one College and Course (or load from Excel)', 'warning');
+            return;
+        }
         setIsSaving(true);
         try {
             if (isEditing) {
-                const { status, approvedBy, approvedByName, approvedAt, verifiedBy, verifiedByName, verifiedAt, requestedBy, requestedByName, totalUsed, studentCount, feeHead, transactionsGenerated, ...editPayload } = formData;
-                editPayload.students = studentsPayload;
-                editPayload.amount = totalAmount;
+                const { status, approvedBy, approvedByName, approvedAt, verifiedBy, verifiedByName, verifiedAt, requestedBy, requestedByName, totalUsed, studentCount, feeHead, transactionsGenerated, colleges, courses, batches, ...rest } = formData;
+                const editPayload = {
+                    ...rest,
+                    college: headerCollege,
+                    course: headerCourse,
+                    batch: headerBatch || '',
+                    students: studentsPayload,
+                    amount: totalAmount,
+                };
                 await api.put(`/proceedings/${formData._id}`, editPayload);
                 Swal.fire('Success', 'Proceeding updated successfully', 'success');
                 resetForm();
                 setShowEditModal(false);
                 fetchInitialData();
             } else {
+                const { colleges, courses, batches, ...rest } = formData;
                 await api.post('/proceedings', {
-                    ...formData,
+                    ...rest,
+                    college: headerCollege,
+                    course: headerCourse,
+                    batch: headerBatch || '',
                     amount: totalAmount,
                     students: studentsPayload
                 });
@@ -1205,11 +1636,11 @@ const Proceedings = () => {
             Swal.fire('Not allowed', 'Only Pending proceedings can be edited.', 'warning');
             return;
         }
-        setFormData({
+        setFormData(normalizeScopeArrays({
             ...proc,
             proceedingDate: proc.proceedingDate ? proc.proceedingDate.split('T')[0] : '',
             bankCreditedDate: proc.bankCreditedDate ? proc.bankCreditedDate.split('T')[0] : ''
-        });
+        }));
         setIsEditing(true);
         setShowEditModal(true);
 
@@ -1226,6 +1657,17 @@ const Proceedings = () => {
                 setStudentChecks(checks);
                 setStudentShareAmounts(amounts);
                 setStudentsLocked(true);
+
+                // If header was Multiple, derive checkbox selections from students
+                const matchedColleges = [...new Set(res.data.students.map(s => s.college).filter(Boolean))].sort();
+                const matchedCourses = [...new Set(res.data.students.map(s => s.course).filter(Boolean))].sort();
+                const matchedBatches = [...new Set(res.data.students.map(s => s.batch).filter(Boolean))].sort();
+                setFormData(prev => ({
+                    ...prev,
+                    colleges: matchedColleges.length ? matchedColleges : prev.colleges,
+                    courses: matchedCourses.length ? matchedCourses : prev.courses,
+                    batches: matchedBatches.length ? matchedBatches : prev.batches,
+                }));
             }
         } catch (e) {
             console.error('Failed to load proceeding students', e);
@@ -1437,6 +1879,26 @@ const Proceedings = () => {
         return matchesSearch && matchesCollege && matchesCourse && matchesAcademicYear;
     });
 
+    // Pending auto-txns across ALL academic years (ignore top AY filter so the note still shows)
+    const pendingTxnProceedings = useMemo(() => (
+        proceedings
+            .filter(p =>
+                (p.status === 'Active' || p.status === 'Completed')
+                && Number(p.pendingTxnCount) > 0
+            )
+            .sort((a, b) => Number(b.pendingTxnCount || 0) - Number(a.pendingTxnCount || 0))
+    ), [proceedings]);
+
+    const pendingTxnStudentTotal = useMemo(
+        () => pendingTxnProceedings.reduce((sum, p) => sum + (Number(p.pendingTxnCount) || 0), 0),
+        [pendingTxnProceedings]
+    );
+
+    const pendingTxnHiddenByYearFilter = useMemo(() => {
+        if (academicYearFilter === 'All') return 0;
+        return pendingTxnProceedings.filter(p => p.academicYear !== academicYearFilter).length;
+    }, [pendingTxnProceedings, academicYearFilter]);
+
     const summaryStats = filteredProceedings.reduce((acc, p) => {
         acc.totalAmount += p.amount || 0; acc.totalUsed += p.totalUsed || 0; acc.count += 1;
         return acc;
@@ -1594,25 +2056,42 @@ const Proceedings = () => {
                                 {TAB_META[activeTab]?.desc || 'Create → Verify → Approve to generate RTF transactions'}
                             </p>
                         </div>
-                        {activeTab === 'list' && (
-                            <div className="flex flex-wrap items-end gap-3 self-start sm:self-auto shrink-0">
-                                <div className="relative min-w-[140px]">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Academic Year</label>
-                                    <select
-                                        value={academicYearFilter}
-                                        onChange={(e) => setAcademicYearFilter(e.target.value)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
-                                    >
-                                        <option value="All">All Years</option>
-                                        {listAcademicYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                    </select>
-                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                        <div className="flex flex-wrap items-end gap-3 self-start sm:self-auto shrink-0">
+                            {activeTab === 'create' && canEdit && draftAvailable && (
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 sm:p-3 rounded-xl border border-amber-200 bg-amber-50 max-w-full sm:max-w-md">
+                                    <div className="text-[11px] sm:text-xs font-semibold text-amber-800 leading-snug min-w-0">
+                                        Draft saved{draftSavedAt ? ` · ${new Date(draftSavedAt).toLocaleString()}` : ''}
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <button type="button" onClick={restoreCreateDraft} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg">
+                                            Restore Draft
+                                        </button>
+                                        <button type="button" onClick={discardCreateDraft} className="px-3 py-1.5 bg-white border border-amber-200 text-amber-800 text-xs font-bold rounded-lg hover:bg-amber-100">
+                                            Discard
+                                        </button>
+                                    </div>
                                 </div>
-                                <button onClick={handlePrint} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border border-slate-200">
-                                    <Printer size={16} /> Print Report
-                                </button>
-                            </div>
-                        )}
+                            )}
+                            {activeTab === 'list' && (
+                                <>
+                                    <div className="relative min-w-[140px]">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Academic Year</label>
+                                        <select
+                                            value={academicYearFilter}
+                                            onChange={(e) => setAcademicYearFilter(e.target.value)}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                        >
+                                            <option value="All">All Years</option>
+                                            {listAcademicYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                        </select>
+                                        <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                    </div>
+                                    <button onClick={handlePrint} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border border-slate-200">
+                                        <Printer size={16} /> Print Report
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
 
                     {/* ═══ LIST TAB ═══ */}
@@ -1677,6 +2156,73 @@ const Proceedings = () => {
                                     <button onClick={() => { setCollegeFilter('All'); setCourseFilter('All'); setSearchTerm(''); setAcademicYearFilter(listAcademicYears[0] || 'All'); }} className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl">Clear Filters</button>
                                 )}
                             </div>
+
+                            {pendingTxnProceedings.length > 0 && (
+                                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3.5 shadow-sm">
+                                    <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                            <div className="mt-0.5 p-1.5 rounded-lg bg-amber-100 border border-amber-200 shrink-0">
+                                                <AlertTriangle size={16} className="text-amber-700" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="text-sm font-bold text-amber-900">
+                                                    {pendingTxnStudentTotal} pending proceeding transaction{pendingTxnStudentTotal === 1 ? '' : 's'}
+                                                    {' '}across {pendingTxnProceedings.length} proceeding{pendingTxnProceedings.length === 1 ? '' : 's'}
+                                                </div>
+                                                <p className="text-xs text-amber-800/90 mt-0.5 leading-snug">
+                                                    Auto RTF/collection could not be created for some mapped students (e.g. no fee-head due).
+                                                    {pendingTxnHiddenByYearFilter > 0 && (
+                                                        <>
+                                                            {' '}
+                                                            <span className="font-bold">
+                                                                {pendingTxnHiddenByYearFilter} of these are outside Academic Year {academicYearFilter}
+                                                            </span>
+                                                            {' '}— shown here regardless of the year filter.
+                                                        </>
+                                                    )}
+                                                </p>
+                                                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                                                    {pendingTxnProceedings.slice(0, 8).map(p => (
+                                                        <button
+                                                            key={p._id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (p.academicYear) setAcademicYearFilter(p.academicYear);
+                                                                setSearchTerm(p.proceedingNumber || '');
+                                                                setCollegeFilter('All');
+                                                                setCourseFilter('All');
+                                                            }}
+                                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-amber-200 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
+                                                            title="Jump to this proceeding"
+                                                        >
+                                                            <span className="font-mono">{p.proceedingNumber}</span>
+                                                            <span className="text-amber-500">·</span>
+                                                            <span>{p.academicYear || '—'}</span>
+                                                            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                                                {p.pendingTxnCount}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                    {pendingTxnProceedings.length > 8 && (
+                                                        <span className="inline-flex items-center px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                                            +{pendingTxnProceedings.length - 8} more
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {academicYearFilter !== 'All' && pendingTxnHiddenByYearFilter > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setAcademicYearFilter('All')}
+                                                className="shrink-0 self-start px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-colors"
+                                            >
+                                                Show All Years
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                                 {loading ? (
@@ -1765,27 +2311,6 @@ const Proceedings = () => {
                     {/* ═══ CREATE TAB (inline, create only) ═══ */}
                     {activeTab === 'create' && canEdit && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                            <div className="px-6 py-5 border-b border-slate-100">
-                                <h2 className="text-lg font-bold text-slate-800 tracking-tight">New Proceeding</h2>
-                                <p className="text-sm text-slate-500 mt-1">Fill details, load students, then submit for verification</p>
-                            </div>
-
-                            {draftAvailable && (
-                                <div className="mx-6 mt-4 mb-0 p-3 rounded-xl border border-amber-200 bg-amber-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                    <div className="text-xs font-semibold text-amber-800">
-                                        Draft saved{draftSavedAt ? ` · ${new Date(draftSavedAt).toLocaleString()}` : ''}. Restore to continue after refresh.
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button type="button" onClick={restoreCreateDraft} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg">
-                                            Restore Draft
-                                        </button>
-                                        <button type="button" onClick={discardCreateDraft} className="px-3 py-1.5 bg-white border border-amber-200 text-amber-800 text-xs font-bold rounded-lg hover:bg-amber-100">
-                                            Discard
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
                             <form onSubmit={handleSubmit} className="p-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                                     <div className="space-y-1">
@@ -1823,56 +2348,63 @@ const Proceedings = () => {
                                 </div>
 
                                 <div className="bg-slate-50 rounded-xl p-4 mb-4">
-                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Student Filters</div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+                                        Student Filters
+                                        <span className="normal-case font-semibold text-slate-400"> · multi-select · Excel auto-checks matched courses/batches</span>
+                                    </div>
                                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-bold text-slate-600">College *</label>
-                                            <div className="relative">
-                                                <select name="college" value={formData.college} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
-                                                    <option value="">Select</option>
-                                                    {Object.keys(metadata.hierarchy).map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-bold text-slate-600">Course *</label>
-                                            <div className="relative">
-                                                <select name="course" value={formData.course} onChange={handleInputChange} required disabled={!formData.college} className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none disabled:opacity-50 cursor-pointer">
-                                                    <option value="">Select</option>
-                                                    {formData.college && metadata.hierarchy[formData.college] && Object.keys(metadata.hierarchy[formData.college]).map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                            </div>
-                                        </div>
+                                        <MultiCheckDropdown
+                                            label="College"
+                                            required
+                                            options={availableCollegeOptions}
+                                            selected={formData.colleges || []}
+                                            onChange={(vals) => setScopeField('colleges', vals)}
+                                            placeholder="Select college(s)"
+                                            readOnly={studentsLocked}
+                                        />
+                                        <MultiCheckDropdown
+                                            label="Course"
+                                            required
+                                            options={availableCourseOptions}
+                                            selected={formData.courses || []}
+                                            onChange={(vals) => setScopeField('courses', vals)}
+                                            placeholder={(formData.colleges || []).length ? 'Select course(s)' : 'Select college first'}
+                                            disabled={!(formData.colleges || []).length && !studentsLocked}
+                                            readOnly={studentsLocked}
+                                        />
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold text-slate-600">Caste</label>
                                             <div className="relative">
-                                                <select name="caste" value={formData.caste || ''} onChange={handleInputChange} className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                                <select name="caste" value={formData.caste || ''} onChange={handleInputChange} disabled={studentsLocked} className="w-full px-3 py-2 pr-8 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer disabled:opacity-60">
                                                     <option value="">All Castes</option>
                                                     {metadata.castes?.map(c => <option key={c} value={c}>{c}</option>)}
                                                 </select>
                                                 <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                             </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-bold text-slate-600">Batch</label>
-                                            <div className="relative">
-                                                <select name="batch" value={formData.batch} onChange={handleInputChange} className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
-                                                    <option value="">All Batches</option>
-                                                    {metadata.batches?.map(b => <option key={b} value={b}>{b}</option>)}
-                                                </select>
-                                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                            </div>
-                                        </div>
+                                        <MultiCheckDropdown
+                                            label="Batch"
+                                            options={availableBatchOptions}
+                                            selected={formData.batches || []}
+                                            onChange={(vals) => setScopeField('batches', vals)}
+                                            placeholder="All batches"
+                                            readOnly={studentsLocked}
+                                        />
                                         <button type="button" onClick={() => handleLoadStudents()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
                                             {loadingStudents ? <><Loader2 size={16} className="animate-spin" /> Loading...</> : <><Users size={16} /> Load Students</>}
                                         </button>
-                                        <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplicationExcelUpload} />
-                                        <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel with Application ID and optional Share/Amount columns (flexible header names)">
-                                            {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by Excel</>}
+                                        <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={handleApplicationExcelUpload} />
+                                        <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel or PDF: Student ID + optional Released Amount">
+                                            {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by File</>}
                                         </button>
                                     </div>
+                                    {((formData.colleges || []).length > 1 || (formData.courses || []).length > 1 || (formData.batches || []).length > 1) && (
+                                        <div className="mt-3 text-[11px] text-indigo-700 font-semibold bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+                                            Multi-scope: {(formData.colleges || []).join(', ') || '—'}
+                                            {(formData.courses || []).length ? ` · ${(formData.courses || []).join(', ')}` : ''}
+                                            {(formData.batches || []).length ? ` · Batch ${(formData.batches || []).join(', ')}` : ''}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {renderExcelImportSummaryPanel()}
@@ -1921,6 +2453,8 @@ const Proceedings = () => {
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Course</th>
+                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
                                                         <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Caste</th>
@@ -1936,6 +2470,8 @@ const Proceedings = () => {
                                                             <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
                                                             <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
+                                                            <td className="p-2 text-xs text-slate-600">{s.course || '-'}</td>
+                                                            <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.caste || '-'}</td>
@@ -2377,8 +2913,8 @@ const Proceedings = () => {
                                             color: 'blue',
                                             points: [
                                                 'Open Create Proceeding and enter Proceeding Number, Date, Academic Year, and Proceeding Amount (fixed at top).',
-                                                'Select College / Course (and optional Caste / Batch), then Load Students or Load by Excel.',
-                                                'Excel: flexible columns for Application ID and Share Amount. Unmatched IDs and missing shares are reported after upload.',
+                                                'Select College / Course via multi-select checkboxes for normal Load Students, or Load by File (Excel/PDF — auto-checks matched courses/batches).',
+                                                'File columns/fields: Student ID / Application ID and optional Released Amount — matches across courses & batches into one proceeding.',
                                                 'Students are not selected by default when using Load Students — filter by quota and select manually.',
                                                 'Click Confirm Selection & Enter Amounts to lock the list.',
                                                 'Enter a share amount for every student (must be greater than zero).',
@@ -2553,56 +3089,63 @@ const Proceedings = () => {
                             </div>
 
                             <div className="bg-slate-50 rounded-xl p-4 mb-4">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Student Filters</div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+                                    Student Filters
+                                    <span className="normal-case font-semibold text-slate-400"> · multi-select · Excel auto-checks matched courses/batches</span>
+                                </div>
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-bold text-slate-600">College *</label>
-                                        <div className="relative">
-                                            <select name="college" value={formData.college} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
-                                                <option value="">Select</option>
-                                                {Object.keys(metadata.hierarchy).map(c => <option key={c} value={c}>{c}</option>)}
-                                            </select>
-                                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-bold text-slate-600">Course *</label>
-                                        <div className="relative">
-                                            <select name="course" value={formData.course} onChange={handleInputChange} required disabled={!formData.college} className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none disabled:opacity-50 cursor-pointer">
-                                                <option value="">Select</option>
-                                                {formData.college && metadata.hierarchy[formData.college] && Object.keys(metadata.hierarchy[formData.college]).map(c => <option key={c} value={c}>{c}</option>)}
-                                            </select>
-                                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                        </div>
-                                    </div>
+                                    <MultiCheckDropdown
+                                        label="College"
+                                        required
+                                        options={availableCollegeOptions}
+                                        selected={formData.colleges || []}
+                                        onChange={(vals) => setScopeField('colleges', vals)}
+                                        placeholder="Select college(s)"
+                                        readOnly={studentsLocked}
+                                    />
+                                    <MultiCheckDropdown
+                                        label="Course"
+                                        required
+                                        options={availableCourseOptions}
+                                        selected={formData.courses || []}
+                                        onChange={(vals) => setScopeField('courses', vals)}
+                                        placeholder={(formData.colleges || []).length ? 'Select course(s)' : 'Select college first'}
+                                        disabled={!(formData.colleges || []).length && !studentsLocked}
+                                        readOnly={studentsLocked}
+                                    />
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Caste</label>
                                         <div className="relative">
-                                            <select name="caste" value={formData.caste || ''} onChange={handleInputChange} className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                            <select name="caste" value={formData.caste || ''} onChange={handleInputChange} disabled={studentsLocked} className="w-full px-3 py-2 pr-8 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer disabled:opacity-60">
                                                 <option value="">All Castes</option>
                                                 {metadata.castes?.map(c => <option key={c} value={c}>{c}</option>)}
                                             </select>
                                             <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                         </div>
                                     </div>
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-bold text-slate-600">Batch</label>
-                                        <div className="relative">
-                                            <select name="batch" value={formData.batch} onChange={handleInputChange} className="w-full px-3 py-2 pr-8 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
-                                                <option value="">All Batches</option>
-                                                {metadata.batches?.map(b => <option key={b} value={b}>{b}</option>)}
-                                            </select>
-                                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                        </div>
-                                    </div>
+                                    <MultiCheckDropdown
+                                        label="Batch"
+                                        options={availableBatchOptions}
+                                        selected={formData.batches || []}
+                                        onChange={(vals) => setScopeField('batches', vals)}
+                                        placeholder="All batches"
+                                        readOnly={studentsLocked}
+                                    />
                                     <button type="button" onClick={() => handleLoadStudents()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
                                         {loadingStudents ? <><Loader2 size={16} className="animate-spin" /> Loading...</> : <><Users size={16} /> Load Students</>}
                                     </button>
-                                    <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleApplicationExcelUpload} />
-                                    <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel with Application ID and optional Share/Amount columns (flexible header names)">
-                                        {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by Excel</>}
+                                    <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={handleApplicationExcelUpload} />
+                                    <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel or PDF: Student ID + optional Released Amount">
+                                        {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by File</>}
                                     </button>
                                 </div>
+                                {((formData.colleges || []).length > 1 || (formData.courses || []).length > 1 || (formData.batches || []).length > 1) && (
+                                    <div className="mt-3 text-[11px] text-indigo-700 font-semibold bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+                                        Multi-scope: {(formData.colleges || []).join(', ') || '—'}
+                                        {(formData.courses || []).length ? ` · ${(formData.courses || []).join(', ')}` : ''}
+                                        {(formData.batches || []).length ? ` · Batch ${(formData.batches || []).join(', ')}` : ''}
+                                    </div>
+                                )}
                             </div>
 
                             {renderExcelImportSummaryPanel()}
@@ -2632,6 +3175,8 @@ const Proceedings = () => {
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
+                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Course</th>
+                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
                                                     <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Caste</th>
@@ -2647,6 +3192,8 @@ const Proceedings = () => {
                                                         <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                         <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
                                                         <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
+                                                        <td className="p-2 text-xs text-slate-600">{s.course || '-'}</td>
+                                                        <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
                                                         <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.caste || '-'}</td>

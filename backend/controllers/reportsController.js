@@ -20,6 +20,35 @@ const formatLocalDate = (date) => {
 
 const cleanReportField = (val) => (val && val !== 'undefined' && val !== 'null' && String(val).trim() !== '') ? String(val).trim() : null;
 
+/** RTF / proceeding receipts — keep in transaction lists, never in Cash/Bank collection totals. */
+const isRtfTransaction = (tx) =>
+    !!tx && (tx.paymentMode === 'RTF' || !!tx.proceedingId);
+
+const isBankCollectionTx = (tx) =>
+    !!tx && tx.paymentMode !== 'Cash' && !isRtfTransaction(tx);
+
+const isCashCollectionTx = (tx) =>
+    !!tx && tx.paymentMode === 'Cash';
+
+/** Mongo $cond: DEBIT bank/online collection (excludes Cash + RTF/proceeding). */
+const mongoBankCollectionCond = {
+    $and: [
+        { $eq: ['$transactionType', 'DEBIT'] },
+        { $ne: ['$paymentMode', 'Cash'] },
+        { $ne: ['$paymentMode', 'RTF'] },
+        { $eq: [{ $ifNull: ['$proceedingId', null] }, null] }
+    ]
+};
+
+/** Mongo $cond: DEBIT collected amount (Cash + Bank, excludes RTF). */
+const mongoCollectedDebitCond = {
+    $and: [
+        { $eq: ['$transactionType', 'DEBIT'] },
+        { $ne: ['$paymentMode', 'RTF'] },
+        { $eq: [{ $ifNull: ['$proceedingId', null] }, null] }
+    ]
+};
+
 /** Attach proceedingNumber onto lean transaction docs (for RTF report tables). */
 const attachProceedingNumbers = async (transactions) => {
     if (!Array.isArray(transactions) || transactions.length === 0) return transactions;
@@ -356,7 +385,8 @@ const getTransactionReports = async (req, res) => {
                 const amount = tx.amount || 0;
                 const isDebit = tx.transactionType === 'DEBIT';
                 const isCredit = tx.transactionType === 'CREDIT';
-                const isCash = tx.paymentMode === 'Cash';
+                const isCash = isCashCollectionTx(tx);
+                const isBank = isBankCollectionTx(tx);
                 const isCancelled = tx.status === 'cancelled';
 
                 const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -384,9 +414,11 @@ const getTransactionReports = async (req, res) => {
                 if (!isCancelled) {
                     group.totalCount++;
                     if (isDebit) {
-                        group.debitAmount += amount;
-                        if (isCash) group.cashAmount += amount;
-                        else group.bankAmount += amount;
+                        if (isCash || isBank) {
+                            group.debitAmount += amount;
+                            if (isCash) group.cashAmount += amount;
+                            else group.bankAmount += amount;
+                        }
                     }
                     if (isCredit) {
                         group.creditAmount += amount;
@@ -572,7 +604,8 @@ const getTransactionReports = async (req, res) => {
                 const amt = tx.amount || 0;
                 const isDebit = tx.transactionType === 'DEBIT';
                 const isCredit = tx.transactionType === 'CREDIT';
-                const isCash = tx.paymentMode === 'Cash';
+                const isCash = isCashCollectionTx(tx);
+                const isBank = isBankCollectionTx(tx);
                 const isCancelled = tx.status === 'cancelled';
                 const sId = String(tx.studentId || '').trim();
                 const sData = fhStudentDataMap[sId] || fhStudentDataMap[sId.toLowerCase()] || {};
@@ -584,10 +617,19 @@ const getTransactionReports = async (req, res) => {
                 }
 
                 if (!isCancelled) {
-                    group.totalAmount += amt;
                     group.count++;
-                    if (isDebit) { group.debitAmount += amt; if (isCash) group.cashAmount += amt; else group.bankAmount += amt; }
-                    if (isCredit) group.creditAmount += amt;
+                    if (isDebit) {
+                        if (isCash || isBank) {
+                            group.totalAmount += amt;
+                            group.debitAmount += amt;
+                            if (isCash) group.cashAmount += amt;
+                            else group.bankAmount += amt;
+                        }
+                    }
+                    if (isCredit) {
+                        group.totalAmount += amt;
+                        group.creditAmount += amt;
+                    }
                 }
                 group.transactions.push({
                     _id: tx._id,
@@ -744,7 +786,8 @@ const getTransactionReports = async (req, res) => {
                 const amount = tx.amount || 0;
                 const isDebit = tx.transactionType === 'DEBIT';
                 const isCredit = tx.transactionType === 'CREDIT';
-                const isCash = tx.paymentMode === 'Cash';
+                const isCash = isCashCollectionTx(tx);
+                const isBank = isBankCollectionTx(tx);
                 const isCancelled = tx.status === 'cancelled';
 
                 const normalizedCashierName = cashier.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -774,9 +817,11 @@ const getTransactionReports = async (req, res) => {
                     group.totalCount++;
                     group.count++;
                     if (isDebit) {
-                        group.debitAmount += amount;
-                        if (isCash) group.cashAmount += amount;
-                        else group.bankAmount += amount;
+                        if (isCash || isBank) {
+                            group.debitAmount += amount;
+                            if (isCash) group.cashAmount += amount;
+                            else group.bankAmount += amount;
+                        }
                     }
                     if (isCredit) {
                         group.creditAmount += amount;
@@ -831,23 +876,25 @@ const getTransactionReports = async (req, res) => {
                     const cashierEntry = group.cashiersMap[cashierKey];
                     cashierEntry.count++;
                     if (isDebit) {
-                        cashierEntry.netTotal += amount;
-                        if (isCash) cashierEntry.cashAmount += amount;
-                        else cashierEntry.bankAmount += amount;
+                        if (isCash || isBank) {
+                            cashierEntry.netTotal += amount;
+                            if (isCash) cashierEntry.cashAmount += amount;
+                            else cashierEntry.bankAmount += amount;
 
-                        // Track cashier's fee heads for this college
-                        if (!cashierEntry.feeHeadsMap[fhName]) {
-                            cashierEntry.feeHeadsMap[fhName] = {
-                                name: fhName,
-                                cashAmount: 0,
-                                bankAmount: 0,
-                                netTotal: 0
-                            };
+                            // Track cashier's fee heads for this college
+                            if (!cashierEntry.feeHeadsMap[fhName]) {
+                                cashierEntry.feeHeadsMap[fhName] = {
+                                    name: fhName,
+                                    cashAmount: 0,
+                                    bankAmount: 0,
+                                    netTotal: 0
+                                };
+                            }
+                            const cfh = cashierEntry.feeHeadsMap[fhName];
+                            cfh.netTotal += amount;
+                            if (isCash) cfh.cashAmount += amount;
+                            else cfh.bankAmount += amount;
                         }
-                        const cfh = cashierEntry.feeHeadsMap[fhName];
-                        cfh.netTotal += amount;
-                        if (isCash) cfh.cashAmount += amount;
-                        else cfh.bankAmount += amount;
                     } else if (isCredit) {
                         cashierEntry.creditAmount += amount;
                     }
@@ -892,10 +939,10 @@ const getTransactionReports = async (req, res) => {
                 // College-level fee head summary
                 const collegeFeeHeadsMap = {};
                 group.transactions.forEach(tx => {
-                    if (tx.status !== 'cancelled' && tx.transactionType === 'DEBIT') {
+                    if (tx.status !== 'cancelled' && tx.transactionType === 'DEBIT' && !isRtfTransaction(tx)) {
                         const fhName = tx.feeHead || 'Unknown';
                         const amt = tx.amount || 0;
-                        const isCash = tx.paymentMode === 'Cash';
+                        const isCash = isCashCollectionTx(tx);
 
                         if (!collegeFeeHeadsMap[fhName]) {
                             collegeFeeHeadsMap[fhName] = {
@@ -908,7 +955,7 @@ const getTransactionReports = async (req, res) => {
                         const cfh = collegeFeeHeadsMap[fhName];
                         cfh.netTotal += amt;
                         if (isCash) cfh.cashAmount += amt;
-                        else cfh.bankAmount += amt;
+                        else if (isBankCollectionTx(tx)) cfh.bankAmount += amt;
                     }
                 });
                 group.feeHeads = Object.values(collegeFeeHeadsMap).sort((a, b) => b.netTotal - a.netTotal);
@@ -1096,7 +1143,8 @@ const getTransactionReports = async (req, res) => {
                 const amount = tx.amount || 0;
                 const isDebit = tx.transactionType === 'DEBIT';
                 const isCredit = tx.transactionType === 'CREDIT';
-                const isCash = tx.paymentMode === 'Cash';
+                const isCash = isCashCollectionTx(tx);
+                const isBank = isBankCollectionTx(tx);
                 const isCancelled = tx.status === 'cancelled';
                 const fhId = tx.feeHead ? tx.feeHead.toString() : 'unknown';
                 const fhName = feeHeadMap[fhId] || 'Unknown Fee Head';
@@ -1113,9 +1161,11 @@ const getTransactionReports = async (req, res) => {
                     group.totalCount++;
                     group.count++;
                     if (isDebit) {
-                        group.debitAmount += amount;
-                        if (isCash) group.cashAmount += amount;
-                        else group.bankAmount += amount;
+                        if (isCash || isBank) {
+                            group.debitAmount += amount;
+                            if (isCash) group.cashAmount += amount;
+                            else group.bankAmount += amount;
+                        }
                     }
                     if (isCredit) {
                         group.creditAmount += amount;
@@ -1175,10 +1225,14 @@ const getTransactionReports = async (req, res) => {
                         _id: groupId,
                         totalAmount: { $sum: "$amount" }, // Grand Total (Collected + Concession)
                         count: { $sum: 1 },
-                        debitAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "DEBIT"] }, "$amount", 0] } }, // Collected
+                        debitAmount: {
+                            $sum: {
+                                $cond: [mongoCollectedDebitCond, '$amount', 0]
+                            }
+                        }, // Collected (excludes RTF)
                         creditAmount: { $sum: { $cond: [{ $eq: ["$transactionType", "CREDIT"] }, "$amount", 0] } }, // Concession
 
-                        // FIX: Cash and Bank should ONLY count DEBIT transactions (Real Money)
+                        // FIX: Cash and Bank should ONLY count DEBIT transactions (Real Money); RTF excluded from bank
                         cashAmount: {
                             $sum: {
                                 $cond: [
@@ -1190,11 +1244,7 @@ const getTransactionReports = async (req, res) => {
                         },
                         bankAmount: {
                             $sum: {
-                                $cond: [
-                                    { $and: [{ $eq: ["$transactionType", "DEBIT"] }, { $ne: ["$paymentMode", "Cash"] }] },
-                                    "$amount",
-                                    0
-                                ]
+                                $cond: [mongoBankCollectionCond, '$amount', 0]
                             }
                         },
                         transactions: {
@@ -2196,12 +2246,37 @@ const getDashboardStats = async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    total: { $sum: "$amount" },
+                    total: {
+                        $sum: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $ne: ['$paymentMode', 'RTF'] },
+                                        { $eq: [{ $ifNull: ['$proceedingId', null] }, null] }
+                                    ]
+                                },
+                                '$amount',
+                                0
+                            ]
+                        }
+                    },
                     cash: {
                         $sum: { $cond: [{ $eq: ["$paymentMode", "Cash"] }, "$amount", 0] }
                     },
                     online: {
-                        $sum: { $cond: [{ $ne: ["$paymentMode", "Cash"] }, "$amount", 0] }
+                        $sum: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $ne: ['$paymentMode', 'Cash'] },
+                                        { $ne: ['$paymentMode', 'RTF'] },
+                                        { $eq: [{ $ifNull: ['$proceedingId', null] }, null] }
+                                    ]
+                                },
+                                '$amount',
+                                0
+                            ]
+                        }
                     }
                 }
             }

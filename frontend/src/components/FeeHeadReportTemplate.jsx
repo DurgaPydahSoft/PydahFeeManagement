@@ -1,4 +1,5 @@
 import React, { forwardRef } from 'react';
+import { isRtfTransaction, isBankCollectionTx, isCashCollectionTx } from '../utils/reportTxHelpers';
 
 const PRINT_STYLES = `
     @page { size: A4 portrait; margin: 10mm; }
@@ -27,35 +28,36 @@ const SingleFeeHeadReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
 
     const debitTxns = activeTransactions.filter(tx => tx.transactionType === 'DEBIT');
     const creditTxns = activeTransactions.filter(tx => tx.transactionType === 'CREDIT');
-    const cashTotal  = debitTxns.filter(tx => tx.paymentMode === 'Cash').reduce((s, tx) => s + (tx.amount || 0), 0);
-    const bankTotal  = debitTxns.filter(tx => tx.paymentMode !== 'Cash').reduce((s, tx) => s + (tx.amount || 0), 0);
+    const collectionDebits = debitTxns.filter(tx => !isRtfTransaction(tx));
+    const cashTotal  = collectionDebits.filter(tx => isCashCollectionTx(tx)).reduce((s, tx) => s + (tx.amount || 0), 0);
+    const bankTotal  = collectionDebits.filter(tx => isBankCollectionTx(tx)).reduce((s, tx) => s + (tx.amount || 0), 0);
     const netTotal   = cashTotal + bankTotal;
     const concessionTotal = creditTxns.reduce((s, tx) => s + (tx.amount || 0), 0);
 
     // ── College-wise summary ───────────────────────────────────────────
     const collegeMap = {};
-    debitTxns.forEach(tx => {
+    collectionDebits.forEach(tx => {
         const col = tx.college || 'Unknown';
         if (!collegeMap[col]) collegeMap[col] = { cash: 0, bank: 0, total: 0, count: 0 };
-        const isCash = tx.paymentMode === 'Cash';
+        const isCash = isCashCollectionTx(tx);
         collegeMap[col].count++;
         collegeMap[col].total += tx.amount || 0;
         if (isCash) collegeMap[col].cash += tx.amount || 0;
-        else        collegeMap[col].bank += tx.amount || 0;
+        else if (isBankCollectionTx(tx)) collegeMap[col].bank += tx.amount || 0;
     });
     const sortedColleges = Object.entries(collegeMap).sort(([, a], [, b]) => b.total - a.total);
 
     // ── User-wise (cashier) summary ────────────────────────────────────
     const userMap = {};
-    debitTxns.forEach(tx => {
+    collectionDebits.forEach(tx => {
         const key  = (tx.collectedBy || tx.collectedByName || 'Unknown').trim();
         const name = (tx.collectedByName || tx.collectedBy || 'Unknown').trim();
         if (!userMap[key]) userMap[key] = { name, cash: 0, bank: 0, total: 0, count: 0 };
-        const isCash = tx.paymentMode === 'Cash';
+        const isCash = isCashCollectionTx(tx);
         userMap[key].count++;
         userMap[key].total += tx.amount || 0;
         if (isCash) userMap[key].cash += tx.amount || 0;
-        else        userMap[key].bank += tx.amount || 0;
+        else if (isBankCollectionTx(tx)) userMap[key].bank += tx.amount || 0;
     });
     const sortedUsers = Object.values(userMap).sort((a, b) => b.total - a.total);
 
@@ -76,7 +78,7 @@ const SingleFeeHeadReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     const TxTable = ({ txns, snoStart = 1 }) => {
         const debit  = txns.filter(t => t.transactionType !== 'CREDIT');
         const subtotal = debit.reduce((s, t) => s + (t.amount || 0), 0);
-        const hasRtf = txns.some(t => t.paymentMode === 'RTF' || t.proceedingId || t.proceedingNumber);
+        const hasRtf = txns.some(t => isRtfTransaction(t));
         return (
             <table className="print-table" style={{ marginBottom: '10px' }}>
                 <thead>

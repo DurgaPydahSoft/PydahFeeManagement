@@ -1,4 +1,5 @@
 import React, { forwardRef } from 'react';
+import { isRtfTransaction, isBankCollectionTx, isCashCollectionTx } from '../utils/reportTxHelpers';
 
 const matchesPaymentMode = (tx, mode = 'all') => {
     if (mode === 'all' || !mode || mode === 'none') return mode !== 'none';
@@ -38,23 +39,25 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     const cancelledTransactions = filteredTransactions.filter(tx => tx.status === 'cancelled');
     const editedTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled' && tx.updatedAt && tx.createdAt && (new Date(tx.updatedAt).getTime() - new Date(tx.createdAt).getTime() > 10000));
 
-    // Summary Data for display (using active transactions only)
+    const collectionDebits = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && !isRtfTransaction(tx));
+
+    // Summary Data for display (using active transactions only; RTF excluded from collection)
     const displayData = {
         totalCount: activeTransactions.length,
-        debitAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        debitAmount: collectionDebits.reduce((acc, tx) => acc + (tx.amount || 0), 0),
         creditAmount: activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        cashAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        bankAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        cashAmount: collectionDebits.filter(tx => isCashCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        bankAmount: collectionDebits.filter(tx => isBankCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0),
     };
 
     // 1. Pivot Data for College-wise Breakdown from filtered transactions
     const collegeData = {};
 
     filteredTransactions.forEach(tx => {
-        if (tx.transactionType === 'DEBIT') {
+        if (tx.transactionType === 'DEBIT' && !isRtfTransaction(tx)) {
             const fhName = tx.feeHead || 'Unknown';
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
 
             const colName = tx.college || 'Unknown';
             const courseName = tx.course || 'N/A';
@@ -75,7 +78,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                 fhEntry.cash += amount;
                 collegeData[colName].courses[courseName].cash += amount;
                 collegeData[colName].cash += amount;
-            } else {
+            } else if (isBankCollectionTx(tx)) {
                 fhEntry.bank += amount;
                 collegeData[colName].courses[courseName].bank += amount;
                 collegeData[colName].bank += amount;
@@ -272,7 +275,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* 3. Fee Head-wise Summary — shown only when abstract is selected and detailed transactions are hidden */}
             {showSummary && showDetails === false && (() => {
                 const feeHeadMap = {};
-                activeTransactions.filter(tx => tx.transactionType === 'DEBIT').forEach(tx => {
+                activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && !isRtfTransaction(tx)).forEach(tx => {
                     const fhName = tx.feeHead || 'Unknown';
                     if (!feeHeadMap[fhName]) {
                         feeHeadMap[fhName] = { cash: 0, bank: 0, total: 0, count: 0 };
@@ -280,8 +283,8 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     const amt = tx.amount || 0;
                     feeHeadMap[fhName].total += amt;
                     feeHeadMap[fhName].count += 1;
-                    if (tx.paymentMode === 'Cash') feeHeadMap[fhName].cash += amt;
-                    else feeHeadMap[fhName].bank += amt;
+                    if (isCashCollectionTx(tx)) feeHeadMap[fhName].cash += amt;
+                    else if (isBankCollectionTx(tx)) feeHeadMap[fhName].bank += amt;
                 });
                 const feeHeadRows = Object.entries(feeHeadMap)
                     .sort((a, b) => b[1].total - a[1].total);
@@ -336,7 +339,7 @@ const SingleCashierReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
                     }
                     if (tx.paymentMode === 'Cash') {
                         grouped[col][course].cash.push(tx);
-                    } else if (tx.paymentMode === 'RTF' || tx.proceedingId) {
+                    } else if (isRtfTransaction(tx)) {
                         grouped[col][course].rtf.push(tx);
                     } else {
                         grouped[col][course].bank.push(tx);
@@ -623,10 +626,9 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         const filteredTransactions = filterReportTransactions(rawTransactions, { mode, allowedFeeHeads })
             .filter(tx => tx.status !== 'cancelled');
 
-        const cashAmt       = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const bankAmt       = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const cashAmt       = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && isCashCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const bankAmt       = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && isBankCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0);
         const concessionAmt = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const totalDebit    = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
         // Count all active transactions (DEBIT + CREDIT, non-cancelled)
         const receiptsCount = filteredTransactions.length;
 
@@ -637,7 +639,7 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             cashAmt,
             bankAmt,
             concessionAmt,
-            netTotal: totalDebit
+            netTotal: cashAmt + bankAmt
         };
     });
 
@@ -664,11 +666,12 @@ const GlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         
         const amt = tx.amount || 0;
         if (tx.transactionType === 'DEBIT') {
-            collegeSummaryMap[collegeName].netTotal += amt;
-            if (tx.paymentMode === 'Cash') {
+            if (isCashCollectionTx(tx)) {
                 collegeSummaryMap[collegeName].cashAmt += amt;
-            } else {
+                collegeSummaryMap[collegeName].netTotal += amt;
+            } else if (isBankCollectionTx(tx)) {
                 collegeSummaryMap[collegeName].bankAmt += amt;
+                collegeSummaryMap[collegeName].netTotal += amt;
             }
         } else if (tx.transactionType === 'CREDIT') {
             collegeSummaryMap[collegeName].concessionAmt += amt;

@@ -1,4 +1,5 @@
 import React, { forwardRef, Fragment } from 'react';
+import { isRtfTransaction, isBankCollectionTx, isCashCollectionTx } from '../utils/reportTxHelpers';
 
 const paymentVisibility = (options = {}) => {
     const { mode = 'all', includeCash, includeBank } = options;
@@ -31,42 +32,40 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
     const cancelledTransactions = filteredTransactions.filter(tx => tx.status === 'cancelled');
     const editedTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled' && tx.updatedAt && tx.createdAt && (new Date(tx.updatedAt).getTime() - new Date(tx.createdAt).getTime() > 10000));
+    const collectionDebits = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && !isRtfTransaction(tx));
 
     // Recompute fee head summary based on active transactions for this college
     const feeHeadData = {};
-    activeTransactions.forEach(tx => {
-        if (tx.transactionType === 'DEBIT') {
-            const fhName = tx.feeHead || 'Unknown';
-            const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+    collectionDebits.forEach(tx => {
+        const fhName = tx.feeHead || 'Unknown';
+        const amount = tx.amount || 0;
+        const isCash = isCashCollectionTx(tx);
 
-            if (!feeHeadData[fhName]) {
-                feeHeadData[fhName] = {
-                    name: fhName,
-                    cashAmt: 0,
-                    bankAmt: 0,
-                    netTotal: 0
-                };
-            }
-            const entry = feeHeadData[fhName];
-            entry.netTotal += amount;
-            if (isCash) entry.cashAmt += amount;
-            else entry.bankAmt += amount;
+        if (!feeHeadData[fhName]) {
+            feeHeadData[fhName] = {
+                name: fhName,
+                cashAmt: 0,
+                bankAmt: 0,
+                netTotal: 0
+            };
         }
+        const entry = feeHeadData[fhName];
+        entry.netTotal += amount;
+        if (isCash) entry.cashAmt += amount;
+        else if (isBankCollectionTx(tx)) entry.bankAmt += amount;
     });
     const sortedFeeHeads = Object.values(feeHeadData).sort((a, b) => b.netTotal - a.netTotal);
 
     // Recompute Course > User > FeeHead hierarchical breakdown for this college
     const courseHierarchy = {};
-    activeTransactions.forEach(tx => {
-        if (tx.transactionType === 'DEBIT') {
+    collectionDebits.forEach(tx => {
             const courseName = tx.course || 'Unknown Course';
             const username = tx.collectedBy || 'Unknown';
             const cashierName = tx.collectedByName || 'Unknown';
             const empNo = tx.empNo || username;
             const fhName = tx.feeHead || 'Unknown';
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
 
             if (!courseHierarchy[courseName]) {
                 courseHierarchy[courseName] = {
@@ -82,7 +81,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             courseEntry.count++;
             courseEntry.netTotal += amount;
             if (isCash) courseEntry.cashAmt += amount;
-            else courseEntry.bankAmt += amount;
+            else if (isBankCollectionTx(tx)) courseEntry.bankAmt += amount;
 
             const cashierKey = String(empNo || username).trim().toLowerCase();
             if (!courseEntry.cashiers[cashierKey]) {
@@ -101,7 +100,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             cashierEntry.count++;
             cashierEntry.netTotal += amount;
             if (isCash) cashierEntry.cashAmt += amount;
-            else cashierEntry.bankAmt += amount;
+            else if (isBankCollectionTx(tx)) cashierEntry.bankAmt += amount;
 
             if (!cashierEntry.feeHeads[fhName]) {
                 cashierEntry.feeHeads[fhName] = {
@@ -114,8 +113,7 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             const fhEntry = cashierEntry.feeHeads[fhName];
             fhEntry.netTotal += amount;
             if (isCash) fhEntry.cashAmt += amount;
-            else fhEntry.bankAmt += amount;
-        }
+            else if (isBankCollectionTx(tx)) fhEntry.bankAmt += amount;
     });
 
     const sortedHierarchy = Object.values(courseHierarchy).map(course => {
@@ -126,13 +124,13 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
         return course;
     }).sort((a, b) => b.netTotal - a.netTotal);
 
-    // Totals for this college (using active transactions only)
+    // Totals for this college (using active transactions only; RTF excluded from collection)
     const displayData = {
         totalCount: activeTransactions.length,
-        debitAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        debitAmount: collectionDebits.reduce((acc, tx) => acc + (tx.amount || 0), 0),
         creditAmount: activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        cashAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        bankAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        cashAmount: collectionDebits.filter(tx => isCashCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        bankAmount: collectionDebits.filter(tx => isBankCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0),
     };
 
     return (
@@ -319,8 +317,8 @@ const SingleCollegeReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Individual Transactions for this College — Cash, Bank, then RTF */}
             {showDetails && activeTransactions.length > 0 && (() => {
                 const cashTxs = activeTransactions.filter(tx => tx.paymentMode === 'Cash');
-                const rtfTxs = activeTransactions.filter(tx => tx.paymentMode === 'RTF' || tx.proceedingId);
-                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash' && tx.paymentMode !== 'RTF' && !tx.proceedingId);
+                const rtfTxs = activeTransactions.filter(tx => isRtfTransaction(tx));
+                const bankTxs = activeTransactions.filter(tx => isBankCollectionTx(tx));
                 const txTableHead = (
                     <thead>
                         <tr>
@@ -589,7 +587,8 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 const cashierName = tx.collectedByName || tx.collectedBy || 'Unknown';
                 const empNo = tx.empNo || cashierUsername;
                 const amount = tx.amount || 0;
-                const isCash = tx.paymentMode === 'Cash';
+                const isCash = isCashCollectionTx(tx);
+                const isBank = isBankCollectionTx(tx);
 
                 const cashierKey = String(empNo || cashierUsername).trim().toLowerCase();
 
@@ -607,18 +606,22 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 const cashierEntry = globalCashierData[cashierKey];
                 cashierEntry.receiptsCount++;
                 if (tx.transactionType === 'DEBIT') {
-                    cashierEntry.netTotal += amount;
-                    if (isCash) cashierEntry.cashAmt += amount;
-                    else cashierEntry.bankAmt += amount;
+                    if (isCash) {
+                        cashierEntry.cashAmt += amount;
+                        cashierEntry.netTotal += amount;
+                    } else if (isBank) {
+                        cashierEntry.bankAmt += amount;
+                        cashierEntry.netTotal += amount;
+                    }
                 } else if (tx.transactionType === 'CREDIT') {
                     cashierEntry.concessionAmt += amount;
                 }
             }
 
-            if (tx.transactionType === 'DEBIT' && tx.status !== 'cancelled') {
+            if (tx.transactionType === 'DEBIT' && tx.status !== 'cancelled' && !isRtfTransaction(tx)) {
                 const courseName = tx.course || 'Unknown Course';
                 const amount = tx.amount || 0;
-                const isCash = tx.paymentMode === 'Cash';
+                const isCash = isCashCollectionTx(tx);
 
                 if (!globalCourseData[courseName]) {
                     globalCourseData[courseName] = {
@@ -631,7 +634,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
                 const courseEntry = globalCourseData[courseName];
                 courseEntry.netTotal += amount;
                 if (isCash) courseEntry.cashAmt += amount;
-                else courseEntry.bankAmt += amount;
+                else if (isBankCollectionTx(tx)) courseEntry.bankAmt += amount;
             }
         });
     });
@@ -658,10 +661,9 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
         // Exclude cancelled transactions for totals and user mapping in this college
         const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
 
-        const cashAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const bankAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const cashAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && isCashCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0);
+        const bankAmt = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && isBankCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0);
         const concessionAmt = activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
-        const totalDebit = activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0);
 
         // User-wise breakdown within this college
         const usersMap = {};
@@ -670,7 +672,8 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             const displayName = tx.collectedByName || tx.collectedBy || 'Unknown';
             const empNo = tx.empNo || username;
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
+            const isBank = isBankCollectionTx(tx);
 
             const userKey = String(empNo || username).trim().toLowerCase();
 
@@ -687,9 +690,13 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             const u = usersMap[userKey];
             u.receiptsCount += 1;
             if (tx.transactionType === 'DEBIT') {
-                u.netTotal += amount;
-                if (isCash) u.cashAmt += amount;
-                else u.bankAmt += amount;
+                if (isCash) {
+                    u.cashAmt += amount;
+                    u.netTotal += amount;
+                } else if (isBank) {
+                    u.bankAmt += amount;
+                    u.netTotal += amount;
+                }
             }
         });
 
@@ -699,7 +706,7 @@ const CollegeGlobalSummaryPage = ({ data, dateRange, options = {} }) => {
             cashAmt,
             bankAmt,
             concessionAmt,
-            netTotal: totalDebit,
+            netTotal: cashAmt + bankAmt,
             users: Object.values(usersMap).sort((a, b) => b.netTotal - a.netTotal)
         };
     });

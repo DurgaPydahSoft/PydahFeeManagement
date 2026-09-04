@@ -27,6 +27,7 @@ import CollegeReportTemplate from '../components/CollegeReportTemplate';
 import AccountReportTemplate from '../components/AccountReportTemplate';
 import FeeHeadReportTemplate from '../components/FeeHeadReportTemplate';
 import { useCampuses } from '../hooks/useCampuses';
+import { isRtfTransaction, isBankCollectionTx, isCashCollectionTx } from '../utils/reportTxHelpers';
 
 // PrintTriggerComponent was removed
 
@@ -779,20 +780,21 @@ const Reports = () => {
         });
 
         const totalReceipts = filteredTransactions.length;
-        const cashAmount = filteredTransactions.filter(tx => tx.paymentMode === 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
-        const bankAmount = filteredTransactions.filter(tx => tx.paymentMode !== 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const collectionDebits = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && !isRtfTransaction(tx));
+        const cashAmount = collectionDebits.filter(tx => isCashCollectionTx(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const bankAmount = collectionDebits.filter(tx => isBankCollectionTx(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0);
         const concessionAmount = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
-        const debitTotal = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        const debitTotal = cashAmount + bankAmount;
 
         const feeHeadMap = {};
-        filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').forEach(tx => {
+        collectionDebits.forEach(tx => {
             const head = tx.feeHead || 'Unknown';
             if (!feeHeadMap[head]) feeHeadMap[head] = { name: head, cash: 0, bank: 0, total: 0 };
             const entry = feeHeadMap[head];
             const amount = tx.amount || 0;
             entry.total += amount;
-            if (tx.paymentMode === 'Cash') entry.cash += amount;
-            else entry.bank += amount;
+            if (isCashCollectionTx(tx)) entry.cash += amount;
+            else if (isBankCollectionTx(tx)) entry.bank += amount;
         });
         const sortedFeeHeads = Object.values(feeHeadMap).sort((a, b) => b.total - a.total);
 
@@ -807,12 +809,16 @@ const Reports = () => {
 
             if (!courseSummary[courseName]) courseSummary[courseName] = { receipts: 0, total: 0 };
             courseSummary[courseName].receipts += 1;
-            courseSummary[courseName].total += tx.amount || 0;
+            if (!isRtfTransaction(tx) || tx.transactionType === 'CREDIT') {
+                courseSummary[courseName].total += tx.amount || 0;
+            }
 
             const userKey = (tx.collectedBy || tx.collectedByName || 'Unknown').trim();
             if (!userSummary[userKey]) userSummary[userKey] = { userId: tx.collectedBy || '', name: tx.collectedByName || tx.collectedBy || 'Unknown', receipts: 0, total: 0 };
             userSummary[userKey].receipts += 1;
-            userSummary[userKey].total += tx.amount || 0;
+            if (!isRtfTransaction(tx) || tx.transactionType === 'CREDIT') {
+                userSummary[userKey].total += tx.amount || 0;
+            }
         });
 
         const workbook = XLSX.utils.book_new();
@@ -974,10 +980,12 @@ const Reports = () => {
             const course = tx.course || 'Unknown Course';
             if (!grouped[col]) grouped[col] = {};
             if (!grouped[col][course]) {
-                grouped[col][course] = { cash: [], bank: [] };
+                grouped[col][course] = { cash: [], bank: [], rtf: [] };
             }
             if (tx.paymentMode === 'Cash') {
                 grouped[col][course].cash.push(tx);
+            } else if (isRtfTransaction(tx)) {
+                grouped[col][course].rtf.push(tx);
             } else {
                 grouped[col][course].bank.push(tx);
             }
@@ -1013,9 +1021,10 @@ const Reports = () => {
                 sheetRows.push([`  Course: ${String(course).toUpperCase()}`]);
                 merges.push({ s: { r: crsRowIdx, c: 0 }, e: { r: crsRowIdx, c: 10 } });
 
-                const { cash, bank } = courses[course];
+                const { cash, bank, rtf = [] } = courses[course];
                 const hasCash = includeCash && cash.length > 0;
                 const hasBank = includeBank && bank.length > 0;
+                const hasRtf = includeBank && rtf.length > 0;
 
                 const tableHeaders = ['S.NO', 'RECEIPT NO', 'DATE', 'STUDENT NAME', 'PIN NO', 'YEAR', 'PAYMENT MODE', 'FEE HEAD', 'AMOUNT', 'CASHIER ID', 'CASHIER NAME'];
 
@@ -1089,17 +1098,52 @@ const Reports = () => {
                     sheetRows.push(['', '', '', '', '', '', '', 'Bank Sub-Total', bankSub]);
                 }
 
+                if (hasRtf) {
+                    const secRowIdx = sheetRows.length;
+                    sectionHeaderRowIndexes.push(secRowIdx);
+                    sheetRows.push([`    RTF / Proceeding Transactions (${rtf.length})`]);
+                    merges.push({ s: { r: secRowIdx, c: 0 }, e: { r: secRowIdx, c: 10 } });
+
+                    const tblRowIdx = sheetRows.length;
+                    tableHeaderRowIndexes.push(tblRowIdx);
+                    sheetRows.push(tableHeaders);
+
+                    rtf.forEach((tx, idx) => {
+                        const cEmp = tx.cashierEmpNo || empNo || tx.empNo || '';
+                        const cName = tx.cashierName || cashierName || tx.collectedByName || '';
+
+                        sheetRows.push([
+                            idx + 1,
+                            tx.receiptNo || tx.receiptNumber || '',
+                            tx.transactionDate ? String(tx.transactionDate).split('T')[0] : (tx.date || tx.createdAt ? String(tx.createdAt).split('T')[0] : ''),
+                            tx.studentName || tx.name || '',
+                            (!tx.pinNo || tx.pinNo === '-' || tx.pinNo === 'null') ? tx.studentId || '-' : tx.pinNo,
+                            tx.year || tx.studentYear || '',
+                            tx.paymentMode || 'RTF',
+                            tx.feeHead || '',
+                            tx.amount || 0,
+                            cEmp,
+                            cName
+                        ]);
+                    });
+
+                    const rtfSub = rtf.reduce((sum, t) => sum + (t.amount || 0), 0);
+                    const subIdx = sheetRows.length;
+                    subTotalRowIndexes.push(subIdx);
+                    sheetRows.push(['', '', '', '', '', '', '', 'RTF Sub-Total', rtfSub]);
+                }
+
                 const courseTotal = [...cash, ...bank].reduce((sum, t) => sum + (t.amount || 0), 0);
                 const totIdx = sheetRows.length;
                 courseTotalRowIndexes.push(totIdx);
-                sheetRows.push(['', '', '', '', '', '', '', 'Course Total', courseTotal]);
+                sheetRows.push(['', '', '', '', '', '', '', 'Course Total (excl. RTF)', courseTotal]);
             });
         });
 
         sheetRows.push([]);
-        const grandTotal = filteredTxs.reduce((sum, t) => sum + (t.amount || 0), 0);
+        const grandTotal = filteredTxs.filter(t => !isRtfTransaction(t)).reduce((sum, t) => sum + (t.amount || 0), 0);
         const grandIdx = sheetRows.length;
-        sheetRows.push(['', '', `Total Receipts: ${filteredTxs.length}`, '', '', '', '', 'GRAND TOTAL', grandTotal]);
+        sheetRows.push(['', '', `Total Receipts: ${filteredTxs.length}`, '', '', '', '', 'GRAND TOTAL (excl. RTF)', grandTotal]);
 
         const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
         sheet['!merges'] = merges;
@@ -1235,10 +1279,10 @@ const Reports = () => {
             });
 
             const cReceipts = filteredTransactions.length;
-            const cCash = filteredTransactions.filter(tx => tx.paymentMode === 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
-            const cBank = filteredTransactions.filter(tx => tx.paymentMode !== 'Cash').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+            const cCash = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && isCashCollectionTx(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0);
+            const cBank = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT' && isBankCollectionTx(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0);
             const cConcession = filteredTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
-            const cDebit = filteredTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((sum, tx) => sum + (tx.amount || 0), 0);
+            const cDebit = cCash + cBank;
 
             totalReceipts += cReceipts;
             cashAmount += cCash;
@@ -1260,14 +1304,15 @@ const Reports = () => {
             filteredTransactions.forEach(tx => {
                 const collegeName = tx.college || 'Unknown College';
                 const courseName = tx.course || 'Unknown Course';
+                const amt = (!isRtfTransaction(tx) || tx.transactionType === 'CREDIT') ? (tx.amount || 0) : 0;
 
                 if (!collegeSummary[collegeName]) collegeSummary[collegeName] = { receipts: 0, total: 0 };
                 collegeSummary[collegeName].receipts += 1;
-                collegeSummary[collegeName].total += tx.amount || 0;
+                collegeSummary[collegeName].total += amt;
 
                 if (!courseSummary[courseName]) courseSummary[courseName] = { receipts: 0, total: 0 };
                 courseSummary[courseName].receipts += 1;
-                courseSummary[courseName].total += tx.amount || 0;
+                courseSummary[courseName].total += amt;
             });
         });
 

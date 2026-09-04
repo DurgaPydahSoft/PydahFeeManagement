@@ -11,10 +11,12 @@ const {
     getProceedingSummary,
     loadStudentsForProceeding,
     syncProceedingIds,
-    getScholarshipAnalytics
+    getScholarshipAnalytics,
+    getPendingAutoTxnAlert
 } = require('../controllers/proceedingController');
 
 router.route('/').get(getProceedings).post(createProceeding);
+router.get('/pending-auto-txn-alert', getPendingAutoTxnAlert);
 router.get('/load-students', loadStudentsForProceeding);
 router.get('/scholarship-analytics', getScholarshipAnalytics);
 router.post('/sync-ids', syncProceedingIds);

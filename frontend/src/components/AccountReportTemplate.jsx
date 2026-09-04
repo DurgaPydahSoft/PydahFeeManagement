@@ -1,4 +1,5 @@
 import React, { forwardRef, Fragment } from 'react';
+import { isRtfTransaction, isBankCollectionTx, isCashCollectionTx } from '../utils/reportTxHelpers';
 
 const paymentVisibility = (options = {}) => {
     const { mode = 'all', includeCash, includeBank } = options;
@@ -30,14 +31,14 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
 
     const activeTransactions = filteredTransactions.filter(tx => tx.status !== 'cancelled');
     const cancelledTransactions = filteredTransactions.filter(tx => tx.status === 'cancelled');
+    const collectionDebits = activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && !isRtfTransaction(tx));
 
     // Recompute fee head summary based on active transactions for this account
     const feeHeadData = {};
-    activeTransactions.forEach(tx => {
-        if (tx.transactionType === 'DEBIT') {
+    collectionDebits.forEach(tx => {
             const fhName = tx.feeHead || 'Unknown';
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
 
             if (!feeHeadData[fhName]) {
                 feeHeadData[fhName] = {
@@ -50,8 +51,7 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             const entry = feeHeadData[fhName];
             entry.netTotal += amount;
             if (isCash) entry.cashAmt += amount;
-            else entry.bankAmt += amount;
-        }
+            else if (isBankCollectionTx(tx)) entry.bankAmt += amount;
     });
     const sortedFeeHeads = Object.values(feeHeadData).sort((a, b) => b.netTotal - a.netTotal);
 
@@ -67,13 +67,13 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     // College → Course → Fee Head hierarchy for global accounts
     const collegeHierarchy = {};
     if (isGlobalAccount) {
-        activeTransactions.forEach(tx => {
-            if (tx.transactionType !== 'DEBIT') return;
+        collectionDebits.forEach(tx => {
             const collegeName = tx.college || 'Unknown College';
             const courseName = tx.course || 'Unknown Course';
             const fhName = tx.feeHead || 'Unknown';
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
+            const isBank = isBankCollectionTx(tx);
 
             if (!collegeHierarchy[collegeName]) {
                 collegeHierarchy[collegeName] = {
@@ -89,7 +89,7 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             collegeEntry.receiptsCount += 1;
             collegeEntry.netTotal += amount;
             if (isCash) collegeEntry.cashAmt += amount;
-            else collegeEntry.bankAmt += amount;
+            else if (isBank) collegeEntry.bankAmt += amount;
 
             if (!collegeEntry.courses[courseName]) {
                 collegeEntry.courses[courseName] = {
@@ -105,7 +105,7 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             courseEntry.receiptsCount += 1;
             courseEntry.netTotal += amount;
             if (isCash) courseEntry.cashAmt += amount;
-            else courseEntry.bankAmt += amount;
+            else if (isBank) courseEntry.bankAmt += amount;
 
             if (!courseEntry.feeHeads[fhName]) {
                 courseEntry.feeHeads[fhName] = {
@@ -118,7 +118,7 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             const fhEntry = courseEntry.feeHeads[fhName];
             fhEntry.netTotal += amount;
             if (isCash) fhEntry.cashAmt += amount;
-            else fhEntry.bankAmt += amount;
+            else if (isBank) fhEntry.bankAmt += amount;
         });
     }
 
@@ -137,12 +137,12 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     // Course-wise hierarchy for global accounts
     const courseHierarchy = {};
     if (isGlobalAccount) {
-        activeTransactions.forEach(tx => {
-            if (tx.transactionType !== 'DEBIT') return;
+        collectionDebits.forEach(tx => {
             const collegeName = tx.college || 'Unknown College';
             const courseName = tx.course || 'Unknown Course';
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
+            const isBank = isBankCollectionTx(tx);
             const key = `${collegeName}||${courseName}`;
 
             if (!courseHierarchy[key]) {
@@ -159,7 +159,7 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             courseEntry.receiptsCount += 1;
             courseEntry.netTotal += amount;
             if (isCash) courseEntry.cashAmt += amount;
-            else courseEntry.bankAmt += amount;
+            else if (isBank) courseEntry.bankAmt += amount;
         });
     }
     const sortedCourses = [];
@@ -179,14 +179,14 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
     // User-wise / Cashier-wise hierarchy for global accounts
     const userHierarchy = {};
     if (isGlobalAccount) {
-        activeTransactions.forEach(tx => {
-            if (tx.transactionType !== 'DEBIT') return;
+        collectionDebits.forEach(tx => {
             const cashierUsername = tx.collectedBy || 'Unknown';
             const cashierName = tx.collectedByName || tx.collectedBy || 'Unknown';
             const empNo = tx.empNo || '';
             const key = cashierUsername || cashierName;
             const amount = tx.amount || 0;
-            const isCash = tx.paymentMode === 'Cash';
+            const isCash = isCashCollectionTx(tx);
+            const isBank = isBankCollectionTx(tx);
 
             if (!userHierarchy[key]) {
                 userHierarchy[key] = {
@@ -203,18 +203,18 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             uEntry.receiptsCount += 1;
             uEntry.netTotal += amount;
             if (isCash) uEntry.cashAmt += amount;
-            else uEntry.bankAmt += amount;
+            else if (isBank) uEntry.bankAmt += amount;
         });
     }
     const sortedUsers = Object.values(userHierarchy).sort((a, b) => b.netTotal - a.netTotal);
 
-    // Totals for this account
+    // Totals for this account (RTF excluded from collection)
     const displayData = {
         totalCount: activeTransactions.length,
-        debitAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        debitAmount: collectionDebits.reduce((acc, tx) => acc + (tx.amount || 0), 0),
         creditAmount: activeTransactions.filter(tx => tx.transactionType === 'CREDIT').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        cashAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode === 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
-        bankAmount: activeTransactions.filter(tx => tx.transactionType === 'DEBIT' && tx.paymentMode !== 'Cash').reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        cashAmount: collectionDebits.filter(tx => isCashCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0),
+        bankAmount: collectionDebits.filter(tx => isBankCollectionTx(tx)).reduce((acc, tx) => acc + (tx.amount || 0), 0),
     };
 
     return (
@@ -458,8 +458,8 @@ const SingleAccountReport = ({ data, dateRange, options = {}, hideGeneratedInfo 
             {/* Detailed Transaction Listing */}
             {showDetails && activeTransactions.length > 0 && (() => {
                 const cashTxs = activeTransactions.filter(tx => tx.paymentMode === 'Cash');
-                const rtfTxs = activeTransactions.filter(tx => tx.paymentMode === 'RTF' || tx.proceedingId);
-                const bankTxs = activeTransactions.filter(tx => tx.paymentMode !== 'Cash' && tx.paymentMode !== 'RTF' && !tx.proceedingId);
+                const rtfTxs = activeTransactions.filter(tx => isRtfTransaction(tx));
+                const bankTxs = activeTransactions.filter(tx => isBankCollectionTx(tx));
                 const txTableHead = (
                     <thead>
                         <tr>

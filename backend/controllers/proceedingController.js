@@ -28,8 +28,22 @@ const canVerifyProceeding = (user) => {
 const validateProceedingAccess = async (proceeding, user) => {
     if (!proceeding) return true;
     const allowedColleges = await collegeScope.getUserCollegeNames(user);
-    if (allowedColleges && !allowedColleges.includes(proceeding.college)) return false;
     const allowedCourses = user.courses?.length > 0 ? user.courses : null;
+
+    // Multi-course / multi-college proceedings: allow if user can access any mapped student
+    if (proceeding.college === 'Multiple' || proceeding.course === 'Multiple') {
+        const students = await ProceedingStudent.find({ proceedingId: proceeding._id })
+            .select('college course')
+            .lean();
+        if (!students.length) return true;
+        return students.some(s => {
+            if (allowedColleges && !allowedColleges.includes(s.college)) return false;
+            if (allowedCourses && !allowedCourses.includes(`${s.college}|${s.course}`)) return false;
+            return true;
+        });
+    }
+
+    if (allowedColleges && !allowedColleges.includes(proceeding.college)) return false;
     if (allowedCourses) {
         const matchString = `${proceeding.college}|${proceeding.course}`;
         if (!allowedCourses.includes(matchString)) return false;
@@ -103,37 +117,11 @@ const resolveScholarshipApplicableFeeForYear = (structures, feeHeadMap, student,
 
 // ─── Load students from SQL for proceeding creation ────────────────────
 // GET /api/proceedings/load-students?college=X&course=Y&caste=Z&batch=B&applicationIds=id1,id2
+// When applicationIds are provided, college/course/batch are optional filters —
+// matching is done across courses & batches so one proceeding can include mixed students.
 const loadStudentsForProceeding = async (req, res) => {
     try {
         const { college, course, caste, batch, applicationIds } = req.query;
-        if (!college || !course) {
-            return res.status(400).json({ message: 'College and Course are required' });
-        }
-
-        const conditions = ["LOWER(student_status) = 'regular'"];
-        const params = [];
-
-        conditions.push('college = ?');
-        params.push(college);
-        conditions.push('course = ?');
-        params.push(course);
-
-        if (caste) {
-            conditions.push('caste = ?');
-            params.push(caste);
-        }
-        if (batch) {
-            conditions.push('batch = ?');
-            params.push(batch);
-        }
-
-        const query = `
-            SELECT id, admission_number, pin_no, student_name, college, college_id, course, course_id, branch, branch_id, caste, batch, current_year, stud_type
-            FROM students
-            WHERE ${conditions.join(' AND ')}
-            ORDER BY student_name
-        `;
-        const [rows] = await db.query(query, params);
 
         const applicationIdFilter = String(applicationIds || '')
             .split(',')
@@ -142,24 +130,74 @@ const loadStudentsForProceeding = async (req, res) => {
         const applicationIdSet = applicationIdFilter.length > 0
             ? new Set(applicationIdFilter.map(id => id.toLowerCase()))
             : null;
+        const byApplicationIds = !!applicationIdSet;
 
-        const sqlIds = rows.map(r => r.id).filter(Boolean);
+        if (!byApplicationIds && (!college || !course)) {
+            return res.status(400).json({ message: 'College and Course are required' });
+        }
+
+        let rows = [];
         const scholarshipByStudent = {};
 
-        if (sqlIds.length > 0) {
-            const placeholders = sqlIds.map(() => '?').join(',');
-            const [scholarshipRows] = await db.query(
-                `SELECT student_id, student_year, application_id
-                 FROM student_scholarship
-                 WHERE student_id IN (${placeholders})
-                   AND application_id IS NOT NULL
-                   AND TRIM(application_id) != ''
-                 ORDER BY student_year ASC, student_semester ASC`,
-                sqlIds
+        if (byApplicationIds) {
+            const placeholders = applicationIdFilter.map(() => '?').join(',');
+            const conditions = [
+                `LOWER(TRIM(ss.application_id)) IN (${placeholders})`,
+                `(LOWER(TRIM(s.student_status)) = 'regular' OR LOWER(TRIM(s.student_status)) = 'course completed')`,
+            ];
+            const params = [...applicationIdFilter.map(id => id.toLowerCase())];
+
+            // Optional narrowing only — Excel match can span courses/batches
+            if (college) {
+                conditions.push('s.college = ?');
+                params.push(college);
+            }
+            if (course) {
+                conditions.push('s.course = ?');
+                params.push(course);
+            }
+            if (caste) {
+                conditions.push('s.caste = ?');
+                params.push(caste);
+            }
+            if (batch) {
+                conditions.push('s.batch = ?');
+                params.push(batch);
+            }
+
+            const [joinedRows] = await db.query(
+                `SELECT s.id, s.admission_number, s.pin_no, s.student_name, s.college, s.college_id,
+                        s.course, s.course_id, s.branch, s.branch_id, s.caste, s.batch, s.current_year, s.stud_type,
+                        ss.student_year, ss.application_id
+                 FROM student_scholarship ss
+                 INNER JOIN students s ON s.id = ss.student_id
+                 WHERE ${conditions.join(' AND ')}
+                 ORDER BY s.student_name ASC, ss.student_year ASC, ss.student_semester ASC`,
+                params
             );
-            (scholarshipRows || []).forEach(row => {
-                const sid = String(row.student_id);
-                if (!scholarshipByStudent[sid]) scholarshipByStudent[sid] = [];
+
+            const studentMap = new Map();
+            (joinedRows || []).forEach(row => {
+                const sid = String(row.id);
+                if (!studentMap.has(sid)) {
+                    studentMap.set(sid, {
+                        id: row.id,
+                        admission_number: row.admission_number,
+                        pin_no: row.pin_no,
+                        student_name: row.student_name,
+                        college: row.college,
+                        college_id: row.college_id,
+                        course: row.course,
+                        course_id: row.course_id,
+                        branch: row.branch,
+                        branch_id: row.branch_id,
+                        caste: row.caste,
+                        batch: row.batch,
+                        current_year: row.current_year,
+                        stud_type: row.stud_type,
+                    });
+                    scholarshipByStudent[sid] = [];
+                }
                 const appId = String(row.application_id || '').trim();
                 if (!appId) return;
                 if (!scholarshipByStudent[sid].some(a => a.applicationId === appId && Number(a.studentYear) === Number(row.student_year))) {
@@ -169,6 +207,59 @@ const loadStudentsForProceeding = async (req, res) => {
                     });
                 }
             });
+            rows = [...studentMap.values()];
+        } else {
+            const conditions = ["LOWER(student_status) = 'regular'"];
+            const params = [];
+
+            conditions.push('college = ?');
+            params.push(college);
+            conditions.push('course = ?');
+            params.push(course);
+
+            if (caste) {
+                conditions.push('caste = ?');
+                params.push(caste);
+            }
+            if (batch) {
+                conditions.push('batch = ?');
+                params.push(batch);
+            }
+
+            const query = `
+                SELECT id, admission_number, pin_no, student_name, college, college_id, course, course_id, branch, branch_id, caste, batch, current_year, stud_type
+                FROM students
+                WHERE ${conditions.join(' AND ')}
+                ORDER BY student_name
+            `;
+            const [sqlRows] = await db.query(query, params);
+            rows = sqlRows || [];
+
+            const sqlIds = rows.map(r => r.id).filter(Boolean);
+            if (sqlIds.length > 0) {
+                const placeholders = sqlIds.map(() => '?').join(',');
+                const [scholarshipRows] = await db.query(
+                    `SELECT student_id, student_year, application_id
+                     FROM student_scholarship
+                     WHERE student_id IN (${placeholders})
+                       AND application_id IS NOT NULL
+                       AND TRIM(application_id) != ''
+                     ORDER BY student_year ASC, student_semester ASC`,
+                    sqlIds
+                );
+                (scholarshipRows || []).forEach(row => {
+                    const sid = String(row.student_id);
+                    if (!scholarshipByStudent[sid]) scholarshipByStudent[sid] = [];
+                    const appId = String(row.application_id || '').trim();
+                    if (!appId) return;
+                    if (!scholarshipByStudent[sid].some(a => a.applicationId === appId && Number(a.studentYear) === Number(row.student_year))) {
+                        scholarshipByStudent[sid].push({
+                            studentYear: row.student_year,
+                            applicationId: appId,
+                        });
+                    }
+                });
+            }
         }
 
         const students = rows.map(r => {
@@ -244,11 +335,13 @@ const loadStudentsForProceeding = async (req, res) => {
 
                     const h = hints[0];
                     const mismatches = [];
-                    if (String(h.college || '') !== String(college || '')) mismatches.push(`college is ${h.college || '—'}`);
-                    if (String(h.course || '') !== String(course || '')) mismatches.push(`course is ${h.course || '—'}`);
+                    if (college && String(h.college || '') !== String(college || '')) mismatches.push(`college is ${h.college || '—'}`);
+                    if (course && String(h.course || '') !== String(course || '')) mismatches.push(`course is ${h.course || '—'}`);
                     if (caste && String(h.caste || '') !== String(caste)) mismatches.push(`caste is ${h.caste || '—'}`);
                     if (batch && String(h.batch || '') !== String(batch)) mismatches.push(`batch is ${h.batch || '—'}`);
-                    if (String(h.student_status || '').toLowerCase() !== 'regular') {
+                    const statusLower = String(h.student_status || '').trim().toLowerCase();
+                    const statusAllowed = statusLower === 'regular' || statusLower === 'course completed';
+                    if (!statusAllowed) {
                         mismatches.push(`status is ${h.student_status || '—'}`);
                     }
 
@@ -267,6 +360,10 @@ const loadStudentsForProceeding = async (req, res) => {
                 });
             }
 
+            const courses = [...new Set(students.map(s => s.course).filter(Boolean))];
+            const batches = [...new Set(students.map(s => s.batch).filter(Boolean))];
+            const colleges = [...new Set(students.map(s => s.college).filter(Boolean))];
+
             return res.json({
                 students,
                 importSummary: {
@@ -274,6 +371,11 @@ const loadStudentsForProceeding = async (req, res) => {
                     matchedStudents: students.length,
                     matchedApplicationIds: matchedAppIdLower.size,
                     notFound,
+                    courses,
+                    batches,
+                    colleges,
+                    multiCourse: courses.length > 1,
+                    multiBatch: batches.length > 1,
                 },
             });
         }
@@ -386,6 +488,71 @@ const getProceedings = async (req, res) => {
     }
 };
 
+/** Lightweight alert for sidebar: pending auto-txns across all academic years. */
+const getPendingAutoTxnAlert = async (req, res) => {
+    try {
+        let query = { status: { $in: ['Active', 'Completed'] } };
+
+        const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
+        if (allowedColleges) {
+            query.college = { $in: [...allowedColleges, 'Multiple'] };
+        }
+        const allowedCourses = req.user.courses?.length > 0 ? req.user.courses : null;
+        if (allowedCourses) {
+            const pairs = allowedCourses
+                .map((ac) => {
+                    const p = ac.split('|');
+                    return p.length === 2 ? { college: p[0], course: p[1] } : null;
+                })
+                .filter(Boolean);
+            if (pairs.length > 0) {
+                query.$or = [
+                    ...pairs,
+                    { college: 'Multiple' },
+                    { course: 'Multiple' }
+                ];
+            }
+        }
+
+        const proceedings = await Proceeding.find(query).select('_id college course').lean();
+        const scopedIds = [];
+        for (const p of proceedings) {
+            if (p.college === 'Multiple' || p.course === 'Multiple') {
+                // eslint-disable-next-line no-await-in-loop
+                const ok = await validateProceedingAccess(p, req.user);
+                if (ok) scopedIds.push(p._id);
+            } else {
+                scopedIds.push(p._id);
+            }
+        }
+
+        if (scopedIds.length === 0) {
+            return res.json({ hasPending: false, pendingStudentCount: 0, proceedingCount: 0 });
+        }
+
+        const pendingRows = await ProceedingStudent.aggregate([
+            { $match: { proceedingId: { $in: scopedIds }, txnPending: true } },
+            {
+                $group: {
+                    _id: '$proceedingId',
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const proceedingCount = pendingRows.length;
+        const pendingStudentCount = pendingRows.reduce((sum, r) => sum + (r.count || 0), 0);
+
+        res.json({
+            hasPending: pendingStudentCount > 0,
+            pendingStudentCount,
+            proceedingCount
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 // ─── Create proceeding (Step 1: no bank/amount, with student list) ──────
 const createProceeding = async (req, res) => {
     try {
@@ -412,16 +579,41 @@ const createProceeding = async (req, res) => {
         }
 
         const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
-        if (allowedColleges && !allowedColleges.includes(college)) {
-            return res.status(403).json({ message: `Forbidden: No permission for college: ${college}` });
-        }
         const allowedCourses = req.user.courses?.length > 0 ? req.user.courses : null;
-        if (allowedCourses && !allowedCourses.includes(`${college}|${course}`)) {
-            return res.status(403).json({ message: `Forbidden: No permission for course: ${course}` });
+
+        // Validate access against each student's own college/course (Excel may mix courses/batches)
+        for (const s of students) {
+            const studCollege = s.college || college;
+            const studCourse = s.course || course;
+            if (allowedColleges && !allowedColleges.includes(studCollege)) {
+                return res.status(403).json({
+                    message: `Forbidden: No permission for college: ${studCollege} (student ${s.admissionNumber || s.studentId || ''})`
+                });
+            }
+            if (allowedCourses && !allowedCourses.includes(`${studCollege}|${studCourse}`)) {
+                return res.status(403).json({
+                    message: `Forbidden: No permission for course: ${studCollege} / ${studCourse} (student ${s.admissionNumber || s.studentId || ''})`
+                });
+            }
         }
 
-        if (await Proceeding.findOne({ proceedingNumber, course })) {
-            return res.status(400).json({ message: `Proceeding number '${proceedingNumber}' already exists for course '${course}'` });
+        // Header college/course: if payload says Multiple, or students span multiple, normalize
+        const studentColleges = [...new Set(students.map(s => s.college || college).filter(Boolean))];
+        const studentCourses = [...new Set(students.map(s => s.course || course).filter(Boolean))];
+        const studentBatches = [...new Set(students.map(s => s.batch || batch).filter(Boolean))];
+        const headerCollege = studentColleges.length === 1 ? studentColleges[0] : (college === 'Multiple' || studentColleges.length > 1 ? 'Multiple' : college);
+        const headerCourse = studentCourses.length === 1 ? studentCourses[0] : (course === 'Multiple' || studentCourses.length > 1 ? 'Multiple' : course);
+        const headerBatch = studentBatches.length === 1 ? studentBatches[0] : (batch || '');
+
+        if (allowedColleges && headerCollege !== 'Multiple' && !allowedColleges.includes(headerCollege)) {
+            return res.status(403).json({ message: `Forbidden: No permission for college: ${headerCollege}` });
+        }
+        if (allowedCourses && headerCourse !== 'Multiple' && !allowedCourses.includes(`${headerCollege}|${headerCourse}`)) {
+            return res.status(403).json({ message: `Forbidden: No permission for course: ${headerCourse}` });
+        }
+
+        if (await Proceeding.findOne({ proceedingNumber, course: headerCourse })) {
+            return res.status(400).json({ message: `Proceeding number '${proceedingNumber}' already exists for course '${headerCourse}'` });
         }
 
         // Resolve college/course IDs from the first student or from the payload
@@ -430,12 +622,12 @@ const createProceeding = async (req, res) => {
         let courseId = req.body.courseId || firstStudent.courseId || null;
         let branchId = req.body.branchId || firstStudent.branchId || null;
 
-        // If IDs not provided, try to look them up from SQL
-        if (!collegeId || !courseId) {
+        // If IDs not provided, try to look them up from SQL (skip when Multiple)
+        if ((!collegeId || !courseId) && headerCollege !== 'Multiple' && headerCourse !== 'Multiple') {
             try {
                 const [idRows] = await db.query(
                     'SELECT college_id, course_id, branch_id FROM students WHERE college = ? AND course = ? LIMIT 1',
-                    [college, course]
+                    [headerCollege, headerCourse]
                 );
                 if (idRows.length > 0) {
                     if (!collegeId) collegeId = idRows[0].college_id || null;
@@ -443,6 +635,11 @@ const createProceeding = async (req, res) => {
                     if (!branchId) branchId = idRows[0].branch_id || null;
                 }
             } catch (e) { /* non-fatal */ }
+        }
+        if (headerCollege === 'Multiple' || headerCourse === 'Multiple') {
+            collegeId = null;
+            courseId = null;
+            branchId = null;
         }
 
         const proceeding = await Proceeding.create({
@@ -452,7 +649,14 @@ const createProceeding = async (req, res) => {
             bankCreditedAmount: Number(bankCreditedAmount) || 0,
             bankAccount: bankAccount || '',
             bankCreditedDate: bankCreditedDate || null,
-            college, collegeId, course, courseId, branchId, caste, batch, academicYear,
+            college: headerCollege,
+            collegeId,
+            course: headerCourse,
+            courseId,
+            branchId,
+            caste,
+            batch: headerBatch,
+            academicYear,
             status: 'Pending',
             requestedBy: req.user?.username || '',
             requestedByName: req.user?.name || ''
@@ -464,9 +668,9 @@ const createProceeding = async (req, res) => {
             studentName: s.studentName || '',
             admissionNumber: s.admissionNumber || s.studentId,
             pinNo: s.pinNo || '',
-            college: s.college || college,
+            college: s.college || headerCollege,
             collegeId: s.collegeId || collegeId,
-            course: s.course || course,
+            course: s.course || headerCourse,
             courseId: s.courseId || courseId,
             branch: s.branch || '',
             branchId: s.branchId || branchId,
@@ -1191,6 +1395,7 @@ const getScholarshipAnalytics = async (req, res) => {
 
 module.exports = {
     getProceedings,
+    getPendingAutoTxnAlert,
     createProceeding,
     getProceedingById,
     updateProceeding,

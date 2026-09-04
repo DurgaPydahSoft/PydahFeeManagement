@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { getStoredUser } from '../lib/auth';
+import api from '../lib/api';
 
 const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
     const location = useLocation();
@@ -100,26 +101,10 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
 
     const isProceedingsActive = location.pathname === '/proceedings';
     const [proceedingsExpanded, setProceedingsExpanded] = React.useState(isProceedingsActive);
+    const [hasPendingProceedingTxns, setHasPendingProceedingTxns] = React.useState(false);
 
     const isReminderConfigActive = location.pathname === '/reminders';
     const [reminderConfigExpanded, setReminderConfigExpanded] = React.useState(isReminderConfigActive);
-
-    // Auto-expand groups when navigating to their respective routes
-    React.useEffect(() => {
-        if (isSettingsActive) setSettingsExpanded(true);
-    }, [isSettingsActive]);
-
-    React.useEffect(() => {
-        if (isFeeConfigActive) setFeeConfigExpanded(true);
-    }, [isFeeConfigActive]);
-
-    React.useEffect(() => {
-        if (isProceedingsActive) setProceedingsExpanded(true);
-    }, [isProceedingsActive]);
-
-    React.useEffect(() => {
-        if (isReminderConfigActive) setReminderConfigExpanded(true);
-    }, [isReminderConfigActive]);
 
     const canViewProceedings = role === 'superadmin' || role === 'admin'
         || permissions.includes('/proceedings')
@@ -135,6 +120,45 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
         || permissions.includes('proceedings_edit')
         || permissions.includes('proceedings_verify')
         || permissions.includes('proceedings_approve');
+
+    // Auto-expand groups when navigating to their respective routes
+    React.useEffect(() => {
+        if (isSettingsActive) setSettingsExpanded(true);
+    }, [isSettingsActive]);
+
+    React.useEffect(() => {
+        if (isFeeConfigActive) setFeeConfigExpanded(true);
+    }, [isFeeConfigActive]);
+
+    React.useEffect(() => {
+        if (isProceedingsActive) setProceedingsExpanded(true);
+    }, [isProceedingsActive]);
+
+    React.useEffect(() => {
+        if (!canViewProceedings) {
+            setHasPendingProceedingTxns(false);
+            return undefined;
+        }
+        let cancelled = false;
+        const fetchAlert = async () => {
+            try {
+                const res = await api.get('/proceedings/pending-auto-txn-alert');
+                if (!cancelled) setHasPendingProceedingTxns(Boolean(res.data?.hasPending));
+            } catch {
+                if (!cancelled) setHasPendingProceedingTxns(false);
+            }
+        };
+        fetchAlert();
+        const interval = setInterval(fetchAlert, 60000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [canViewProceedings, isProceedingsActive, location.pathname]);
+
+    React.useEffect(() => {
+        if (isReminderConfigActive) setReminderConfigExpanded(true);
+    }, [isReminderConfigActive]);
 
     const canViewOverallConcessions = role === 'superadmin' || role === 'admin'
         || permissions.includes('/overall-concessions')
@@ -377,10 +401,26 @@ const Sidebar = ({ isOpenMobile = false, onCloseMobile = () => {} }) => {
                                                 } ${isCollapsed ? 'justify-center' : ''}`}
                                                 title={isCollapsed ? 'Proceedings' : ''}
                                             >
-                                                <span className={`text-xl shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`}>{item.icon}</span>
+                                                <span className={`relative text-xl shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`}>
+                                                    {item.icon}
+                                                    {hasPendingProceedingTxns && isCollapsed && (
+                                                        <span
+                                                            className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${isActive ? 'bg-amber-300 ring-2 ring-indigo-600' : 'bg-amber-500 ring-2 ring-white'}`}
+                                                            title="Pending proceeding transactions"
+                                                        />
+                                                    )}
+                                                </span>
                                                 {!isCollapsed && (
                                                     <>
-                                                        <span className="ml-3.5 whitespace-nowrap flex-1 text-left">Proceedings</span>
+                                                        <span className="ml-3.5 whitespace-nowrap flex-1 text-left flex items-center gap-2">
+                                                            Proceedings
+                                                            {hasPendingProceedingTxns && (
+                                                                <span
+                                                                    className={`w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-amber-300' : 'bg-amber-500'}`}
+                                                                    title="Pending proceeding transactions"
+                                                                />
+                                                            )}
+                                                        </span>
                                                         <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${proceedingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
                                                     </>
                                                 )}
