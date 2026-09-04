@@ -55,6 +55,19 @@ const proceedingSchema = mongoose.Schema({
     academicYear: {
         type: String
     },
+    /** Optional supporting document uploaded to S3 on create/edit */
+    attachmentUrl: {
+        type: String,
+        default: ''
+    },
+    attachmentName: {
+        type: String,
+        default: ''
+    },
+    attachmentKey: {
+        type: String,
+        default: ''
+    },
     feeHead: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'FeeHead'

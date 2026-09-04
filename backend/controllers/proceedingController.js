@@ -12,6 +12,38 @@ const {
     syncProceedingCompletionStatus,
     roundMoney
 } = require('../utils/proceedingDemand');
+const { uploadToS3 } = require('../utils/s3Upload');
+
+const parseStudentsBody = (raw) => {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
+
+const uploadProceedingAttachment = async (file) => {
+    if (!file) return null;
+    const url = await uploadToS3(file, 'proceedings');
+    // Derive key from URL path after bucket host
+    let key = '';
+    try {
+        const u = new URL(url);
+        key = u.pathname.replace(/^\//, '');
+    } catch {
+        key = '';
+    }
+    return {
+        attachmentUrl: url,
+        attachmentName: file.originalname || 'attachment',
+        attachmentKey: key
+    };
+};
 
 const canApproveProceeding = (user) => {
     if (!user) return false;
@@ -556,10 +588,14 @@ const getPendingAutoTxnAlert = async (req, res) => {
 // ─── Create proceeding (Step 1: no bank/amount, with student list) ──────
 const createProceeding = async (req, res) => {
     try {
-        const { proceedingNumber, proceedingDate, amount, bankCreditedAmount, bankAccount, bankCreditedDate, college, course, caste, batch, academicYear, students } = req.body;
+        const { proceedingNumber, proceedingDate, amount, bankCreditedAmount, bankAccount, bankCreditedDate, college, course, caste, batch, academicYear } = req.body;
+        const students = parseStudentsBody(req.body.students);
 
         if (!proceedingNumber || !proceedingDate || !college || !course) {
             return res.status(400).json({ message: 'Please provide proceeding number, date, college and course' });
+        }
+        if (req.body.students != null && students === null) {
+            return res.status(400).json({ message: 'Invalid students data' });
         }
         if (!students || students.length === 0) {
             return res.status(400).json({ message: 'Please select at least one student' });
@@ -642,6 +678,19 @@ const createProceeding = async (req, res) => {
             branchId = null;
         }
 
+        let attachmentFields = {};
+        if (req.file) {
+            try {
+                attachmentFields = await uploadProceedingAttachment(req.file) || {};
+            } catch (s3Error) {
+                console.error('Proceeding S3 upload failed:', s3Error);
+                return res.status(500).json({
+                    message: 'Attachment upload failed. Please verify AWS credentials/configuration.',
+                    error: s3Error.message
+                });
+            }
+        }
+
         const proceeding = await Proceeding.create({
             proceedingNumber, proceedingDate,
             amount: proceedingAmount,
@@ -659,7 +708,8 @@ const createProceeding = async (req, res) => {
             academicYear,
             status: 'Pending',
             requestedBy: req.user?.username || '',
-            requestedByName: req.user?.name || ''
+            requestedByName: req.user?.name || '',
+            ...attachmentFields
         });
 
         const studentDocs = students.map(s => ({
@@ -740,7 +790,7 @@ const updateProceeding = async (req, res) => {
 
         // Strip status / audit / bank / feeHead — those are set via verify/approve only
         const {
-            students,
+            students: rawStudents,
             status: _status,
             verifiedBy: _vb,
             verifiedByName: _vbn,
@@ -753,10 +803,31 @@ const updateProceeding = async (req, res) => {
             bankAccount: _ba,
             bankCreditedDate: _bcd,
             bankCreditedAmount: _bca,
+            attachmentUrl: _au,
+            attachmentName: _an,
+            attachmentKey: _ak,
             ...updatePayload
         } = req.body;
 
+        if (req.file) {
+            try {
+                const attachmentFields = await uploadProceedingAttachment(req.file);
+                if (attachmentFields) Object.assign(updatePayload, attachmentFields);
+            } catch (s3Error) {
+                console.error('Proceeding S3 upload failed:', s3Error);
+                return res.status(500).json({
+                    message: 'Attachment upload failed. Please verify AWS credentials/configuration.',
+                    error: s3Error.message
+                });
+            }
+        }
+
         const updated = await Proceeding.findByIdAndUpdate(req.params.id, updatePayload, { new: true });
+        const students = parseStudentsBody(rawStudents);
+
+        if (rawStudents != null && students === null) {
+            return res.status(400).json({ message: 'Invalid students data' });
+        }
 
         if (students && Array.isArray(students)) {
             const missingShare = students.find(s => !(Number(s.shareAmount) > 0));
@@ -807,6 +878,49 @@ const updateProceeding = async (req, res) => {
         if (error?.code === 11000) {
             return res.status(400).json({ message: `Proceeding number '${req.body.proceedingNumber}' already exists for course '${req.body.course}'` });
         }
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+/** Attach / replace supporting file on an existing proceeding (any non-cancelled status). */
+const attachProceedingFile = async (req, res) => {
+    try {
+        const proceeding = await Proceeding.findById(req.params.id);
+        if (!proceeding) return res.status(404).json({ message: 'Proceeding not found' });
+        if (!await validateProceedingAccess(proceeding, req.user)) {
+            return res.status(403).json({ message: 'Forbidden: Access denied' });
+        }
+        if (proceeding.status === 'Cancelled') {
+            return res.status(400).json({ message: 'Cannot attach a file to a cancelled proceeding' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ message: 'Please select a file to attach' });
+        }
+
+        let attachmentFields;
+        try {
+            attachmentFields = await uploadProceedingAttachment(req.file);
+        } catch (s3Error) {
+            console.error('Proceeding S3 upload failed:', s3Error);
+            return res.status(500).json({
+                message: 'Attachment upload failed. Please verify AWS credentials/configuration.',
+                error: s3Error.message
+            });
+        }
+
+        Object.assign(proceeding, attachmentFields);
+        await proceeding.save();
+
+        res.json({
+            message: 'Attachment saved successfully',
+            proceeding: {
+                _id: proceeding._id,
+                attachmentUrl: proceeding.attachmentUrl,
+                attachmentName: proceeding.attachmentName,
+                attachmentKey: proceeding.attachmentKey
+            }
+        });
+    } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
@@ -1399,6 +1513,7 @@ module.exports = {
     createProceeding,
     getProceedingById,
     updateProceeding,
+    attachProceedingFile,
     verifyProceeding,
     approveProceeding,
     deleteProceeding,

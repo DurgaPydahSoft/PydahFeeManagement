@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload, AlertTriangle } from 'lucide-react';
+import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload, AlertTriangle, ArrowUp, ArrowDown, Paperclip } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -857,6 +857,7 @@ const Proceedings = () => {
     const [studentsLocked, setStudentsLocked] = useState(false);
     const [loadingStudents, setLoadingStudents] = useState(false);
     const [studentSearch, setStudentSearch] = useState('');
+    const [studentSort, setStudentSort] = useState({ key: 'studentName', dir: 'asc' });
     const [studentQuotaFilter, setStudentQuotaFilter] = useState('All');
 
     const [approveData, setApproveData] = useState({ bankAccount: '', bankCreditedDate: '', amount: '', feeHead: '' });
@@ -867,6 +868,10 @@ const Proceedings = () => {
     const [draftSavedAt, setDraftSavedAt] = useState(null);
     const skipNextDraftSave = useRef(false);
     const applicationExcelRef = useRef(null);
+    const attachmentInputRef = useRef(null);
+    const detailAttachmentInputRef = useRef(null);
+    const [attachmentFile, setAttachmentFile] = useState(null);
+    const [detailAttachmentUploading, setDetailAttachmentUploading] = useState(false);
     const [excelImportSummary, setExcelImportSummary] = useState(null);
     const [excelSummaryExpanded, setExcelSummaryExpanded] = useState(true);
 
@@ -1197,6 +1202,15 @@ const Proceedings = () => {
     };
 
     const handleLoadStudents = async (applicationIdsFilter = null, excelShareByAppId = null, options = {}) => {
+        if (
+            !String(formData.proceedingNumber || '').trim()
+            || !formData.proceedingDate
+            || !formData.academicYear
+        ) {
+            Swal.fire('Warning', 'Please enter Proceeding Number, Date, and Academic Year first', 'warning');
+            return { students: [], sharesApplied: 0, autoLocked: false, importSummary: null, shares: {} };
+        }
+
         const excelMode = !!applicationIdsFilter?.length;
         const colleges = formData.colleges || [];
         const courses = formData.courses || [];
@@ -1325,6 +1339,14 @@ const Proceedings = () => {
         const file = e.target.files?.[0];
         e.target.value = '';
         if (!file) return;
+        if (
+            !String(formData.proceedingNumber || '').trim()
+            || !formData.proceedingDate
+            || !formData.academicYear
+        ) {
+            Swal.fire('Warning', 'Please enter Proceeding Number, Date, and Academic Year first', 'warning');
+            return;
+        }
         try {
             Swal.fire({
                 title: file.name.toLowerCase().endsWith('.pdf') ? 'Reading PDF…' : 'Reading Excel…',
@@ -1475,22 +1497,94 @@ const Proceedings = () => {
         return Array.from(set).sort();
     }, [loadedStudents]);
 
+    const getLoadedStudentSortValue = (s, key) => {
+        switch (key) {
+            case 'studentName': return String(s.studentName || '');
+            case 'admissionNumber': return String(s.admissionNumber || '');
+            case 'pinNo': return String(s.pinNo || '');
+            case 'applicationId': return String(getStudentApplicationId(s, formData.academicYear) || '');
+            case 'course': return String(s.course || '');
+            case 'batch': return String(s.batch || '');
+            case 'studType': return String(s.studType || '');
+            case 'caste': return String(s.caste || '');
+            case 'studentYear': {
+                const n = Number(s.studentYear);
+                return Number.isFinite(n) ? n : String(s.studentYear || '');
+            }
+            case 'proceedingYear': {
+                const py = computeProceedingYear(s.batch, formData.academicYear)
+                    ?? (Number(s.proceedingYear) > 0 ? Number(s.proceedingYear) : null);
+                return Number.isFinite(Number(py)) ? Number(py) : 0;
+            }
+            case 'shareAmount': {
+                const n = Number(studentShareAmounts[s.studentId]);
+                return Number.isFinite(n) ? n : 0;
+            }
+            default: return String(s[key] ?? '');
+        }
+    };
+
+    const compareLoadedStudentSort = (a, b, key, dir) => {
+        const va = getLoadedStudentSortValue(a, key);
+        const vb = getLoadedStudentSortValue(b, key);
+        let cmp = 0;
+        if (typeof va === 'number' && typeof vb === 'number') {
+            cmp = va - vb;
+        } else {
+            cmp = String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: 'base' });
+        }
+        return dir === 'desc' ? -cmp : cmp;
+    };
+
+    const toggleStudentSort = (key) => {
+        setStudentSort((prev) => (
+            prev.key === key
+                ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                : { key, dir: 'asc' }
+        ));
+    };
+
+    const renderStudentSortTh = (label, sortKey, className = '') => {
+        const active = studentSort.key === sortKey;
+        return (
+            <th
+                className={`p-2 text-[10px] font-bold text-slate-500 uppercase cursor-pointer select-none hover:text-slate-800 ${className}`}
+                onClick={() => toggleStudentSort(sortKey)}
+                title={`Sort by ${label}`}
+            >
+                <span className="inline-flex items-center gap-1">
+                    {label}
+                    {active ? (
+                        studentSort.dir === 'asc'
+                            ? <ArrowUp size={11} className="text-blue-600 shrink-0" />
+                            : <ArrowDown size={11} className="text-blue-600 shrink-0" />
+                    ) : (
+                        <span className="w-[11px] h-[11px] shrink-0 opacity-20 text-[9px] leading-none">↕</span>
+                    )}
+                </span>
+            </th>
+        );
+    };
+
     const filteredLoadedStudents = useMemo(() => {
-        return loadedStudents.filter(s => {
+        const rows = loadedStudents.filter(s => {
             if (studentQuotaFilter !== 'All' && (s.studType || '') !== studentQuotaFilter) return false;
             if (!studentSearch.trim()) return true;
             const q = studentSearch.toLowerCase();
             return s.studentName?.toLowerCase().includes(q) || s.admissionNumber?.toLowerCase().includes(q) || s.pinNo?.toLowerCase().includes(q)
                 || getStudentApplicationId(s, formData.academicYear).toLowerCase().includes(q);
         });
-    }, [loadedStudents, studentSearch, studentQuotaFilter, formData.academicYear]);
+        const { key, dir } = studentSort;
+        return [...rows].sort((a, b) => compareLoadedStudentSort(a, b, key, dir));
+    }, [loadedStudents, studentSearch, studentQuotaFilter, formData.academicYear, studentSort, studentShareAmounts]);
 
     const selectedCount = Object.values(studentChecks).filter(Boolean).length;
 
-    const lockedStudents = useMemo(
-        () => loadedStudents.filter(s => studentChecks[s.studentId]),
-        [loadedStudents, studentChecks]
-    );
+    const lockedStudents = useMemo(() => {
+        const rows = loadedStudents.filter(s => studentChecks[s.studentId]);
+        const { key, dir } = studentSort;
+        return [...rows].sort((a, b) => compareLoadedStudentSort(a, b, key, dir));
+    }, [loadedStudents, studentChecks, studentSort, formData.academicYear, studentShareAmounts]);
 
     const sharesTotal = useMemo(() => {
         return lockedStudents.reduce((sum, s) => sum + (Number(studentShareAmounts[s.studentId]) || 0), 0);
@@ -1504,6 +1598,15 @@ const Proceedings = () => {
         && lockedStudents.every(s => Number(studentShareAmounts[s.studentId]) > 0);
 
     const canSubmitProceeding = allSharesValid && Math.abs(remainingBalance) <= 0.009 && proceedingAmountNum > 0;
+
+    const canLoadStudentsActions = Boolean(
+        String(formData.proceedingNumber || '').trim()
+        && formData.proceedingDate
+        && formData.academicYear
+    );
+    const loadStudentsDisabledReason = !canLoadStudentsActions
+        ? 'Enter Proceeding Number, Date, and Academic Year first'
+        : '';
 
     const lockSelectedStudents = () => {
         if (!formData.academicYear) {
@@ -1545,6 +1648,8 @@ const Proceedings = () => {
         setStudentsLocked(false);
         setStudentSearch('');
         setStudentQuotaFilter('All');
+        setAttachmentFile(null);
+        if (attachmentInputRef.current) attachmentInputRef.current.value = '';
     };
 
     const handleSubmit = async (e) => {
@@ -1593,7 +1698,7 @@ const Proceedings = () => {
         setIsSaving(true);
         try {
             if (isEditing) {
-                const { status, approvedBy, approvedByName, approvedAt, verifiedBy, verifiedByName, verifiedAt, requestedBy, requestedByName, totalUsed, studentCount, feeHead, transactionsGenerated, colleges, courses, batches, ...rest } = formData;
+                const { status, approvedBy, approvedByName, approvedAt, verifiedBy, verifiedByName, verifiedAt, requestedBy, requestedByName, totalUsed, studentCount, feeHead, transactionsGenerated, colleges, courses, batches, attachmentUrl, attachmentName, attachmentKey, ...rest } = formData;
                 const editPayload = {
                     ...rest,
                     college: headerCollege,
@@ -1602,21 +1707,42 @@ const Proceedings = () => {
                     students: studentsPayload,
                     amount: totalAmount,
                 };
-                await api.put(`/proceedings/${formData._id}`, editPayload);
+                if (attachmentFile) {
+                    const fd = new FormData();
+                    Object.entries(editPayload).forEach(([key, value]) => {
+                        if (key === 'students') fd.append('students', JSON.stringify(value));
+                        else if (value != null && value !== '') fd.append(key, value);
+                    });
+                    fd.append('attachment', attachmentFile);
+                    await api.put(`/proceedings/${formData._id}`, fd);
+                } else {
+                    await api.put(`/proceedings/${formData._id}`, editPayload);
+                }
                 Swal.fire('Success', 'Proceeding updated successfully', 'success');
                 resetForm();
                 setShowEditModal(false);
                 fetchInitialData();
             } else {
-                const { colleges, courses, batches, ...rest } = formData;
-                await api.post('/proceedings', {
+                const { colleges, courses, batches, attachmentUrl, attachmentName, attachmentKey, ...rest } = formData;
+                const createPayload = {
                     ...rest,
                     college: headerCollege,
                     course: headerCourse,
                     batch: headerBatch || '',
                     amount: totalAmount,
                     students: studentsPayload
-                });
+                };
+                if (attachmentFile) {
+                    const fd = new FormData();
+                    Object.entries(createPayload).forEach(([key, value]) => {
+                        if (key === 'students') fd.append('students', JSON.stringify(value));
+                        else if (value != null && value !== '') fd.append(key, value);
+                    });
+                    fd.append('attachment', attachmentFile);
+                    await api.post('/proceedings', fd);
+                } else {
+                    await api.post('/proceedings', createPayload);
+                }
                 Swal.fire('Success', 'Proceeding created — pending verification', 'success');
                 clearCreateDraft();
                 skipNextDraftSave.current = true;
@@ -1641,6 +1767,8 @@ const Proceedings = () => {
             proceedingDate: proc.proceedingDate ? proc.proceedingDate.split('T')[0] : '',
             bankCreditedDate: proc.bankCreditedDate ? proc.bankCreditedDate.split('T')[0] : ''
         }));
+        setAttachmentFile(null);
+        if (attachmentInputRef.current) attachmentInputRef.current.value = '';
         setIsEditing(true);
         setShowEditModal(true);
 
@@ -1684,6 +1812,8 @@ const Proceedings = () => {
         setStudentsLocked(false);
         setStudentSearch('');
         setStudentQuotaFilter('All');
+        setAttachmentFile(null);
+        if (attachmentInputRef.current) attachmentInputRef.current.value = '';
     };
 
     const handleVerify = async (proc) => {
@@ -1955,6 +2085,40 @@ const Proceedings = () => {
     };
 
     const closeDetailModal = () => setDetailModal(null);
+
+    const canAttachProceedingFile = canEdit || canCreate;
+
+    const handleDetailAttachmentUpload = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file || !detailModal?.proc?._id) return;
+        if (detailModal.proc.status === 'Cancelled') {
+            Swal.fire('Not allowed', 'Cannot attach a file to a cancelled proceeding', 'warning');
+            return;
+        }
+        setDetailAttachmentUploading(true);
+        try {
+            const fd = new FormData();
+            fd.append('attachment', file);
+            const res = await api.put(`/proceedings/${detailModal.proc._id}/attachment`, fd);
+            const next = {
+                attachmentUrl: res.data?.proceeding?.attachmentUrl || '',
+                attachmentName: res.data?.proceeding?.attachmentName || file.name,
+                attachmentKey: res.data?.proceeding?.attachmentKey || ''
+            };
+            setDetailModal((prev) => (
+                prev ? { ...prev, proc: { ...prev.proc, ...next } } : prev
+            ));
+            setProceedings((prev) => prev.map((p) => (
+                p._id === detailModal.proc._id ? { ...p, ...next } : p
+            )));
+            Swal.fire('Success', 'Attachment saved', 'success');
+        } catch (error) {
+            Swal.fire('Error', error.response?.data?.message || 'Failed to upload attachment', 'error');
+        } finally {
+            setDetailAttachmentUploading(false);
+        }
+    };
 
     const resolveTxnFeeHeadName = (txn, proc) => {
         if (txn?.feeHead?.name) return txn.feeHead.name;
@@ -2256,7 +2420,21 @@ const Proceedings = () => {
                                                         <span className="px-2.5 py-1 text-xs bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200">{proc.academicYear || '-'}</span>
                                                     </td>
                                                     <td className="p-4">
-                                                        <div className="font-bold text-slate-800">{proc.proceedingNumber}</div>
+                                                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                                                            {proc.proceedingNumber}
+                                                            {proc.attachmentUrl && (
+                                                                <a
+                                                                    href={proc.attachmentUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-indigo-600 hover:text-indigo-800"
+                                                                    title={proc.attachmentName || 'View attachment'}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    <Paperclip size={13} />
+                                                                </a>
+                                                            )}
+                                                        </div>
                                                         <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Active}`}>{proc.status || 'Active'}</span>
                                                         {(proc.pendingTxnCount > 0) && (
                                                             <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-[10px] font-bold rounded-md border bg-amber-50 text-amber-700 border-amber-200">
@@ -2347,6 +2525,64 @@ const Proceedings = () => {
                                     </div>
                                 </div>
 
+                                <div className="mb-6 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                        <div className="min-w-0 flex-1">
+                                            <label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                                                <Paperclip size={13} className="text-slate-400" />
+                                                Attachment <span className="font-semibold text-slate-400">(optional)</span>
+                                            </label>
+                                            <p className="text-[11px] text-slate-500 mt-0.5">
+                                                Upload the related proceeding file (PDF, image, Excel, Word).
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <input
+                                                ref={attachmentInputRef}
+                                                type="file"
+                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.doc,.docx"
+                                                className="hidden"
+                                                onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => attachmentInputRef.current?.click()}
+                                                className="px-3 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5"
+                                            >
+                                                <Upload size={14} />
+                                                {attachmentFile ? 'Change File' : 'Choose File'}
+                                            </button>
+                                            {attachmentFile && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setAttachmentFile(null);
+                                                        if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+                                                    }}
+                                                    className="px-2.5 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {attachmentFile ? (
+                                        <div className="mt-2 text-xs font-semibold text-indigo-700 truncate">
+                                            Selected: {attachmentFile.name}
+                                        </div>
+                                    ) : formData.attachmentUrl ? (
+                                        <a
+                                            href={formData.attachmentUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline"
+                                        >
+                                            <Paperclip size={12} />
+                                            {formData.attachmentName || 'View current attachment'}
+                                        </a>
+                                    ) : null}
+                                </div>
+
                                 <div className="bg-slate-50 rounded-xl p-4 mb-4">
                                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
                                         Student Filters
@@ -2390,11 +2626,23 @@ const Proceedings = () => {
                                             placeholder="All batches"
                                             readOnly={studentsLocked}
                                         />
-                                        <button type="button" onClick={() => handleLoadStudents()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleLoadStudents()}
+                                            disabled={!canLoadStudentsActions || loadingStudents || studentsLocked}
+                                            title={loadStudentsDisabledReason || undefined}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
                                             {loadingStudents ? <><Loader2 size={16} className="animate-spin" /> Loading...</> : <><Users size={16} /> Load Students</>}
                                         </button>
                                         <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={handleApplicationExcelUpload} />
-                                        <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel or PDF: Student ID + optional Released Amount">
+                                        <button
+                                            type="button"
+                                            onClick={() => applicationExcelRef.current?.click()}
+                                            disabled={!canLoadStudentsActions || loadingStudents || studentsLocked}
+                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title={loadStudentsDisabledReason || 'Upload Excel or PDF: Student ID + optional Released Amount'}
+                                        >
                                             {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by File</>}
                                         </button>
                                     </div>
@@ -2450,15 +2698,15 @@ const Proceedings = () => {
                                                 <thead className="sticky top-0 bg-white border-b">
                                                     <tr>
                                                         <th className="p-2 w-10"></th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Course</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Caste</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Year</th>
+                                                        {renderStudentSortTh('Name', 'studentName')}
+                                                        {renderStudentSortTh('Adm No', 'admissionNumber')}
+                                                        {renderStudentSortTh('PIN', 'pinNo')}
+                                                        {renderStudentSortTh('Application ID', 'applicationId')}
+                                                        {renderStudentSortTh('Course', 'course')}
+                                                        {renderStudentSortTh('Batch', 'batch')}
+                                                        {renderStudentSortTh('Quota', 'studType')}
+                                                        {renderStudentSortTh('Caste', 'caste')}
+                                                        {renderStudentSortTh('Year', 'studentYear')}
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-50">
@@ -2469,10 +2717,10 @@ const Proceedings = () => {
                                                             </td>
                                                             <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                            <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                             <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                             <td className="p-2 text-xs text-slate-600">{s.course || '-'}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
-                                                            <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.caste || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.studentYear || '-'}</td>
@@ -2511,15 +2759,15 @@ const Proceedings = () => {
                                             <table className="w-full text-left">
                                                 <thead className="sticky top-0 bg-white border-b">
                                                     <tr>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Current Yr</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Proc. Yr</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase w-36">Share Amount *</th>
+                                                        {renderStudentSortTh('Name', 'studentName')}
+                                                        {renderStudentSortTh('Adm No', 'admissionNumber')}
+                                                        {renderStudentSortTh('PIN', 'pinNo')}
+                                                        {renderStudentSortTh('Application ID', 'applicationId')}
+                                                        {renderStudentSortTh('Quota', 'studType')}
+                                                        {renderStudentSortTh('Batch', 'batch')}
+                                                        {renderStudentSortTh('Current Yr', 'studentYear')}
+                                                        {renderStudentSortTh('Proc. Yr', 'proceedingYear')}
+                                                        {renderStudentSortTh('Share Amount *', 'shareAmount', 'w-36')}
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-50">
@@ -2530,8 +2778,8 @@ const Proceedings = () => {
                                                         <tr key={s.studentId} className="hover:bg-indigo-50/30">
                                                             <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
-                                                            <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
+                                                            <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                             <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                             <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
                                                             <td className="p-2 text-xs text-slate-600">{formatYearLabel(s.studentYear)}</td>
@@ -2616,8 +2864,20 @@ const Proceedings = () => {
                                             ) : pendingQueue.map(proc => (
                                                 <tr key={proc._id} className="hover:bg-slate-50/50 transition-colors">
                                                     <td className="p-4">
-                                                        <div className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition-colors" onClick={() => openDetailModal(proc)}>
+                                                        <div className="font-bold text-slate-800 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-1.5" onClick={() => openDetailModal(proc)}>
                                                             {proc.proceedingNumber}
+                                                            {proc.attachmentUrl && (
+                                                                <a
+                                                                    href={proc.attachmentUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-indigo-600 hover:text-indigo-800"
+                                                                    title={proc.attachmentName || 'View attachment'}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    <Paperclip size={13} />
+                                                                </a>
+                                                            )}
                                                         </div>
                                                         <div className="text-[10px] text-slate-500 font-medium">
                                                             {proc.proceedingDate ? new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
@@ -3088,6 +3348,64 @@ const Proceedings = () => {
                                 </div>
                             </div>
 
+                            <div className="mb-6 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                                            <Paperclip size={13} className="text-slate-400" />
+                                            Attachment <span className="font-semibold text-slate-400">(optional)</span>
+                                        </label>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">
+                                            Upload or replace the related proceeding file.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <input
+                                            ref={attachmentInputRef}
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.doc,.docx"
+                                            className="hidden"
+                                            onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => attachmentInputRef.current?.click()}
+                                            className="px-3 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5"
+                                        >
+                                            <Upload size={14} />
+                                            {attachmentFile ? 'Change File' : 'Choose File'}
+                                        </button>
+                                        {attachmentFile && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setAttachmentFile(null);
+                                                    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+                                                }}
+                                                className="px-2.5 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                {attachmentFile ? (
+                                    <div className="mt-2 text-xs font-semibold text-indigo-700 truncate">
+                                        Selected: {attachmentFile.name}
+                                    </div>
+                                ) : formData.attachmentUrl ? (
+                                    <a
+                                        href={formData.attachmentUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline"
+                                    >
+                                        <Paperclip size={12} />
+                                        {formData.attachmentName || 'View current attachment'}
+                                    </a>
+                                ) : null}
+                            </div>
+
                             <div className="bg-slate-50 rounded-xl p-4 mb-4">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
                                     Student Filters
@@ -3131,11 +3449,23 @@ const Proceedings = () => {
                                         placeholder="All batches"
                                         readOnly={studentsLocked}
                                     />
-                                    <button type="button" onClick={() => handleLoadStudents()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLoadStudents()}
+                                        disabled={!canLoadStudentsActions || loadingStudents || studentsLocked}
+                                        title={loadStudentsDisabledReason || undefined}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
                                         {loadingStudents ? <><Loader2 size={16} className="animate-spin" /> Loading...</> : <><Users size={16} /> Load Students</>}
                                     </button>
                                     <input ref={applicationExcelRef} type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={handleApplicationExcelUpload} />
-                                    <button type="button" onClick={() => applicationExcelRef.current?.click()} disabled={loadingStudents || studentsLocked} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50" title="Upload Excel or PDF: Student ID + optional Released Amount">
+                                    <button
+                                        type="button"
+                                        onClick={() => applicationExcelRef.current?.click()}
+                                        disabled={!canLoadStudentsActions || loadingStudents || studentsLocked}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={loadStudentsDisabledReason || 'Upload Excel or PDF: Student ID + optional Released Amount'}
+                                    >
                                         {loadingStudents ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /> Load by File</>}
                                     </button>
                                 </div>
@@ -3172,15 +3502,15 @@ const Proceedings = () => {
                                             <thead className="sticky top-0 bg-white border-b">
                                                 <tr>
                                                     <th className="p-2 w-10"></th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Course</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Caste</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Year</th>
+                                                    {renderStudentSortTh('Name', 'studentName')}
+                                                    {renderStudentSortTh('Adm No', 'admissionNumber')}
+                                                    {renderStudentSortTh('PIN', 'pinNo')}
+                                                    {renderStudentSortTh('Application ID', 'applicationId')}
+                                                    {renderStudentSortTh('Course', 'course')}
+                                                    {renderStudentSortTh('Batch', 'batch')}
+                                                    {renderStudentSortTh('Quota', 'studType')}
+                                                    {renderStudentSortTh('Caste', 'caste')}
+                                                    {renderStudentSortTh('Year', 'studentYear')}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
@@ -3191,10 +3521,10 @@ const Proceedings = () => {
                                                         </td>
                                                         <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
                                                         <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                        <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                         <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
                                                         <td className="p-2 text-xs text-slate-600">{s.course || '-'}</td>
                                                         <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
-                                                        <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.caste || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-500">{s.studentYear || '-'}</td>
@@ -3233,15 +3563,15 @@ const Proceedings = () => {
                                         <table className="w-full text-left">
                                             <thead className="sticky top-0 bg-white border-b">
                                                 <tr>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Name</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Adm No</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Application ID</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">PIN</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Quota</th>
-                                                        <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Batch</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Current Yr</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase">Proc. Yr</th>
-                                                    <th className="p-2 text-[10px] font-bold text-slate-500 uppercase w-36">Share Amount *</th>
+                                                    {renderStudentSortTh('Name', 'studentName')}
+                                                    {renderStudentSortTh('Adm No', 'admissionNumber')}
+                                                    {renderStudentSortTh('PIN', 'pinNo')}
+                                                    {renderStudentSortTh('Application ID', 'applicationId')}
+                                                    {renderStudentSortTh('Quota', 'studType')}
+                                                    {renderStudentSortTh('Batch', 'batch')}
+                                                    {renderStudentSortTh('Current Yr', 'studentYear')}
+                                                    {renderStudentSortTh('Proc. Yr', 'proceedingYear')}
+                                                    {renderStudentSortTh('Share Amount *', 'shareAmount', 'w-36')}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
@@ -3251,11 +3581,11 @@ const Proceedings = () => {
                                                     return (
                                                     <tr key={s.studentId} className="hover:bg-indigo-50/30">
                                                         <td className="p-2 text-xs font-bold text-slate-800">{s.studentName}</td>
-                                                            <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
-                                                            <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
-                                                            <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
-                                                            <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
-                                                            <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
+                                                        <td className="p-2 text-xs font-mono text-slate-600">{s.admissionNumber}</td>
+                                                        <td className="p-2 text-xs font-mono text-slate-500">{s.pinNo || '-'}</td>
+                                                        <td className="p-2 text-xs font-mono font-semibold text-indigo-700">{getStudentApplicationId(s, formData.academicYear)}</td>
+                                                        <td className="p-2 text-xs text-slate-500">{s.studType || '-'}</td>
+                                                        <td className="p-2 text-xs font-mono text-slate-600">{s.batch || '-'}</td>
                                                         <td className="p-2 text-xs text-slate-600">{formatYearLabel(s.studentYear)}</td>
                                                         <td className="p-2 text-xs font-bold text-indigo-700">{formatYearLabel(procYear)}</td>
                                                         <td className="p-2">
@@ -3324,6 +3654,50 @@ const Proceedings = () => {
 
                         <div className="p-6 overflow-y-auto flex-1">
                             {renderAuditBlock(detailModal.proc)}
+
+                            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                                    <div className="min-w-0 flex-1 flex items-start gap-2">
+                                        <Paperclip size={14} className="text-slate-500 shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-bold text-slate-700">Attachment</div>
+                                            {detailModal.proc.attachmentUrl ? (
+                                                <a
+                                                    href={detailModal.proc.attachmentUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-xs font-semibold text-indigo-700 hover:underline truncate block"
+                                                >
+                                                    {detailModal.proc.attachmentName || 'View attachment'}
+                                                </a>
+                                            ) : (
+                                                <div className="text-[11px] text-slate-500">No file attached yet</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {canAttachProceedingFile && detailModal.proc.status !== 'Cancelled' && (
+                                        <div className="shrink-0">
+                                            <input
+                                                ref={detailAttachmentInputRef}
+                                                type="file"
+                                                accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.doc,.docx"
+                                                className="hidden"
+                                                onChange={handleDetailAttachmentUpload}
+                                            />
+                                            <button
+                                                type="button"
+                                                disabled={detailAttachmentUploading}
+                                                onClick={() => detailAttachmentInputRef.current?.click()}
+                                                className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+                                            >
+                                                {detailAttachmentUploading
+                                                    ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+                                                    : <><Upload size={13} /> {detailModal.proc.attachmentUrl ? 'Replace File' : 'Attach File'}</>}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
 
                             {detailModal.loading ? (
                                 <div className="py-16 flex justify-center"><Loader2 size={28} className="animate-spin text-blue-600" /></div>
