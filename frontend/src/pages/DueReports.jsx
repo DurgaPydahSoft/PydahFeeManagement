@@ -217,6 +217,7 @@ const DueReports = () => {
     // Print Options Modal State
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [includePrintDetails, setIncludePrintDetails] = useState(false);
+    const [printGenerating, setPrintGenerating] = useState(false);
 
     const toggleRow = (admissionNumber) => {
         setExpandedRow(prev => prev === admissionNumber ? null : admissionNumber);
@@ -385,6 +386,7 @@ const DueReports = () => {
 
     const handleOverallPrint = async (includeDetails = false) => {
         if (!filteredData || filteredData.length === 0) return;
+        setPrintGenerating(true);
         try {
             const response = await api.post('/print', {
                 template: 'due-report',
@@ -406,7 +408,9 @@ const DueReports = () => {
                                 .filter(fh => selectedFeeHeadIds.includes(fh.value))
                                 .map(fh => fh.label)
                                 .join(', ')
-                            : 'All'
+                            : 'All',
+                        scholarshipMode: excludeScholarship ? 'Without Sch' : 'With Sch',
+                        search: searchTerm.trim() || ''
                     },
                     summary: {
                         totalStudents: filteredData.length,
@@ -421,6 +425,8 @@ const DueReports = () => {
         } catch (err) {
             console.error('Failed to print overall due report:', err);
             alert('Failed to print report.');
+        } finally {
+            setPrintGenerating(false);
         }
     };
 
@@ -728,6 +734,44 @@ const DueReports = () => {
 
     // Filter Logic - client-side scholarship + fee-head filters applied in processedData
     const filteredData = processedData;
+
+    const printFilterSummary = React.useMemo(() => {
+        const campusId = filters.campusId !== 'all' ? filters.campusId : topFilters.campusId;
+        const campusName = campusId && campusId !== 'all'
+            ? (campuses.find((c) => String(c.id) === String(campusId))?.name || campusId)
+            : 'All Campuses';
+        const academicYear = filters.batch || topFilters.batch || 'All Academic Years';
+        const feeHeadLabels = selectedFeeHeadIds.length > 0
+            ? feeHeads
+                .filter((fh) => selectedFeeHeadIds.includes(String(fh._id)))
+                .map((fh) => (fh.code ? `${fh.name} (${fh.code})` : fh.name))
+                .join(', ')
+            : 'All Fee Heads';
+
+        return [
+            { label: 'Campus', value: campusName },
+            { label: 'Academic Year', value: academicYear },
+            { label: 'College', value: filters.college || 'All' },
+            { label: 'Course', value: filters.course || 'All' },
+            { label: 'Branch', value: filters.branch?.length ? filters.branch.join(', ') : 'All' },
+            { label: 'Year', value: (Array.isArray(filters.year) ? filters.year.join(', ') : filters.year) || 'All Years' },
+            { label: 'Quota', value: filters.quota?.length ? filters.quota.join(', ') : 'All' },
+            { label: 'Student Status', value: filters.studentStatus || 'All' },
+            { label: 'Fee Heads', value: feeHeadLabels },
+            { label: 'Scholarship Mode', value: excludeScholarship ? 'Without Sch' : 'With Sch' },
+            { label: 'Search', value: searchTerm.trim() || '—' },
+            { label: 'Students in Report', value: String(filteredData?.length || 0) },
+        ];
+    }, [
+        filters,
+        topFilters,
+        campuses,
+        selectedFeeHeadIds,
+        feeHeads,
+        excludeScholarship,
+        searchTerm,
+        filteredData,
+    ]);
 
     // Pagination Logic
     const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -1372,27 +1416,45 @@ const DueReports = () => {
                     {/* Print Options Modal */}
                     {showPrintModal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200 relative p-6">
-                                <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 overflow-hidden animate-in zoom-in-95 duration-200 relative">
+                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                     <div className="flex items-center gap-2 text-gray-800">
                                         <Printer size={20} className="text-blue-600" />
-                                        <h3 className="text-base font-bold">Print Outstanding Dues Report</h3>
+                                        <h3 className="text-base font-bold">Print Active Due Report</h3>
                                     </div>
                                     <button
-                                        onClick={() => setShowPrintModal(false)}
-                                        className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
+                                        onClick={() => !printGenerating && setShowPrintModal(false)}
+                                        disabled={printGenerating}
+                                        className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition disabled:opacity-50"
                                     >
                                         <X size={18} />
                                     </button>
                                 </div>
 
-                                <div className="space-y-4 mb-6">
+                                <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                                    <div>
+                                        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                            Selected Filters
+                                        </p>
+                                        <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                                            <dl className="divide-y divide-gray-100">
+                                                {printFilterSummary.map((row) => (
+                                                    <div key={row.label} className="grid grid-cols-[140px_1fr] gap-2 px-3 py-2">
+                                                        <dt className="text-[11px] font-semibold text-gray-500">{row.label}</dt>
+                                                        <dd className="text-[11px] font-bold text-gray-900 break-words">{row.value}</dd>
+                                                    </div>
+                                                ))}
+                                            </dl>
+                                        </div>
+                                    </div>
+
                                     <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
                                         <label className="flex items-start gap-3 cursor-pointer">
                                             <input
                                                 type="checkbox"
                                                 checked={includePrintDetails}
                                                 onChange={e => setIncludePrintDetails(e.target.checked)}
+                                                disabled={printGenerating}
                                                 className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
                                             />
                                             <div>
@@ -1411,18 +1473,21 @@ const DueReports = () => {
                                     )}
                                 </div>
 
-                                <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+                                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-white">
                                     <button
                                         onClick={() => setShowPrintModal(false)}
-                                        className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                                        disabled={printGenerating}
+                                        className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition disabled:opacity-50"
                                     >
                                         Cancel
                                     </button>
                                     <button
                                         onClick={() => handleOverallPrint(includePrintDetails)}
-                                        className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow transition flex items-center gap-1.5"
+                                        disabled={printGenerating || !filteredData?.length}
+                                        className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        <Printer size={14} /> Print Report
+                                        <Printer size={14} />
+                                        {printGenerating ? 'Preparing…' : 'Print Report'}
                                     </button>
                                 </div>
                             </div>

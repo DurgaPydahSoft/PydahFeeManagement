@@ -33,6 +33,7 @@ const DueReportPrintTemplate = require('../../frontend/src/components/DueReportP
 const renderTemplate = async (templateName, data) => {
     let renderedMarkup = '';
     let pageTitle = 'Document';
+    let forceLandscape = false;
 
     if (templateName === 'fee-receipt') {
         const { receiptId, receiptNumber } = data;
@@ -228,6 +229,7 @@ const renderTemplate = async (templateName, data) => {
         });
         renderedMarkup = ReactDOMServer.renderToStaticMarkup(element);
         pageTitle = type === 'overall' ? 'Overall_Due_Report' : `Due_Report_${student?.admission_number || 'Student'}`;
+        forceLandscape = true;
 
     } else {
         throw new Error(`Unsupported template: ${templateName}`);
@@ -241,7 +243,9 @@ const renderTemplate = async (templateName, data) => {
     <title>${pageTitle}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        ${forceLandscape ? '@page { size: A4 landscape; margin: 6mm; }' : ''}
         @media print {
+            ${forceLandscape ? '@page { size: A4 landscape; margin: 6mm; }' : ''}
             body { 
                 -webkit-print-color-adjust: exact; 
                 print-color-adjust: exact;
@@ -250,7 +254,7 @@ const renderTemplate = async (templateName, data) => {
         }
         .print-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 2px solid #000; }
         .print-table th, .print-table td { border: 1.5px solid #000; padding: 4px 8px; }
-        .print-table th { background-color: #f0f0f0; font-weight: bold; text-align: left; }
+        .print-table th { font-weight: bold; text-align: left; }
         .print-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
         .compact-row { line-height: 1.2; }
     </style>
