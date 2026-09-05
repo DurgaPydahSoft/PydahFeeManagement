@@ -1,7 +1,21 @@
 import React, { forwardRef } from 'react';
 
-const DueReportPrintTemplate = forwardRef(({ type = 'overall', reportData = [], filters = {}, summary = {}, student = {}, includeDetails = false }, ref) => {
+const DueReportPrintTemplate = forwardRef(({ type = 'overall', reportData = [], filters = {}, summary = {}, student = {}, includeDetails = false, printedOn: printedOnProp }, ref) => {
     const fmtAmount = (val) => Number(val || 0).toLocaleString('en-IN');
+
+    const formatPrintedOn = () => {
+        if (printedOnProp) return printedOnProp;
+        return `${new Date().toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        })} IST`;
+    };
 
     const formatTermDate = (d) => {
         if (!d) return null;
@@ -285,15 +299,7 @@ const DueReportPrintTemplate = forwardRef(({ type = 'overall', reportData = [], 
         return numA - numB;
     });
 
-    const printedOn = new Date().toLocaleString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true
-    });
+    const printedOn = formatPrintedOn();
 
     return (
         <div ref={ref} style={{ fontFamily: 'Arial, sans-serif', color: '#000', backgroundColor: '#fff' }}>
@@ -351,6 +357,8 @@ const DueReportPrintTemplate = forwardRef(({ type = 'overall', reportData = [], 
                             {filters.batch && <div><strong>Academic Year / Batch:</strong> {filters.batch}</div>}
                             {filters.studentStatus && <div><strong>Status:</strong> {filters.studentStatus}</div>}
                             {filters.scholarshipMode && <div><strong>Scholarship:</strong> {filters.scholarshipMode}</div>}
+                            {filters.feeHeads && <div><strong>Fee Heads:</strong> {filters.feeHeads}</div>}
+                            {filters.search && <div><strong>Search:</strong> {filters.search}</div>}
                         </div>
 
                         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: '8.5px' }}>

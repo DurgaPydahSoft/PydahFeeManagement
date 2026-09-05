@@ -388,12 +388,53 @@ const DueReports = () => {
         if (!filteredData || filteredData.length === 0) return;
         setPrintGenerating(true);
         try {
+            const feeHeadLabels = selectedFeeHeadIds.length > 0
+                ? feeHeadFilterOptions
+                    .filter((fh) => selectedFeeHeadIds.includes(fh.value))
+                    .map((fh) => fh.label)
+                    .join(', ')
+                : 'All Fee Heads';
+
+            // Lean rows with already-filtered amounts (fee-head / scholarship) so print matches the grid
+            const printReportData = filteredData.map((s) => ({
+                pin_no: s.pin_no,
+                admission_number: s.admission_number,
+                student_name: s.student_name,
+                current_year: s.current_year,
+                year: s.year,
+                studentYear: s.studentYear,
+                college: s.college,
+                course: s.course,
+                branch: s.branch,
+                totalFee: Number(s.totalFee || 0),
+                paidAmount: Number(s.paidAmount || 0),
+                dueAmount: Number(s.dueAmount || 0),
+                activeDue: Number(s.activeDue || 0),
+                concessionAmount: Number(s.concessionAmount || 0),
+                termDues: Array.isArray(s.termDues) ? s.termDues.map((v) => Number(v || 0)) : [],
+                termDueDates: Array.isArray(s.termDueDates) ? s.termDueDates : [],
+                scholarshipStatus: s.scholarshipStatus,
+                ...(includeDetails ? { groupedFeeDetails: s.groupedFeeDetails || null } : {})
+            }));
+
+            const printedOn = `${new Date().toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            })} IST`;
+
             const response = await api.post('/print', {
                 template: 'due-report',
                 data: {
                     type: 'overall',
-                    reportData: filteredData,
+                    reportData: printReportData,
                     includeDetails,
+                    printedOn,
                     filters: {
                         college: filters.college,
                         course: filters.course,
@@ -403,20 +444,16 @@ const DueReports = () => {
                         batch: filters.batch || topFilters.batch,
                         campusId: filters.campusId !== 'all' ? filters.campusId : topFilters.campusId,
                         studentStatus: filters.studentStatus,
-                        feeHeads: selectedFeeHeadIds.length > 0
-                            ? feeHeadFilterOptions
-                                .filter(fh => selectedFeeHeadIds.includes(fh.value))
-                                .map(fh => fh.label)
-                                .join(', ')
-                            : 'All',
+                        feeHeads: feeHeadLabels,
                         scholarshipMode: excludeScholarship ? 'Without Sch' : 'With Sch',
                         search: searchTerm.trim() || ''
                     },
                     summary: {
-                        totalStudents: filteredData.length,
-                        totalFee: filteredData.reduce((sum, s) => sum + Number(s.totalFee || 0), 0),
-                        totalCollected: filteredData.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0),
-                        totalDue: filteredData.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0),
+                        totalStudents: printReportData.length,
+                        totalFee: printReportData.reduce((sum, s) => sum + Number(s.totalFee || 0), 0),
+                        totalCollected: printReportData.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0),
+                        totalDue: printReportData.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0),
+                        totalActiveDue: printReportData.reduce((sum, s) => sum + Number(s.activeDue || 0), 0),
                     }
                 }
             });
@@ -558,6 +595,30 @@ const DueReports = () => {
         if (!excludeScholarship && !hasFeeHeadFilter) {
             return sortedData;
         }
+
+        const selectedIdSet = new Set(selectedFeeHeadIds.map((id) => String(id)));
+        const selectedCodeSet = new Set(
+            feeHeads
+                .filter((fh) => selectedIdSet.has(String(fh._id)))
+                .map((fh) => String(fh.code || '').toUpperCase())
+                .filter(Boolean)
+        );
+
+        const normalizeFeeHeadId = (id) => {
+            if (id == null) return '';
+            if (typeof id === 'object') return String(id._id || id.id || '');
+            return String(id);
+        };
+
+        const itemMatchesFeeHeadFilter = (item) => {
+            if (!hasFeeHeadFilter) return true;
+            const itemId = normalizeFeeHeadId(item.feeHeadId);
+            if (itemId && selectedIdSet.has(itemId)) return true;
+            const code = String(item.feeHeadCode || '').toUpperCase();
+            if (code && selectedCodeSet.has(code)) return true;
+            return false;
+        };
+
         return sortedData.map(student => {
             const isStudentScholarEligible = String(student.scholarshipStatus || '').toLowerCase() === 'eligible';
             // Without Sch does not change non-eligible students — keep backend term columns (T1/T3 etc.)
@@ -584,7 +645,7 @@ const DueReports = () => {
             };
 
             (student.rawGroupedData || []).forEach(item => {
-                if (hasFeeHeadFilter && !selectedFeeHeadIds.includes(String(item.feeHeadId))) {
+                if (!itemMatchesFeeHeadFilter(item)) {
                     return;
                 }
 
@@ -611,7 +672,7 @@ const DueReports = () => {
                         });
                     }
 
-                    const headIdStr = String(item.feeHeadId || 'unknown');
+                    const headIdStr = normalizeFeeHeadId(item.feeHeadId) || 'unknown';
                     if (!feeDetailsMap[headIdStr]) {
                         feeDetailsMap[headIdStr] = { total: 0, paid: 0, due: 0, headName: item.feeHeadName || 'Unknown', headCode: item.feeHeadCode || '' };
                     }
@@ -711,7 +772,7 @@ const DueReports = () => {
 
             return {
                 ...student,
-                ...(hasFeeHeadFilter ? { totalFee } : {}),
+                totalFee: hasFeeHeadFilter ? totalFee : student.totalFee,
                 paidAmount,
                 concessionAmount,
                 dueAmount,
@@ -721,7 +782,7 @@ const DueReports = () => {
                 ...(hasFeeHeadFilter ? { feeDetailsArray } : {})
             };
         });
-    }, [sortedData, excludeScholarship, selectedFeeHeadIds]);
+    }, [sortedData, excludeScholarship, selectedFeeHeadIds, feeHeads]);
 
     const feeHeadFilterOptions = React.useMemo(() => (
         [...feeHeads]
