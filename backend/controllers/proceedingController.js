@@ -208,10 +208,10 @@ const loadStudentsForProceeding = async (req, res) => {
 
             const buildAppIdConditions = (ids) => {
                 const placeholders = ids.map(() => '?').join(',');
+                // No student_status filter — load Regular, Detained, Course Completed, etc.
                 const conditions = [
                     // Prefer exact match (index-friendly). Also match lowercased TRIM for messy data.
                     `(ss.application_id IN (${placeholders}) OR LOWER(TRIM(ss.application_id)) IN (${placeholders}))`,
-                    `(LOWER(TRIM(s.student_status)) = 'regular' OR LOWER(TRIM(s.student_status)) = 'course completed')`,
                 ];
                 const params = [...ids, ...ids.map((id) => id.toLowerCase())];
                 if (college) {
@@ -277,7 +277,8 @@ const loadStudentsForProceeding = async (req, res) => {
             });
             rows = [...studentMap.values()];
         } else {
-            const conditions = ["LOWER(student_status) = 'regular'"];
+            // Load by college/course — include students of any student_status
+            const conditions = [];
             const params = [];
 
             conditions.push('college = ?');
@@ -409,11 +410,6 @@ const loadStudentsForProceeding = async (req, res) => {
                     if (course && String(h.course || '') !== String(course || '')) mismatches.push(`course is ${h.course || '—'}`);
                     if (caste && String(h.caste || '') !== String(caste)) mismatches.push(`caste is ${h.caste || '—'}`);
                     if (batch && String(h.batch || '') !== String(batch)) mismatches.push(`batch is ${h.batch || '—'}`);
-                    const statusLower = String(h.student_status || '').trim().toLowerCase();
-                    const statusAllowed = statusLower === 'regular' || statusLower === 'course completed';
-                    if (!statusAllowed) {
-                        mismatches.push(`status is ${h.student_status || '—'}`);
-                    }
 
                     notFound.push({
                         applicationId: originalId,
@@ -426,6 +422,7 @@ const loadStudentsForProceeding = async (req, res) => {
                         college: h.college || '',
                         course: h.course || '',
                         batch: h.batch || '',
+                        studentStatus: h.student_status || '',
                     });
                 });
             }
