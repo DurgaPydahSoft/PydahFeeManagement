@@ -1701,20 +1701,25 @@ const getScholarshipAnalytics = async (req, res) => {
             .map((y) => {
                 const b = yearBuckets[y];
                 const mapped = mappedKeysByYear[y] ? mappedKeysByYear[y].size : 0;
+                const eligCount = Number(b.eligibleStudents) || 0;
                 const eligAmt = Math.round(b.eligibleAmount * 100) / 100;
                 const relAmt = Math.round(b.releasedAmount * 100) / 100;
                 const partial = partialKeysByYear[y] ? partialKeysByYear[y].size : 0;
                 const full = fullKeysByYear[y] ? fullKeysByYear[y].size : 0;
+                const avgSanctioned = eligCount > 0
+                    ? Math.round((eligAmt / eligCount) * 100) / 100
+                    : 0;
                 return {
                     year: y,
-                    eligibleStudents: b.eligibleStudents,
+                    eligibleStudents: eligCount,
                     eligibleAmount: eligAmt,
+                    avgSanctioned,
                     releasedAmount: relAmt,
                     mappedStudents: mapped,
                     fullStudents: full,
                     partialStudents: partial,
                     pendingAmount: Math.max(0, Math.round((eligAmt - relAmt) * 100) / 100),
-                    pendingStudents: Math.max(0, b.eligibleStudents - mapped),
+                    pendingStudents: Math.max(0, eligCount - mapped),
                 };
             });
 

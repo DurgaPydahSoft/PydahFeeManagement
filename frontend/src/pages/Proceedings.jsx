@@ -3395,7 +3395,7 @@ const Proceedings = () => {
                                             value: analyticsData.overview.mappedStudents,
                                             color: 'text-emerald-700',
                                             sub: Number(analyticsData.overview.partialStudents) > 0
-                                                ? `${analyticsData.overview.fullStudents || 0} full · ${analyticsData.overview.partialStudents} partial`
+                                                ? `${analyticsData.overview.proceedingCount || 0} proceeding(s) · ${analyticsData.overview.fullStudents || 0} full · ${analyticsData.overview.partialStudents} partial`
                                                 : `${analyticsData.overview.proceedingCount || 0} proceeding(s)`,
                                             yearKey: 'mappedStudents',
                                             isAmount: false,
@@ -3434,14 +3434,19 @@ const Proceedings = () => {
                                             {(analyticsData.overview.byYear || []).length > 0 && (
                                                 <div className="mt-3 pt-2 border-t border-slate-100 space-y-1">
                                                     {(analyticsData.overview.byYear || []).map((yr) => {
+                                                        const count = Number(yr.eligibleStudents) || 0;
+                                                        const unit = Number(yr.avgSanctioned) > 0
+                                                            ? Number(yr.avgSanctioned)
+                                                            : (count > 0 ? Math.round((Number(yr.eligibleAmount) || 0) / count * 100) / 100 : 0);
                                                         const raw = yr[card.yearKey];
-                                                        const display = card.isAmount
-                                                            ? formatAnalyticsAmount(raw)
-                                                            : (raw ?? 0);
+                                                        // Eligible Students: show "64 × ₹xx"; Eligible Amount keeps plain total like before
+                                                        const display = card.yearKey === 'eligibleStudents' && count > 0 && unit > 0
+                                                            ? `${count} × ${formatAnalyticsAmount(unit)}`
+                                                            : (card.isAmount ? formatAnalyticsAmount(raw) : (raw ?? 0));
                                                         return (
                                                             <div key={`${card.label}_${yr.year}`} className="flex items-center justify-between gap-2 text-[11px]">
-                                                                <span className="font-semibold text-slate-500">{formatYearLabel(yr.year)}</span>
-                                                                <span className={`font-bold tabular-nums ${card.color}`}>{display}</span>
+                                                                <span className="font-semibold text-slate-500 shrink-0">{formatYearLabel(yr.year)}</span>
+                                                                <span className={`font-bold tabular-nums text-right ${card.color}`}>{display}</span>
                                                             </div>
                                                         );
                                                     })}
