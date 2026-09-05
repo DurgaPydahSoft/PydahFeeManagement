@@ -59,7 +59,7 @@ const TAB_META = {
     list: { title: 'All Proceedings', desc: 'Active and completed proceedings' },
     pending: { title: 'Pending Queue', desc: 'Verify and approve pending proceeding requests' },
     create: { title: 'Create Proceeding', desc: 'Create a new proceeding and map students' },
-    analytics: { title: 'Analytics', desc: 'Scholarship records from student_scholarship by student filters' },
+    analytics: { title: 'Analytics', desc: 'Eligible vs released overview and scholarship student list by filters' },
     guide: { title: 'Guide', desc: 'Step-by-step process for creating, verifying, and approving proceedings' }
 };
 
@@ -1049,13 +1049,28 @@ const Proceedings = () => {
     const [excelSummaryExpanded, setExcelSummaryExpanded] = useState(true);
 
     // ── Analytics tab state ───────────────────────────────────────────────
-    const [analyticsFilters, setAnalyticsFilters] = useState({ college: '', course: '', branch: '', batch: '' });
+    const defaultAnalyticsAy = (() => {
+        const y = new Date().getFullYear();
+        const month = new Date().getMonth(); // 0-based; AY often starts mid-year
+        const start = month >= 5 ? y : y - 1; // Jun+ → current year start
+        return `${start}-${start + 1}`;
+    })();
+    const [analyticsFilters, setAnalyticsFilters] = useState({
+        college: '',
+        course: '',
+        branch: '',
+        batch: '',
+        academicYear: defaultAnalyticsAy,
+    });
     const [analyticsCourses, setAnalyticsCourses] = useState([]);
     const [analyticsBranches, setAnalyticsBranches] = useState([]);
     const [analyticsData, setAnalyticsData] = useState(null);
     const [analyticsLoading, setAnalyticsLoading] = useState(false);
     const [analyticsSearch, setAnalyticsSearch] = useState('');
     const [analyticsExpanded, setAnalyticsExpanded] = useState({});
+    const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState('all'); // all | sanctioned | pending
+    const [analyticsYearFilter, setAnalyticsYearFilter] = useState('all'); // all | 1 | 2 | ...
+    const [analyticsSort, setAnalyticsSort] = useState({ key: 'studentName', dir: 'asc' });
 
     useEffect(() => { fetchInitialData(); }, []);
 
@@ -1187,7 +1202,7 @@ const Proceedings = () => {
 
     const handleAnalyticsCollegeChange = (e) => {
         const college = e.target.value;
-        setAnalyticsFilters({ college, course: '', branch: '', batch: '' });
+        setAnalyticsFilters(f => ({ ...f, college, course: '', branch: '' }));
         setAnalyticsCourses(college ? Object.keys(metadata.hierarchy?.[college] || {}) : []);
         setAnalyticsBranches([]);
         setAnalyticsData(null);
@@ -1210,12 +1225,19 @@ const Proceedings = () => {
             Swal.fire('Warning', 'Please select College and Course', 'warning');
             return;
         }
+        if (!analyticsFilters.academicYear) {
+            Swal.fire('Warning', 'Please select Academic Year', 'warning');
+            return;
+        }
         setAnalyticsLoading(true);
         setAnalyticsExpanded({});
+        setAnalyticsStatusFilter('all');
+        setAnalyticsYearFilter('all');
         try {
             const params = {
                 college: analyticsFilters.college,
                 course: analyticsFilters.course,
+                academicYear: analyticsFilters.academicYear,
                 branch: analyticsFilters.branch || undefined,
                 batch: analyticsFilters.batch || undefined,
             };
@@ -1230,19 +1252,92 @@ const Proceedings = () => {
         }
     };
 
+    const toggleAnalyticsSort = (key) => {
+        setAnalyticsSort((prev) => (
+            prev.key === key
+                ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                : { key, dir: 'asc' }
+        ));
+    };
+
+    const renderAnalyticsSortTh = (label, sortKey, className = '') => {
+        const active = analyticsSort.key === sortKey;
+        return (
+            <th
+                className={`px-3 py-2.5 cursor-pointer select-none hover:text-slate-800 ${className}`}
+                onClick={() => toggleAnalyticsSort(sortKey)}
+                title={`Sort by ${label}`}
+            >
+                <span className="inline-flex items-center gap-1">
+                    {label}
+                    {active ? (
+                        analyticsSort.dir === 'asc'
+                            ? <ArrowUp size={11} className="text-blue-600 shrink-0" />
+                            : <ArrowDown size={11} className="text-blue-600 shrink-0" />
+                    ) : (
+                        <span className="w-[11px] h-[11px] shrink-0 opacity-20 text-[9px] leading-none">↕</span>
+                    )}
+                </span>
+            </th>
+        );
+    };
+
     const filteredAnalyticsStudents = useMemo(() => {
         if (!analyticsData?.students) return [];
         let rows = analyticsData.students.filter(s =>
             groupScholarshipsByYear(s.scholarships).length > 0
         );
+
+        if (analyticsStatusFilter === 'sanctioned') {
+            // Fully released via proceeding shares (must have release > 0)
+            rows = rows.filter(s => s.releaseStatus === 'full');
+        } else if (analyticsStatusFilter === 'partial') {
+            rows = rows.filter(s => s.releaseStatus === 'partial');
+        } else if (analyticsStatusFilter === 'pending') {
+            rows = rows.filter(s => s.releaseStatus === 'pending' || (!s.releaseStatus && !s.isMapped));
+        }
+
+        if (analyticsYearFilter !== 'all') {
+            const y = Number(analyticsYearFilter);
+            rows = rows.filter(s => Number(s.targetYear) === y);
+        }
+
         const q = analyticsSearch.trim().toLowerCase();
-        if (!q) return rows;
-        return rows.filter(s =>
-            String(s.studentName || '').toLowerCase().includes(q)
-            || String(s.admissionNumber || '').toLowerCase().includes(q)
-            || String(s.pinNo || '').toLowerCase().includes(q)
-        );
-    }, [analyticsData, analyticsSearch]);
+        if (q) {
+            rows = rows.filter(s =>
+                String(s.studentName || '').toLowerCase().includes(q)
+                || String(s.admissionNumber || '').toLowerCase().includes(q)
+                || String(s.pinNo || '').toLowerCase().includes(q)
+            );
+        }
+
+        const { key, dir } = analyticsSort;
+        const mul = dir === 'asc' ? 1 : -1;
+        const getVal = (s) => {
+            if (key === 'admissionNumber') return String(s.admissionNumber || '').toLowerCase();
+            if (key === 'pinNo') return String(s.pinNo || '').toLowerCase();
+            if (key === 'branch') return String(s.branch || '').toLowerCase();
+            if (key === 'batch') return String(s.batch || '').toLowerCase();
+            return String(s.studentName || '').toLowerCase();
+        };
+        return [...rows].sort((a, b) => {
+            const av = getVal(a);
+            const bv = getVal(b);
+            if (av < bv) return -1 * mul;
+            if (av > bv) return 1 * mul;
+            return 0;
+        });
+    }, [analyticsData, analyticsSearch, analyticsStatusFilter, analyticsYearFilter, analyticsSort]);
+
+    const analyticsYearOptions = useMemo(() => {
+        const fromOverview = (analyticsData?.overview?.byYear || []).map(y => Number(y.year)).filter(Boolean);
+        if (fromOverview.length) return fromOverview;
+        const years = new Set();
+        (analyticsData?.students || []).forEach(s => {
+            if (Number(s.targetYear) > 0) years.add(Number(s.targetYear));
+        });
+        return [...years].sort((a, b) => a - b);
+    }, [analyticsData]);
 
     const toggleAnalyticsExpand = (key) => {
         setAnalyticsExpanded(prev => ({ ...prev, [key]: !prev[key] }));
@@ -2494,6 +2589,22 @@ const Proceedings = () => {
                                     </button>
                                 </>
                             )}
+                            {activeTab === 'analytics' && (
+                                <div className="relative min-w-[140px]">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Academic Year</label>
+                                    <select
+                                        value={analyticsFilters.academicYear}
+                                        onChange={(e) => {
+                                            setAnalyticsFilters(f => ({ ...f, academicYear: e.target.value }));
+                                            setAnalyticsData(null);
+                                        }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                    >
+                                        {getAcademicYears().map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -3216,7 +3327,7 @@ const Proceedings = () => {
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
                                         <select
                                             value={analyticsFilters.branch}
-                                            onChange={e => setAnalyticsFilters(f => ({ ...f, branch: e.target.value }))}
+                                            onChange={e => { setAnalyticsFilters(f => ({ ...f, branch: e.target.value })); setAnalyticsData(null); }}
                                             disabled={!analyticsFilters.course}
                                             className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
                                         >
@@ -3228,7 +3339,7 @@ const Proceedings = () => {
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
                                         <select
                                             value={analyticsFilters.batch}
-                                            onChange={e => setAnalyticsFilters(f => ({ ...f, batch: e.target.value }))}
+                                            onChange={e => { setAnalyticsFilters(f => ({ ...f, batch: e.target.value })); setAnalyticsData(null); }}
                                             className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
                                         >
                                             <option value="">All Batches</option>
@@ -3251,7 +3362,7 @@ const Proceedings = () => {
                                     <button
                                         type="button"
                                         onClick={fetchScholarshipAnalytics}
-                                        disabled={analyticsLoading || !analyticsFilters.college || !analyticsFilters.course}
+                                        disabled={analyticsLoading || !analyticsFilters.college || !analyticsFilters.course || !analyticsFilters.academicYear}
                                         className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {analyticsLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
@@ -3260,30 +3371,125 @@ const Proceedings = () => {
                                 </div>
                             </div>
 
-                            {/* Stats */}
-                            {analyticsData?.stats && (
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {analyticsData?.overview && (
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                                     {[
-                                        { label: 'Total Students', value: analyticsData.stats.totalStudents, color: 'text-slate-800' },
-                                        { label: 'With Scholarship', value: analyticsData.stats.withScholarship, color: 'text-emerald-700' },
-                                        { label: 'Without Scholarship', value: analyticsData.stats.withoutScholarship, color: 'text-slate-500' },
-                                        { label: 'Scholarship Records', value: analyticsData.stats.totalRecords, color: 'text-blue-700' },
-                                        { label: 'Unique Applications', value: analyticsData.stats.uniqueApplications, color: 'text-indigo-700' },
+                                        {
+                                            label: 'Eligible Students',
+                                            value: analyticsData.overview.eligibleStudents,
+                                            color: 'text-blue-700',
+                                            sub: 'With application ID',
+                                            yearKey: 'eligibleStudents',
+                                            isAmount: false,
+                                        },
+                                        {
+                                            label: 'Eligible Amount',
+                                            value: formatAnalyticsAmount(analyticsData.overview.eligibleAmount),
+                                            color: 'text-blue-700',
+                                            sub: 'SDMS sanctioned total',
+                                            yearKey: 'eligibleAmount',
+                                            isAmount: true,
+                                        },
+                                        {
+                                            label: 'Sanctioned Students',
+                                            value: analyticsData.overview.mappedStudents,
+                                            color: 'text-emerald-700',
+                                            sub: Number(analyticsData.overview.partialStudents) > 0
+                                                ? `${analyticsData.overview.fullStudents || 0} full · ${analyticsData.overview.partialStudents} partial`
+                                                : `${analyticsData.overview.proceedingCount || 0} proceeding(s)`,
+                                            yearKey: 'mappedStudents',
+                                            isAmount: false,
+                                        },
+                                        {
+                                            label: 'Released Amount',
+                                            value: formatAnalyticsAmount(analyticsData.overview.releasedAmount),
+                                            color: 'text-emerald-700',
+                                            sub: 'Proceeding shares',
+                                            yearKey: 'releasedAmount',
+                                            isAmount: true,
+                                        },
+                                        {
+                                            label: 'Pending Students',
+                                            value: analyticsData.overview.pendingStudents,
+                                            color: 'text-orange-700',
+                                            sub: 'No amount released yet',
+                                            yearKey: 'pendingStudents',
+                                            isAmount: false,
+                                        },
+                                        {
+                                            label: 'Pending Amount',
+                                            value: formatAnalyticsAmount(analyticsData.overview.pendingAmount),
+                                            color: 'text-amber-700',
+                                            sub: Number(analyticsData.overview.partialStudents) > 0
+                                                ? 'Includes partial shortfalls'
+                                                : 'Not yet allotted',
+                                            yearKey: 'pendingAmount',
+                                            isAmount: true,
+                                        },
                                     ].map(card => (
-                                        <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                                        <div key={card.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 min-w-0">
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{card.label}</p>
-                                            <p className={`text-xl font-black mt-1 ${card.color}`}>{card.value}</p>
+                                            <p className={`text-lg xl:text-xl font-black mt-1 tabular-nums ${card.color}`}>{card.value}</p>
+                                            {card.sub && <p className="text-[10px] text-slate-400 mt-1 truncate" title={card.sub}>{card.sub}</p>}
+                                            {(analyticsData.overview.byYear || []).length > 0 && (
+                                                <div className="mt-3 pt-2 border-t border-slate-100 space-y-1">
+                                                    {(analyticsData.overview.byYear || []).map((yr) => {
+                                                        const raw = yr[card.yearKey];
+                                                        const display = card.isAmount
+                                                            ? formatAnalyticsAmount(raw)
+                                                            : (raw ?? 0);
+                                                        return (
+                                                            <div key={`${card.label}_${yr.year}`} className="flex items-center justify-between gap-2 text-[11px]">
+                                                                <span className="font-semibold text-slate-500">{formatYearLabel(yr.year)}</span>
+                                                                <span className={`font-bold tabular-nums ${card.color}`}>{display}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
                             )}
 
-                            {/* Table */}
                             {analyticsData && (
                                 <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
-                                    <div className="px-4 py-3 border-b border-slate-100">
-                                        <h3 className="text-sm font-bold text-slate-800">Students & Scholarship Applications</h3>
-                                        <p className="text-[11px] text-slate-500 mt-0.5">Expand a student to view year-wise scholarship with application ID</p>
+                                    <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <h3 className="text-sm font-bold text-slate-800">Students & Scholarship Applications</h3>
+                                            <p className="text-[11px] text-slate-500 mt-0.5">
+                                                {filteredAnalyticsStudents.length} shown
+                                                {analyticsData.stats ? ` · ${analyticsData.stats.uniqueApplications} applications` : ''}
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <div className="relative">
+                                                <select
+                                                    value={analyticsStatusFilter}
+                                                    onChange={(e) => setAnalyticsStatusFilter(e.target.value)}
+                                                    className="appearance-none bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 min-w-[150px]"
+                                                >
+                                                    <option value="all">All Eligible</option>
+                                                    <option value="sanctioned">Fully Released</option>
+                                                    <option value="partial">Partial Released</option>
+                                                    <option value="pending">Pending (None)</option>
+                                                </select>
+                                                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            </div>
+                                            <div className="relative">
+                                                <select
+                                                    value={analyticsYearFilter}
+                                                    onChange={(e) => setAnalyticsYearFilter(e.target.value)}
+                                                    className="appearance-none bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 min-w-[120px]"
+                                                >
+                                                    <option value="all">All Years</option>
+                                                    {analyticsYearOptions.map(y => (
+                                                        <option key={y} value={String(y)}>{formatYearLabel(y)}</option>
+                                                    ))}
+                                                </select>
+                                                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="overflow-x-auto">
@@ -3291,19 +3497,21 @@ const Proceedings = () => {
                                             <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
                                                 <tr>
                                                     <th className="px-3 py-2.5 w-8"></th>
-                                                    <th className="px-3 py-2.5">Student</th>
-                                                    <th className="px-3 py-2.5">Admission No</th>
-                                                    <th className="px-3 py-2.5">PIN</th>
-                                                    <th className="px-3 py-2.5">Branch</th>
-                                                    <th className="px-3 py-2.5">Batch</th>
+                                                    {renderAnalyticsSortTh('Student', 'studentName')}
+                                                    {renderAnalyticsSortTh('Admission No', 'admissionNumber')}
+                                                    {renderAnalyticsSortTh('PIN', 'pinNo')}
+                                                    {renderAnalyticsSortTh('Branch', 'branch')}
+                                                    {renderAnalyticsSortTh('Batch', 'batch')}
                                                     <th className="px-3 py-2.5">Quota</th>
+                                                    <th className="px-3 py-2.5">Year</th>
+                                                    <th className="px-3 py-2.5">Status</th>
                                                     <th className="px-3 py-2.5 text-center">Applications</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
                                                 {filteredAnalyticsStudents.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={8} className="px-4 py-10 text-center text-slate-400 font-medium">
+                                                        <td colSpan={10} className="px-4 py-10 text-center text-slate-400 font-medium">
                                                             No students match the current filters.
                                                         </td>
                                                     </tr>
@@ -3312,6 +3520,10 @@ const Proceedings = () => {
                                                     const isOpen = !!analyticsExpanded[rowKey];
                                                     const yearGroups = groupScholarshipsByYear(student.scholarships);
                                                     const hasApps = yearGroups.length > 0;
+                                                    const releaseStatus = student.releaseStatus
+                                                        || (student.sanctionStatus === 'partial' ? 'partial'
+                                                            : student.sanctionStatus === 'sanctioned' ? 'full'
+                                                                : 'pending');
                                                     return (
                                                         <React.Fragment key={rowKey}>
                                                             <tr className={`hover:bg-slate-50/80 ${hasApps ? 'cursor-pointer' : ''}`}
@@ -3327,6 +3539,22 @@ const Proceedings = () => {
                                                                 <td className="px-3 py-2.5 text-slate-600">{student.branch || '—'}</td>
                                                                 <td className="px-3 py-2.5 text-slate-600">{student.batch || '—'}</td>
                                                                 <td className="px-3 py-2.5 text-slate-600">{student.studType || '—'}</td>
+                                                                <td className="px-3 py-2.5 font-bold text-indigo-700">{formatYearLabel(student.targetYear)}</td>
+                                                                <td className="px-3 py-2.5">
+                                                                    {releaseStatus === 'full' ? (
+                                                                        <span className="inline-flex px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-100" title={`Released ${formatAnalyticsAmount(student.releasedAmount)} / Eligible ${formatAnalyticsAmount(student.eligibleAmount)}`}>
+                                                                            Full
+                                                                        </span>
+                                                                    ) : releaseStatus === 'partial' ? (
+                                                                        <span className="inline-flex px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 font-bold text-[10px] border border-violet-100" title={`Released ${formatAnalyticsAmount(student.releasedAmount)} · Pending ${formatAnalyticsAmount(student.pendingAmount)}`}>
+                                                                            Partial
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold text-[10px] border border-amber-100">
+                                                                            Pending
+                                                                        </span>
+                                                                    )}
+                                                                </td>
                                                                 <td className="px-3 py-2.5 text-center">
                                                                     {hasApps ? (
                                                                         <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-100">
@@ -3339,7 +3567,7 @@ const Proceedings = () => {
                                                             </tr>
                                                             {isOpen && hasApps && (
                                                                 <tr className="bg-slate-50/50">
-                                                                    <td colSpan={8} className="px-3 py-3">
+                                                                    <td colSpan={10} className="px-3 py-3">
                                                                         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                                                                             <table className="w-full text-[11px]">
                                                                                 <thead className="bg-slate-100 text-[9px] font-bold text-slate-500 uppercase">
@@ -3347,9 +3575,9 @@ const Proceedings = () => {
                                                                                         <th className="px-2 py-2">Year</th>
                                                                                         <th className="px-2 py-2">Application ID</th>
                                                                                         <th className="px-2 py-2">Eligible</th>
-                                                                                        <th className="px-2 py-2">Sanctioned</th>
-                                                                                        <th className="px-2 py-2">Released</th>
-                                                                                        <th className="px-2 py-2">Paid</th>
+                                                                                        <th className="px-2 py-2">SDMS Sanctioned</th>
+                                                                                        <th className="px-2 py-2">Proc. Released</th>
+                                                                                        <th className="px-2 py-2">Pending</th>
                                                                                         <th className="px-2 py-2">Scholarship Fee</th>
                                                                                     </tr>
                                                                                 </thead>
@@ -3362,8 +3590,8 @@ const Proceedings = () => {
                                                                                             <td className="px-2 py-2 font-mono font-semibold text-indigo-700">{yearRow.applicationId}</td>
                                                                                             <td className="px-2 py-2">{renderEligibleBadge(yearRow.eligible)}</td>
                                                                                             <td className="px-2 py-2 whitespace-nowrap font-semibold text-slate-800">{formatAnalyticsAmount(yearRow.sanctionedAmount)}</td>
-                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-700">{formatAnalyticsAmount(yearRow.releasedAmount)}</td>
-                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-blue-700">{formatAnalyticsAmount(yearRow.paidAmount)}</td>
+                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-700">{formatAnalyticsAmount(student.releasedAmount)}</td>
+                                                                                            <td className="px-2 py-2 whitespace-nowrap font-semibold text-amber-700">{formatAnalyticsAmount(student.pendingAmount)}</td>
                                                                                             <td className="px-2 py-2">{renderScholarshipFeeCell(feeInfo)}</td>
                                                                                         </tr>
                                                                                         );
@@ -3386,8 +3614,10 @@ const Proceedings = () => {
                             {!analyticsData && !analyticsLoading && (
                                 <div className="bg-white rounded-xl border border-dashed border-slate-200 p-10 text-center">
                                     <BarChart3 size={32} className="mx-auto text-slate-300 mb-3" />
-                                    <p className="text-sm font-semibold text-slate-600">Select College and Course, then click Get Data</p>
-                                    <p className="text-xs text-slate-400 mt-1">Scholarship records are loaded from the student_scholarship table</p>
+                                    <p className="text-sm font-semibold text-slate-600">Select College, Course and Academic Year, then click Get Data</p>
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        Stats and the student list load together from the same filters.
+                                    </p>
                                 </div>
                             )}
                         </div>

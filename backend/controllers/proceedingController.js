@@ -1402,13 +1402,16 @@ const syncProceedingIds = async (req, res) => {
     }
 };
 
-// ─── Scholarship analytics (student_scholarship from SQL) ───────────────
-// GET /api/proceedings/scholarship-analytics?college=X&course=Y&branch=B&batch=B
+// ─── Scholarship analytics (student_scholarship from SQL + proceeding shares) ─
+// GET /api/proceedings/scholarship-analytics?college=&course=&branch=&batch=&academicYear=
 const getScholarshipAnalytics = async (req, res) => {
     try {
-        const { college, course, branch, batch } = req.query;
+        const { college, course, branch, batch, academicYear } = req.query;
         if (!college || !course) {
             return res.status(400).json({ message: 'College and Course are required' });
+        }
+        if (!academicYear) {
+            return res.status(400).json({ message: 'Academic Year is required' });
         }
 
         const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
@@ -1424,7 +1427,8 @@ const getScholarshipAnalytics = async (req, res) => {
             }
         }
 
-        const conditions = ["LOWER(student_status) = 'regular'", 'college = ?', 'course = ?'];
+        // Include students of any status (Regular, Detained, Course Completed, etc.)
+        const conditions = ['college = ?', 'course = ?'];
         const params = [college, course];
 
         if (batch) {
@@ -1484,15 +1488,71 @@ const getScholarshipAnalytics = async (req, res) => {
         let withScholarship = 0;
         let totalRecords = 0;
         const applicationIds = new Set();
+        let eligibleAmount = 0;
+        const eligibleAdmissionKeys = new Set(); // admission / studentId keys for proceeding match
+        const eligibleKeyToYear = new Map(); // adm -> student year number
+        const yearBuckets = {}; // yearNum -> accumulators
+        const mappedKeysByYear = {}; // yearNum -> Set of adm keys
+
+        const ensureYearBucket = (yearNum) => {
+            const y = Number(yearNum);
+            if (!Number.isFinite(y) || y < 1) return null;
+            if (!yearBuckets[y]) {
+                yearBuckets[y] = {
+                    year: y,
+                    eligibleStudents: 0,
+                    eligibleAmount: 0,
+                    releasedAmount: 0,
+                    mappedStudents: 0,
+                    pendingAmount: 0,
+                    pendingStudents: 0,
+                };
+                mappedKeysByYear[y] = new Set();
+            }
+            return yearBuckets[y];
+        };
+
+        const sumUniqueSanctioned = (rows = []) => {
+            // Semester duplicates share the same sanctioned amount — take max per application, then sum apps
+            const byApp = new Map();
+            (rows || []).forEach((r) => {
+                const app = String(r.applicationId || '').trim() || '_';
+                const n = Number(r.sanctionedAmount);
+                if (!Number.isFinite(n) || n <= 0) return;
+                const prev = byApp.get(app) || 0;
+                if (n > prev) byApp.set(app, n);
+            });
+            return Math.round([...byApp.values()].reduce((a, b) => a + b, 0) * 100) / 100;
+        };
 
         const students = studentRows.map(s => {
-            const scholarships = (scholarshipMap[String(s.id)] || [])
-                .filter(r => String(r.applicationId || '').trim());
-            if (scholarships.length > 0) withScholarship += 1;
-            totalRecords += scholarships.length;
-            scholarships.forEach(r => {
-                applicationIds.add(String(r.applicationId));
+            const targetYear = computeProceedingYear(s.batch, academicYear);
+            const allScholarships = scholarshipMap[String(s.id)] || [];
+            // Eligible for this AY: has application ID for the computed student year
+            const scholarships = allScholarships.filter((r) => {
+                if (!String(r.applicationId || '').trim()) return false;
+                if (targetYear == null) return false;
+                return Number(r.studentYear) === Number(targetYear);
             });
+
+            if (scholarships.length > 0) {
+                withScholarship += 1;
+                const admKey = String(s.admission_number || '').trim();
+                if (admKey) {
+                    eligibleAdmissionKeys.add(admKey);
+                    if (targetYear != null) eligibleKeyToYear.set(admKey, Number(targetYear));
+                }
+                const bucket = ensureYearBucket(targetYear);
+                if (bucket) bucket.eligibleStudents += 1;
+                scholarships.forEach((r) => {
+                    totalRecords += 1;
+                    applicationIds.add(String(r.applicationId));
+                });
+                const studentEligibleAmt = sumUniqueSanctioned(scholarships);
+                eligibleAmount += studentEligibleAmt;
+                if (bucket) bucket.eligibleAmount += studentEligibleAmt;
+            }
+
             return {
                 sqlId: s.id,
                 admissionNumber: s.admission_number || '',
@@ -1504,10 +1564,159 @@ const getScholarshipAnalytics = async (req, res) => {
                 batch: s.batch || '',
                 currentYear: s.current_year || '',
                 studType: s.stud_type || '',
+                targetYear,
                 scholarshipCount: scholarships.length,
                 scholarships,
+                allScholarshipCount: allScholarships.filter(r => String(r.applicationId || '').trim()).length,
             };
         }).filter(s => s.scholarships.length > 0);
+
+        // Released = sum of proceeding share amounts for eligible students on this AY
+        // Match via ProceedingStudent college/course (covers multi-college/course proceedings)
+        let releasedAmount = 0;
+        const mappedEligibleKeys = new Set();
+        const releasedByKey = new Map(); // adm -> sum of proceeding shares
+        let proceedingCount = 0;
+
+        if (eligibleAdmissionKeys.size > 0) {
+            const mapQuery = { college, course };
+            if (batch) mapQuery.batch = batch;
+            if (branch) mapQuery.branch = branch;
+
+            const mappedRows = await ProceedingStudent.find(mapQuery)
+                .select('proceedingId studentId admissionNumber shareAmount batch branch proceedingYear')
+                .lean();
+
+            const candidateProcIds = [...new Set(mappedRows.map((m) => m.proceedingId).filter(Boolean))];
+            const validProcIdSet = new Set();
+            if (candidateProcIds.length > 0) {
+                const proceedings = await Proceeding.find({
+                    _id: { $in: candidateProcIds },
+                    academicYear,
+                    status: { $nin: ['Cancelled'] },
+                }).select('_id').lean();
+                proceedings.forEach((p) => validProcIdSet.add(String(p._id)));
+                proceedingCount = validProcIdSet.size;
+            }
+
+            mappedRows.forEach((m) => {
+                if (!validProcIdSet.has(String(m.proceedingId))) return;
+                const adm = String(m.admissionNumber || m.studentId || '').trim();
+                const sid = String(m.studentId || '').trim();
+                const isEligible = (adm && eligibleAdmissionKeys.has(adm))
+                    || (sid && eligibleAdmissionKeys.has(sid));
+                if (!isEligible) return;
+                const share = Number(m.shareAmount) || 0;
+                releasedAmount += share;
+
+                let mapKey = null;
+                if (adm && eligibleAdmissionKeys.has(adm)) mapKey = adm;
+                else if (sid && eligibleAdmissionKeys.has(sid)) mapKey = sid;
+                else if (adm) mapKey = adm;
+                if (mapKey) {
+                    releasedByKey.set(mapKey, (releasedByKey.get(mapKey) || 0) + share);
+                    if (eligibleAdmissionKeys.has(mapKey)) mappedEligibleKeys.add(mapKey);
+                    if (adm && adm !== mapKey) {
+                        releasedByKey.set(adm, (releasedByKey.get(adm) || 0) + share);
+                        if (eligibleAdmissionKeys.has(adm)) mappedEligibleKeys.add(adm);
+                    }
+                    if (sid && sid !== mapKey && sid !== adm) {
+                        releasedByKey.set(sid, (releasedByKey.get(sid) || 0) + share);
+                        if (eligibleAdmissionKeys.has(sid)) mappedEligibleKeys.add(sid);
+                    }
+                }
+
+                const yearFromEligible = eligibleKeyToYear.get(adm) || eligibleKeyToYear.get(sid)
+                    || (Number(m.proceedingYear) > 0 ? Number(m.proceedingYear) : null);
+                const bucket = ensureYearBucket(yearFromEligible);
+                if (bucket) {
+                    bucket.releasedAmount += share;
+                    if (mapKey && mappedKeysByYear[bucket.year]) {
+                        mappedKeysByYear[bucket.year].add(mapKey);
+                    }
+                }
+            });
+        }
+
+        eligibleAmount = Math.round(eligibleAmount * 100) / 100;
+        releasedAmount = Math.round(releasedAmount * 100) / 100;
+        const pendingAmount = Math.max(0, Math.round((eligibleAmount - releasedAmount) * 100) / 100);
+        const eligibleStudents = students.length;
+        const mappedStudents = mappedEligibleKeys.size;
+        const pendingStudents = Math.max(0, eligibleStudents - mappedStudents);
+
+        // Per-student: full / partial / pending (partial = on proceeding but share < eligible sanctioned)
+        let partialStudents = 0;
+        let fullStudents = 0;
+        const partialKeysByYear = {};
+        const fullKeysByYear = {};
+
+        students.forEach((student) => {
+            const adm = String(student.admissionNumber || '').trim();
+            const eligibleAmt = sumUniqueSanctioned(student.scholarships);
+            const releasedAmt = Math.round((releasedByKey.get(adm) || 0) * 100) / 100;
+            const pendingAmt = Math.max(0, Math.round((eligibleAmt - releasedAmt) * 100) / 100);
+            const isMapped = !!(adm && mappedEligibleKeys.has(adm));
+
+            let releaseStatus = 'pending';
+            // Full only when there is real proceeding release AND it covers eligible amount
+            if (!isMapped || releasedAmt <= 0.009) {
+                releaseStatus = isMapped ? 'partial' : 'pending';
+                if (isMapped) partialStudents += 1;
+            } else if (pendingAmt > 0.009) {
+                releaseStatus = 'partial';
+                partialStudents += 1;
+            } else {
+                releaseStatus = 'full';
+                fullStudents += 1;
+            }
+
+            student.eligibleAmount = eligibleAmt;
+            student.releasedAmount = releasedAmt;
+            student.pendingAmount = pendingAmt;
+            student.isSanctioned = isMapped;
+            student.isMapped = isMapped;
+            student.releaseStatus = releaseStatus; // pending | partial | full
+            student.sanctionStatus = releaseStatus === 'full'
+                ? 'sanctioned'
+                : releaseStatus === 'partial'
+                    ? 'partial'
+                    : 'pending';
+
+            const y = Number(student.targetYear);
+            if (Number.isFinite(y) && y >= 1) {
+                if (releaseStatus === 'partial') {
+                    if (!partialKeysByYear[y]) partialKeysByYear[y] = new Set();
+                    if (adm) partialKeysByYear[y].add(adm);
+                } else if (releaseStatus === 'full') {
+                    if (!fullKeysByYear[y]) fullKeysByYear[y] = new Set();
+                    if (adm) fullKeysByYear[y].add(adm);
+                }
+            }
+        });
+
+        const byYear = Object.keys(yearBuckets)
+            .map(Number)
+            .sort((a, b) => a - b)
+            .map((y) => {
+                const b = yearBuckets[y];
+                const mapped = mappedKeysByYear[y] ? mappedKeysByYear[y].size : 0;
+                const eligAmt = Math.round(b.eligibleAmount * 100) / 100;
+                const relAmt = Math.round(b.releasedAmount * 100) / 100;
+                const partial = partialKeysByYear[y] ? partialKeysByYear[y].size : 0;
+                const full = fullKeysByYear[y] ? fullKeysByYear[y].size : 0;
+                return {
+                    year: y,
+                    eligibleStudents: b.eligibleStudents,
+                    eligibleAmount: eligAmt,
+                    releasedAmount: relAmt,
+                    mappedStudents: mapped,
+                    fullStudents: full,
+                    partialStudents: partial,
+                    pendingAmount: Math.max(0, Math.round((eligAmt - relAmt) * 100) / 100),
+                    pendingStudents: Math.max(0, b.eligibleStudents - mapped),
+                };
+            });
 
         if (students.length > 0) {
             try {
@@ -1559,10 +1768,23 @@ const getScholarshipAnalytics = async (req, res) => {
         }
 
         res.json({
+            academicYear,
+            overview: {
+                eligibleStudents,
+                eligibleAmount,
+                releasedAmount,
+                mappedStudents,
+                fullStudents,
+                partialStudents,
+                pendingAmount,
+                pendingStudents,
+                proceedingCount,
+                byYear,
+            },
             stats: {
                 totalStudents: students.length,
                 withScholarship,
-                withoutScholarship: studentRows.length - students.length,
+                withoutScholarship: Math.max(0, studentRows.length - withScholarship),
                 totalRecords,
                 uniqueApplications: applicationIds.size,
             },

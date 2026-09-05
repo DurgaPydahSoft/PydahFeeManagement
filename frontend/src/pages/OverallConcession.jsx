@@ -387,12 +387,12 @@ const OverallConcession = () => {
         setRequestsLoading(true);
         try {
             const baseParams = {
-                status: reqStatusFilter || undefined,
-                college: reqFilters.college || undefined,
-                course: reqFilters.course || undefined,
-                branch: reqFilters.branch || undefined,
-                batch: reqFilters.batch || undefined,
-                category: reqFilters.quota || undefined
+                    status: reqStatusFilter || undefined,
+                    college: reqFilters.college || undefined,
+                    course: reqFilters.course || undefined,
+                    branch: reqFilters.branch || undefined,
+                    batch: reqFilters.batch || undefined,
+                    category: reqFilters.quota || undefined
             };
 
             // 1. Fast load: first 50 requests
@@ -1310,37 +1310,37 @@ const OverallConcession = () => {
                         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
                             <div className="flex flex-wrap lg:flex-nowrap items-end gap-3 w-full">
                                 <div className="min-w-[130px] flex-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
-                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                        value={filters.college} onChange={handleCollegeChange}>
-                                        <option value="">Select College</option>
-                                        {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.college} onChange={handleCollegeChange}>
+                                            <option value="">Select College</option>
+                                            {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
                                 <div className="min-w-[120px] flex-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
-                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                        value={filters.course} onChange={handleCourseChange} disabled={!filters.college}>
-                                        <option value="">Select Course</option>
-                                        {courses.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Course</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.course} onChange={handleCourseChange} disabled={!filters.college}>
+                                            <option value="">Select Course</option>
+                                            {courses.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
                                 <div className="min-w-[100px] flex-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
-                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                        value={filters.batch} onChange={e => setFilters({ ...filters, batch: e.target.value })}>
-                                        <option value="">Select Batch</option>
-                                        {batches.map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
-                                </div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Batch</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.batch} onChange={e => setFilters({ ...filters, batch: e.target.value })}>
+                                            <option value="">Select Batch</option>
+                                            {batches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
                                 <div className="min-w-[120px] flex-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
-                                    <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                                        value={filters.branch} onChange={e => setFilters({ ...filters, branch: e.target.value })} disabled={!filters.course}>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Branch</label>
+                                        <select className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                            value={filters.branch} onChange={e => setFilters({ ...filters, branch: e.target.value })} disabled={!filters.course}>
                                         <option value="">All Branches</option>
-                                        {branches.map(b => <option key={b} value={b}>{b}</option>)}
-                                    </select>
-                                </div>
+                                            {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                                        </select>
+                                    </div>
                                 {activeTab === 'view' && (
                                     <div className="min-w-[110px] flex-1">
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Quota</label>
@@ -1355,7 +1355,7 @@ const OverallConcession = () => {
                                                 : quotaOptions
                                             ).map(q => <option key={q} value={q}>{q}</option>)}
                                         </select>
-                                    </div>
+                                </div>
                                 )}
                                 <div className="relative min-w-[180px] flex-1 lg:max-w-[220px]">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Search</label>
@@ -1370,11 +1370,11 @@ const OverallConcession = () => {
                                             onChange={e => setSearchTerm(e.target.value)}
                                             onKeyDown={e => e.key === 'Enter' && fetchStudents()} />
                                     </div>
-                                </div>
-                                <button onClick={fetchStudents} disabled={loading}
+                                    </div>
+                                    <button onClick={fetchStudents} disabled={loading}
                                     className="text-white bg-blue-600 hover:bg-blue-700 font-bold rounded-lg text-xs px-5 py-2.5 transition flex items-center justify-center gap-2 whitespace-nowrap shadow-sm shrink-0">
-                                    <Filter size={14} /> {loading ? 'Searching...' : 'Load Students'}
-                                </button>
+                                        <Filter size={14} /> {loading ? 'Searching...' : 'Load Students'}
+                                    </button>
                             </div>
                         </div>
                     )}
@@ -2017,10 +2017,10 @@ const OverallConcession = () => {
                                                         <td className="px-4 py-3 text-slate-700">
                                                             <div className="font-semibold text-slate-800">{req.requestedByName || req.requestedBy}</div>
                                                             <div className="text-[10px] text-slate-400 mt-0.5">
-                                                                {new Date(req.createdAt).toLocaleString('en-IN', {
-                                                                    day: '2-digit', month: 'short', year: 'numeric',
-                                                                    hour: '2-digit', minute: '2-digit', hour12: true
-                                                                })}
+                                                            {new Date(req.createdAt).toLocaleString('en-IN', {
+                                                                day: '2-digit', month: 'short', year: 'numeric',
+                                                                hour: '2-digit', minute: '2-digit', hour12: true
+                                                            })}
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-3 text-slate-700">
