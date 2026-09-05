@@ -249,15 +249,6 @@ const DueReportPrintTemplate = forwardRef(({ type = 'overall', reportData = [], 
                 <div style={{ marginTop: '10px' }}>
                     {renderBreakdownTable(studentInfo, maxTerms)}
                 </div>
-
-                <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ borderTop: '1.5px solid #000', width: '150px', paddingTop: '5px' }}>Student/Parent Signature</p>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ borderTop: '1.5px solid #000', width: '150px', paddingTop: '5px' }}>Accounts Officer</p>
-                    </div>
-                </div>
             </div>
         );
     }
@@ -467,17 +458,6 @@ const DueReportPrintTemplate = forwardRef(({ type = 'overall', reportData = [], 
                                 )}
                             </tbody>
                         </table>
-
-                        {isLastYear && (
-                            <div style={{ marginTop: '28px', display: 'flex', fontSize: '10px', width: '100%', justifyContent: 'space-between' }}>
-                                <div style={{ textAlign: 'center' }}>
-                                    <p style={{ borderTop: '1.5px solid #000', width: '150px', paddingTop: '4px', margin: '0' }}>Accounts Assistant</p>
-                                </div>
-                                <div style={{ textAlign: 'center' }}>
-                                    <p style={{ borderTop: '1.5px solid #000', width: '150px', paddingTop: '4px', margin: '0' }}>Accounts Officer</p>
-                                </div>
-                            </div>
-                        )}
                     </div>
                 );
             })}
