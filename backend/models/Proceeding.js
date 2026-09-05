@@ -81,6 +81,11 @@ const proceedingSchema = mongoose.Schema({
         type: Boolean,
         default: false
     },
+    /** Approved without auto RTF transactions — stay Completed even if pool unused. */
+    transactionsSkipped: {
+        type: Boolean,
+        default: false
+    },
     requestedBy: {
         type: String,
         default: ''

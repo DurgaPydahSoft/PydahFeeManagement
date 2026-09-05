@@ -166,6 +166,11 @@ const syncProceedingCompletionStatus = async (proceedingId) => {
     const proceeding = await Proceeding.findById(proceedingId);
     if (!proceeding) return null;
 
+    // Manually completed without auto txns — do not reopen based on unused pool
+    if (proceeding.transactionsSkipped) {
+        return proceeding.status;
+    }
+
     const limit = roundMoney(proceeding.amount);
     if (!(limit > 0)) return proceeding.status;
 

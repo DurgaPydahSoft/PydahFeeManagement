@@ -1011,7 +1011,14 @@ const approveProceeding = async (req, res) => {
             });
         }
 
-        const { bankAccount, bankCreditedDate, bankCreditedAmount, feeHead, generateTransactionsNow } = req.body;
+        const {
+            bankAccount,
+            bankCreditedDate,
+            bankCreditedAmount,
+            feeHead,
+            generateTransactionsNow,
+            skipTransactions
+        } = req.body;
         if (!bankAccount || !bankCreditedAmount || !bankCreditedDate || !feeHead) {
             return res.status(400).json({ message: 'Bank Account, Bank Credited Amount, Bank Credited Date, and Fee Head are required for approval' });
         }
@@ -1037,10 +1044,30 @@ const approveProceeding = async (req, res) => {
         proceeding.bankCreditedDate = bankCreditedDate || null;
         proceeding.bankCreditedAmount = bankAmount;
         proceeding.feeHead = feeHead;
-        proceeding.status = 'Active';
         proceeding.approvedBy = req.user?.username || '';
         proceeding.approvedByName = req.user?.name || '';
         proceeding.approvedAt = new Date();
+
+        // Approve without creating RTF transactions — students stay mapped, mark Completed
+        if (skipTransactions) {
+            proceeding.status = 'Completed';
+            proceeding.transactionsGenerated = true; // exclude from nightly auto-txn job
+            proceeding.transactionsSkipped = true;
+            await ProceedingStudent.updateMany(
+                { proceedingId: proceeding._id },
+                { $set: { txnPending: false, txnPendingReason: '' } }
+            );
+            await proceeding.save();
+            return res.json({
+                message: `Proceeding approved and marked Completed without creating transactions. ${mapped.length} student(s) remain mapped.`,
+                proceeding,
+                transactionsCreated: 0,
+                transactionsSkipped: true
+            });
+        }
+
+        proceeding.status = 'Active';
+        proceeding.transactionsSkipped = false;
 
         if (generateTransactionsNow) {
             const result = await generateProceedingTransactions(proceeding, req.user);
@@ -1197,7 +1224,11 @@ const generateProceedingTransactions = async (proceeding, user) => {
 
 // ─── Nightly: generate transactions for approved proceedings ────────────
 const processNightlyProceedingTransactions = async () => {
-    const pending = await Proceeding.find({ status: 'Active', transactionsGenerated: false });
+    const pending = await Proceeding.find({
+        status: 'Active',
+        transactionsGenerated: false,
+        transactionsSkipped: { $ne: true }
+    });
     if (pending.length === 0) {
         console.log('[Proceedings Nightly] No proceedings awaiting transaction generation.');
         return { processed: 0, totalCreated: 0 };

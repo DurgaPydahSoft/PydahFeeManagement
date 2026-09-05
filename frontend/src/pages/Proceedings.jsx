@@ -6,10 +6,33 @@ import Sidebar from './Sidebar';
 import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload, AlertTriangle, ArrowUp, ArrowDown, Paperclip } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { printHtmlDocument } from '../utils/printService';
 
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+/**
+ * Production hosts (e.g. nginx without .mjs types) often serve .mjs as
+ * application/octet-stream. Browsers then refuse module workers.
+ * Fetch the worker bytes and expose them via a blob URL with a JS MIME type.
+ */
+let pdfWorkerReady = null;
+const ensurePdfWorker = () => {
+    if (GlobalWorkerOptions.workerSrc?.startsWith?.('blob:')) {
+        return Promise.resolve();
+    }
+    if (!pdfWorkerReady) {
+        pdfWorkerReady = (async () => {
+            const res = await fetch(pdfWorkerSrc);
+            if (!res.ok) throw new Error(`Failed to load PDF worker (${res.status})`);
+            const code = await res.text();
+            const blob = new Blob([code], { type: 'application/javascript' });
+            GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+        })().catch((err) => {
+            pdfWorkerReady = null;
+            throw err;
+        });
+    }
+    return pdfWorkerReady;
+};
 
 const STATUS_BADGE = {
     Pending: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -369,6 +392,7 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
 
 /** Extract Student ID + Released Amount from text-based PDF tables (same mapping as Excel). */
 const parseProceedingPdfFile = async (file, onProgress) => {
+    await ensurePdfWorker();
     const data = new Uint8Array(await file.arrayBuffer());
     const pdf = await getDocument({
         data,
@@ -2070,7 +2094,8 @@ const Proceedings = () => {
     );
     const approveTxnCount = approveStudents.filter(s => Number(s.shareAmount) > 0).length;
 
-    const handleApproveSubmit = async (generateNow) => {
+    const handleApproveSubmit = async (mode) => {
+        // mode: 'now' | 'nightly' | 'skip'
         if (!approveData.bankAccount || !approveData.bankCreditedAmount || !approveData.bankCreditedDate || !approveData.feeHead) {
             Swal.fire('Warning', 'Please fill Bank Account, Bank Credited Amount, Bank Credited Date, and Fee Head', 'warning');
             return;
@@ -2092,23 +2117,42 @@ const Proceedings = () => {
             return;
         }
 
+        const isSkip = mode === 'skip';
+        const generateNow = mode === 'now';
         const confirm = await Swal.fire({
-            title: generateNow ? 'Approve & Create Transactions Now?' : 'Approve for Nightly Run?',
-            html: generateNow
-                ? `<p>${approvingProc.proceedingNumber} will become Active and up to <b>${approveTxnCount} Bank/RTF DEBIT transactions</b> will be created where fee demand allows (same as Fee Collection → Bank → RTF).</p>`
-                : `<p>${approvingProc.proceedingNumber} will become Active. Bank/RTF transactions will be auto-generated during the nightly run where fee demand allows.</p>`,
-            icon: 'question',
+            title: isSkip
+                ? 'Skip Transactions & Mark Completed?'
+                : generateNow
+                    ? 'Approve & Create Transactions Now?'
+                    : 'Approve for Nightly Run?',
+            html: isSkip
+                ? `<p><b>${approvingProc.proceedingNumber}</b> will be marked <b>Completed</b> with <b>no Bank/RTF transactions</b> created.</p>
+                   <p style="margin-top:8px;color:#64748b">${approveTxnCount} student(s) stay mapped on the proceeding. Nightly auto-txn will not run for this proceeding.</p>`
+                : generateNow
+                    ? `<p>${approvingProc.proceedingNumber} will become Active and up to <b>${approveTxnCount} Bank/RTF DEBIT transactions</b> will be created where fee demand allows (same as Fee Collection → Bank → RTF).</p>`
+                    : `<p>${approvingProc.proceedingNumber} will become Active. Bank/RTF transactions will be auto-generated during the nightly run where fee demand allows.</p>`,
+            icon: isSkip ? 'warning' : 'question',
             showCancelButton: true,
-            confirmButtonColor: '#059669',
-            confirmButtonText: generateNow ? 'Approve & Create Now' : 'Approve for Nightly'
+            confirmButtonColor: isSkip ? '#475569' : '#059669',
+            confirmButtonText: isSkip
+                ? 'Yes, skip & complete'
+                : generateNow
+                    ? 'Approve & Create Now'
+                    : 'Approve for Nightly'
         });
         if (!confirm.isConfirmed) return;
 
         Swal.fire({
-            title: generateNow ? 'Approving & Creating Transactions...' : 'Approving Proceeding...',
-            html: generateNow
-                ? `<p>Generating transactions, please wait...</p>`
-                : '<p>Please wait...</p>',
+            title: isSkip
+                ? 'Approving & Completing...'
+                : generateNow
+                    ? 'Approving & Creating Transactions...'
+                    : 'Approving Proceeding...',
+            html: isSkip
+                ? '<p>Please wait...</p>'
+                : generateNow
+                    ? `<p>Generating transactions, please wait...</p>`
+                    : '<p>Please wait...</p>',
             allowOutsideClick: false,
             allowEscapeKey: false,
             showConfirmButton: false,
@@ -2118,7 +2162,8 @@ const Proceedings = () => {
         try {
             const res = await api.put(`/proceedings/${approvingProc._id}/approve`, {
                 ...approveData,
-                generateTransactionsNow: generateNow
+                generateTransactionsNow: generateNow,
+                skipTransactions: isSkip
             });
             Swal.fire('Success', res.data.message, 'success');
             setShowApproveModal(false);
@@ -2326,6 +2371,9 @@ const Proceedings = () => {
         }
         if (proc.approvedByName || proc.approvedBy) {
             items.push({ label: 'Approved by', value: proc.approvedByName || proc.approvedBy });
+        }
+        if (proc.transactionsSkipped) {
+            items.push({ label: 'Transactions', value: 'Skipped — marked Completed without auto RTF' });
         }
         if (items.length === 0) return null;
         return (
@@ -3394,7 +3442,8 @@ const Proceedings = () => {
                                                 'Enter Bank Account, Bank Credited Date, Bank Credited Amount, and Fee Head.',
                                                 'Bank credited amount must exactly match the proceeding amount.',
                                                 'Sum of student shares must equal the proceeding amount (edit while Pending if needed).',
-                                                'Choose either Approve & Create Transactions Now, or Approve for Nightly Run.'
+                                                'Choose Approve & Create Transactions Now, Approve for Nightly Run, or Skip Transactions & Mark Completed.',
+                                                'Skip option: no RTF transactions are created; students stay mapped; status becomes Completed (no nightly auto-txn, not offered in Fee Collection RTF).'
                                             ]
                                         },
                                         {
@@ -4081,33 +4130,46 @@ const Proceedings = () => {
                             </div>
 
                             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs font-bold text-slate-600 text-center">
-                                {approveTxnCount} mapped student(s) · transactions created where fee demand allows
+                                {approveTxnCount} mapped student(s) · choose how to finalize below
                             </div>
 
-                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
+                            <div className="flex flex-col gap-3 pt-2 border-t border-slate-100">
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowApproveModal(false)}
+                                        className="px-6 py-2.5 rounded-xl font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 text-sm"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleApproveSubmit('nightly')}
+                                        disabled={!canSubmitApprove}
+                                        className="flex-1 px-6 py-3 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    >
+                                        <Calendar size={18} /> Approve for Nightly Run
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleApproveSubmit('now')}
+                                        disabled={!canSubmitApprove}
+                                        className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    >
+                                        <CheckCircle size={18} /> Approve & Create Transactions Now
+                                    </button>
+                                </div>
                                 <button
                                     type="button"
-                                    onClick={() => setShowApproveModal(false)}
-                                    className="px-6 py-2.5 rounded-xl font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 text-sm"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleApproveSubmit(false)}
+                                    onClick={() => handleApproveSubmit('skip')}
                                     disabled={!canSubmitApprove}
-                                    className="flex-1 px-6 py-3 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    className="w-full px-6 py-3 bg-amber-50 hover:bg-amber-100 text-amber-900 font-semibold rounded-xl border border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                                 >
-                                    <Calendar size={18} /> Approve for Nightly Run
+                                    Skip Transactions & Mark Completed
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleApproveSubmit(true)}
-                                    disabled={!canSubmitApprove}
-                                    className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                >
-                                    <CheckCircle size={18} /> Approve & Create Transactions Now
-                                </button>
+                                <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                                    Skip option: no Bank/RTF transactions are created. Students stay on the proceeding and status becomes Completed (excluded from Fee Collection RTF and nightly auto-txn).
+                                </p>
                             </div>
                         </div>
                     </div>
