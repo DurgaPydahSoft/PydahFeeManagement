@@ -1035,6 +1035,7 @@ const Proceedings = () => {
     const [approveData, setApproveData] = useState({ bankAccount: '', bankCreditedDate: '', amount: '', feeHead: '' });
     const [approvingProc, setApprovingProc] = useState(null);
     const [approveStudents, setApproveStudents] = useState([]);
+    const [approveSkipTransactions, setApproveSkipTransactions] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [draftAvailable, setDraftAvailable] = useState(() => !!readProceedingDraft(user?.username));
     const [draftSavedAt, setDraftSavedAt] = useState(null);
@@ -2062,6 +2063,7 @@ const Proceedings = () => {
             feeHead: proc.feeHead?._id || proc.feeHead || ''
         });
         setApproveStudents([]);
+        setApproveSkipTransactions(false);
         setShowApproveModal(true);
 
         try {
@@ -2135,7 +2137,7 @@ const Proceedings = () => {
             showCancelButton: true,
             confirmButtonColor: isSkip ? '#475569' : '#059669',
             confirmButtonText: isSkip
-                ? 'Yes, skip & complete'
+                ? 'Yes, approve & complete'
                 : generateNow
                     ? 'Approve & Create Now'
                     : 'Approve for Nightly'
@@ -2169,6 +2171,7 @@ const Proceedings = () => {
             setShowApproveModal(false);
             setApprovingProc(null);
             setApproveStudents([]);
+            setApproveSkipTransactions(false);
             fetchInitialData();
         } catch (error) {
             Swal.fire('Error', error.response?.data?.message || 'Failed to approve', 'error');
@@ -3442,8 +3445,8 @@ const Proceedings = () => {
                                                 'Enter Bank Account, Bank Credited Date, Bank Credited Amount, and Fee Head.',
                                                 'Bank credited amount must exactly match the proceeding amount.',
                                                 'Sum of student shares must equal the proceeding amount (edit while Pending if needed).',
-                                                'Choose Approve & Create Transactions Now, Approve for Nightly Run, or Skip Transactions & Mark Completed.',
-                                                'Skip option: no RTF transactions are created; students stay mapped; status becomes Completed (no nightly auto-txn, not offered in Fee Collection RTF).'
+                                                'Choose Approve & Create Transactions Now or Approve for Nightly Run.',
+                                                'Or check “Skip transactions and mark as completed” — then Approve and Mark as Completed (no RTF txns; students stay mapped; status Completed).'
                                             ]
                                         },
                                         {
@@ -4063,10 +4066,33 @@ const Proceedings = () => {
                                 </div>
                             </div>
 
-                            <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-semibold">
-                                Transactions will be created like Fee Collection: <span className="font-bold text-slate-800">Mode Bank / Online · Instrument RTF</span>
-                                {' '}(paymentMode = RTF, deposited to selected bank account, date = bank credited date).
-                            </div>
+                            <label className="mb-3 flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={approveSkipTransactions}
+                                    onChange={(e) => setApproveSkipTransactions(e.target.checked)}
+                                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-700 focus:ring-amber-200"
+                                />
+                                <span className="min-w-0">
+                                    <span className="block text-sm font-bold text-amber-900">Skip transactions and mark as completed</span>
+                                    <span className="block text-[11px] text-amber-800/80 mt-0.5 leading-relaxed">
+                                        No Bank/RTF transactions will be created. Students stay mapped; status becomes Completed (not offered in Fee Collection RTF / nightly auto-txn).
+                                    </span>
+                                </span>
+                            </label>
+
+                            {!approveSkipTransactions && (
+                                <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-semibold">
+                                    Transactions will be created like Fee Collection: <span className="font-bold text-slate-800">Mode Bank / Online · Instrument RTF</span>
+                                    {' '}(paymentMode = RTF, deposited to selected bank account, date = bank credited date).
+                                </div>
+                            )}
+
+                            {approveSkipTransactions && (
+                                <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs font-semibold">
+                                    Transactions will be skipped. Proceeding will be approved and marked <span className="font-bold">Completed</span> with students still mapped.
+                                </div>
+                            )}
 
                             {!approveBankMatchesProceeding && approveBankAmount > 0 && (
                                 <div className="mb-4 p-3 rounded-xl border border-red-300 bg-red-50 text-red-800 text-xs font-semibold">
@@ -4130,46 +4156,52 @@ const Proceedings = () => {
                             </div>
 
                             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs font-bold text-slate-600 text-center">
-                                {approveTxnCount} mapped student(s) · choose how to finalize below
+                                {approveTxnCount} mapped student(s)
+                                {approveSkipTransactions
+                                    ? ' · no transactions will be created'
+                                    : ' · transactions created where fee demand allows'}
                             </div>
 
-                            <div className="flex flex-col gap-3 pt-2 border-t border-slate-100">
-                                <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowApproveModal(false);
+                                        setApproveSkipTransactions(false);
+                                    }}
+                                    className="px-6 py-2.5 rounded-xl font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 text-sm"
+                                >
+                                    Cancel
+                                </button>
+                                {approveSkipTransactions ? (
                                     <button
                                         type="button"
-                                        onClick={() => setShowApproveModal(false)}
-                                        className="px-6 py-2.5 rounded-xl font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 text-sm"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleApproveSubmit('nightly')}
-                                        disabled={!canSubmitApprove}
-                                        className="flex-1 px-6 py-3 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                    >
-                                        <Calendar size={18} /> Approve for Nightly Run
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleApproveSubmit('now')}
+                                        onClick={() => handleApproveSubmit('skip')}
                                         disabled={!canSubmitApprove}
                                         className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                                     >
-                                        <CheckCircle size={18} /> Approve & Create Transactions Now
+                                        <CheckCircle size={18} /> Approve and Mark as Completed
                                     </button>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleApproveSubmit('skip')}
-                                    disabled={!canSubmitApprove}
-                                    className="w-full px-6 py-3 bg-amber-50 hover:bg-amber-100 text-amber-900 font-semibold rounded-xl border border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                >
-                                    Skip Transactions & Mark Completed
-                                </button>
-                                <p className="text-[11px] text-slate-500 text-center leading-relaxed">
-                                    Skip option: no Bank/RTF transactions are created. Students stay on the proceeding and status becomes Completed (excluded from Fee Collection RTF and nightly auto-txn).
-                                </p>
+                                ) : (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleApproveSubmit('nightly')}
+                                            disabled={!canSubmitApprove}
+                                            className="flex-1 px-6 py-3 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                        >
+                                            <Calendar size={18} /> Approve for Nightly Run
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleApproveSubmit('now')}
+                                            disabled={!canSubmitApprove}
+                                            className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                        >
+                                            <CheckCircle size={18} /> Approve & Create Transactions Now
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
