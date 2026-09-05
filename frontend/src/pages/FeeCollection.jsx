@@ -1381,14 +1381,25 @@ const FeeCollection = () => {
         }
     };
 
-    // Filter Logic
+    // Filter Logic — history follows the same year selection as dues (viewFilterYear)
     const [historyFilter, setHistoryFilter] = useState({ mode: '', feeHead: '' });
-    const uniqueFeeHeads = [...new Set(transactions.map(t => t.feeHead?.name).filter(Boolean))];
-    const filteredTransactions = transactions.filter(t => {
+    const yearScopedTransactions = useMemo(() => {
+        if (viewFilterYear === 'ALL') return transactions;
+        return transactions.filter((t) => Number(t.studentYear) === Number(viewFilterYear));
+    }, [transactions, viewFilterYear]);
+    const uniqueFeeHeads = [...new Set(yearScopedTransactions.map(t => t.feeHead?.name).filter(Boolean))];
+    const filteredTransactions = yearScopedTransactions.filter(t => {
         if (historyFilter.mode && t.paymentMode !== historyFilter.mode) return false;
         if (historyFilter.feeHead && t.feeHead?.name !== historyFilter.feeHead) return false;
         return true;
     });
+
+    // Drop fee-head history filter when it no longer exists for the selected year
+    useEffect(() => {
+        if (historyFilter.feeHead && !uniqueFeeHeads.includes(historyFilter.feeHead)) {
+            setHistoryFilter((prev) => ({ ...prev, feeHead: '' }));
+        }
+    }, [viewFilterYear, uniqueFeeHeads, historyFilter.feeHead]);
 
     const totalSelectedAmount = feeRows.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
@@ -2152,12 +2163,15 @@ const FeeCollection = () => {
 
                                 {/* Payment History */}
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                    <div className="px-5 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                    <div className="px-5 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 gap-2 flex-wrap">
                                         <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                                             <div className="bg-green-100 p-1 rounded text-green-600">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             </div>
                                             Transaction History
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100">
+                                                {viewFilterYear === 'ALL' ? 'All Years' : `Year ${viewFilterYear}`}
+                                            </span>
                                         </h3>
                                         <div className="flex gap-1.5 text-[11px]">
                                             <select className="border border-gray-200 rounded-lg px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-green-500 shadow-sm text-[11px]" value={historyFilter.mode} onChange={e => setHistoryFilter({ ...historyFilter, mode: e.target.value })}>
