@@ -857,6 +857,52 @@ const headerFromList = (list) => {
     return list.length === 1 ? list[0] : 'Multiple';
 };
 
+/** Display real college/course/batch labels (never show raw "Multiple" when arrays or students are available). */
+const formatProceedingScope = (proc = {}, mappedStudents = []) => {
+    const fromStudents = (key) => [...new Set(
+        (mappedStudents || []).map((s) => s[key]).filter((v) => v && v !== 'Multiple')
+    )];
+
+    const colleges = (proc.colleges?.length
+        ? proc.colleges
+        : fromStudents('college').length
+            ? fromStudents('college')
+            : (proc.college && proc.college !== 'Multiple' ? [proc.college] : [])
+    ).filter((v) => v && v !== 'Multiple');
+
+    const courses = (proc.courses?.length
+        ? proc.courses
+        : fromStudents('course').length
+            ? fromStudents('course')
+            : (proc.course && proc.course !== 'Multiple' ? [proc.course] : [])
+    ).filter((v) => v && v !== 'Multiple');
+
+    const batches = (proc.batches?.length
+        ? proc.batches
+        : fromStudents('batch').length
+            ? fromStudents('batch')
+            : (proc.batch && proc.batch !== 'Multiple' ? [proc.batch] : [])
+    ).filter((v) => v && v !== 'Multiple');
+
+    const joinLabel = (arr, fallbackMulti, fallbackEmpty = '-') => {
+        if (!arr.length) {
+            if (fallbackMulti) return fallbackMulti;
+            return fallbackEmpty;
+        }
+        if (arr.length <= 2) return arr.join(', ');
+        return `${arr.slice(0, 2).join(', ')} +${arr.length - 2} more`;
+    };
+
+    return {
+        colleges,
+        courses,
+        batches,
+        collegeLabel: joinLabel(colleges, proc.college === 'Multiple' ? 'Multiple colleges' : (proc.college || '-')),
+        courseLabel: joinLabel(courses, proc.course === 'Multiple' ? 'Multiple courses' : (proc.course || '-')),
+        batchLabel: joinLabel(batches, proc.batch === 'Multiple' ? 'Multiple batches' : (proc.batch || '')),
+    };
+};
+
 /** Checkbox multi-select dropdown for College / Course / Batch */
 const MultiCheckDropdown = ({
     label,
@@ -2370,7 +2416,15 @@ const Proceedings = () => {
         if (p.status !== 'Pending' && p.status !== 'Verified') return false;
         if (!pendingSearch.trim()) return true;
         const q = pendingSearch.toLowerCase();
-        return p.proceedingNumber?.toLowerCase().includes(q) || p.college?.toLowerCase().includes(q) || p.course?.toLowerCase().includes(q);
+        const scope = formatProceedingScope(p);
+        return p.proceedingNumber?.toLowerCase().includes(q)
+            || p.college?.toLowerCase().includes(q)
+            || p.course?.toLowerCase().includes(q)
+            || scope.collegeLabel.toLowerCase().includes(q)
+            || scope.courseLabel.toLowerCase().includes(q)
+            || scope.batchLabel.toLowerCase().includes(q)
+            || (p.courses || []).some((c) => String(c).toLowerCase().includes(q))
+            || (p.batches || []).some((b) => String(b).toLowerCase().includes(q));
     });
 
     const pendingQueueCount = proceedings.filter(p => p.status === 'Pending' || p.status === 'Verified').length;
@@ -2385,30 +2439,31 @@ const Proceedings = () => {
         });
         try {
             const res = await api.get(`/proceedings/${proc._id}/summary`);
+            const scopeProc = {
+                ...proc,
+                status: res.data.proceedingStatus || proc.status,
+                totalUsed: res.data.totalUsed ?? proc.totalUsed,
+                colleges: res.data.colleges || proc.colleges,
+                courses: res.data.courses || proc.courses,
+                batches: res.data.batches || proc.batches
+            };
             setDetailModal({
-                proc: {
-                    ...proc,
-                    status: res.data.proceedingStatus || proc.status,
-                    totalUsed: res.data.totalUsed ?? proc.totalUsed
-                },
+                proc: scopeProc,
                 loading: false,
                 transactions: res.data.transactions || [],
                 mappedStudents: res.data.mappedStudents || [],
                 totalUsed: res.data.totalUsed || 0
             });
-            if (res.data.proceedingStatus && res.data.proceedingStatus !== proc.status) {
-                setProceedings(prev => prev.map(p => (
-                    p._id === proc._id ? {
-                        ...p,
-                        status: res.data.proceedingStatus || p.status,
-                        totalUsed: res.data.totalUsed ?? p.totalUsed
-                    } : p
-                )));
-            } else if (res.data.totalUsed != null && res.data.totalUsed !== proc.totalUsed) {
-                setProceedings(prev => prev.map(p => (
-                    p._id === proc._id ? { ...p, totalUsed: res.data.totalUsed } : p
-                )));
-            }
+            setProceedings(prev => prev.map(p => (
+                p._id === proc._id ? {
+                    ...p,
+                    status: res.data.proceedingStatus || p.status,
+                    totalUsed: res.data.totalUsed ?? p.totalUsed,
+                    colleges: res.data.colleges || p.colleges,
+                    courses: res.data.courses || p.courses,
+                    batches: res.data.batches || p.batches
+                } : p
+            )));
         } catch (e) {
             setDetailModal(prev => (prev ? { ...prev, loading: false } : null));
             Swal.fire('Error', 'Failed to load proceeding details', 'error');
@@ -2760,11 +2815,15 @@ const Proceedings = () => {
                                                 <tr>
                                                     <td colSpan="8" className="p-12 text-center text-slate-400 italic text-sm">No active proceedings found</td>
                                                 </tr>
-                                            ) : filteredProceedings.map(proc => (
+                                            ) : filteredProceedings.map(proc => {
+                                                const scope = formatProceedingScope(proc);
+                                                return (
                                                 <tr key={proc._id} className="hover:bg-slate-50/50 transition-colors group">
                                                     <td className="p-4">
-                                                        <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
-                                                        <div className="text-[10px] text-slate-500 font-medium uppercase">{proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}</div>
+                                                        <div className="font-bold text-slate-700 text-xs">{scope.collegeLabel}</div>
+                                                        <div className="text-[10px] text-slate-500 font-medium uppercase">
+                                                            {scope.courseLabel}{scope.batchLabel ? ` (${scope.batchLabel})` : ''} - {proc.caste || 'ALL'}
+                                                        </div>
                                                     </td>
                                                     <td className="p-4">
                                                         <span className="px-2.5 py-1 text-xs bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-200">{proc.academicYear || '-'}</span>
@@ -2828,7 +2887,8 @@ const Proceedings = () => {
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 )}
@@ -3235,8 +3295,17 @@ const Proceedings = () => {
                                                         </div>
                                                     </td>
                                                     <td className="p-4 cursor-pointer" onClick={() => openDetailModal(proc)}>
-                                                        <div className="font-bold text-slate-700 text-xs">{proc.college}</div>
-                                                        <div className="text-[10px] text-slate-500 font-medium uppercase">{proc.course} {proc.batch ? `(${proc.batch})` : ''} - {proc.caste || 'ALL'}</div>
+                                                        {(() => {
+                                                            const scope = formatProceedingScope(proc);
+                                                            return (
+                                                                <>
+                                                                    <div className="font-bold text-slate-700 text-xs">{scope.collegeLabel}</div>
+                                                                    <div className="text-[10px] text-slate-500 font-medium uppercase">
+                                                                        {scope.courseLabel}{scope.batchLabel ? ` (${scope.batchLabel})` : ''} - {proc.caste || 'ALL'}
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </td>
                                                     <td className="p-4 text-right font-bold text-slate-800">₹{(proc.amount || 0).toLocaleString('en-IN')}</td>
                                                     <td className="p-4 text-center">
@@ -4114,7 +4183,10 @@ const Proceedings = () => {
                     <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
                         <ModalHeader
                             title={detailModal.proc.proceedingNumber}
-                            subtitle={`${detailModal.proc.college} / ${detailModal.proc.course}${detailModal.proc.batch ? ` (${detailModal.proc.batch})` : ''}${detailModal.proc.academicYear ? ` · AY ${detailModal.proc.academicYear}` : ''}`}
+                            subtitle={(() => {
+                                const scope = formatProceedingScope(detailModal.proc, detailModal.mappedStudents);
+                                return `${scope.collegeLabel} / ${scope.courseLabel}${scope.batchLabel ? ` (${scope.batchLabel})` : ''}${detailModal.proc.academicYear ? ` · AY ${detailModal.proc.academicYear}` : ''}`;
+                            })()}
                             onClose={closeDetailModal}
                         >
                             <div className="flex flex-wrap gap-2 mt-2">
