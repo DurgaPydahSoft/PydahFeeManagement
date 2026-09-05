@@ -2061,6 +2061,14 @@ const getDueReports = async (req, res) => {
                     applicationConcession: item.applicationConcessionAmount
                 });
 
+                // Persist column-mapped term numbers (e.g. sem-2 → T3) so client
+                // Without-Sch / fee-head rebuilds keep amounts under the same columns as dates.
+                item.terms = resolvedTerms.map((t) => ({
+                    termNumber: t.termNumber,
+                    percentage: t.percentage,
+                    amount: t.amount
+                }));
+
                 (allocation.terms || []).forEach(tb => {
                     const termNum = tb.termNumber;
                     if (!targetSummary.termsMap[termNum]) {

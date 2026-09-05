@@ -554,6 +554,11 @@ const DueReports = () => {
         }
         return sortedData.map(student => {
             const isStudentScholarEligible = String(student.scholarshipStatus || '').toLowerCase() === 'eligible';
+            // Without Sch does not change non-eligible students — keep backend term columns (T1/T3 etc.)
+            if (excludeScholarship && !hasFeeHeadFilter && !isStudentScholarEligible) {
+                return student;
+            }
+
             let totalFee = 0;
             let paidAmount = 0;
             let concessionAmount = 0;
@@ -587,20 +592,17 @@ const DueReports = () => {
                     concessionAmount += (item.concessionAmount || 0);
 
                     const itemBalance = Math.max(0, (item.totalAmount || 0) - (item.paidAmount || 0) - (item.concessionAmount || 0));
-                    const termsCount = item.terms?.length || 1;
+                    const termsList = item.terms?.length ? item.terms : [{ termNumber: 1, amount: item.totalAmount || 0 }];
+                    // Use each term's actual column number (may be T1 + T3, not sequential T1/T2)
                     if (itemBalance > 0) {
-                        for (let i = 1; i <= termsCount; i++) {
-                            if (!studentTermDues[i]) studentTermDues[i] = 0;
-                            const termObj = item.terms?.find(t => Number(t.termNumber) === i);
-                            if (termObj) {
-                                const termTarget = termObj.amount || 0;
-                                const originalTotal = item.totalAmount || 1;
-                                const ratio = termTarget / originalTotal;
-                                studentTermDues[i] += itemBalance * ratio;
-                            } else {
-                                studentTermDues[i] += itemBalance / termsCount;
-                            }
-                        }
+                        termsList.forEach((termObj) => {
+                            const termNum = Number(termObj.termNumber) || 1;
+                            if (!studentTermDues[termNum]) studentTermDues[termNum] = 0;
+                            const termTarget = termObj.amount || 0;
+                            const originalTotal = item.totalAmount || 1;
+                            const ratio = originalTotal > 0 ? termTarget / originalTotal : (1 / termsList.length);
+                            studentTermDues[termNum] += itemBalance * ratio;
+                        });
                     }
 
                     const headIdStr = String(item.feeHeadId || 'unknown');
@@ -619,34 +621,40 @@ const DueReports = () => {
                     catSum.concession += (item.concessionAmount || 0);
                     catSum.due += itemBalance;
 
-                    for (let i = 1; i <= termsCount; i++) {
-                        if (!catSum.termsMap[i]) {
-                            catSum.termsMap[i] = {
-                                termNumber: i,
+                    termsList.forEach((termObj) => {
+                        const termNum = Number(termObj.termNumber) || 1;
+                        if (!catSum.termsMap[termNum]) {
+                            catSum.termsMap[termNum] = {
+                                termNumber: termNum,
                                 termTarget: 0,
                                 balance: 0,
                                 dueDate: null,
                                 isActiveTerm: false
                             };
                         }
-                        const termObj = item.terms?.find(t => Number(t.termNumber) === i);
-                        const termTarget = termObj ? (termObj.amount || 0) : 0;
+                        const termTarget = termObj.amount || 0;
                         const originalTotal = item.totalAmount || 1;
-                        const ratio = termObj ? (termTarget / originalTotal) : (1 / termsCount);
+                        const ratio = originalTotal > 0 ? termTarget / originalTotal : (1 / termsList.length);
 
-                        catSum.termsMap[i].termTarget += termTarget;
-                        catSum.termsMap[i].balance += itemBalance * ratio;
+                        catSum.termsMap[termNum].termTarget += termTarget;
+                        catSum.termsMap[termNum].balance += itemBalance * ratio;
 
-                        const origTerm = student.groupedFeeDetails?.[catKey]?.terms?.find(t => Number(t.termNumber) === i);
+                        const origTerm = student.groupedFeeDetails?.[catKey]?.terms?.find(t => Number(t.termNumber) === termNum);
                         if (origTerm) {
-                            catSum.termsMap[i].dueDate = origTerm.dueDate;
-                            catSum.termsMap[i].isActiveTerm = origTerm.isActiveTerm;
+                            catSum.termsMap[termNum].dueDate = origTerm.dueDate;
+                            catSum.termsMap[termNum].isActiveTerm = origTerm.isActiveTerm;
                         }
-                    }
+                    });
                 }
             });
 
-            const maxTermNum = Math.max(1, ...Object.keys(studentTermDues).map(Number));
+            // Keep the same number of term columns as the backend row (so T2 can stay empty when due is on T3)
+            const maxTermNum = Math.max(
+                student.termDues?.length || 0,
+                student.termDueDates?.length || 0,
+                1,
+                ...Object.keys(studentTermDues).map(Number)
+            );
             const termDues = [];
             for (let i = 1; i <= maxTermNum; i++) {
                 termDues.push(studentTermDues[i] || 0);
