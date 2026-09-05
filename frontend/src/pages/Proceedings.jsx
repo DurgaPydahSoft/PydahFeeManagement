@@ -2428,6 +2428,8 @@ const Proceedings = () => {
     });
 
     const pendingQueueCount = proceedings.filter(p => p.status === 'Pending' || p.status === 'Verified').length;
+    const pendingStatusCount = proceedings.filter(p => p.status === 'Pending').length;
+    const verifiedStatusCount = proceedings.filter(p => p.status === 'Verified').length;
 
     const openDetailModal = async (proc) => {
         setDetailModal({
@@ -2658,6 +2660,38 @@ const Proceedings = () => {
                                         {getAcademicYears().map(y => <option key={y} value={y}>{y}</option>)}
                                     </select>
                                     <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+                            )}
+                            {activeTab === 'pending' && (
+                                <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border bg-amber-50 text-amber-800 border-amber-200">
+                                        Pending
+                                        <span className="min-w-[1.25rem] text-center px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900">{pendingStatusCount}</span>
+                                    </span>
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border bg-indigo-50 text-indigo-800 border-indigo-200">
+                                        Verified
+                                        <span className="min-w-[1.25rem] text-center px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-900">{verifiedStatusCount}</span>
+                                    </span>
+                                    <div className="relative min-w-[180px] w-full sm:w-56">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                        <input
+                                            type="text"
+                                            placeholder="Search pending / verified..."
+                                            value={pendingSearch}
+                                            onChange={(e) => setPendingSearch(e.target.value)}
+                                            className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                                        />
+                                        {pendingSearch && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setPendingSearch('')}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 p-0.5"
+                                                title="Clear"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -3239,16 +3273,6 @@ const Proceedings = () => {
                     {/* ═══ PENDING QUEUE TAB ═══ */}
                     {activeTab === 'pending' && (
                         <>
-                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-wrap items-center gap-3">
-                                <div className="relative min-w-[200px] flex-1">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                    <input type="text" placeholder="Search pending / verified..." value={pendingSearch} onChange={(e) => setPendingSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm" />
-                                </div>
-                                {pendingSearch && (
-                                    <button onClick={() => setPendingSearch('')} className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl">Clear</button>
-                                )}
-                            </div>
-
                             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                                 {loading ? (
                                     <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-blue-600" /></div>
