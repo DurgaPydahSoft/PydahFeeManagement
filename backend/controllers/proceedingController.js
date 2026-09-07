@@ -1458,6 +1458,9 @@ const getProceedingSummary = async (req, res) => {
             totalUsed,
             pendingTxnCount,
             proceedingStatus: freshProceeding?.status || proceeding.status,
+            cancelledBy: freshProceeding?.cancelledBy || proceeding.cancelledBy || '',
+            cancelledByName: freshProceeding?.cancelledByName || proceeding.cancelledByName || '',
+            cancelledAt: freshProceeding?.cancelledAt || proceeding.cancelledAt || null,
             mappedStudents: mappedWithShare,
             colleges: scope.colleges || [],
             courses: scope.courses || [],
@@ -2003,6 +2006,118 @@ const getScholarshipAnalytics = async (req, res) => {
     }
 };
 
+// ─── Cancel proceeding (Pending or Verified or Active → Cancelled) ──────
+const cancelProceeding = async (req, res) => {
+    try {
+        const proceeding = await Proceeding.findById(req.params.id);
+        if (!proceeding) return res.status(404).json({ message: 'Proceeding not found' });
+        if (!await validateProceedingAccess(proceeding, req.user)) {
+            return res.status(403).json({ message: 'Forbidden: Access denied' });
+        }
+        if (proceeding.status === 'Cancelled') {
+            return res.status(400).json({ message: 'Proceeding is already cancelled' });
+        }
+
+        const txnCount = await Transaction.countDocuments({ proceedingId: proceeding._id, status: { $ne: 'cancelled' } });
+        if (txnCount > 0) {
+            return res.status(400).json({
+                message: `Cannot cancel: ${txnCount} active transaction(s) are linked to this proceeding. Cancel linked transactions first.`
+            });
+        }
+
+        proceeding.status = 'Cancelled';
+        proceeding.cancelledBy = req.user?.username || '';
+        proceeding.cancelledByName = req.user?.name || '';
+        proceeding.cancelledAt = new Date();
+        await proceeding.save();
+
+        await ProceedingStudent.updateMany(
+            { proceedingId: proceeding._id },
+            { $set: { txnPending: false, txnPendingReason: 'Proceeding Cancelled' } }
+        );
+
+        res.json({ message: 'Proceeding cancelled successfully.', proceeding });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+// ─── Check duplicate proceeding (same academic year + same student shares) ──
+const checkDuplicateProceeding = async (req, res) => {
+    try {
+        const { academicYear, students, currentProceedingId, proceedingNumber } = req.body;
+        if (!academicYear || !Array.isArray(students) || students.length === 0) {
+            return res.json({ isDuplicate: false });
+        }
+
+        const parsedStudents = parseStudentsBody(students) || [];
+        if (parsedStudents.length === 0) return res.json({ isDuplicate: false });
+
+        const procQuery = {
+            academicYear,
+            status: { $nin: ['Cancelled'] }
+        };
+        if (currentProceedingId) {
+            procQuery._id = { $ne: currentProceedingId };
+        }
+
+        const existingProceedings = await Proceeding.find(procQuery).select('_id proceedingNumber amount status createdAt').lean();
+        if (existingProceedings.length === 0) {
+            return res.json({ isDuplicate: false });
+        }
+
+        const incomingMap = new Map();
+        parsedStudents.forEach(s => {
+            const key = String(s.admissionNumber || s.studentId || '').trim();
+            const share = roundMoney(Number(s.shareAmount) || 0);
+            if (key && share > 0) {
+                incomingMap.set(key, share);
+            }
+        });
+
+        if (incomingMap.size === 0) return res.json({ isDuplicate: false });
+
+        for (const proc of existingProceedings) {
+            const mappedStudents = await ProceedingStudent.find({ proceedingId: proc._id }).select('admissionNumber studentId shareAmount').lean();
+            if (mappedStudents.length === 0) continue;
+
+            const existingMap = new Map();
+            mappedStudents.forEach(m => {
+                const key = String(m.admissionNumber || m.studentId || '').trim();
+                const share = roundMoney(Number(m.shareAmount) || 0);
+                if (key && share > 0) {
+                    existingMap.set(key, share);
+                }
+            });
+
+            if (incomingMap.size === existingMap.size) {
+                let match = true;
+                for (const [key, share] of incomingMap.entries()) {
+                    const exShare = existingMap.get(key);
+                    if (exShare === undefined || Math.abs(exShare - share) > 0.05) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    const isDiffNum = String(proceedingNumber || '').trim().toLowerCase() !== String(proc.proceedingNumber || '').trim().toLowerCase();
+                    return res.json({
+                        isDuplicate: true,
+                        isDifferentNumber: isDiffNum,
+                        existingProceeding: proc,
+                        message: `Potential duplicate detected! Proceeding '${proc.proceedingNumber}' (Status: ${proc.status}, Amount: ₹${proc.amount.toLocaleString('en-IN')}) for Academic Year ${academicYear} has identical student list and share amounts.`
+                    });
+                }
+            }
+        }
+
+        res.json({ isDuplicate: false });
+    } catch (error) {
+        console.error('Check duplicate error:', error);
+        res.json({ isDuplicate: false });
+    }
+};
+
 module.exports = {
     getProceedings,
     getPendingAutoTxnAlert,
@@ -2012,6 +2127,8 @@ module.exports = {
     attachProceedingFile,
     verifyProceeding,
     approveProceeding,
+    cancelProceeding,
+    checkDuplicateProceeding,
     deleteProceeding,
     getProceedingSummary,
     loadStudentsForProceeding,

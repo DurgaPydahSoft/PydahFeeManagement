@@ -115,6 +115,17 @@ const proceedingSchema = mongoose.Schema({
     },
     approvedAt: {
         type: Date
+    },
+    cancelledBy: {
+        type: String,
+        default: ''
+    },
+    cancelledByName: {
+        type: String,
+        default: ''
+    },
+    cancelledAt: {
+        type: Date
     }
 }, {
     timestamps: true

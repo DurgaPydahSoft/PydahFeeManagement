@@ -9,6 +9,8 @@ const {
     attachProceedingFile,
     verifyProceeding,
     approveProceeding,
+    cancelProceeding,
+    checkDuplicateProceeding,
     deleteProceeding,
     getProceedingSummary,
     loadStudentsForProceeding,
@@ -28,12 +30,14 @@ router.route('/')
 router.get('/pending-auto-txn-alert', getPendingAutoTxnAlert);
 router.get('/load-students', loadStudentsForProceeding);
 router.post('/load-students', loadStudentsForProceeding);
+router.post('/check-duplicate', checkDuplicateProceeding);
 router.get('/scholarship-analytics', getScholarshipAnalytics);
 router.post('/sync-ids', syncProceedingIds);
 router.get('/:id/summary', getProceedingSummary);
 router.put('/:id/attachment', upload.single('attachment'), attachProceedingFile);
 router.put('/:id/verify', verifyProceeding);
 router.put('/:id/approve', approveProceeding);
+router.put('/:id/cancel', cancelProceeding);
 router.route('/:id')
     .get(getProceedingById)
     .put(upload.single('attachment'), updateProceeding)

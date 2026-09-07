@@ -1067,6 +1067,10 @@ const Proceedings = () => {
     const [detailModal, setDetailModal] = useState(null);
     const academicYearDefaultSet = useRef(false);
     const [pendingSearch, setPendingSearch] = useState('');
+    const [pendingCollegeFilter, setPendingCollegeFilter] = useState('All');
+    const [pendingCourseFilter, setPendingCourseFilter] = useState('All');
+    const [pendingAcademicYearFilter, setPendingAcademicYearFilter] = useState('All');
+    const [pendingStatusFilter, setPendingStatusFilter] = useState('Pending');
 
     const [formData, setFormData] = useState(emptyForm());
     const [loadedStudents, setLoadedStudents] = useState([]);
@@ -2033,6 +2037,35 @@ const Proceedings = () => {
         }
 
         if (!isEditing) {
+            try {
+                const dupRes = await api.post('/proceedings/check-duplicate', {
+                    academicYear: formData.academicYear,
+                    proceedingNumber: formData.proceedingNumber,
+                    students: studentsPayload
+                });
+                if (dupRes.data?.isDuplicate) {
+                    const dupConfirm = await Swal.fire({
+                        title: 'Duplicate Proceeding Warning!',
+                        html: `<div style="text-align:left;font-size:13px;line-height:1.5;">
+                            <div style="background-color:#fffbe0;border:1px solid #fde68a;color:#92400e;padding:10px;border-radius:8px;margin-bottom:10px;">
+                                <strong>Warning:</strong> A proceeding for Academic Year <strong>${escapeHtml(formData.academicYear)}</strong> with identical student list and share amounts already exists!
+                            </div>
+                            <p>Existing Proceeding Number: <strong>${escapeHtml(dupRes.data.existingProceeding?.proceedingNumber)}</strong></p>
+                            <p>Status: <span style="font-weight:600;color:#1e40af">${escapeHtml(dupRes.data.existingProceeding?.status)}</span> · Total Amount: <strong>₹${dupRes.data.existingProceeding?.amount?.toLocaleString('en-IN')}</strong></p>
+                            <p style="margin-top:10px;color:#475569;font-weight:500;">Do you still want to create this proceeding?</p>
+                        </div>`,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'Yes, create anyway',
+                        cancelButtonText: 'Cancel creation',
+                        confirmButtonColor: '#d97706',
+                    });
+                    if (!dupConfirm.isConfirmed) return;
+                }
+            } catch (dupErr) {
+                console.error('Error checking duplicate proceeding:', dupErr);
+            }
+
             const confirm = await Swal.fire({
                 title: 'Create proceeding?',
                 html: `<div style="text-align:left;font-size:14px;line-height:1.5">
@@ -2335,6 +2368,37 @@ const Proceedings = () => {
         }
     };
 
+    const handleCancel = async (proc) => {
+        if (proc.status === 'Cancelled') {
+            Swal.fire('Info', 'Proceeding is already cancelled.', 'info');
+            return;
+        }
+        const confirm = await Swal.fire({
+            title: 'Cancel Proceeding?',
+            html: `<div style="text-align:left;font-size:13px;line-height:1.5;">
+                <p>Are you sure you want to cancel proceeding <strong>${escapeHtml(proc.proceedingNumber)}</strong>?</p>
+                <p style="margin-top:8px;color:#dc2626;font-weight:600;">This action will mark the proceeding as <strong>Cancelled</strong> and exclude it from Scholarship Analytics.</p>
+            </div>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc2626',
+            confirmButtonText: 'Yes, cancel proceeding',
+            cancelButtonText: 'No, keep active'
+        });
+        if (!confirm.isConfirmed) return;
+
+        try {
+            const res = await api.put(`/proceedings/${proc._id}/cancel`);
+            Swal.fire('Cancelled', res.data.message || 'Proceeding cancelled successfully', 'success');
+            if (detailModal?.proc?._id === proc._id) {
+                closeDetailModal();
+            }
+            fetchInitialData();
+        } catch (error) {
+            Swal.fire('Error', error.response?.data?.message || 'Failed to cancel proceeding', 'error');
+        }
+    };
+
     const handlePrint = () => setShowPrintModal(true);
 
     const executePrint = async () => {
@@ -2413,7 +2477,39 @@ const Proceedings = () => {
     summaryStats.totalRemaining = Math.max(0, summaryStats.totalAmount - summaryStats.totalUsed);
 
     const pendingQueue = proceedings.filter(p => {
-        if (p.status !== 'Pending' && p.status !== 'Verified') return false;
+        // Status filter
+        if (pendingStatusFilter === 'Pending') {
+            if (p.status !== 'Pending' && p.status !== 'Verified') return false;
+        } else if (pendingStatusFilter === 'Pending Only') {
+            if (p.status !== 'Pending') return false;
+        } else if (pendingStatusFilter === 'Verified Only') {
+            if (p.status !== 'Verified') return false;
+        } else if (pendingStatusFilter === 'Cancelled') {
+            if (p.status !== 'Cancelled') return false;
+        } else if (pendingStatusFilter === 'All') {
+            if (p.status !== 'Pending' && p.status !== 'Verified' && p.status !== 'Cancelled') return false;
+        }
+
+        // College filter
+        if (pendingCollegeFilter !== 'All') {
+            const scope = formatProceedingScope(p);
+            const colleges = scope.colleges.length ? scope.colleges : (p.college && p.college !== 'Multiple' ? [p.college] : []);
+            if (!colleges.includes(pendingCollegeFilter)) return false;
+        }
+
+        // Course filter
+        if (pendingCourseFilter !== 'All') {
+            const scope = formatProceedingScope(p);
+            const courses = scope.courses.length ? scope.courses : (p.course && p.course !== 'Multiple' ? [p.course] : []);
+            if (!courses.includes(pendingCourseFilter)) return false;
+        }
+
+        // Academic Year filter
+        if (pendingAcademicYearFilter !== 'All') {
+            if (p.academicYear !== pendingAcademicYearFilter) return false;
+        }
+
+        // Search text filter
         if (!pendingSearch.trim()) return true;
         const q = pendingSearch.toLowerCase();
         const scope = formatProceedingScope(p);
@@ -2430,6 +2526,7 @@ const Proceedings = () => {
     const pendingQueueCount = proceedings.filter(p => p.status === 'Pending' || p.status === 'Verified').length;
     const pendingStatusCount = proceedings.filter(p => p.status === 'Pending').length;
     const verifiedStatusCount = proceedings.filter(p => p.status === 'Verified').length;
+    const cancelledStatusCount = proceedings.filter(p => p.status === 'Cancelled').length;
 
     const openDetailModal = async (proc) => {
         setDetailModal({
@@ -2447,7 +2544,10 @@ const Proceedings = () => {
                 totalUsed: res.data.totalUsed ?? proc.totalUsed,
                 colleges: res.data.colleges || proc.colleges,
                 courses: res.data.courses || proc.courses,
-                batches: res.data.batches || proc.batches
+                batches: res.data.batches || proc.batches,
+                cancelledBy: res.data.cancelledBy || proc.cancelledBy,
+                cancelledByName: res.data.cancelledByName || proc.cancelledByName,
+                cancelledAt: res.data.cancelledAt || proc.cancelledAt,
             };
             setDetailModal({
                 proc: scopeProc,
@@ -2463,7 +2563,10 @@ const Proceedings = () => {
                     totalUsed: res.data.totalUsed ?? p.totalUsed,
                     colleges: res.data.colleges || p.colleges,
                     courses: res.data.courses || p.courses,
-                    batches: res.data.batches || p.batches
+                    batches: res.data.batches || p.batches,
+                    cancelledBy: res.data.cancelledBy || p.cancelledBy,
+                    cancelledByName: res.data.cancelledByName || p.cancelledByName,
+                    cancelledAt: res.data.cancelledAt || p.cancelledAt,
                 } : p
             )));
         } catch (e) {
@@ -2527,15 +2630,23 @@ const Proceedings = () => {
         if (proc.approvedByName || proc.approvedBy) {
             items.push({ label: 'Approved by', value: proc.approvedByName || proc.approvedBy });
         }
+        if (proc.status === 'Cancelled' || proc.cancelledByName || proc.cancelledBy) {
+            const dateStr = proc.cancelledAt ? ` on ${new Date(proc.cancelledAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : '';
+            items.push({
+                label: 'Cancelled by',
+                value: proc.cancelledByName || proc.cancelledBy ? `${proc.cancelledByName || proc.cancelledBy}${dateStr}` : 'System',
+                isDanger: true
+            });
+        }
         if (proc.transactionsSkipped) {
             items.push({ label: 'Transactions', value: 'Skipped — marked Completed without auto RTF' });
         }
         if (items.length === 0) return null;
         return (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 border-b border-slate-100 pb-3 mb-4">
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-600 border-b border-slate-100 pb-3 mb-4">
                 {items.map((item) => (
-                    <span key={item.label}>
-                        {item.label}: <b className="text-slate-800">{item.value}</b>
+                    <span key={item.label} className={item.isDanger ? 'text-red-700 font-medium' : ''}>
+                        {item.label}: <b className={item.isDanger ? 'text-red-800 font-bold' : 'text-slate-800'}>{item.value}</b>
                     </span>
                 ))}
             </div>
@@ -2672,26 +2783,10 @@ const Proceedings = () => {
                                         Verified
                                         <span className="min-w-[1.25rem] text-center px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-900">{verifiedStatusCount}</span>
                                     </span>
-                                    <div className="relative min-w-[180px] w-full sm:w-56">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                        <input
-                                            type="text"
-                                            placeholder="Search pending / verified..."
-                                            value={pendingSearch}
-                                            onChange={(e) => setPendingSearch(e.target.value)}
-                                            className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm"
-                                        />
-                                        {pendingSearch && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setPendingSearch('')}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 p-0.5"
-                                                title="Clear"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        )}
-                                    </div>
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border bg-red-50 text-red-800 border-red-200">
+                                        Cancelled
+                                        <span className="min-w-[1.25rem] text-center px-1.5 py-0.5 rounded-md bg-red-100 text-red-900">{cancelledStatusCount}</span>
+                                    </span>
                                 </div>
                             )}
                         </div>
@@ -3273,6 +3368,106 @@ const Proceedings = () => {
                     {/* ═══ PENDING QUEUE TAB ═══ */}
                     {activeTab === 'pending' && (
                         <>
+                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-4 flex flex-wrap items-center gap-3">
+                                <div className="relative min-w-[200px] flex-1">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search proceeding number, college, course..."
+                                        value={pendingSearch}
+                                        onChange={(e) => setPendingSearch(e.target.value)}
+                                        className="w-full pl-10 pr-8 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 transition-all text-sm font-medium"
+                                    />
+                                    {pendingSearch && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setPendingSearch('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 p-0.5"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="relative">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Status</label>
+                                    <select
+                                        value={pendingStatusFilter}
+                                        onChange={(e) => setPendingStatusFilter(e.target.value)}
+                                        className="bg-slate-50 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                    >
+                                        <option value="Pending">Pending & Verified (Default)</option>
+                                        <option value="Pending Only">Pending Only</option>
+                                        <option value="Verified Only">Verified Only</option>
+                                        <option value="Cancelled">Cancelled</option>
+                                        <option value="All">All Statuses</option>
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+
+                                <div className="relative">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">College</label>
+                                    <select
+                                        value={pendingCollegeFilter}
+                                        onChange={(e) => {
+                                            setPendingCollegeFilter(e.target.value);
+                                            setPendingCourseFilter('All');
+                                        }}
+                                        className="bg-slate-50 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                    >
+                                        <option value="All">All Colleges</option>
+                                        {metadata?.hierarchy && Object.keys(metadata.hierarchy).map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+
+                                <div className="relative">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Course</label>
+                                    <select
+                                        value={pendingCourseFilter}
+                                        onChange={(e) => setPendingCourseFilter(e.target.value)}
+                                        className="bg-slate-50 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                    >
+                                        <option value="All">All Courses</option>
+                                        {(() => {
+                                            if (pendingCollegeFilter !== 'All') return metadata?.hierarchy?.[pendingCollegeFilter] && Object.keys(metadata.hierarchy[pendingCollegeFilter]).map(c => <option key={c} value={c}>{c}</option>);
+                                            const u = new Set();
+                                            if (metadata?.hierarchy) Object.values(metadata.hierarchy).forEach(co => { if (co) Object.keys(co).forEach(c => u.add(c)); });
+                                            return Array.from(u).map(c => <option key={c} value={c}>{c}</option>);
+                                        })()}
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+
+                                <div className="relative">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Academic Year</label>
+                                    <select
+                                        value={pendingAcademicYearFilter}
+                                        onChange={(e) => setPendingAcademicYearFilter(e.target.value)}
+                                        className="bg-slate-50 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer"
+                                    >
+                                        <option value="All">All Years</option>
+                                        {getAcademicYears().map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 bottom-2.5 text-slate-500 pointer-events-none" />
+                                </div>
+
+                                {(pendingCollegeFilter !== 'All' || pendingCourseFilter !== 'All' || pendingAcademicYearFilter !== 'All' || pendingStatusFilter !== 'Pending' || pendingSearch) && (
+                                    <button
+                                        onClick={() => {
+                                            setPendingCollegeFilter('All');
+                                            setPendingCourseFilter('All');
+                                            setPendingAcademicYearFilter('All');
+                                            setPendingStatusFilter('Pending');
+                                            setPendingSearch('');
+                                        }}
+                                        className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl transition-colors shrink-0"
+                                    >
+                                        Clear Filters
+                                    </button>
+                                )}
+                            </div>
+
                             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                                 {loading ? (
                                     <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-blue-600" /></div>
@@ -3345,33 +3540,19 @@ const Proceedings = () => {
                                                         <span className={`inline-block px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Pending}`}>{proc.status}</span>
                                                     </td>
                                                     <td className="p-4 text-xs font-medium text-slate-600">{proc.requestedByName || '-'}</td>
-                                                    <td className="p-4 text-xs font-medium text-slate-600">{proc.verifiedByName || '-'}</td>
+                                                    <td className="p-4 text-xs font-medium text-slate-600">
+                                                        {proc.status === 'Cancelled' ? (
+                                                            <span className="font-bold text-red-600">{proc.cancelledByName || proc.cancelledBy || 'Cancelled'}</span>
+                                                        ) : (proc.verifiedByName || '-')}
+                                                     </td>
                                                     <td className="p-4 text-center">
-                                                        <div className="flex justify-center gap-1 items-center flex-wrap">
-                                                            <button
-                                                                onClick={() => openDetailModal(proc)}
-                                                                className="px-2 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                                                                title="View & Cross-Check Students"
-                                                            >
-                                                                <Eye size={14} /> View
-                                                            </button>
-                                                            {proc.status === 'Pending' && canVerify && (
-                                                                <button onClick={() => handleVerify(proc)} className="px-2.5 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1" title="Verify">
-                                                                    <ShieldCheck size={14} /> Verify
-                                                                </button>
-                                                            )}
-                                                            {proc.status === 'Verified' && canApprove && (
-                                                                <button onClick={() => openApproveModal(proc)} className="px-2.5 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1" title="Approve">
-                                                                    <CheckCircle size={14} /> Approve
-                                                                </button>
-                                                            )}
-                                                            {proc.status === 'Pending' && canEdit && (
-                                                                <>
-                                                                    <button onClick={() => handleEdit(proc)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
-                                                                    <button onClick={() => handleDelete(proc._id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
-                                                                </>
-                                                            )}
-                                                        </div>
+                                                        <button
+                                                            onClick={() => openDetailModal(proc)}
+                                                            className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-colors flex items-center gap-1.5 mx-auto cursor-pointer"
+                                                            title="View Details & Actions"
+                                                        >
+                                                            <Eye size={14} className="text-slate-500" /> View Details
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -4394,13 +4575,97 @@ const Proceedings = () => {
                             )}
                         </div>
 
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2 shrink-0">
-                            <button onClick={() => handlePrintSingle(detailModal.proc)} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 flex items-center gap-2">
-                                <Printer size={16} /> Print
-                            </button>
-                            <button onClick={closeDetailModal} className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold">
-                                Close
-                            </button>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {/* Verify Action (Pending status) */}
+                                {detailModal?.proc?.status === 'Pending' && canVerify && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const p = detailModal.proc;
+                                            closeDetailModal();
+                                            handleVerify(p);
+                                        }}
+                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-100 flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <ShieldCheck size={15} /> Verify Proceeding
+                                    </button>
+                                )}
+
+                                {/* Approve Action (Verified status) */}
+                                {detailModal?.proc?.status === 'Verified' && canApprove && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const p = detailModal.proc;
+                                            closeDetailModal();
+                                            openApproveModal(p);
+                                        }}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-100 flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <CheckCircle size={15} /> Approve Proceeding
+                                    </button>
+                                )}
+
+                                {/* Edit Action (Pending status) */}
+                                {detailModal?.proc?.status === 'Pending' && canEdit && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const p = detailModal.proc;
+                                            closeDetailModal();
+                                            handleEdit(p);
+                                        }}
+                                        className="px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-100 font-bold text-slate-700 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <Edit2 size={14} /> Edit
+                                    </button>
+                                )}
+
+                                {/* Cancel Action (Pending, Verified, Active status) */}
+                                {detailModal?.proc?.status !== 'Cancelled' && detailModal?.proc?.status !== 'Completed' && (canEdit || canApprove || canVerify) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCancel(detailModal.proc)}
+                                        className="px-3.5 py-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <X size={15} /> Cancel Proceeding
+                                    </button>
+                                )}
+
+                                {/* Delete Action (Pending status) */}
+                                {detailModal?.proc?.status === 'Pending' && canEdit && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const id = detailModal.proc._id;
+                                            closeDetailModal();
+                                            handleDelete(id);
+                                        }}
+                                        className="px-3 py-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors font-bold text-xs flex items-center gap-1 cursor-pointer"
+                                        title="Delete proceeding"
+                                    >
+                                        <Trash2 size={14} /> Delete
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => handlePrintSingle(detailModal.proc)}
+                                    className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
+                                >
+                                    <Printer size={15} /> Print
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={closeDetailModal}
+                                    className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold cursor-pointer"
+                                >
+                                    Close
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
