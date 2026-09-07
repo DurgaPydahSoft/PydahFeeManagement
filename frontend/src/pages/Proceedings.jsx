@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import api from '../lib/api';
 import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
-import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, Upload, AlertTriangle, ArrowUp, ArrowDown, Paperclip } from 'lucide-react';
+import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, ChevronLeft, Upload, AlertTriangle, ArrowUp, ArrowDown, Paperclip } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -1114,9 +1114,11 @@ const Proceedings = () => {
     const [analyticsLoading, setAnalyticsLoading] = useState(false);
     const [analyticsSearch, setAnalyticsSearch] = useState('');
     const [analyticsExpanded, setAnalyticsExpanded] = useState({});
-    const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState('all'); // all | sanctioned | pending
+    const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState('all'); // all | sanctioned | partial | pending
     const [analyticsYearFilter, setAnalyticsYearFilter] = useState('all'); // all | 1 | 2 | ...
     const [analyticsSort, setAnalyticsSort] = useState({ key: 'studentName', dir: 'asc' });
+    const [analyticsPage, setAnalyticsPage] = useState(1);
+    const [analyticsLimit, setAnalyticsLimit] = useState(20);
 
     useEffect(() => { fetchInitialData(); }, []);
 
@@ -1266,7 +1268,7 @@ const Proceedings = () => {
         setAnalyticsData(null);
     };
 
-    const fetchScholarshipAnalytics = async () => {
+    const fetchScholarshipAnalytics = async (overridePage = 1, options = {}) => {
         if (!analyticsFilters.college || !analyticsFilters.course) {
             Swal.fire('Warning', 'Please select College and Course', 'warning');
             return;
@@ -1277,8 +1279,14 @@ const Proceedings = () => {
         }
         setAnalyticsLoading(true);
         setAnalyticsExpanded({});
-        setAnalyticsStatusFilter('all');
-        setAnalyticsYearFilter('all');
+
+        const pageToFetch = overridePage ?? 1;
+        const limitToFetch = options.limit ?? analyticsLimit;
+        const statusToFetch = options.status !== undefined ? options.status : analyticsStatusFilter;
+        const yearToFetch = options.year !== undefined ? options.year : analyticsYearFilter;
+        const searchToFetch = options.search !== undefined ? options.search : analyticsSearch;
+        const sortToFetch = options.sort || analyticsSort;
+
         try {
             const params = {
                 college: analyticsFilters.college,
@@ -1286,9 +1294,17 @@ const Proceedings = () => {
                 academicYear: analyticsFilters.academicYear,
                 branch: analyticsFilters.branch || undefined,
                 batch: analyticsFilters.batch || undefined,
+                page: pageToFetch,
+                limit: limitToFetch,
+                status: statusToFetch,
+                year: yearToFetch,
+                search: searchToFetch.trim() || undefined,
+                sortBy: sortToFetch.key,
+                sortDir: sortToFetch.dir,
             };
             const res = await api.get('/proceedings/scholarship-analytics', { params });
             setAnalyticsData(res.data);
+            setAnalyticsPage(res.data.pagination?.page || pageToFetch);
         } catch (err) {
             console.error('Analytics fetch error', err);
             Swal.fire('Error', err.response?.data?.message || 'Failed to load scholarship analytics', 'error');
@@ -1298,12 +1314,36 @@ const Proceedings = () => {
         }
     };
 
+    const handleStatusFilterChange = (val) => {
+        setAnalyticsStatusFilter(val);
+        if (analyticsData) {
+            fetchScholarshipAnalytics(1, { status: val });
+        }
+    };
+
+    const handleYearFilterChange = (val) => {
+        setAnalyticsYearFilter(val);
+        if (analyticsData) {
+            fetchScholarshipAnalytics(1, { year: val });
+        }
+    };
+
+    const handleLimitChange = (val) => {
+        const newLimit = Number(val);
+        setAnalyticsLimit(newLimit);
+        if (analyticsData) {
+            fetchScholarshipAnalytics(1, { limit: newLimit });
+        }
+    };
+
     const toggleAnalyticsSort = (key) => {
-        setAnalyticsSort((prev) => (
-            prev.key === key
-                ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-                : { key, dir: 'asc' }
-        ));
+        const nextSort = analyticsSort.key === key
+            ? { key, dir: analyticsSort.dir === 'asc' ? 'desc' : 'asc' }
+            : { key, dir: 'asc' };
+        setAnalyticsSort(nextSort);
+        if (analyticsData) {
+            fetchScholarshipAnalytics(1, { sort: nextSort });
+        }
     };
 
     const renderAnalyticsSortTh = (label, sortKey, className = '') => {
@@ -1330,50 +1370,10 @@ const Proceedings = () => {
 
     const filteredAnalyticsStudents = useMemo(() => {
         if (!analyticsData?.students) return [];
-        let rows = analyticsData.students.filter(s =>
+        return analyticsData.students.filter(s =>
             groupScholarshipsByYear(s.scholarships).length > 0
         );
-
-        if (analyticsStatusFilter === 'sanctioned') {
-            // Fully released via proceeding shares (must have release > 0)
-            rows = rows.filter(s => s.releaseStatus === 'full');
-        } else if (analyticsStatusFilter === 'partial') {
-            rows = rows.filter(s => s.releaseStatus === 'partial');
-        } else if (analyticsStatusFilter === 'pending') {
-            rows = rows.filter(s => s.releaseStatus === 'pending' || (!s.releaseStatus && !s.isMapped));
-        }
-
-        if (analyticsYearFilter !== 'all') {
-            const y = Number(analyticsYearFilter);
-            rows = rows.filter(s => Number(s.targetYear) === y);
-        }
-
-        const q = analyticsSearch.trim().toLowerCase();
-        if (q) {
-            rows = rows.filter(s =>
-                String(s.studentName || '').toLowerCase().includes(q)
-                || String(s.admissionNumber || '').toLowerCase().includes(q)
-                || String(s.pinNo || '').toLowerCase().includes(q)
-            );
-        }
-
-        const { key, dir } = analyticsSort;
-        const mul = dir === 'asc' ? 1 : -1;
-        const getVal = (s) => {
-            if (key === 'admissionNumber') return String(s.admissionNumber || '').toLowerCase();
-            if (key === 'pinNo') return String(s.pinNo || '').toLowerCase();
-            if (key === 'branch') return String(s.branch || '').toLowerCase();
-            if (key === 'batch') return String(s.batch || '').toLowerCase();
-            return String(s.studentName || '').toLowerCase();
-        };
-        return [...rows].sort((a, b) => {
-            const av = getVal(a);
-            const bv = getVal(b);
-            if (av < bv) return -1 * mul;
-            if (av > bv) return 1 * mul;
-            return 0;
-        });
-    }, [analyticsData, analyticsSearch, analyticsStatusFilter, analyticsYearFilter, analyticsSort]);
+    }, [analyticsData]);
 
     const analyticsYearOptions = useMemo(() => {
         const fromOverview = (analyticsData?.overview?.byYear || []).map(y => Number(y.year)).filter(Boolean);
@@ -3387,7 +3387,7 @@ const Proceedings = () => {
                         <div className="space-y-4 animate-fadeIn">
                             {/* Filters */}
                             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">College</label>
                                         <select
@@ -3439,22 +3439,9 @@ const Proceedings = () => {
                                             {metadata.batches?.map(b => <option key={b} value={b}>{b}</option>)}
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Search</label>
-                                        <div className="relative">
-                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                            <input
-                                                type="text"
-                                                value={analyticsSearch}
-                                                onChange={e => setAnalyticsSearch(e.target.value)}
-                                                placeholder="Name / adm / pin..."
-                                                className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50 font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
-                                            />
-                                        </div>
-                                    </div>
                                     <button
                                         type="button"
-                                        onClick={fetchScholarshipAnalytics}
+                                        onClick={() => fetchScholarshipAnalytics(1)}
                                         disabled={analyticsLoading || !analyticsFilters.college || !analyticsFilters.course || !analyticsFilters.academicYear}
                                         className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
@@ -3556,16 +3543,39 @@ const Proceedings = () => {
                                         <div className="min-w-0">
                                             <h3 className="text-sm font-bold text-slate-800">Students & Scholarship Applications</h3>
                                             <p className="text-[11px] text-slate-500 mt-0.5">
-                                                {filteredAnalyticsStudents.length} shown
+                                                {analyticsData.pagination ? (
+                                                    `Showing ${((analyticsData.pagination.page - 1) * analyticsData.pagination.limit) + (analyticsData.pagination.totalStudents > 0 ? 1 : 0)}–${Math.min(analyticsData.pagination.page * analyticsData.pagination.limit, analyticsData.pagination.totalStudents)} of ${analyticsData.pagination.totalStudents} students`
+                                                ) : `${filteredAnalyticsStudents.length} shown`}
                                                 {analyticsData.stats ? ` · ${analyticsData.stats.uniqueApplications} applications` : ''}
                                             </p>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2">
                                             <div className="relative">
+                                                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                                <input
+                                                    type="text"
+                                                    value={analyticsSearch}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setAnalyticsSearch(val);
+                                                        if (analyticsData && !val) {
+                                                            fetchScholarshipAnalytics(1, { search: '' });
+                                                        }
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && analyticsData) {
+                                                            fetchScholarshipAnalytics(1, { search: analyticsSearch });
+                                                        }
+                                                    }}
+                                                    placeholder="Search name / adm / pin..."
+                                                    className="w-48 sm:w-60 pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50 font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
+                                                />
+                                            </div>
+                                            <div className="relative">
                                                 <select
                                                     value={analyticsStatusFilter}
-                                                    onChange={(e) => setAnalyticsStatusFilter(e.target.value)}
-                                                    className="appearance-none bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 min-w-[150px]"
+                                                    onChange={(e) => handleStatusFilterChange(e.target.value)}
+                                                    className="appearance-none bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 min-w-[140px]"
                                                 >
                                                     <option value="all">All Eligible</option>
                                                     <option value="sanctioned">Fully Released</option>
@@ -3577,8 +3587,8 @@ const Proceedings = () => {
                                             <div className="relative">
                                                 <select
                                                     value={analyticsYearFilter}
-                                                    onChange={(e) => setAnalyticsYearFilter(e.target.value)}
-                                                    className="appearance-none bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 min-w-[120px]"
+                                                    onChange={(e) => handleYearFilterChange(e.target.value)}
+                                                    className="appearance-none bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100 min-w-[110px]"
                                                 >
                                                     <option value="all">All Years</option>
                                                     {analyticsYearOptions.map(y => (
@@ -3706,6 +3716,53 @@ const Proceedings = () => {
                                             </tbody>
                                         </table>
                                     </div>
+
+                                    {/* Pagination Footer */}
+                                    {analyticsData.pagination && (
+                                        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                            <div className="text-slate-500 font-medium">
+                                                Showing <span className="font-bold text-slate-800">{((analyticsData.pagination.page - 1) * analyticsData.pagination.limit) + (analyticsData.pagination.totalStudents > 0 ? 1 : 0)}</span> to <span className="font-bold text-slate-800">{Math.min(analyticsData.pagination.page * analyticsData.pagination.limit, analyticsData.pagination.totalStudents)}</span> of <span className="font-bold text-slate-800">{analyticsData.pagination.totalStudents}</span> students
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-slate-500 font-medium">Rows per page:</span>
+                                                    <select
+                                                        value={analyticsLimit}
+                                                        onChange={(e) => handleLimitChange(e.target.value)}
+                                                        className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-100"
+                                                    >
+                                                        <option value={10}>10</option>
+                                                        <option value={20}>20</option>
+                                                        <option value={50}>50</option>
+                                                        <option value={100}>100</option>
+                                                    </select>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => fetchScholarshipAnalytics(analyticsPage - 1)}
+                                                        disabled={analyticsPage <= 1 || analyticsLoading}
+                                                        className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                                        title="Previous page"
+                                                    >
+                                                        <ChevronLeft size={16} />
+                                                    </button>
+                                                    <span className="px-3 text-xs font-bold text-slate-700">
+                                                        Page {analyticsData.pagination.page} of {analyticsData.pagination.totalPages || 1}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => fetchScholarshipAnalytics(analyticsPage + 1)}
+                                                        disabled={analyticsPage >= (analyticsData.pagination.totalPages || 1) || analyticsLoading}
+                                                        className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                                        title="Next page"
+                                                    >
+                                                        <ChevronRight size={16} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

@@ -1533,7 +1533,20 @@ const syncProceedingIds = async (req, res) => {
 // GET /api/proceedings/scholarship-analytics?college=&course=&branch=&batch=&academicYear=
 const getScholarshipAnalytics = async (req, res) => {
     try {
-        const { college, course, branch, batch, academicYear } = req.query;
+        const {
+            college,
+            course,
+            branch,
+            batch,
+            academicYear,
+            page = 1,
+            limit = 20,
+            status = 'all',
+            year = 'all',
+            search = '',
+            sortBy = 'studentName',
+            sortDir = 'asc'
+        } = req.query;
         if (!college || !course) {
             return res.status(400).json({ message: 'College and Course are required' });
         }
@@ -1850,13 +1863,70 @@ const getScholarshipAnalytics = async (req, res) => {
                 };
             });
 
-        if (students.length > 0) {
+        // ── Apply Server-Side Filtering & Sorting on students array ──
+        let filteredStudents = [...students];
+
+        // 1. Status Filter
+        if (status === 'sanctioned') {
+            filteredStudents = filteredStudents.filter(s => s.releaseStatus === 'full');
+        } else if (status === 'partial') {
+            filteredStudents = filteredStudents.filter(s => s.releaseStatus === 'partial');
+        } else if (status === 'pending') {
+            filteredStudents = filteredStudents.filter(s => s.releaseStatus === 'pending' || (!s.releaseStatus && !s.isMapped));
+        }
+
+        // 2. Year Filter
+        if (year !== 'all' && year !== '' && year != null) {
+            const yNum = Number(year);
+            if (Number.isFinite(yNum)) {
+                filteredStudents = filteredStudents.filter(s => Number(s.targetYear) === yNum);
+            }
+        }
+
+        // 3. Search Filter
+        const q = String(search || '').trim().toLowerCase();
+        if (q) {
+            filteredStudents = filteredStudents.filter(s =>
+                String(s.studentName || '').toLowerCase().includes(q)
+                || String(s.admissionNumber || '').toLowerCase().includes(q)
+                || String(s.pinNo || '').toLowerCase().includes(q)
+            );
+        }
+
+        // 4. Sort
+        const mul = sortDir === 'desc' ? -1 : 1;
+        const getSortVal = (s) => {
+            if (sortBy === 'admissionNumber') return String(s.admissionNumber || '').toLowerCase();
+            if (sortBy === 'pinNo') return String(s.pinNo || '').toLowerCase();
+            if (sortBy === 'branch') return String(s.branch || '').toLowerCase();
+            if (sortBy === 'batch') return String(s.batch || '').toLowerCase();
+            return String(s.studentName || '').toLowerCase();
+        };
+
+        filteredStudents.sort((a, b) => {
+            const av = getSortVal(a);
+            const bv = getSortVal(b);
+            if (av < bv) return -1 * mul;
+            if (av > bv) return 1 * mul;
+            return 0;
+        });
+
+        // 5. Pagination calculation
+        const totalFilteredStudents = filteredStudents.length;
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.max(1, Math.min(500, parseInt(limit, 10) || 20));
+        const totalPages = Math.ceil(totalFilteredStudents / limitNum) || 1;
+        const startIndex = (pageNum - 1) * limitNum;
+        const paginatedStudents = filteredStudents.slice(startIndex, startIndex + limitNum);
+
+        // 6. Fee Structure lookup executed ONLY on paginated slice of students
+        if (paginatedStudents.length > 0) {
             try {
-                const colleges = [...new Set(students.map(s => s.college).filter(Boolean))];
-                const courses = [...new Set(students.map(s => s.course).filter(Boolean))];
-                const branches = [...new Set(students.map(s => s.branch).filter(Boolean))];
-                const batches = [...new Set(students.map(s => s.batch).filter(Boolean))];
-                const categories = [...new Set(students.map(s => s.studType).filter(Boolean))];
+                const colleges = [...new Set(paginatedStudents.map(s => s.college).filter(Boolean))];
+                const courses = [...new Set(paginatedStudents.map(s => s.course).filter(Boolean))];
+                const branches = [...new Set(paginatedStudents.map(s => s.branch).filter(Boolean))];
+                const batches = [...new Set(paginatedStudents.map(s => s.batch).filter(Boolean))];
+                const categories = [...new Set(paginatedStudents.map(s => s.studType).filter(Boolean))];
 
                 const [applicableStructures, feeHeads] = await Promise.all([
                     FeeStructure.find({
@@ -1872,7 +1942,7 @@ const getScholarshipAnalytics = async (req, res) => {
                 const feeHeadMap = {};
                 (feeHeads || []).forEach(fh => { feeHeadMap[String(fh._id)] = fh; });
 
-                students.forEach(student => {
+                paginatedStudents.forEach(student => {
                     const years = [...new Set(student.scholarships.map(r => r.studentYear))];
                     student.scholarshipFeeByYear = {};
                     years.forEach(yr => {
@@ -1886,7 +1956,7 @@ const getScholarshipAnalytics = async (req, res) => {
                 });
             } catch (feeErr) {
                 console.error('Scholarship fee structure lookup failed:', feeErr);
-                students.forEach(student => {
+                paginatedStudents.forEach(student => {
                     const years = [...new Set(student.scholarships.map(r => r.studentYear))];
                     student.scholarshipFeeByYear = {};
                     years.forEach(yr => {
@@ -1920,7 +1990,13 @@ const getScholarshipAnalytics = async (req, res) => {
                 totalRecords,
                 uniqueApplications: applicationIds.size,
             },
-            students,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                totalStudents: totalFilteredStudents,
+                totalPages,
+            },
+            students: paginatedStudents,
         });
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
