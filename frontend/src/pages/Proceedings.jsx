@@ -329,6 +329,88 @@ const resolveShareForStudent = (student, shareByAppId, academicYear) => {
     return null;
 };
 
+const formatNormalizedAcademicYear = (raw) => {
+    if (!raw) return null;
+    const clean = String(raw).trim().replace(/\s+/g, '').replace(/[/–]/g, '-');
+    const parts = clean.split('-');
+    if (parts.length === 2) {
+        let start = parts[0];
+        let end = parts[1];
+        if (start.length === 4 && /^\d{4}$/.test(start)) {
+            if (end.length === 2 && /^\d{2}$/.test(end)) {
+                const century = start.substring(0, 2);
+                end = century + end;
+            }
+            if (end.length === 4 && /^\d{4}$/.test(end)) {
+                return `${start}-${end}`;
+            }
+        }
+    }
+    return clean;
+};
+
+const extractAcademicYearFromRows = (rows) => {
+    const frequencyMap = new Map();
+    const yearRegex = /(?:20\d{2}\s*[-–/]\s*(?:20)?\d{2})/gi;
+
+    for (let r = 0; r < Math.min(rows.length, 100); r++) {
+        const row = rows[r];
+        if (!Array.isArray(row)) continue;
+        for (let c = 0; c < row.length; c++) {
+            const cellVal = String(row[c] ?? '').trim();
+            if (!cellVal || /^\d{8,}$/.test(cellVal)) continue;
+            let match;
+            yearRegex.lastIndex = 0;
+            while ((match = yearRegex.exec(cellVal)) !== null) {
+                const normalized = formatNormalizedAcademicYear(match[0]);
+                if (normalized) {
+                    frequencyMap.set(normalized, (frequencyMap.get(normalized) || 0) + 1);
+                }
+            }
+        }
+    }
+
+    let bestYear = null;
+    let maxCount = 0;
+    for (const [year, count] of frequencyMap.entries()) {
+        if (count > maxCount) {
+            maxCount = count;
+            bestYear = year;
+        }
+    }
+    return bestYear;
+};
+
+const extractAcademicYearFromText = (text) => {
+    if (!text) return null;
+    // 1. Label match supporting "Academic Year", "Acedemic Year", "AY", "Acad Year"
+    const labelMatch = text.match(/(?:academic|acedemic|acad)\s*year\s*[:\-–]?\s*(20\d{2}\s*[-–/]\s*(?:20)?\d{2})/i);
+    if (labelMatch) {
+        return formatNormalizedAcademicYear(labelMatch[1]);
+    }
+    // 2. Global pattern frequency counting across all rows/header
+    const matches = text.match(/(?:20\d{2}\s*[-–/]\s*(?:20)?\d{2})/gi);
+    if (matches && matches.length > 0) {
+        const frequencyMap = new Map();
+        for (const raw of matches) {
+            const normalized = formatNormalizedAcademicYear(raw);
+            if (normalized) {
+                frequencyMap.set(normalized, (frequencyMap.get(normalized) || 0) + 1);
+            }
+        }
+        let bestYear = null;
+        let maxCount = 0;
+        for (const [year, count] of frequencyMap.entries()) {
+            if (count > maxCount) {
+                maxCount = count;
+                bestYear = year;
+            }
+        }
+        if (bestYear) return bestYear;
+    }
+    return null;
+};
+
 /** Parse proceeding Excel: application IDs + optional share amounts (single pass, deduped by app id). */
 const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -346,7 +428,7 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
             const sheetName = wb.SheetNames[0];
             const sheet = sheetName ? wb.Sheets[sheetName] : null;
             if (!sheet) {
-                resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0 });
+                resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0, academicYear: null });
                 return;
             }
             // Dense array-of-arrays is faster than object rows for ~500+ student sheets
@@ -357,9 +439,11 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
                 raw: true,
             });
             if (!rows.length) {
-                resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0 });
+                resolve({ entries: [], applicationIds: [], hasShareColumn: false, totalShareAmount: 0, academicYear: null });
                 return;
             }
+
+            const academicYear = extractAcademicYearFromRows(rows);
 
             const detected = detectExcelHeaderRow(rows);
             const hasHeader = detected.hasHeader && detected.rowIdx >= 0;
@@ -391,6 +475,7 @@ const parseProceedingExcelFile = (file) => new Promise((resolve, reject) => {
                 applicationIds: entries.map(e => e.applicationId),
                 hasShareColumn,
                 totalShareAmount: Math.round(totalShareAmount * 100) / 100,
+                academicYear,
             });
         } catch (err) {
             reject(err);
@@ -595,6 +680,7 @@ const parseProceedingPdfFile = async (file, onProgress) => {
     const totalShareAmount = Math.round(
         entries.reduce((sum, e) => sum + (e.shareAmount || 0), 0) * 100
     ) / 100;
+    const academicYear = extractAcademicYearFromText(pagePlainTexts.join(' '));
 
     return {
         entries,
@@ -602,6 +688,7 @@ const parseProceedingPdfFile = async (file, onProgress) => {
         hasShareColumn: hasShareColumn || entries.some((e) => e.shareAmount != null),
         totalShareAmount,
         sourceType: 'pdf',
+        academicYear,
     };
 };
 
@@ -1707,6 +1794,26 @@ const Proceedings = () => {
                 );
                 setExcelImportSummary(null);
                 return;
+            }
+
+            if (parsed.academicYear && formData.academicYear) {
+                const fileAY = formatNormalizedAcademicYear(parsed.academicYear);
+                const selectedAY = formatNormalizedAcademicYear(formData.academicYear);
+                if (fileAY && selectedAY && fileAY !== selectedAY) {
+                    Swal.close();
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Academic Year Mismatch',
+                        html: `<div style="text-align:left;font-size:13px;line-height:1.5">
+                            <p>The uploaded file contains Academic Year <strong style="color:#e11d48">${escapeHtml(parsed.academicYear)}</strong>.</p>
+                            <p style="margin-top:6px">However, the selected Academic Year in the form is <strong style="color:#2563eb">${escapeHtml(formData.academicYear)}</strong>.</p>
+                            <p style="margin-top:10px;color:#64748b;font-size:12px">Please select Academic Year <strong>${escapeHtml(parsed.academicYear)}</strong> in the form or upload a matching file.</p>
+                        </div>`,
+                        confirmButtonText: 'OK',
+                    });
+                    setExcelImportSummary(null);
+                    return;
+                }
             }
             const progressEl = document.getElementById('import-read-progress');
             if (progressEl) {
