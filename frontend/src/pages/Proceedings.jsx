@@ -5,7 +5,7 @@ import Swal from 'sweetalert2';
 import Sidebar from './Sidebar';
 import { FileText, Search, Trash2, Edit2, Calendar, DollarSign, GraduationCap, Users, ChevronDown, User, CheckCircle, ShieldCheck, Printer, Loader2, Eye, X, BarChart3, ChevronRight, ChevronLeft, Upload, AlertTriangle, ArrowUp, ArrowDown, Paperclip } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions, version as pdfjsVersion } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { printHtmlDocument } from '../utils/printService';
 
@@ -13,19 +13,29 @@ import { printHtmlDocument } from '../utils/printService';
  * Production hosts (e.g. nginx without .mjs types) often serve .mjs as
  * application/octet-stream. Browsers then refuse module workers.
  * Fetch the worker bytes and expose them via a blob URL with a JS MIME type.
+ * Note: In Vite dev mode, fetching pdfWorkerSrc returns code transformed by Vite containing "/@vite/client",
+ * which fails inside a Blob worker. In dev mode, we fallback to jsDelivr CDN worker URL.
  */
 let pdfWorkerReady = null;
 const ensurePdfWorker = () => {
-    if (GlobalWorkerOptions.workerSrc?.startsWith?.('blob:')) {
+    if (GlobalWorkerOptions.workerSrc) {
         return Promise.resolve();
     }
     if (!pdfWorkerReady) {
         pdfWorkerReady = (async () => {
-            const res = await fetch(pdfWorkerSrc);
-            if (!res.ok) throw new Error(`Failed to load PDF worker (${res.status})`);
-            const code = await res.text();
-            const blob = new Blob([code], { type: 'application/javascript' });
-            GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+            if (import.meta.env.DEV) {
+                GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion || '4.10.38'}/build/pdf.worker.min.mjs`;
+                return;
+            }
+            try {
+                const res = await fetch(pdfWorkerSrc);
+                if (!res.ok) throw new Error(`Failed to load PDF worker (${res.status})`);
+                const code = await res.text();
+                const blob = new Blob([code], { type: 'application/javascript' });
+                GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+            } catch (err) {
+                GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion || '4.10.38'}/build/pdf.worker.min.mjs`;
+            }
         })().catch((err) => {
             pdfWorkerReady = null;
             throw err;
