@@ -10,6 +10,7 @@ const {
     verifyProceeding,
     approveProceeding,
     cancelProceeding,
+    toggleProceedingActive,
     checkDuplicateProceeding,
     deleteProceeding,
     getProceedingSummary,
@@ -38,6 +39,7 @@ router.put('/:id/attachment', upload.single('attachment'), attachProceedingFile)
 router.put('/:id/verify', verifyProceeding);
 router.put('/:id/approve', approveProceeding);
 router.put('/:id/cancel', cancelProceeding);
+router.put('/:id/toggle-active', toggleProceedingActive);
 router.route('/:id')
     .get(getProceedingById)
     .put(upload.single('attachment'), updateProceeding)

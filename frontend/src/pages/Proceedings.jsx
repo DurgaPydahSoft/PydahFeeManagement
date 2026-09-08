@@ -1161,6 +1161,7 @@ const Proceedings = () => {
     const [collegeFilter, setCollegeFilter] = useState('All');
     const [courseFilter, setCourseFilter] = useState('All');
     const [academicYearFilter, setAcademicYearFilter] = useState('All');
+    const [activeStatusFilter, setActiveStatusFilter] = useState('Active'); // Active | Inactive | All
     const [detailModal, setDetailModal] = useState(null);
     const academicYearDefaultSet = useRef(false);
     const [pendingSearch, setPendingSearch] = useState('');
@@ -2516,6 +2517,34 @@ const Proceedings = () => {
         }
     };
 
+    const handleToggleActive = async (proc) => {
+        const isCurrentlyActive = proc.isActive !== false;
+        const actionText = isCurrentlyActive ? 'mark as Inactive' : 'Reactivate';
+        const confirm = await Swal.fire({
+            title: `${isCurrentlyActive ? 'Mark as Inactive' : 'Reactivate'} Proceeding?`,
+            html: `<div style="text-align:left;font-size:13px;line-height:1.5;">
+                <p>Are you sure you want to ${actionText} proceeding <strong>${escapeHtml(proc.proceedingNumber)}</strong>?</p>
+                ${isCurrentlyActive ? '<p style="margin-top:8px;color:#dc2626;font-weight:600;">Inactive proceedings will NOT be included in Scholarship Analytics or duplicate detection.</p>' : '<p style="margin-top:8px;color:#059669;font-weight:600;">Reactivating will include this proceeding back in analytics and duplicate detection.</p>'}
+            </div>`,
+            icon: isCurrentlyActive ? 'warning' : 'question',
+            showCancelButton: true,
+            confirmButtonColor: isCurrentlyActive ? '#dc2626' : '#059669',
+            confirmButtonText: `Yes, ${actionText}`
+        });
+        if (!confirm.isConfirmed) return;
+
+        try {
+            const res = await api.put(`/proceedings/${proc._id}/toggle-active`, { isActive: !isCurrentlyActive });
+            Swal.fire('Success', res.data.message || `Proceeding ${isCurrentlyActive ? 'inactivated' : 'reactivated'} successfully`, 'success');
+            if (detailModal?.proc?._id === proc._id) {
+                setDetailModal(prev => prev ? { ...prev, proc: { ...prev.proc, isActive: !isCurrentlyActive } } : prev);
+            }
+            fetchInitialData();
+        } catch (error) {
+            Swal.fire('Error', error.response?.data?.message || 'Failed to update active status', 'error');
+        }
+    };
+
     const handlePrint = () => setShowPrintModal(true);
 
     const executePrint = async () => {
@@ -2560,6 +2589,11 @@ const Proceedings = () => {
     const filteredProceedings = proceedings.filter(p => {
         // All Proceedings tab: Active + Completed (Pending/Verified live in Pending Queue)
         if (p.status !== 'Active' && p.status !== 'Completed') return false;
+
+        const isProcActive = p.isActive !== false;
+        if (activeStatusFilter === 'Active' && !isProcActive) return false;
+        if (activeStatusFilter === 'Inactive' && isProcActive) return false;
+
         const matchesSearch = p.proceedingNumber?.toLowerCase().includes(searchTerm.toLowerCase()) || p.college?.toLowerCase().includes(searchTerm.toLowerCase()) || p.course?.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesCollege = collegeFilter === 'All' || p.college === collegeFilter;
         const matchesCourse = courseFilter === 'All' || p.course === courseFilter;
@@ -2752,6 +2786,14 @@ const Proceedings = () => {
             items.push({
                 label: 'Cancelled by',
                 value: proc.cancelledByName || proc.cancelledBy ? `${proc.cancelledByName || proc.cancelledBy}${dateStr}` : 'System',
+                isDanger: true
+            });
+        }
+        if (proc.isActive === false || proc.inactivatedByName || proc.inactivatedBy) {
+            const dateStr = proc.inactivatedAt ? ` on ${new Date(proc.inactivatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : '';
+            items.push({
+                label: 'Active Status',
+                value: `INACTIVE (marked by ${proc.inactivatedByName || proc.inactivatedBy || 'User'}${dateStr})`,
                 isDanger: true
             });
         }
@@ -2967,8 +3009,16 @@ const Proceedings = () => {
                                     </select>
                                     <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                                 </div>
-                                {(collegeFilter !== 'All' || courseFilter !== 'All' || searchTerm) && (
-                                    <button onClick={() => { setCollegeFilter('All'); setCourseFilter('All'); setSearchTerm(''); setAcademicYearFilter(listAcademicYears[0] || 'All'); }} className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl">Clear Filters</button>
+                                <div className="relative">
+                                    <select value={activeStatusFilter} onChange={(e) => setActiveStatusFilter(e.target.value)} className="bg-slate-50 border-none rounded-xl pl-3 pr-8 py-2 text-xs font-medium text-slate-700 focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer">
+                                        <option value="Active">Active Proceedings</option>
+                                        <option value="Inactive">Inactive Proceedings</option>
+                                        <option value="All">All Statuses (Active & Inactive)</option>
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                                </div>
+                                {(collegeFilter !== 'All' || courseFilter !== 'All' || activeStatusFilter !== 'Active' || searchTerm) && (
+                                    <button onClick={() => { setCollegeFilter('All'); setCourseFilter('All'); setActiveStatusFilter('Active'); setSearchTerm(''); setAcademicYearFilter(listAcademicYears[0] || 'All'); }} className="text-xs font-bold text-red-500 hover:text-red-600 py-2 px-3 hover:bg-red-50 rounded-xl">Clear Filters</button>
                                 )}
                             </div>
 
@@ -3090,7 +3140,15 @@ const Proceedings = () => {
                                                                 </a>
                                                             )}
                                                         </div>
-                                                        <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Active}`}>{proc.status || 'Active'}</span>
+                                                        {proc.isActive === false ? (
+                                                            <span className="inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border bg-rose-50 text-rose-700 border-rose-200">
+                                                                INACTIVE
+                                                            </span>
+                                                        ) : (
+                                                            <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Active}`}>
+                                                                {proc.status || 'Active'}
+                                                            </span>
+                                                        )}
                                                         {(proc.pendingTxnCount > 0) && (
                                                             <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-[10px] font-bold rounded-md border bg-amber-50 text-amber-700 border-amber-200">
                                                                 {proc.pendingTxnCount} pending txn
@@ -3654,7 +3712,9 @@ const Proceedings = () => {
                                                         </button>
                                                     </td>
                                                     <td className="p-4">
-                                                        <span className={`inline-block px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[proc.status] || STATUS_BADGE.Pending}`}>{proc.status}</span>
+                                                        <span className={`inline-block px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${proc.isActive === false ? 'bg-rose-50 text-rose-700 border-rose-200' : (STATUS_BADGE[proc.status] || STATUS_BADGE.Pending)}`}>
+                                                            {proc.isActive === false ? 'INACTIVE' : proc.status}
+                                                        </span>
                                                     </td>
                                                     <td className="p-4 text-xs font-medium text-slate-600">{proc.requestedByName || '-'}</td>
                                                     <td className="p-4 text-xs font-medium text-slate-600">
@@ -4747,6 +4807,25 @@ const Proceedings = () => {
                                         className="px-3.5 py-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
                                     >
                                         <X size={15} /> Cancel Proceeding
+                                    </button>
+                                )}
+
+                                {/* Mark as Inactive / Reactivate Action */}
+                                {detailModal?.proc?.status !== 'Cancelled' && (canEdit || canApprove || canVerify) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleActive(detailModal.proc)}
+                                        className={`px-3.5 py-2 border font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer ${
+                                            detailModal?.proc?.isActive === false
+                                                ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
+                                                : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                        }`}
+                                    >
+                                        {detailModal?.proc?.isActive === false ? (
+                                            <><CheckCircle size={15} /> Reactivate Proceeding</>
+                                        ) : (
+                                            <><AlertTriangle size={15} /> Mark as Inactive</>
+                                        )}
                                     </button>
                                 )}
 

@@ -126,6 +126,21 @@ const proceedingSchema = mongoose.Schema({
     },
     cancelledAt: {
         type: Date
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+    inactivatedBy: {
+        type: String,
+        default: ''
+    },
+    inactivatedByName: {
+        type: String,
+        default: ''
+    },
+    inactivatedAt: {
+        type: Date
     }
 }, {
     timestamps: true

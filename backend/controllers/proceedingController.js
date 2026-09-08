@@ -491,12 +491,20 @@ const loadStudentsForProceeding = async (req, res) => {
 // ─── Get all proceedings ────────────────────────────────────────────────
 const getProceedings = async (req, res) => {
     try {
-        const { college, course, batch, caste, status, studentId } = req.query;
+        const { college, course, batch, caste, status, studentId, activeStatus, isActive } = req.query;
         let query = {};
         if (college) query.college = college;
         if (course) query.course = course;
         if (batch) query.batch = batch;
         if (status) query.status = status;
+
+        const activeOpt = String(activeStatus || isActive || 'all').toLowerCase();
+        if (activeOpt === 'active' || activeOpt === 'true') {
+            query.isActive = { $ne: false };
+        } else if (activeOpt === 'inactive' || activeOpt === 'false') {
+            query.isActive = false;
+        }
+
         if (caste) {
             query.$or = [
                 { caste: caste }, { caste: '' }, { caste: null }, { caste: { $exists: false } }
@@ -1458,6 +1466,10 @@ const getProceedingSummary = async (req, res) => {
             totalUsed,
             pendingTxnCount,
             proceedingStatus: freshProceeding?.status || proceeding.status,
+            isActive: freshProceeding?.isActive !== false && proceeding.isActive !== false,
+            inactivatedBy: freshProceeding?.inactivatedBy || proceeding.inactivatedBy || '',
+            inactivatedByName: freshProceeding?.inactivatedByName || proceeding.inactivatedByName || '',
+            inactivatedAt: freshProceeding?.inactivatedAt || proceeding.inactivatedAt || null,
             cancelledBy: freshProceeding?.cancelledBy || proceeding.cancelledBy || '',
             cancelledByName: freshProceeding?.cancelledByName || proceeding.cancelledByName || '',
             cancelledAt: freshProceeding?.cancelledAt || proceeding.cancelledAt || null,
@@ -1737,6 +1749,7 @@ const getScholarshipAnalytics = async (req, res) => {
                     _id: { $in: candidateProcIds },
                     academicYear,
                     status: { $nin: ['Cancelled'] },
+                    isActive: { $ne: false },
                 }).select('_id').lean();
                 proceedings.forEach((p) => validProcIdSet.add(String(p._id)));
                 proceedingCount = validProcIdSet.size;
@@ -2042,6 +2055,40 @@ const cancelProceeding = async (req, res) => {
     }
 };
 
+// ─── Toggle active status (Active / Inactive) ───────────────────────────
+const toggleProceedingActive = async (req, res) => {
+    try {
+        const proceeding = await Proceeding.findById(req.params.id);
+        if (!proceeding) return res.status(404).json({ message: 'Proceeding not found' });
+        if (!await validateProceedingAccess(proceeding, req.user)) {
+            return res.status(403).json({ message: 'Forbidden: Access denied' });
+        }
+
+        const nextActiveState = req.body?.isActive !== undefined
+            ? Boolean(req.body.isActive)
+            : (proceeding.isActive === false);
+
+        proceeding.isActive = nextActiveState;
+        if (!nextActiveState) {
+            proceeding.inactivatedBy = req.user?.username || '';
+            proceeding.inactivatedByName = req.user?.name || '';
+            proceeding.inactivatedAt = new Date();
+        } else {
+            proceeding.inactivatedBy = '';
+            proceeding.inactivatedByName = '';
+            proceeding.inactivatedAt = null;
+        }
+
+        await proceeding.save();
+        res.json({
+            message: `Proceeding marked as ${nextActiveState ? 'Active' : 'Inactive'} successfully.`,
+            proceeding
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 // ─── Check duplicate proceeding (same academic year + same student shares) ──
 const checkDuplicateProceeding = async (req, res) => {
     try {
@@ -2055,7 +2102,8 @@ const checkDuplicateProceeding = async (req, res) => {
 
         const procQuery = {
             academicYear,
-            status: { $nin: ['Cancelled'] }
+            status: { $nin: ['Cancelled'] },
+            isActive: { $ne: false }
         };
         if (currentProceedingId) {
             procQuery._id = { $ne: currentProceedingId };
@@ -2128,6 +2176,7 @@ module.exports = {
     verifyProceeding,
     approveProceeding,
     cancelProceeding,
+    toggleProceedingActive,
     checkDuplicateProceeding,
     deleteProceeding,
     getProceedingSummary,
