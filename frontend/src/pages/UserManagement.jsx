@@ -34,7 +34,7 @@ const UserManagement = () => {
         name: '',
         username: '',
         password: '',
-        role: 'office_staff',
+        role: '',
         campuses: [],
         colleges: [],
         courses: [],
@@ -308,6 +308,10 @@ const UserManagement = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setMessage('');
+        if (!formData.role) {
+            setMessage('Please select a role');
+            return;
+        }
         setIsSubmitting(true);
         try {
             if (editingUserId) {
@@ -320,7 +324,7 @@ const UserManagement = () => {
                 setUsers([res.data, ...users]);
                 setMessage('User created successfully!');
             }
-            setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '', isActive: true });
+            setFormData({ name: '', username: '', password: '', role: '', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '', isActive: true });
             setShowCreateEditModal(false);
             setTimeout(() => setMessage(''), 3000);
         } catch (error) {
@@ -351,13 +355,13 @@ const UserManagement = () => {
     };
 
     const handleCancelEdit = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [], email: '', mobile: '', isActive: true });
+        setFormData({ name: '', username: '', password: '', role: '', campuses: [], colleges: [], courses: [], employeeId: null, permissions: [], email: '', mobile: '', isActive: true });
         setEditingUserId(null);
         setShowCreateEditModal(false);
     };
 
     const openCreateModal = () => {
-        setFormData({ name: '', username: '', password: '', role: 'office_staff', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '', isActive: true });
+        setFormData({ name: '', username: '', password: '', role: '', campuses: [], colleges: [], courses: [], permissions: [], employeeId: null, email: '', mobile: '', isActive: true });
         setEditingUserId(null);
         setShowCreateEditModal(true);
     };
@@ -1079,7 +1083,8 @@ const UserManagement = () => {
 
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase">Role</label>
-                                        <select name="role" value={formData.role} onChange={handleChange} className="w-full border p-2 rounded mt-1 bg-white capitalize">
+                                        <select name="role" value={formData.role} onChange={handleChange} required className="w-full border p-2 rounded mt-1 bg-white capitalize">
+                                            <option value="">Select Role</option>
                                             {roles
                                                 .filter(r => r.name !== 'superadmin' || currentUser.role === 'superadmin')
                                                 .map(r => (

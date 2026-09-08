@@ -2898,7 +2898,7 @@ const Proceedings = () => {
                             </p>
                         </div>
                         <div className="flex flex-wrap items-end gap-3 self-start sm:self-auto shrink-0">
-                            {activeTab === 'create' && canEdit && draftAvailable && (
+                            {activeTab === 'create' && canCreate && draftAvailable && (
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 sm:p-3 rounded-xl border border-amber-200 bg-amber-50 max-w-full sm:max-w-md">
                                     <div className="text-[11px] sm:text-xs font-semibold text-amber-800 leading-snug min-w-0">
                                         Draft saved{draftSavedAt ? ` · ${new Date(draftSavedAt).toLocaleString()}` : ''}
@@ -3222,7 +3222,7 @@ const Proceedings = () => {
                     )}
 
                     {/* ═══ CREATE TAB (inline, create only) ═══ */}
-                    {activeTab === 'create' && canEdit && (
+                    {activeTab === 'create' && canCreate && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                             <form onSubmit={handleSubmit} className="p-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">

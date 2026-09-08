@@ -64,6 +64,19 @@ const ProtectedRoute = ({ children }) => {
     }
   }
 
+  // Proceedings: allow page path OR any proceedings_* capability (Create = proceedings_view)
+  if (location.pathname === '/proceedings') {
+    const canAccessProceedings =
+      permissions.includes('/proceedings')
+      || permissions.includes('proceedings_view')
+      || permissions.includes('proceedings_edit')
+      || permissions.includes('proceedings_verify')
+      || permissions.includes('proceedings_approve');
+    if (canAccessProceedings) {
+      return children;
+    }
+  }
+
   // Check if user has permission for the current path
   const hasPermission = permissions.includes(location.pathname);
   if (!hasPermission) {
