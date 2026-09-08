@@ -152,7 +152,16 @@ const proceedingSchema = mongoose.Schema({
 });
 
 // Same proceeding number can be used for different courses;
-// uniqueness is on (proceedingNumber + course).
-proceedingSchema.index({ proceedingNumber: 1, course: 1 }, { unique: true });
+// uniqueness is on (proceedingNumber + course) ONLY for active proceedings.
+proceedingSchema.index(
+    { proceedingNumber: 1, course: 1 },
+    { unique: true, partialFilterExpression: { isActive: true } }
+);
 
-module.exports = mongoose.model('Proceeding', proceedingSchema);
+const Proceeding = mongoose.model('Proceeding', proceedingSchema);
+
+Proceeding.syncIndexes().catch((err) => {
+    console.warn('Proceeding syncIndexes warning:', err.message);
+});
+
+module.exports = Proceeding;

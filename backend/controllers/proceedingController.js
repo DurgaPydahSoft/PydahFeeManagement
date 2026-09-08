@@ -813,8 +813,8 @@ const createProceeding = async (req, res) => {
             return res.status(403).json({ message: `Forbidden: No permission for course: ${headerCourse}` });
         }
 
-        if (await Proceeding.findOne({ proceedingNumber, course: headerCourse })) {
-            return res.status(400).json({ message: `Proceeding number '${proceedingNumber}' already exists for course '${headerCourse}'` });
+        if (await Proceeding.findOne({ proceedingNumber, course: headerCourse, isActive: { $ne: false } })) {
+            return res.status(400).json({ message: `Proceeding number '${proceedingNumber}' already exists for active proceeding in course '${headerCourse}'` });
         }
 
         // Resolve college/course IDs from the first student or from the payload
@@ -903,7 +903,10 @@ const createProceeding = async (req, res) => {
         res.status(201).json({ ...proceeding.toObject(), studentCount: studentDocs.length });
     } catch (error) {
         if (error?.code === 11000) {
-            return res.status(400).json({ message: `Proceeding number '${req.body.proceedingNumber}' already exists for course '${req.body.course}'` });
+            const existingActive = await Proceeding.findOne({ proceedingNumber: req.body.proceedingNumber, course: req.body.course, isActive: { $ne: false } });
+            if (existingActive) {
+                return res.status(400).json({ message: `Proceeding number '${req.body.proceedingNumber}' already exists for active proceeding in course '${req.body.course}'` });
+            }
         }
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
@@ -973,8 +976,8 @@ const updateProceeding = async (req, res) => {
 
         const nextProcNum = req.body.proceedingNumber ?? proceeding.proceedingNumber;
         const finalCourse = req.body.course ?? proceeding.course;
-        const dup = await Proceeding.findOne({ proceedingNumber: nextProcNum, course: finalCourse, _id: { $ne: proceeding._id } });
-        if (dup) return res.status(400).json({ message: `Proceeding number '${nextProcNum}' already exists for course '${finalCourse}'` });
+        const dup = await Proceeding.findOne({ proceedingNumber: nextProcNum, course: finalCourse, _id: { $ne: proceeding._id }, isActive: { $ne: false } });
+        if (dup) return res.status(400).json({ message: `Proceeding number '${nextProcNum}' already exists for active proceeding in course '${finalCourse}'` });
 
         // Strip status / audit / bank / feeHead — those are set via verify/approve only
         const {
@@ -1064,7 +1067,10 @@ const updateProceeding = async (req, res) => {
         res.json(updated);
     } catch (error) {
         if (error?.code === 11000) {
-            return res.status(400).json({ message: `Proceeding number '${req.body.proceedingNumber}' already exists for course '${req.body.course}'` });
+            const existingActive = await Proceeding.findOne({ proceedingNumber: req.body.proceedingNumber, course: req.body.course, _id: { $ne: req.params.id }, isActive: { $ne: false } });
+            if (existingActive) {
+                return res.status(400).json({ message: `Proceeding number '${req.body.proceedingNumber}' already exists for active proceeding in course '${req.body.course}'` });
+            }
         }
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
