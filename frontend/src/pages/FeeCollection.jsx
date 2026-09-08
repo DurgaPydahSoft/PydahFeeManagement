@@ -402,9 +402,11 @@ const FeeCollection = () => {
         }));
     }, [paymentForm.paymentMode, paymentForm.proceedingId, paymentForm.paymentConfigId, availableProceedings, resolveConfigForProceeding]);
 
-    const isRtfShareLocked = Boolean(
-        paymentForm.paymentMode === 'RTF' && paymentForm.proceedingId && !isEditMode
-    );
+    const isRtfShareLocked = useMemo(() => {
+        if (paymentForm.paymentMode !== 'RTF' || !paymentForm.proceedingId || isEditMode) return false;
+        const proc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
+        return Boolean(proc && proc.studentCount && proc.studentCount > 0);
+    }, [paymentForm.paymentMode, paymentForm.proceedingId, isEditMode, availableProceedings]);
 
     const getRtfProceedingProc = useCallback(() => {
         if (paymentForm.paymentMode !== 'RTF' || !paymentForm.proceedingId) return null;
@@ -413,9 +415,12 @@ const FeeCollection = () => {
 
     const getRtfShareAmountForRow = useCallback((feeHeadId, proc = getRtfProceedingProc()) => {
         if (!proc) return '';
+        const isMapped = Boolean(proc.studentCount && proc.studentCount > 0);
         const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === proc._id)
             ? Number(editingTransaction.amount) : 0;
-        const shareRem = Math.max(0, (proc.shareRemaining ?? proc.studentShare ?? 0) + existingTxAmount);
+        const shareRem = isMapped
+            ? Math.max(0, (proc.shareRemaining ?? proc.studentShare ?? 0) + existingTxAmount)
+            : Math.max(0, (proc.amount || 0) - (proc.totalUsed || 0) + existingTxAmount);
         if (!(shareRem > 0)) return '';
         if (!feeHeadId) return String(Math.round(shareRem * 100) / 100);
         const selectedFee = feeDetails.find(f => f._id === feeHeadId);
@@ -997,15 +1002,18 @@ const FeeCollection = () => {
             if (paymentForm.paymentMode === 'RTF') {
                 const selectedProc = selectedProcForBank;
 
+                const isMappedProc = Boolean(selectedProc.studentCount && selectedProc.studentCount > 0);
                 const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selectedProc._id) ? Number(editingTransaction.amount) : 0;
                 const procRem = (selectedProc.amount || 0) - (selectedProc.totalUsed || 0) + existingTxAmount;
-                const shareRem = (selectedProc.shareRemaining ?? selectedProc.studentShare ?? selectedProc.amount ?? 0) + existingTxAmount;
+                const shareRem = isMappedProc
+                    ? ((selectedProc.shareRemaining ?? selectedProc.studentShare ?? 0) + existingTxAmount)
+                    : procRem;
 
                 if (procRem <= 0) {
                     showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' has been exhausted (₹0 remaining balance).`, 'error');
                     return;
                 }
-                if (shareRem <= 0) {
+                if (isMappedProc && shareRem <= 0) {
                     showToastMessage(`Your fixed share in proceeding '${selectedProc.proceedingNumber}' is fully utilized.`, 'error');
                     return;
                 }
@@ -1026,9 +1034,9 @@ const FeeCollection = () => {
                     return;
                 }
 
-                const maxRtfAllowed = Math.min(procRem, shareRem);
+                const maxRtfAllowed = isMappedProc ? Math.min(procRem, shareRem) : procRem;
                 if (rtfPayAmount > maxRtfAllowed) {
-                    if (rtfPayAmount > shareRem) {
+                    if (isMappedProc && rtfPayAmount > shareRem) {
                         showToastMessage(`RTF amount ₹${fmtAmount(rtfPayAmount)} exceeds your remaining proceeding share of ₹${fmtAmount(shareRem)} (fixed share ₹${fmtAmount(selectedProc.studentShare || 0)}).`, 'error');
                     } else {
                         showToastMessage(`Selected proceeding '${selectedProc.proceedingNumber}' only has ₹${fmtAmount(procRem)} remaining balance, but requested RTF amount is ₹${fmtAmount(rtfPayAmount)}.`, 'error');
@@ -1036,13 +1044,13 @@ const FeeCollection = () => {
                     return;
                 }
 
-                // Per-row: amount must not exceed selected fee head due
+                // Per-row: amount must not exceed selected fee head due (except for RTF payments)
                 for (const row of validRows) {
                     const selectedFee = feeDetails.find(f => f._id === row.feeHeadId);
                     if (!selectedFee) continue;
                     const due = Number(selectedFee.dueAmount) || 0;
                     const rowAmt = Number(row.amount) || 0;
-                    if (rowAmt > due + 0.009 && !receiptSettings?.excessFeeHead) {
+                    if (paymentForm.paymentMode !== 'RTF' && rowAmt > due + 0.009 && !receiptSettings?.excessFeeHead) {
                         showToastMessage(`Amount for ${selectedFee.feeHeadName} (₹${fmtAmount(rowAmt)}) exceeds remaining demand (₹${fmtAmount(due)}).`, 'error');
                         return;
                     }
@@ -2559,13 +2567,14 @@ const FeeCollection = () => {
                                                                                     >
                                                                                         <option value="">-- Select Proceeding --</option>
                                                                                         {availableProceedings.map(p => {
+                                                                                            const isMapped = Boolean(p.studentCount && p.studentCount > 0);
                                                                                             const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === p._id) ? Number(editingTransaction.amount) : 0;
                                                                                             const rem = (p.amount || 0) - (p.totalUsed || 0) + existingTxAmount;
-                                                                                            const shareRem = (p.shareRemaining ?? p.studentShare ?? 0) + existingTxAmount;
-                                                                                            const isExhausted = rem <= 0 || shareRem <= 0;
+                                                                                            const shareRem = isMapped ? ((p.shareRemaining ?? p.studentShare ?? 0) + existingTxAmount) : rem;
+                                                                                            const isExhausted = rem <= 0 || (isMapped && shareRem <= 0);
                                                                                             return (
                                                                                                 <option key={p._id} value={p._id} disabled={isExhausted}>
-                                                                                                    {p.proceedingNumber} — Left ₹{fmtAmount(Math.max(0, shareRem))} of ₹{fmtAmount(p.studentShare || 0)} share · Proc ₹{fmtAmount(Math.max(0, rem))}{isExhausted ? ' [EXHAUSTED]' : ''}
+                                                                                                    {p.proceedingNumber} — {isMapped ? `Left ₹${fmtAmount(Math.max(0, shareRem))} of ₹${fmtAmount(p.studentShare || 0)} share · Proc ₹${fmtAmount(Math.max(0, rem))}` : `Proc Rem: ₹${fmtAmount(Math.max(0, rem))}`}{isExhausted ? ' [EXHAUSTED]' : ''}
                                                                                                 </option>
                                                                                             );
                                                                                         })}
@@ -2576,11 +2585,12 @@ const FeeCollection = () => {
                                                                                     {paymentForm.proceedingId && (() => {
                                                                                         const selProc = availableProceedings.find(p => p._id === paymentForm.proceedingId);
                                                                                         if (!selProc) return null;
+                                                                                        const isMapped = Boolean(selProc.studentCount && selProc.studentCount > 0);
                                                                                         const existingTxAmount = (isEditMode && editingTransaction && editingTransaction.proceedingId === selProc._id) ? Number(editingTransaction.amount) : 0;
                                                                                         const rem = (selProc.amount || 0) - (selProc.totalUsed || 0) + existingTxAmount;
-                                                                                        const shareRem = (selProc.shareRemaining ?? selProc.studentShare ?? 0) + existingTxAmount;
-                                                                                        const maxAllowed = Math.min(rem, shareRem);
-                                                                                        const isExhausted = rem <= 0 || shareRem <= 0;
+                                                                                        const shareRem = isMapped ? ((selProc.shareRemaining ?? selProc.studentShare ?? 0) + existingTxAmount) : rem;
+                                                                                        const maxAllowed = isMapped ? Math.min(rem, shareRem) : rem;
+                                                                                        const isExhausted = rem <= 0 || (isMapped && shareRem <= 0);
 
                                                                                         const validRows = feeRows.filter(r => r.feeHeadId && r.amount !== '' && Number(r.amount) >= 0);
                                                                                         let currentRtfInput = 0;
@@ -2598,22 +2608,31 @@ const FeeCollection = () => {
 
                                                                                         return (
                                                                                             <div className={`mt-1.5 p-2 rounded-lg text-xs space-y-1 ${isExceeding || isExhausted ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-800 border border-blue-200'}`}>
-                                                                                                <div className="flex justify-between items-center font-bold">
-                                                                                                    <span>Your Share Remaining: ₹{fmtAmount(Math.max(0, shareRem))}</span>
-                                                                                                    <span className="text-[10px] font-mono opacity-80">Fixed: ₹{fmtAmount(selProc.studentShare || 0)}</span>
-                                                                                                </div>
-                                                                                                <div className="flex justify-between items-center text-[10px] opacity-90">
-                                                                                                    <span>Proceeding Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
-                                                                                                    <span className="font-mono">Max RTF: ₹{fmtAmount(Math.max(0, maxAllowed))}</span>
-                                                                                                </div>
+                                                                                                {isMapped ? (
+                                                                                                    <>
+                                                                                                        <div className="flex justify-between items-center font-bold">
+                                                                                                            <span>Your Share Remaining: ₹{fmtAmount(Math.max(0, shareRem))}</span>
+                                                                                                            <span className="text-[10px] font-mono opacity-80">Fixed: ₹{fmtAmount(selProc.studentShare || 0)}</span>
+                                                                                                        </div>
+                                                                                                        <div className="flex justify-between items-center text-[10px] opacity-90">
+                                                                                                            <span>Proceeding Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
+                                                                                                            <span className="font-mono">Max RTF: ₹{fmtAmount(Math.max(0, maxAllowed))}</span>
+                                                                                                        </div>
+                                                                                                    </>
+                                                                                                ) : (
+                                                                                                    <div className="flex justify-between items-center font-bold">
+                                                                                                        <span>Proceeding Remaining Balance: ₹{fmtAmount(Math.max(0, rem))}</span>
+                                                                                                        <span className="text-[10px] font-mono opacity-80">Legacy / Unmapped Proceeding</span>
+                                                                                                    </div>
+                                                                                                )}
                                                                                                 {selProc.txnPending && selProc.txnPendingReason && (
                                                                                                     <p className="text-[10px] font-semibold text-amber-700">Pending auto-txn: {selProc.txnPendingReason}</p>
                                                                                                 )}
                                                                                                 {isExhausted && (
-                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ Proceeding or your share balance is exhausted.</p>
+                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ Proceeding balance is exhausted.</p>
                                                                                                 )}
                                                                                                 {!isExhausted && isExceeding && (
-                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds max allowed (₹{fmtAmount(maxAllowed)}).</p>
+                                                                                                    <p className="text-[10px] font-semibold text-red-600">⚠️ RTF Amount (₹{fmtAmount(currentRtfInput)}) exceeds available proceeding balance (₹{fmtAmount(maxAllowed)}).</p>
                                                                                                 )}
                                                                                             </div>
                                                                                         );

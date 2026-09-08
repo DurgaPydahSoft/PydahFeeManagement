@@ -3228,12 +3228,12 @@ const Proceedings = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Proceeding Number *</label>
-                                        <input type="text" name="proceedingNumber" value={formData.proceedingNumber} onChange={handleInputChange} required placeholder="PR-2024-001" className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                        <input type="text" name="proceedingNumber" value={formData.proceedingNumber} onChange={handleInputChange} required placeholder="PR-2024-001" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm hover:border-slate-300 transition-all" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Proceeding Nature *</label>
                                         <div className="relative">
-                                            <select name="proceedingNature" value={formData.proceedingNature || 'College Account'} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                            <select name="proceedingNature" value={formData.proceedingNature || 'College Account'} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm appearance-none cursor-pointer hover:border-slate-300 transition-all">
                                                 <option value="College Account">College Account</option>
                                                 <option value="Student Account">Student Account</option>
                                             </select>
@@ -3242,12 +3242,12 @@ const Proceedings = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Proceeding Date *</label>
-                                        <input type="date" name="proceedingDate" value={formData.proceedingDate} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                        <input type="date" name="proceedingDate" value={formData.proceedingDate} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm hover:border-slate-300 transition-all" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Academic Year *</label>
                                         <div className="relative">
-                                            <select name="academicYear" value={formData.academicYear} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                            <select name="academicYear" value={formData.academicYear} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm appearance-none cursor-pointer hover:border-slate-300 transition-all">
                                                 <option value="">Select</option>
                                                 {getAcademicYears().map(y => <option key={y} value={y}>{y}</option>)}
                                             </select>
@@ -3265,7 +3265,7 @@ const Proceedings = () => {
                                             min="0"
                                             step="0.01"
                                             placeholder="0.00"
-                                            className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm font-mono"
+                                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm font-mono hover:border-slate-300 transition-all"
                                         />
                                     </div>
                                 </div>
@@ -4340,12 +4340,12 @@ const Proceedings = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600">Proceeding Number *</label>
-                                    <input type="text" name="proceedingNumber" value={formData.proceedingNumber} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                    <input type="text" name="proceedingNumber" value={formData.proceedingNumber} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm hover:border-slate-300 transition-all" />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600">Proceeding Nature *</label>
                                     <div className="relative">
-                                        <select name="proceedingNature" value={formData.proceedingNature || 'College Account'} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                        <select name="proceedingNature" value={formData.proceedingNature || 'College Account'} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm appearance-none cursor-pointer hover:border-slate-300 transition-all">
                                             <option value="College Account">College Account</option>
                                             <option value="Student Account">Student Account</option>
                                         </select>
@@ -4354,12 +4354,12 @@ const Proceedings = () => {
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600">Proceeding Date *</label>
-                                    <input type="date" name="proceedingDate" value={formData.proceedingDate} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                    <input type="date" name="proceedingDate" value={formData.proceedingDate} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm hover:border-slate-300 transition-all" />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600">Academic Year *</label>
                                     <div className="relative">
-                                        <select name="academicYear" value={formData.academicYear} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                        <select name="academicYear" value={formData.academicYear} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm appearance-none cursor-pointer hover:border-slate-300 transition-all">
                                             <option value="">Select</option>
                                             {getAcademicYears().map(y => <option key={y} value={y}>{y}</option>)}
                                         </select>
@@ -4376,7 +4376,7 @@ const Proceedings = () => {
                                         required
                                         min="0"
                                         step="0.01"
-                                        className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm font-mono"
+                                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:bg-white font-medium text-slate-700 text-sm font-mono hover:border-slate-300 transition-all"
                                     />
                                 </div>
                             </div>

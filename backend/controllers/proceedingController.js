@@ -511,16 +511,14 @@ const getProceedings = async (req, res) => {
             ];
         }
 
-        // Fee Collection: only proceedings where this student is mapped
-        let studentProceedingIds = null;
+        // Fee Collection: proceedings where this student is mapped OR proceedings with 0 students mapped (legacy proceedings)
         const studentKey = String(studentId || '').trim();
+        let mappedProceedingIds = [];
+        let allMappedProceedingIds = [];
         if (studentKey) {
             const mapped = await ProceedingStudent.find({ studentId: studentKey }).select('proceedingId shareAmount txnPending txnPendingReason').lean();
-            studentProceedingIds = mapped.map((m) => m.proceedingId);
-            if (studentProceedingIds.length === 0) {
-                return res.json([]);
-            }
-            query._id = { $in: studentProceedingIds };
+            mappedProceedingIds = mapped.map((m) => m.proceedingId);
+            allMappedProceedingIds = await ProceedingStudent.distinct('proceedingId');
         }
 
         const requestedCollege = typeof query.college === 'string' ? query.college : null;
@@ -532,6 +530,15 @@ const getProceedings = async (req, res) => {
 
         const andClauses = [];
         if (casteOr) andClauses.push({ $or: casteOr });
+
+        if (studentKey) {
+            andClauses.push({
+                $or: [
+                    { _id: { $in: mappedProceedingIds } },
+                    { _id: { $nin: allMappedProceedingIds } }
+                ]
+            });
+        }
 
         // Scope: include "Multiple" headers (multi course/batch/college), then post-filter by student access
         const allowedColleges = await collegeScope.getUserCollegeNames(req.user);
@@ -597,17 +604,21 @@ const getProceedings = async (req, res) => {
                 // eslint-disable-next-line no-await-in-loop
                 const ok = await validateProceedingAccess(p, req.user);
                 if (!ok) continue;
-                if (requestedCollege && requestedCollege !== 'Multiple') {
-                    // eslint-disable-next-line no-await-in-loop
-                    const hasCollege = await ProceedingStudent.exists({ proceedingId: p._id, college: requestedCollege });
-                    if (!hasCollege) continue;
-                }
-                if (requestedCourse && requestedCourse !== 'Multiple') {
-                    const courseMatch = { proceedingId: p._id, course: requestedCourse };
-                    if (requestedCollege && requestedCollege !== 'Multiple') courseMatch.college = requestedCollege;
-                    // eslint-disable-next-line no-await-in-loop
-                    const hasCourse = await ProceedingStudent.exists(courseMatch);
-                    if (!hasCourse) continue;
+                // eslint-disable-next-line no-await-in-loop
+                const hasMappedStudents = await ProceedingStudent.exists({ proceedingId: p._id });
+                if (hasMappedStudents) {
+                    if (requestedCollege && requestedCollege !== 'Multiple') {
+                        // eslint-disable-next-line no-await-in-loop
+                        const hasCollege = await ProceedingStudent.exists({ proceedingId: p._id, college: requestedCollege });
+                        if (!hasCollege) continue;
+                    }
+                    if (requestedCourse && requestedCourse !== 'Multiple') {
+                        const courseMatch = { proceedingId: p._id, course: requestedCourse };
+                        if (requestedCollege && requestedCollege !== 'Multiple') courseMatch.college = requestedCollege;
+                        // eslint-disable-next-line no-await-in-loop
+                        const hasCourse = await ProceedingStudent.exists(courseMatch);
+                        if (!hasCourse) continue;
+                    }
                 }
             }
             scopedProceedings.push(p);
@@ -650,6 +661,16 @@ const getProceedings = async (req, res) => {
                     base.shareRemaining = shareRemaining;
                     base.txnPending = mapping.txnPending || shareRemaining > 0.009;
                     base.txnPendingReason = mapping.txnPendingReason || '';
+                } else {
+                    // Legacy proceeding with 0 students mapped
+                    const shareUtilized = await getStudentProceedingShareUtilized(p._id, studentKey);
+                    const procRemaining = Math.max(0, roundMoney((p.amount || 0) - totalUsed));
+                    const shareRemaining = Math.max(0, roundMoney(procRemaining - shareUtilized));
+                    base.studentShare = null;
+                    base.shareUtilized = shareUtilized;
+                    base.shareRemaining = shareRemaining;
+                    base.txnPending = shareRemaining > 0.009;
+                    base.txnPendingReason = '';
                 }
             }
 

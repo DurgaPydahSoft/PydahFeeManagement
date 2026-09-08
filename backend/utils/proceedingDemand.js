@@ -106,8 +106,9 @@ const validateProceedingPayment = async ({
         };
     }
 
+    const studentCount = await ProceedingStudent.countDocuments({ proceedingId });
     const mapping = await ProceedingStudent.findOne({ proceedingId, studentId: String(studentId) });
-    if (!mapping) {
+    if (!mapping && studentCount > 0) {
         return {
             ok: false,
             status: 400,
@@ -116,18 +117,20 @@ const validateProceedingPayment = async ({
     }
 
     const payAmount = roundMoney(amount);
-    const shareRemaining = await getStudentProceedingShareRemaining(
-        proceedingId,
-        studentId,
-        mapping.shareAmount,
-        excludeTxnId
-    );
-    if (payAmount > shareRemaining + 0.009) {
-        return {
-            ok: false,
-            status: 400,
-            message: `RTF amount ₹${payAmount.toLocaleString('en-IN')} exceeds this student's remaining proceeding share of ₹${shareRemaining.toLocaleString('en-IN')} (fixed share ₹${roundMoney(mapping.shareAmount).toLocaleString('en-IN')}).`
-        };
+    if (mapping) {
+        const shareRemaining = await getStudentProceedingShareRemaining(
+            proceedingId,
+            studentId,
+            mapping.shareAmount,
+            excludeTxnId
+        );
+        if (payAmount > shareRemaining + 0.009) {
+            return {
+                ok: false,
+                status: 400,
+                message: `RTF amount ₹${payAmount.toLocaleString('en-IN')} exceeds this student's remaining proceeding share of ₹${shareRemaining.toLocaleString('en-IN')} (fixed share ₹${roundMoney(mapping.shareAmount).toLocaleString('en-IN')}).`
+            };
+        }
     }
 
     const existingTxns = await Transaction.find({
@@ -146,18 +149,7 @@ const validateProceedingPayment = async ({
         };
     }
 
-    if (feeHeadId && studentYear != null && studentYear !== '') {
-        const due = await getFeeHeadDueForYear(studentId, feeHeadId, studentYear);
-        if (payAmount > due + 0.009) {
-            return {
-                ok: false,
-                status: 400,
-                message: `RTF amount ₹${payAmount.toLocaleString('en-IN')} exceeds remaining fee demand of ₹${due.toLocaleString('en-IN')} for the selected fee head.`
-            };
-        }
-    }
-
-    return { ok: true, proceeding: proc, mapping, shareRemaining, procRemaining };
+    return { ok: true, proceeding: proc, mapping, procRemaining };
 };
 
 /** Mark proceeding Completed when pool is fully used; reopen Active if balance returns. */
