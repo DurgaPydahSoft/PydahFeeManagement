@@ -932,6 +932,7 @@ const emptyForm = () => ({
     batches: [],
     caste: '',
     academicYear: '',
+    proceedingNature: 'College Account',
 });
 
 /** Normalize legacy string college/course/batch into arrays for the form */
@@ -2375,40 +2376,55 @@ const Proceedings = () => {
         [approveStudents]
     );
 
+    const isStudentAccountProc = approvingProc?.proceedingNature === 'Student Account';
     const approveBankAmount = Number(approveData.bankCreditedAmount) || 0;
     const approveBankMatchesProceeding = approveBankAmount > 0 && Math.abs(approveBankAmount - approveProceedingAmount) <= 0.009;
     const approveSharesMatchProceeding = approveProceedingAmount > 0 && Math.abs(approveSharesTotal - approveProceedingAmount) <= 0.009;
-    const canSubmitApprove = Boolean(
-        approveData.bankAccount
-        && approveData.bankCreditedAmount
-        && approveData.bankCreditedDate
-        && approveData.feeHead
-        && approveBankMatchesProceeding
-        && approveSharesMatchProceeding
-    );
+    const canSubmitApprove = isStudentAccountProc
+        ? approveSharesMatchProceeding
+        : Boolean(
+            approveData.bankAccount
+            && approveData.bankCreditedAmount
+            && approveData.bankCreditedDate
+            && approveData.feeHead
+            && approveBankMatchesProceeding
+            && approveSharesMatchProceeding
+        );
     const approveTxnCount = approveStudents.filter(s => Number(s.shareAmount) > 0).length;
 
     const handleApproveSubmit = async (mode) => {
         // mode: 'now' | 'nightly' | 'skip'
-        if (!approveData.bankAccount || !approveData.bankCreditedAmount || !approveData.bankCreditedDate || !approveData.feeHead) {
-            Swal.fire('Warning', 'Please fill Bank Account, Bank Credited Amount, Bank Credited Date, and Fee Head', 'warning');
-            return;
-        }
-        if (!approveBankMatchesProceeding) {
-            Swal.fire(
-                'Warning',
-                `Bank credited amount (₹${approveBankAmount.toLocaleString('en-IN')}) must exactly match proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}).`,
-                'warning'
-            );
-            return;
-        }
-        if (!approveSharesMatchProceeding) {
-            Swal.fire(
-                'Warning',
-                `Sum of student shares (₹${approveSharesTotal.toLocaleString('en-IN')}) must equal proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}). Edit the proceeding before approval if shares need to change.`,
-                'warning'
-            );
-            return;
+        if (isStudentAccountProc) {
+            if (!approveSharesMatchProceeding) {
+                Swal.fire(
+                    'Warning',
+                    `Sum of student shares (₹${approveSharesTotal.toLocaleString('en-IN')}) must equal proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}). Edit the proceeding before approval if shares need to change.`,
+                    'warning'
+                );
+                return;
+            }
+            mode = 'skip';
+        } else {
+            if (!approveData.bankAccount || !approveData.bankCreditedAmount || !approveData.bankCreditedDate || !approveData.feeHead) {
+                Swal.fire('Warning', 'Please fill Bank Account, Bank Credited Amount, Bank Credited Date, and Fee Head', 'warning');
+                return;
+            }
+            if (!approveBankMatchesProceeding) {
+                Swal.fire(
+                    'Warning',
+                    `Bank credited amount (₹${approveBankAmount.toLocaleString('en-IN')}) must exactly match proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}).`,
+                    'warning'
+                );
+                return;
+            }
+            if (!approveSharesMatchProceeding) {
+                Swal.fire(
+                    'Warning',
+                    `Sum of student shares (₹${approveSharesTotal.toLocaleString('en-IN')}) must equal proceeding amount (₹${approveProceedingAmount.toLocaleString('en-IN')}). Edit the proceeding before approval if shares need to change.`,
+                    'warning'
+                );
+                return;
+            }
         }
 
         const isSkip = mode === 'skip';
@@ -3149,6 +3165,11 @@ const Proceedings = () => {
                                                                 {proc.status || 'Active'}
                                                             </span>
                                                         )}
+                                                        {proc.proceedingNature === 'Student Account' && (
+                                                            <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-[10px] font-bold rounded-md border bg-purple-50 text-purple-700 border-purple-200">
+                                                                Credited to Student Account
+                                                            </span>
+                                                        )}
                                                         {(proc.pendingTxnCount > 0) && (
                                                             <span className="inline-block mt-1 ml-1 px-2 py-0.5 text-[10px] font-bold rounded-md border bg-amber-50 text-amber-700 border-amber-200">
                                                                 {proc.pendingTxnCount} pending txn
@@ -3204,10 +3225,20 @@ const Proceedings = () => {
                     {activeTab === 'create' && canEdit && (
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                             <form onSubmit={handleSubmit} className="p-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Proceeding Number *</label>
                                         <input type="text" name="proceedingNumber" value={formData.proceedingNumber} onChange={handleInputChange} required placeholder="PR-2024-001" className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-600">Proceeding Nature *</label>
+                                        <div className="relative">
+                                            <select name="proceedingNature" value={formData.proceedingNature || 'College Account'} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                                <option value="College Account">College Account</option>
+                                                <option value="Student Account">Student Account</option>
+                                            </select>
+                                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        </div>
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-600">Proceeding Date *</label>
@@ -3650,7 +3681,7 @@ const Proceedings = () => {
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-50/50 border-b border-slate-100">
-                                                <th className="p-4 font-semibold text-slate-600 text-sm">Proceeding No</th>
+                                                <th className="p-4 font-semibold text-slate-600 text-sm min-w-[220px]">Proceeding No</th>
                                                 <th className="p-4 font-semibold text-slate-600 text-sm">College / Course</th>
                                                 <th className="p-4 font-semibold text-slate-600 text-sm text-right">Amount</th>
                                                 <th className="p-4 font-semibold text-slate-600 text-sm text-center">Students</th>
@@ -3687,6 +3718,15 @@ const Proceedings = () => {
                                                             {proc.proceedingDate ? new Date(proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
                                                             {proc.academicYear ? ` · ${proc.academicYear}` : ''}
                                                         </div>
+                                                        <div className="mt-1">
+                                                            <span className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-md border ${
+                                                                proc.proceedingNature === 'Student Account'
+                                                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                                            }`}>
+                                                                {proc.proceedingNature === 'Student Account' ? 'Credited to Student Account' : 'Credited to College Account'}
+                                                            </span>
+                                                        </div>
                                                     </td>
                                                     <td className="p-4 cursor-pointer" onClick={() => openDetailModal(proc)}>
                                                         {(() => {
@@ -3708,7 +3748,7 @@ const Proceedings = () => {
                                                             className="px-2.5 py-1 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors flex items-center gap-1.5 mx-auto cursor-pointer"
                                                             title="Click to view & cross-check mapped students"
                                                         >
-                                                            <Users size={12} /> {proc.studentCount || 0} Students
+                                                            <Users size={12} /> {proc.studentCount || 0}
                                                         </button>
                                                     </td>
                                                     <td className="p-4">
@@ -3728,7 +3768,7 @@ const Proceedings = () => {
                                                             className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-colors flex items-center gap-1.5 mx-auto cursor-pointer"
                                                             title="View Details & Actions"
                                                         >
-                                                            <Eye size={14} className="text-slate-500" /> View Details
+                                                            <Eye size={14} className="text-slate-500" /> View
                                                         </button>
                                                     </td>
                                                 </tr>
@@ -4297,10 +4337,20 @@ const Proceedings = () => {
                         />
 
                         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600">Proceeding Number *</label>
                                     <input type="text" name="proceedingNumber" value={formData.proceedingNumber} onChange={handleInputChange} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-600">Proceeding Nature *</label>
+                                    <div className="relative">
+                                        <select name="proceedingNature" value={formData.proceedingNature || 'College Account'} onChange={handleInputChange} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                            <option value="College Account">College Account</option>
+                                            <option value="Student Account">Student Account</option>
+                                        </select>
+                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    </div>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-600">Proceeding Date *</label>
@@ -4632,6 +4682,11 @@ const Proceedings = () => {
                                 <span className={`px-2 py-0.5 text-[10px] uppercase font-bold rounded-md border ${STATUS_BADGE[detailModal.proc.status] || STATUS_BADGE.Active}`}>
                                     {detailModal.proc.status || 'Active'}
                                 </span>
+                                {detailModal.proc.proceedingNature === 'Student Account' && (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-md border bg-purple-50 text-purple-700 border-purple-200">
+                                        Student Account
+                                    </span>
+                                )}
                                 <span className="text-xs text-slate-500">
                                     {new Date(detailModal.proc.proceedingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                 </span>
@@ -4873,74 +4928,83 @@ const Proceedings = () => {
                     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowApproveModal(false)}></div>
                     <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
                         <ModalHeader
-                            title="Approve Proceeding"
-                            subtitle={`${approvingProc.proceedingNumber} — ${approvingProc.college} / ${approvingProc.course}${approvingProc.academicYear ? ` · AY ${approvingProc.academicYear}` : ''}`}
+                            title={`Approve Proceeding — ${approvingProc.proceedingNumber} (₹${(approvingProc.amount || 0).toLocaleString('en-IN')})`}
+                            subtitle={`${approvingProc.college} / ${approvingProc.course}${approvingProc.academicYear ? ` · AY ${approvingProc.academicYear}` : ''}`}
                             onClose={() => setShowApproveModal(false)}
                         />
 
                         <div className="p-6 overflow-y-auto flex-1">
-                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Proceeding Amount</span>
-                                <span className="text-sm font-bold text-slate-800">₹{(approvingProc.amount || 0).toLocaleString('en-IN')}</span>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-600">Bank Account * <span className="text-slate-400 font-normal">(Fee Collection deposit account)</span></label>
-                                    <div className="relative">
-                                        <select value={approveData.bankAccount} onChange={(e) => setApproveData(prev => ({ ...prev, bankAccount: e.target.value }))} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
-                                            <option value="">Select Account</option>
-                                            {paymentConfigs.map(c => <option key={c._id} value={c.account_name}>{c.account_name} ({c.bank_name})</option>)}
-                                        </select>
-                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            {approvingProc.proceedingNature === 'Student Account' ? (
+                                <div className="mb-6 p-4 rounded-xl border border-indigo-200 bg-indigo-50/80 text-indigo-900">
+                                    <div className="flex items-center gap-2 font-bold text-sm text-indigo-900 mb-1">
+                                        <GraduationCap size={18} className="text-indigo-700" />
+                                        Proceeding Nature: Student Account (Direct Student Bank Transfer)
                                     </div>
+                                    <p className="text-xs text-indigo-800/90 leading-relaxed">
+                                        Funds for this proceeding are deposited directly into individual student bank accounts by government. No bank account, credited date, or fee head details are required, and no internal RTF transactions will be generated. Approving will mark this proceeding as <strong>Completed</strong> while retaining mapped students.
+                                    </p>
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-600">Bank Credited Date * <span className="text-slate-400 font-normal">(instrument / payment date)</span></label>
-                                    <input type="date" value={approveData.bankCreditedDate} onChange={(e) => setApproveData(prev => ({ ...prev, bankCreditedDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-600">Bank Credited Amount * <span className="text-slate-400 font-normal">(must match proceeding amount)</span></label>
-                                    <input type="number" value={approveData.bankCreditedAmount} onChange={(e) => setApproveData(prev => ({ ...prev, bankCreditedAmount: e.target.value }))} required placeholder="0.00" className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm font-mono" />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-600">Fee Head * <span className="text-slate-400 font-normal">(Bank → RTF instrument)</span></label>
-                                    <div className="relative">
-                                        <select value={approveData.feeHead} onChange={(e) => setApproveData(prev => ({ ...prev, feeHead: e.target.value }))} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
-                                            <option value="">Select Fee Head</option>
-                                            {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
-                                        </select>
-                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            ) : (
+                                <>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-600">Bank Account * <span className="text-slate-400 font-normal">(Fee Collection deposit account)</span></label>
+                                            <div className="relative">
+                                                <select value={approveData.bankAccount} onChange={(e) => setApproveData(prev => ({ ...prev, bankAccount: e.target.value }))} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                                    <option value="">Select Account</option>
+                                                    {paymentConfigs.map(c => <option key={c._id} value={c.account_name}>{c.account_name} ({c.bank_name})</option>)}
+                                                </select>
+                                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-600">Bank Credited Date * <span className="text-slate-400 font-normal">(instrument / payment date)</span></label>
+                                            <input type="date" value={approveData.bankCreditedDate} onChange={(e) => setApproveData(prev => ({ ...prev, bankCreditedDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-600">Bank Credited Amount * <span className="text-slate-400 font-normal">(must match proceeding amount)</span></label>
+                                            <input type="number" value={approveData.bankCreditedAmount} onChange={(e) => setApproveData(prev => ({ ...prev, bankCreditedAmount: e.target.value }))} required placeholder="0.00" className="w-full px-3 py-2 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm font-mono" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-600">Fee Head * <span className="text-slate-400 font-normal">(Bank → RTF instrument)</span></label>
+                                            <div className="relative">
+                                                <select value={approveData.feeHead} onChange={(e) => setApproveData(prev => ({ ...prev, feeHead: e.target.value }))} required className="w-full px-3 py-2 pr-8 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-slate-700 text-sm appearance-none cursor-pointer">
+                                                    <option value="">Select Fee Head</option>
+                                                    {feeHeads.map(fh => <option key={fh._id} value={fh._id}>{fh.name}</option>)}
+                                                </select>
+                                                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
 
-                            <label className="mb-3 flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 cursor-pointer select-none">
-                                <input
-                                    type="checkbox"
-                                    checked={approveSkipTransactions}
-                                    onChange={(e) => setApproveSkipTransactions(e.target.checked)}
-                                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-700 focus:ring-amber-200"
-                                />
-                                <span className="min-w-0">
-                                    <span className="block text-sm font-bold text-amber-900">Skip transactions and mark as completed</span>
-                                    <span className="block text-[11px] text-amber-800/80 mt-0.5 leading-relaxed">
-                                        No Bank/RTF transactions will be created. Students stay mapped; status becomes Completed (not offered in Fee Collection RTF / nightly auto-txn).
-                                    </span>
-                                </span>
-                            </label>
+                                    <label className="mb-3 flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 cursor-pointer select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={approveSkipTransactions}
+                                            onChange={(e) => setApproveSkipTransactions(e.target.checked)}
+                                            className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-700 focus:ring-amber-200"
+                                        />
+                                        <span className="min-w-0">
+                                            <span className="block text-sm font-bold text-amber-900">Skip transactions and mark as completed</span>
+                                            <span className="block text-[11px] text-amber-800/80 mt-0.5 leading-relaxed">
+                                                No Bank/RTF transactions will be created. Students stay mapped; status becomes Completed (not offered in Fee Collection RTF / nightly auto-txn).
+                                            </span>
+                                        </span>
+                                    </label>
 
-                            {!approveSkipTransactions && (
-                                <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-semibold">
-                                    Transactions will be created like Fee Collection: <span className="font-bold text-slate-800">Mode Bank / Online · Instrument RTF</span>
-                                    {' '}(paymentMode = RTF, deposited to selected bank account, date = bank credited date).
-                                </div>
-                            )}
+                                    {!approveSkipTransactions && (
+                                        <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-semibold">
+                                            Transactions will be created like Fee Collection: <span className="font-bold text-slate-800">Mode Bank / Online · Instrument RTF</span>
+                                            {' '}(paymentMode = RTF, deposited to selected bank account, date = bank credited date).
+                                        </div>
+                                    )}
 
-                            {approveSkipTransactions && (
-                                <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs font-semibold">
-                                    Transactions will be skipped. Proceeding will be approved and marked <span className="font-bold">Completed</span> with students still mapped.
-                                </div>
+                                    {approveSkipTransactions && (
+                                        <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs font-semibold">
+                                            Transactions will be skipped. Proceeding will be approved and marked <span className="font-bold">Completed</span> with students still mapped.
+                                        </div>
+                                    )}
+                                </>
                             )}
 
                             {!approveBankMatchesProceeding && approveBankAmount > 0 && (
@@ -5022,7 +5086,16 @@ const Proceedings = () => {
                                 >
                                     Cancel
                                 </button>
-                                {approveSkipTransactions ? (
+                                {approvingProc.proceedingNature === 'Student Account' ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleApproveSubmit('skip')}
+                                        disabled={!canSubmitApprove}
+                                        className="flex-1 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-md"
+                                    >
+                                        <CheckCircle size={18} /> Approve & Mark Completed (Student Account)
+                                    </button>
+                                ) : approveSkipTransactions ? (
                                     <button
                                         type="button"
                                         onClick={() => handleApproveSubmit('skip')}

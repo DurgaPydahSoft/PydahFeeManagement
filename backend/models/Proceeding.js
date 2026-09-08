@@ -72,6 +72,11 @@ const proceedingSchema = mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'FeeHead'
     },
+    proceedingNature: {
+        type: String,
+        enum: ['College Account', 'Student Account'],
+        default: 'College Account'
+    },
     status: {
         type: String,
         enum: ['Pending', 'Verified', 'Active', 'Completed', 'Cancelled'],

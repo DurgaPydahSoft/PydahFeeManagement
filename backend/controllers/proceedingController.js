@@ -730,7 +730,7 @@ const getPendingAutoTxnAlert = async (req, res) => {
 // ─── Create proceeding (Step 1: no bank/amount, with student list) ──────
 const createProceeding = async (req, res) => {
     try {
-        const { proceedingNumber, proceedingDate, amount, bankCreditedAmount, bankAccount, bankCreditedDate, college, course, caste, batch, academicYear } = req.body;
+        const { proceedingNumber, proceedingDate, amount, bankCreditedAmount, bankAccount, bankCreditedDate, college, course, caste, batch, academicYear, proceedingNature } = req.body;
         const students = parseStudentsBody(req.body.students);
 
         if (!proceedingNumber || !proceedingDate || !college || !course) {
@@ -839,6 +839,7 @@ const createProceeding = async (req, res) => {
             proceedingNumber, proceedingDate,
             amount: proceedingAmount,
             shareAmount: 0,
+            proceedingNature: proceedingNature === 'Student Account' ? 'Student Account' : 'College Account',
             bankCreditedAmount: Number(bankCreditedAmount) || 0,
             bankAccount: bankAccount || '',
             bankCreditedDate: bankCreditedDate || null,
@@ -1136,6 +1137,28 @@ const approveProceeding = async (req, res) => {
                 message: proceeding.status === 'Pending'
                     ? 'Proceeding must be verified before approval.'
                     : `Proceeding is already ${proceeding.status}`
+            });
+        }
+
+        // Handle Student Account proceedings (Direct student bank transfer by government)
+        if (proceeding.proceedingNature === 'Student Account') {
+            const mapped = await ProceedingStudent.find({ proceedingId: proceeding._id });
+            proceeding.approvedBy = req.user?.username || '';
+            proceeding.approvedByName = req.user?.name || '';
+            proceeding.approvedAt = new Date();
+            proceeding.status = 'Completed';
+            proceeding.transactionsGenerated = true;
+            proceeding.transactionsSkipped = true;
+            await ProceedingStudent.updateMany(
+                { proceedingId: proceeding._id },
+                { $set: { txnPending: false, txnPendingReason: '' } }
+            );
+            await proceeding.save();
+            return res.json({
+                message: `Proceeding approved and marked Completed (Student Account). ${mapped.length} student(s) remain mapped.`,
+                proceeding,
+                transactionsCreated: 0,
+                transactionsSkipped: true
             });
         }
 
